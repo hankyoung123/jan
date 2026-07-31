@@ -11,6 +11,7 @@ requires-python = ">=3.12,<3.15"
 dependencies = [
   "fastapi>=0.116.0,<1",
   "pydantic>=2.11.0,<3",
+  "python-frontmatter>=1.1.0,<2",
   "uvicorn[standard]>=0.35.0,<1",
 ]
 
@@ -45,4 +46,3 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 packages = ["story_engine"]
-

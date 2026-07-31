@@ -1,0 +1,128 @@
+import json
+from pathlib import Path
+from typing import Self
+
+from pydantic import Field, model_validator
+
+from story_engine.domain.models import Character, DomainModel, WorldState
+from story_engine.workspace.atomic import atomic_write_text
+from story_engine.workspace.documents import (
+    CharacterDocument,
+    ProjectDocument,
+    WorldDocument,
+    load_document,
+    render_character,
+    render_project,
+    render_world,
+)
+
+
+class ProjectSeed(DomainModel):
+    id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9-]*$")
+    title: str = Field(min_length=1)
+    genre: str = Field(min_length=1)
+    theme: str = Field(min_length=1)
+    tone: str = Field(min_length=1)
+    world: WorldState
+    characters: tuple[Character, ...] = Field(min_length=1, max_length=4)
+
+    @model_validator(mode="after")
+    def contains_active_character(self) -> Self:
+        if not any(character.type == "active" for character in self.characters):
+            raise ValueError("project requires at least one active character")
+        ids = [character.id for character in self.characters]
+        if len(ids) != len(set(ids)):
+            raise ValueError("character ids must be unique")
+        return self
+
+
+class ProjectSnapshot(DomainModel):
+    project: ProjectDocument
+    world: WorldState
+    characters: tuple[Character, ...]
+
+
+class ProjectStore:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def create(self, seed: ProjectSeed) -> ProjectSnapshot:
+        self.root.mkdir(parents=True, exist_ok=False)
+        for directory in (
+            "characters/active",
+            "characters/npc",
+            "characters/retired",
+            "events",
+            "scenes",
+            "sources",
+            ".story-engine/turns",
+            ".story-engine/reviews",
+            ".story-engine/cache",
+            ".story-engine/index",
+            ".story-engine/recovery",
+        ):
+            (self.root / directory).mkdir(parents=True, exist_ok=True)
+
+        project = ProjectDocument(
+            id=seed.id,
+            title=seed.title,
+            genre=seed.genre,
+            theme=seed.theme,
+            tone=seed.tone,
+        )
+        atomic_write_text(
+            self.root / "project.md",
+            render_project(project),
+            overwrite=False,
+        )
+        self.save_world(seed.world, overwrite=False)
+        for character in seed.characters:
+            self.save_character(character, overwrite=False)
+        return self.load()
+
+    def load(self) -> ProjectSnapshot:
+        project, _ = load_document(self.root / "project.md", ProjectDocument)
+        world_document, _ = load_document(self.root / "world.md", WorldDocument)
+        characters: list[Character] = []
+        for group in ("active", "npc", "retired"):
+            for path in sorted((self.root / "characters" / group).glob("*.md")):
+                document, _ = load_document(path, CharacterDocument)
+                characters.append(document.to_domain())
+        return ProjectSnapshot(
+            project=project,
+            world=world_document.to_domain(),
+            characters=tuple(characters),
+        )
+
+    def save_world(self, world: WorldState, *, overwrite: bool = True) -> Path:
+        path = self.root / "world.md"
+        atomic_write_text(path, render_world(world), overwrite=overwrite)
+        return path
+
+    def save_character(
+        self,
+        character: Character,
+        *,
+        overwrite: bool = True,
+    ) -> Path:
+        path = self.character_path(character)
+        atomic_write_text(path, render_character(character), overwrite=overwrite)
+        return path
+
+    def character_path(self, character: Character) -> Path:
+        return self.root / "characters" / character.type / f"{character.id}.md"
+
+    def rebuild_index(self) -> Path:
+        snapshot = self.load()
+        data = {
+            "project_id": snapshot.project.id,
+            "world_version": snapshot.world.version,
+            "characters": [character.id for character in snapshot.characters],
+        }
+        path = self.root / ".story-engine/index/project.json"
+        atomic_write_text(
+            path,
+            f"{json.dumps(data, ensure_ascii=False, indent=2)}\n",
+        )
+        return path
+
