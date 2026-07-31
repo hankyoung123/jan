@@ -10,12 +10,6 @@ INPUT_JSON_FILE="$1"
 
 CHANNEL="$2"
 
-if [ "$CHANNEL" == "nightly" ]; then
-    UPDATER="latest"
-else
-    UPDATER="beta"
-fi
-
 # Check if the input file exists
 if [ ! -f "$INPUT_JSON_FILE" ]; then
     echo "Input file not found: $INPUT_JSON_FILE"
@@ -23,9 +17,12 @@ if [ ! -f "$INPUT_JSON_FILE" ]; then
 fi
 
 # Use jq to transform the content
-jq --arg channel "$CHANNEL" --arg updater "$UPDATER" '
-    .productName = "Jan-\($channel)" |
-    .identifier = "jan-\($channel).ai.app"
+jq --arg channel "$CHANNEL" '
+    .productName = "Story Engine \($channel)" |
+    .identifier = "com.storyengine.desktop.\($channel)" |
+    .plugins.updater.endpoints = [] |
+    del(.plugins.updater.pubkey) |
+    .build.beforeBuildCommand = "cross-env IS_TAURI=true AUTO_UPDATER_DISABLED=true yarn build:web"
 ' "$INPUT_JSON_FILE" > ./tauri.conf.json.tmp
 
 cat ./tauri.conf.json.tmp
@@ -38,11 +35,10 @@ INFO_PLIST_PATH="./src-tauri/Info.plist"
 if [ -f "$INFO_PLIST_PATH" ]; then
     echo "Updating Info.plist..."
     
-    # Replace jan.ai.app with jan-{channel}.ai.app
-    sed -i '' "s|jan\.ai\.app|jan-${CHANNEL}.ai.app|g" "$INFO_PLIST_PATH"
-    
-    # Replace <string>jan</string> with <string>jan-{channel}</string>
-    sed -i '' "s|<string>jan</string>|<string>jan-${CHANNEL}</string>|g" "$INFO_PLIST_PATH"
+    # Give preview channels isolated bundle identifiers and deep-link schemes.
+    sed -i '' "s|com\.storyengine\.desktop|com.storyengine.desktop.${CHANNEL}|g" "$INFO_PLIST_PATH"
+
+    sed -i '' "s|<string>story-engine</string>|<string>story-engine-${CHANNEL}</string>|g" "$INFO_PLIST_PATH"
 
     echo "Info.plist updated"
 

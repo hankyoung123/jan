@@ -11,17 +11,17 @@ use super::{
 };
 use crate::core::state::AppState;
 
-/// Canonical Jan app support directory (`%APPDATA%/Jan` on Windows).
+/// Canonical Story Engine app support directory.
 fn resolve_human_readable_app_data_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join(env!("CARGO_PKG_NAME")))
 }
 
-/// Tauri bundle-id app support directory (e.g. `%APPDATA%/jan.ai.app` on Windows).
+/// Tauri bundle-id app support directory.
 fn resolve_bundle_app_data_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join(TAURI_BUNDLE_IDENTIFIER))
 }
 
-/// Keep `%APPDATA%/Jan/settings.json` as canonical, but recover from legacy or
+/// Keep the product-name `settings.json` as canonical, but recover from legacy or
 /// alternate locations if users removed one directory (#7898).
 fn migrate_legacy_app_configuration(app_data_dir: &Path) -> std::io::Result<()> {
     fs::create_dir_all(app_data_dir)?;
@@ -57,7 +57,7 @@ fn migrate_from_candidates(canonical: &Path, candidates: Vec<PathBuf>) -> std::i
     Ok(())
 }
 
-fn legacy_app_config_candidate_paths(app_data_dir: &Path) -> Vec<PathBuf> {
+fn legacy_app_config_candidate_paths(_app_data_dir: &Path) -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     if let Some(bundle_dir) = resolve_bundle_app_data_dir() {
@@ -69,7 +69,7 @@ fn legacy_app_config_candidate_paths(app_data_dir: &Path) -> Vec<PathBuf> {
         let package_name = env!("CARGO_PKG_NAME");
         if let Some(config_dir) = dirs::config_dir() {
             let legacy = config_dir.join(package_name).join(CONFIGURATION_FILE_NAME);
-            if legacy != app_data_dir.join(CONFIGURATION_FILE_NAME) {
+            if legacy != _app_data_dir.join(CONFIGURATION_FILE_NAME) {
                 paths.push(legacy);
             }
         }
@@ -95,8 +95,8 @@ fn app_data_dir_with_fallback<R: Runtime>(app_handle: &tauri::AppHandle<R>) -> P
     .join(package_name)
 }
 
-/// Resolve the Jan config file path without an AppHandle (for CLI use).
-/// Canonical location is `%APPDATA%/Jan/settings.json` (or OS equivalent),
+/// Resolve the app config file path without an AppHandle (for CLI use).
+/// Canonical location is the Story Engine application data directory,
 /// with fallback recovery from bundle-id location when needed.
 pub fn resolve_config_file_path() -> PathBuf {
     let app_data = resolve_human_readable_app_data_dir().unwrap_or_else(|| {
@@ -114,7 +114,7 @@ pub fn resolve_config_file_path() -> PathBuf {
     app_data.join(CONFIGURATION_FILE_NAME)
 }
 
-/// Resolve the Jan data folder path without an AppHandle (for CLI use).
+/// Resolve the model data folder path without an AppHandle (for CLI use).
 /// Reads AppConfiguration from the config file; falls back to the default location.
 pub fn resolve_jan_data_folder() -> PathBuf {
     // Explicit override wins on every platform. `dirs::data_dir()` reads
@@ -136,8 +136,8 @@ pub fn resolve_jan_data_folder() -> PathBuf {
         }
     }
 
-    // Default: data_dir/Jan/data  (mirrors default_data_folder_path)
-    let app_name = std::env::var("APP_NAME").unwrap_or_else(|_| "Jan".to_string());
+    // Mirrors default_data_folder_path when no explicit configuration exists.
+    let app_name = std::env::var("APP_NAME").unwrap_or_else(|_| "Story Engine".to_string());
     if let Some(data_dir) = dirs::data_dir() {
         return data_dir.join(&app_name).join("data");
     }
@@ -407,5 +407,80 @@ mod tests {
             identifier, TAURI_BUNDLE_IDENTIFIER,
             "TAURI_BUNDLE_IDENTIFIER must stay synced with tauri.conf.json"
         );
+    }
+
+    #[test]
+    fn desktop_bundle_uses_story_engine_branding() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let content =
+            fs::read_to_string(manifest_dir.join("tauri.conf.json")).expect("read tauri.conf.json");
+        let json: Value = serde_json::from_str(&content).expect("parse tauri.conf.json");
+
+        assert_eq!(
+            json.get("productName").and_then(Value::as_str),
+            Some("Story Engine")
+        );
+        assert_eq!(
+            json.get("identifier").and_then(Value::as_str),
+            Some("com.storyengine.desktop")
+        );
+        assert!(json
+            .pointer("/build/beforeBuildCommand")
+            .and_then(Value::as_str)
+            .is_some_and(|command| command.contains("AUTO_UPDATER_DISABLED=true")));
+        assert_eq!(
+            json.pointer("/plugins/updater/endpoints")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(0)
+        );
+        assert!(json.pointer("/plugins/updater/pubkey").is_none());
+        assert!(json.pointer("/bundle/publisher").is_none());
+        assert_eq!(env!("CARGO_PKG_NAME"), "story-engine-desktop");
+
+        let web_package = fs::read_to_string(manifest_dir.join("../web-app/package.json"))
+            .expect("read web package.json");
+        let web_json: Value = serde_json::from_str(&web_package).expect("parse web package.json");
+        assert_eq!(web_json.get("version"), json.get("version"));
+    }
+
+    #[test]
+    fn platform_bundle_identifiers_use_story_engine_namespace() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for (file, expected) in [
+            ("tauri.android.conf.json", "com.storyengine.desktop"),
+            ("tauri.ios.conf.json", "com.storyengine.desktop.ios"),
+        ] {
+            let content =
+                fs::read_to_string(manifest_dir.join(file)).expect("read platform config");
+            let json: Value = serde_json::from_str(&content).expect("parse platform config");
+            assert_eq!(
+                json.get("identifier").and_then(Value::as_str),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn macos_bundle_metadata_uses_story_engine_deep_link() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let plist = fs::read_to_string(manifest_dir.join("Info.plist")).expect("read Info.plist");
+
+        assert!(plist.contains("<string>com.storyengine.desktop</string>"));
+        assert!(plist.contains("<string>story-engine</string>"));
+        assert!(!plist.contains("jan.ai.app"));
+        assert!(!plist.contains("<string>jan</string>"));
+    }
+
+    #[test]
+    fn desktop_icon_matches_web_brand_asset() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let desktop_icon =
+            fs::read(manifest_dir.join("icons/icon.png")).expect("read desktop icon");
+        let web_icon =
+            fs::read(manifest_dir.join("../web-app/public/images/story-engine-logo.png"))
+                .expect("read web icon");
+
+        assert_eq!(desktop_icon, web_icon);
     }
 }

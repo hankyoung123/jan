@@ -1,14 +1,13 @@
 [package]
-name = "Jan"
-version = "0.8.4"
-description = "Use offline LLMs with your own data. Run open source models like Llama2 or Falcon on your internal computers/servers."
-authors = ["Jan <service@jan.ai>"]
+name = "story-engine-desktop"
+version = "0.1.0"
+description = "Local-first desktop system for evolving long-form stories with private character knowledge and user-approved canon."
+authors = ["AI Story Evolution Engine contributors"]
 license = "MIT"
-repository = "https://github.com/janhq/jan"
 edition = "2021"
 rust-version = "1.77.2"
 resolver = "2"
-default-run = "Jan"
+default-run = "story-engine-desktop"
 
 [lib]
 name = "app_lib"

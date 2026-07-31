@@ -1,5 +1,5 @@
 {
-  "identifier": "jan.ai.app",
+  "identifier": "com.storyengine.desktop",
   "build": {
     "devUrl": null,
     "frontendDist": "../web-app/dist",

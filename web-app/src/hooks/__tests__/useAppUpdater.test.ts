@@ -221,6 +221,24 @@ describe('useAppUpdater', () => {
       expect(result.current.updateState.isUpdateAvailable).toBe(false)
       expect(updateResult).toBe(null)
     })
+
+    it('should skip update services when the updater is disabled', async () => {
+      global.AUTO_UPDATER_DISABLED = true
+
+      try {
+        const { result } = renderHook(() => useAppUpdater())
+
+        let updateResult: any
+        await act(async () => {
+          updateResult = await result.current.checkForUpdate()
+        })
+
+        expect(mockUpdaterCheck).not.toHaveBeenCalled()
+        expect(updateResult).toBe(null)
+      } finally {
+        global.AUTO_UPDATER_DISABLED = false
+      }
+    })
   })
 
   describe('setRemindMeLater', () => {

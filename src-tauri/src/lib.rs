@@ -132,6 +132,27 @@ static GRACEFUL_IN_PROGRESS: std::sync::atomic::AtomicBool =
 #[cfg(not(feature = "cli"))]
 static BUSY_MODELS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+#[cfg(all(
+    not(feature = "cli"),
+    not(any(target_os = "android", target_os = "ios"))
+))]
+fn updater_release_configured(updater_config: Option<&serde_json::Value>) -> bool {
+    let Some(config) = updater_config.and_then(serde_json::Value::as_object) else {
+        return false;
+    };
+
+    let has_endpoints = config
+        .get("endpoints")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|endpoints| !endpoints.is_empty());
+    let has_pubkey = config
+        .get("pubkey")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|pubkey| !pubkey.trim().is_empty());
+
+    has_endpoints && has_pubkey
+}
+
 #[cfg(not(feature = "cli"))]
 #[tauri::command]
 async fn confirm_exit<R: tauri::Runtime>(_app_handle: tauri::AppHandle<R>) {
@@ -303,8 +324,12 @@ pub fn run() {
                     .build(),
             )?;
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            if updater_release_configured(app.config().plugins.0.get("updater")) {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+            } else {
+                log::info!("Updater disabled: no signed release configuration");
+            }
 
             // Start migration
             let mut store_path = get_jan_data_folder_path(app.handle().clone());
@@ -489,4 +514,37 @@ pub fn run() {
             });
         }
     });
+}
+
+#[cfg(all(
+    test,
+    not(feature = "cli"),
+    not(any(target_os = "android", target_os = "ios"))
+))]
+mod updater_configuration_tests {
+    use super::updater_release_configured;
+
+    #[test]
+    fn updater_requires_endpoints_and_public_key() {
+        let configured = serde_json::json!({
+            "endpoints": ["https://updates.example.com/latest.json"],
+            "pubkey": "signed-release-public-key"
+        });
+
+        assert!(updater_release_configured(Some(&configured)));
+    }
+
+    #[test]
+    fn updater_stays_disabled_without_release_configuration() {
+        for config in [
+            None,
+            Some(serde_json::json!({ "endpoints": [] })),
+            Some(serde_json::json!({
+                "endpoints": ["https://updates.example.com/latest.json"]
+            })),
+            Some(serde_json::json!({ "endpoints": [], "pubkey": "key" })),
+        ] {
+            assert!(!updater_release_configured(config.as_ref()));
+        }
+    }
 }

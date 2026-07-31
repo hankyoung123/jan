@@ -1,5 +1,5 @@
 /**
- * Custom Updater for Jan with HMAC request signing
+ * Custom updater with HMAC request signing
  *
  * This module provides a custom update checker that:
  * 1. Reads endpoints from tauri.conf.json (plugins.updater.endpoints)
@@ -7,7 +7,7 @@
  * 3. Remaining endpoints are FALLBACK - no signing needed
  *
  * Convention: The first endpoint in the list should be the signed endpoint
- * (e.g., https://apps.jan.ai/update-check)
+ * Product update endpoints are supplied only by signed release builds.
  */
 use super::hmac_client::SignedRequestHeaders;
 use reqwest::Client;
@@ -82,11 +82,11 @@ impl CustomUpdater {
         })
     }
 
-    /// Build User-Agent header: Jan/{version} ({os}; {arch})
+    /// Build the product User-Agent header.
     fn build_user_agent(app_version: &str) -> String {
         let os = std::env::consts::OS;
         let arch = std::env::consts::ARCH;
-        format!("Jan/{} ({}; {})", app_version, os, arch)
+        format!("StoryEngine/{} ({}; {})", app_version, os, arch)
     }
 
     /// Check for updates using endpoints list
@@ -262,5 +262,13 @@ mod tests {
         assert!(!updater.is_update_available("1.0.0", "1.0.0"));
         assert!(!updater.is_update_available("1.0.1", "1.0.0"));
         assert!(updater.is_update_available("v1.0.0", "v1.0.1"));
+    }
+
+    #[test]
+    fn update_user_agent_uses_product_brand() {
+        let user_agent = CustomUpdater::build_user_agent("0.1.0");
+
+        assert!(user_agent.starts_with("StoryEngine/0.1.0 ("));
+        assert!(!user_agent.contains("Jan/"));
     }
 }

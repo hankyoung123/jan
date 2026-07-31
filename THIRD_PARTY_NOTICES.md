@@ -13,8 +13,9 @@ original Python Story Engine and story-focused React product layer.
 - Copyright: 2025 Menlo Research
 - Included source: `web-app`, `core`, `extensions`, `src-tauri`, build scripts,
   and supporting tests from the locked commit
-- Modification status: product name, routes and domain workflows are being
-  replaced; the model, Provider and local inference infrastructure is retained
+- Modification status: desktop package metadata, icons, routes and domain
+  workflows are rebranded for Story Engine; the model, Provider and local
+  inference infrastructure is retained
 - Trademark note: Jan names, logos, illustrations, and branded assets are not
   part of the product identity and must be removed from distributed builds.
 

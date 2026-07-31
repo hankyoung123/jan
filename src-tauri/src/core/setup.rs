@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf, sync::Arc, time::Duration};
+use std::{fs, sync::Arc, time::Duration};
+
+#[cfg(target_os = "windows")]
+use std::path::PathBuf;
 use tauri::{App, AppHandle, Emitter, Listener, Manager, Runtime, WindowEvent, Wry};
 
 #[cfg(feature = "desktop")]
@@ -245,7 +248,13 @@ pub fn setup_mcp<R: Runtime>(app: &App<R>) {
 
 #[cfg(feature = "desktop")]
 pub fn setup_tray(app: &App) -> tauri::Result<TrayIcon> {
-    let show_i = MenuItem::with_id(app.handle(), "open", "Open Jan", true, None::<&str>)?;
+    let show_i = MenuItem::with_id(
+        app.handle(),
+        "open",
+        "Open Story Engine",
+        true,
+        None::<&str>,
+    )?;
     let quit_i = MenuItem::with_id(app.handle(), "quit", "Quit", true, None::<&str>)?;
     let separator_i = PredefinedMenuItem::separator(app.handle())?;
     let menu = Menu::with_items(app.handle(), &[&show_i, &separator_i, &quit_i])?;

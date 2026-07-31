@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Jan",
-  "version": "0.8.4",
-  "identifier": "jan.ai.app",
+  "productName": "Story Engine",
+  "version": "0.1.0",
+  "identifier": "com.storyengine.desktop",
   "build": {
     "frontendDist": "../web-app/dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "cross-env IS_TAURI=true IS_DEV=true yarn dev:web",
-    "beforeBuildCommand": "cross-env IS_TAURI=true yarn build:web"
+    "beforeDevCommand": "cross-env IS_TAURI=true IS_DEV=true AUTO_UPDATER_DISABLED=true yarn dev:web",
+    "beforeBuildCommand": "cross-env IS_TAURI=true AUTO_UPDATER_DISABLED=true yarn build:web"
   },
   "app": {
     "macOSPrivateApi": true,
@@ -46,18 +46,13 @@
       "resolve": true
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJFNDEzMEVCMUEzNUFENDQKUldSRXJUVWE2ekJCTGc1Mm1BVXgrWmtES3huUlBFR0lCdG5qbWFvMzgyNDhGN3VTTko5Q1NtTW0K",
-      "endpoints": [
-        "https://apps.jan.ai/update-check",
-        "https://github.com/janhq/jan/releases/latest/download/latest.json"
-      ],
+      "endpoints": [],
       "windows": {
         "installMode": "passive"
       }
     }
   },
   "bundle": {
-    "publisher": "Menlo Research Pte. Ltd.",
     "active": true,
     "createUpdaterArtifacts": false,
     "icon": [
