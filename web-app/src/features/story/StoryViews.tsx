@@ -16,6 +16,8 @@ import {
   UsersRound,
 } from 'lucide-react'
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -29,6 +31,7 @@ import {
 } from '@/components/ai-elements/jan-chat-shell'
 import { Button } from '@/components/ui/button'
 import { route } from '@/constants/routes'
+import type { JSONContent } from '@/editor/NovelManuscriptEditor'
 import {
   setActiveStoryProjectId,
   useActiveStoryProjectId,
@@ -43,6 +46,12 @@ type SubmissionMessage = components['schemas']['Message']
 type ProjectSnapshot = components['schemas']['ProjectSnapshot']
 type TurnCandidate = components['schemas']['TurnCandidate']
 type CommitResult = components['schemas']['CommitResult']
+
+const NovelManuscriptEditor = lazy(() =>
+  import('@/editor/NovelManuscriptEditor').then((module) => ({
+    default: module.NovelManuscriptEditor,
+  }))
+)
 
 const primaryButton =
   'inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm transition hover:brightness-95 disabled:pointer-events-none disabled:opacity-50'
@@ -650,5 +659,145 @@ export function EventsView() {
 }
 
 export function ManuscriptView() {
-  return <StoryPage><PageHeader eyebrow="第 3 章 / 场景 012" title="章节正文" action={<button className={secondaryButton} type="button"><Sparkles size={15} /> 从事件生成</button>} /><div className="grid min-h-[620px] border bg-background lg:grid-cols-[190px_1fr_230px]"><aside className="hidden border-r p-3 lg:block"><strong className="px-2 text-sm">章节与场景</strong><p className="mb-2 mt-5 px-2 text-xs text-muted-foreground">第三章 · 风暴线</p>{[['010', '海燕号进入航道'], ['011', '备用航标'], ['012', '灯芯槽的刮痕']].map(([id, title], index) => <button className={`mb-1 grid w-full grid-cols-[26px_1fr] rounded-md px-2 py-2 text-left text-sm ${index === 2 ? 'bg-accent' : 'text-muted-foreground hover:bg-accent/60'}`} key={id} type="button"><span className="font-studio">{id}</span>{title}</button>)}</aside><article className="p-8 md:p-12"><input aria-label="场景标题" className="mb-7 w-full bg-transparent font-studio text-2xl outline-none" defaultValue="灯芯槽的刮痕" /><div className="space-y-5 text-base leading-8" contentEditable suppressContentEditableWarning><p>风把雨水从门缝里推了进来。陈默蹲在熄灭的灯座旁，铜钥匙硌着掌心，像一小块没有温度的骨头。</p><p>他卸下底板。螺丝很紧，但金属边缘有一道不属于旧锈的亮色。刮痕从灯芯槽一直延伸到暗格，末端还沾着细小的黑色纤维。</p><p>楼下传来门轴转动的声音。陈默没有出声，只把底板轻轻放回原位。</p></div></article><aside className="hidden border-l p-5 lg:block"><p className="text-xs text-muted-foreground">事实来源</p><h2 className="mt-1 font-medium">Event 000012</h2><p className="my-4 flex items-center gap-2 bg-emerald-500/10 p-3 text-xs text-emerald-700"><ShieldCheck size={15} /> 未发现事实差异</p><dl className="text-sm">{[['参与者', '陈默'], ['地点', '灯塔一层'], ['确认事实', '灯芯槽有新鲜刮痕']].map(([label, value]) => <div className="border-b py-3" key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1">{value}</dd></div>)}</dl></aside></div></StoryPage>
+  const initialContent = useMemo<JSONContent>(
+    () => ({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '风把雨水从门缝里推了进来。陈默蹲在熄灭的灯座旁，铜钥匙硌着掌心，像一小块没有温度的骨头。',
+            },
+          ],
+        },
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '他卸下底板。螺丝很紧，但金属边缘有一道不属于旧锈的亮色。刮痕从灯芯槽一直延伸到暗格，末端还沾着细小的黑色纤维。',
+            },
+          ],
+        },
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '楼下传来门轴转动的声音。陈默没有出声，只把底板轻轻放回原位。',
+            },
+          ],
+        },
+      ],
+    }),
+    []
+  )
+  const [title, setTitle] = useState('灯芯槽的刮痕')
+  const [dirty, setDirty] = useState(false)
+  const [draftRetained, setDraftRetained] = useState(false)
+
+  return (
+    <StoryPage>
+      <PageHeader
+        action={
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline">
+              <Sparkles /> 从事件生成
+            </Button>
+            <Button
+              aria-label="保留编辑草稿"
+              disabled={!dirty}
+              onClick={() => {
+                setDirty(false)
+                setDraftRetained(true)
+              }}
+              title="仅保留在当前编辑会话；正式保存需经 Story Engine 事实检查"
+              type="button"
+            >
+              <Save /> 保留草稿
+            </Button>
+          </div>
+        }
+        eyebrow={
+          dirty
+            ? '存在未保存更改'
+            : draftRetained
+              ? '草稿仅保留在当前编辑会话'
+              : '第 3 章 / 场景 012'
+        }
+        title="章节正文"
+      />
+      <div className="grid min-h-[620px] overflow-hidden border bg-background lg:grid-cols-[190px_minmax(0,1fr)_230px]">
+        <aside className="hidden border-r p-3 lg:block">
+          <strong className="px-2 text-sm">章节与场景</strong>
+          <p className="mb-2 mt-5 px-2 text-xs text-muted-foreground">
+            第三章 · 风暴线
+          </p>
+          {[
+            ['010', '海燕号进入航道'],
+            ['011', '备用航标'],
+            ['012', '灯芯槽的刮痕'],
+          ].map(([id, sceneTitle], index) => (
+            <Button
+              className={`mb-1 grid h-auto w-full grid-cols-[26px_1fr] justify-start whitespace-normal rounded-md px-2 py-2 text-left ${index === 2 ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}
+              key={id}
+              type="button"
+              variant="ghost"
+            >
+              <span className="font-studio">{id}</span>
+              {sceneTitle}
+            </Button>
+          ))}
+        </aside>
+        <article className="min-w-0">
+          <input
+            aria-label="场景标题"
+            className="w-full border-b bg-transparent px-8 py-6 font-studio text-2xl outline-none md:px-12"
+            onChange={(event) => {
+              setTitle(event.target.value)
+              setDirty(true)
+              setDraftRetained(false)
+            }}
+            value={title}
+          />
+          <Suspense
+            fallback={
+              <div className="grid min-h-[500px] place-items-center text-sm text-muted-foreground">
+                正在加载 Novel 正文编辑器…
+              </div>
+            }
+          >
+            <NovelManuscriptEditor
+              initialContent={initialContent}
+              onChange={() => {
+                setDirty(true)
+                setDraftRetained(false)
+              }}
+            />
+          </Suspense>
+        </article>
+        <aside className="hidden border-l p-5 lg:block">
+          <p className="text-xs text-muted-foreground">事实来源</p>
+          <h2 className="mt-1 font-medium">Event 000012</h2>
+          <p className="my-4 flex items-center gap-2 bg-emerald-500/10 p-3 text-xs text-emerald-700">
+            <ShieldCheck size={15} /> 未发现事实差异
+          </p>
+          <dl className="text-sm">
+            {[
+              ['参与者', '陈默'],
+              ['地点', '灯塔一层'],
+              ['确认事实', '灯芯槽有新鲜刮痕'],
+            ].map(([label, value]) => (
+              <div className="border-b py-3" key={label}>
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </aside>
+      </div>
+    </StoryPage>
+  )
 }

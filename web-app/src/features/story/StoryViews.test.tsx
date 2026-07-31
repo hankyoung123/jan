@@ -40,7 +40,7 @@ import {
   getActiveStoryProjectId,
   setActiveStoryProjectId,
 } from './activeProject'
-import { EvolutionView, SubmissionView } from './StoryViews'
+import { EvolutionView, ManuscriptView, SubmissionView } from './StoryViews'
 
 const projectSnapshot = {
   project: {
@@ -421,5 +421,47 @@ describe('Story evolution', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('项目目录不可读')
     expect(screen.getByRole('button', { name: '重试加载' })).toBeEnabled()
+  })
+})
+
+describe('Manuscript workspace', () => {
+  beforeEach(() => {
+    h.engineRequest.mockReset()
+    clearActiveStoryProject()
+  })
+
+  it('uses the Novel editor boundary with shadcn manuscript controls', async () => {
+    render(<ManuscriptView />)
+
+    expect(await screen.findByTestId('novel-manuscript-editor')).toBeInTheDocument()
+    expect(screen.getByRole('toolbar', { name: '正文格式工具栏' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '粗体' })).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: '保留编辑草稿' })
+    ).toBeDisabled()
+    expect(screen.getByRole('button', { name: '从事件生成' })).toBeEnabled()
+    expect(screen.getByText('章节与场景')).toBeInTheDocument()
+    expect(screen.getByText('事实来源')).toBeInTheDocument()
+  })
+
+  it('marks title edits as a local unsaved draft', async () => {
+    render(<ManuscriptView />)
+    await screen.findByTestId('novel-manuscript-editor')
+
+    fireEvent.change(screen.getByRole('textbox', { name: '场景标题' }), {
+      target: { value: '风暴中的灯芯槽' },
+    })
+
+    expect(screen.getByText('存在未保存更改')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: '保留编辑草稿' })
+    ).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '保留编辑草稿' }))
+
+    expect(screen.getByText('草稿仅保留在当前编辑会话')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: '保留编辑草稿' })
+    ).toBeDisabled()
   })
 })

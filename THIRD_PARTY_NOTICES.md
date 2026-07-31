@@ -41,6 +41,25 @@ original Python Story Engine and story-focused React product layer.
 
 Full license text and per-directory migration records belong in `licenses/`.
 
+## Novel
+
+- Project: Novel
+- Source: https://github.com/steven-tey/novel
+- Package: `novel@1.0.2`
+- License: Apache License 2.0
+- Copyright: Steven Tey and Novel contributors
+- Included code: the published React editor package and its Tiptap 2 dependency
+  line; no Novel branding, hosted service, AI completion endpoint, or trademark
+  assets are included
+- Integration boundary: Story-owned code under `web-app/src/editor` adapts
+  Novel to the Jan desktop shell and shadcn/ui controls; model generation and
+  canonical Markdown writes remain in the Python Story Engine
+- License text: the standard Apache License 2.0 text is included at
+  `licenses/Concordia-2.4.0-APACHE-2.0.txt`
+
+Novel's Tiptap 2 editor dependencies are MIT licensed. Their exact resolved
+versions and transitive dependency graph are recorded in `yarn.lock`.
+
 ## Desktop runtime and UI dependencies
 
 The desktop product currently links or bundles the following package families:

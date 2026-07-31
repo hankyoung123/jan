@@ -11,6 +11,14 @@ export default defineConfig({
     css: true,
     testTimeout: 30000,
     hookTimeout: 30000,
+    server: {
+      deps: {
+        // Novel's ESM bundle statically exposes its optional tweet node. Keep
+        // that dependency chain inside Vite so CSS imports are transformed in
+        // jsdom instead of being handed directly to Node.
+        inline: ['novel', 'react-tweet'],
+      },
+    },
     coverage: {
       reporter: ['text', 'json', 'html', 'lcov'],
       include: ['src/**/*.{ts,tsx}'],
