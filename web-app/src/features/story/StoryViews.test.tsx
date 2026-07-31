@@ -883,6 +883,110 @@ describe('Manuscript workspace', () => {
     )
   })
 
+  it('saves a grounded Writer draft without requiring a no-op edit', async () => {
+    setActiveStoryProjectId('north-star')
+    const generatedDraft = {
+      ...sceneDraft,
+      id: 'scene-000001',
+      sequence: 1,
+      base_scene_version: 0,
+      revision: 0,
+      source_event_ids: ['event-000005'],
+      title: '最后的氧气循环',
+      status: 'reviewed',
+    }
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/projects/north-star/events') {
+        return Promise.resolve(storyEvents)
+      }
+      if (path === '/projects/north-star/scenes') return Promise.resolve([])
+      if (path === '/projects/north-star/scenes/generate') {
+        return Promise.resolve(generatedDraft)
+      }
+      if (path === '/projects/north-star/scenes/scene-000001') {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          title: generatedDraft.title,
+          body: generatedDraft.body,
+          expected_revision: 0,
+          expected_scene_version: 0,
+        })
+        return Promise.resolve({
+          status: 'saved',
+          draft: {
+            ...generatedDraft,
+            base_scene_version: 1,
+            status: 'draft',
+          },
+          review: manuscriptReview,
+          scene: {
+            id: generatedDraft.id,
+            project_id: generatedDraft.project_id,
+            sequence: generatedDraft.sequence,
+            chapter_id: generatedDraft.chapter_id,
+            title: generatedDraft.title,
+            body: generatedDraft.body,
+            source_event_ids: generatedDraft.source_event_ids,
+            version: 1,
+          },
+          amendment: null,
+        })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    render(<ManuscriptView />)
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: '从事件生成' })
+    )
+
+    const save = await screen.findByRole('button', { name: '保存并检查事实' })
+    expect(save).toBeEnabled()
+    fireEvent.click(save)
+
+    expect(
+      await screen.findByText('事实检查通过，正式 Markdown 已保存')
+    ).toBeInTheDocument()
+  })
+
+  it('groups scenes by chapter and lets the source inspector collapse', async () => {
+    setActiveStoryProjectId('north-star')
+    const chapterTwoScene = {
+      ...sceneDraft,
+      id: 'scene-000005',
+      sequence: 5,
+      chapter_id: 'chapter-002',
+      title: '最后的氧气循环',
+      source_event_ids: ['event-000005'],
+    }
+    h.engineRequest.mockImplementation((path: string) => {
+      if (path === '/projects/north-star/events') {
+        return Promise.resolve(storyEvents)
+      }
+      if (path === '/projects/north-star/scenes') {
+        return Promise.resolve([sceneDraft, chapterTwoScene])
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    render(<ManuscriptView />)
+
+    expect(await screen.findByText('第 1 章')).toBeInTheDocument()
+    expect(screen.getByText('第 2 章')).toBeInTheDocument()
+    expect(screen.getByText(sceneDraft.title)).toBeInTheDocument()
+    expect(screen.getAllByText(chapterTwoScene.title)).not.toHaveLength(0)
+
+    const collapseInspector = screen.getByRole('button', {
+      name: '收起事实来源',
+    })
+    expect(collapseInspector).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(collapseInspector)
+
+    expect(screen.getByRole('button', { name: '展开事实来源' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+    expect(screen.queryByText(storyEvents[1].summary)).not.toBeInTheDocument()
+  })
+
   it('saves edited Markdown with draft and canonical scene versions', async () => {
     setActiveStoryProjectId('north-star')
     const savedDraft = {

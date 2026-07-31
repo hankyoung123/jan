@@ -9,6 +9,8 @@ import {
   FileText,
   FolderOpen,
   LockKeyhole,
+  PanelRightClose,
+  PanelRightOpen,
   RotateCcw,
   Save,
   ShieldCheck,
@@ -125,6 +127,12 @@ function StatusPill({
       {children}
     </span>
   )
+}
+
+function chapterLabel(chapterId: string) {
+  const match = /^chapter-(\d+)$/.exec(chapterId)
+  if (!match) return chapterId
+  return `第 ${Number(match[1])} 章`
 }
 
 export function WorkbenchView() {
@@ -1577,6 +1585,7 @@ export function ManuscriptView() {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(true)
   const [loading, setLoading] = useState(projectId !== null)
   const [workingAction, setWorkingAction] = useState<
     'generate' | 'save' | 'confirm' | 'export' | null
@@ -1610,10 +1619,32 @@ export function ManuscriptView() {
     const ids = new Set(selectedScene.source_event_ids)
     return approvedEvents.filter((event) => ids.has(event.id))
   }, [approvedEvents, selectedScene])
+  const chapters = useMemo(() => {
+    const grouped = new Map<string, SceneDraft[]>()
+    for (const scene of scenes) {
+      const chapterScenes = grouped.get(scene.chapter_id) ?? []
+      chapterScenes.push(scene)
+      grouped.set(scene.chapter_id, chapterScenes)
+    }
+    return [...grouped].map(([id, chapterScenes]) => ({
+      id,
+      label: chapterLabel(id),
+      scenes: chapterScenes,
+    }))
+  }, [scenes])
   const review = mutation?.review ?? selectedScene?.review ?? null
   const pendingAmendmentId =
     mutation?.amendment?.id ?? selectedScene?.amendment_id ?? null
   const initialContent = useMemo(() => novelDocumentFromMarkdown(body), [body])
+  const canSaveGeneratedDraft =
+    selectedScene?.status === 'reviewed' &&
+    selectedScene.base_scene_version === 0 &&
+    !dirty
+  const canSaveScene =
+    selectedScene !== null &&
+    (dirty || canSaveGeneratedDraft) &&
+    title.trim().length > 0 &&
+    body.trim().length > 0
 
   function openScene(scene: SceneDraft) {
     setSelectedSceneId(scene.id)
@@ -1704,7 +1735,7 @@ export function ManuscriptView() {
     if (
       !projectId ||
       !selectedScene ||
-      !dirty ||
+      (!dirty && !canSaveGeneratedDraft) ||
       !title.trim() ||
       !body.trim() ||
       workingAction
@@ -1865,12 +1896,7 @@ export function ManuscriptView() {
               {workingAction === 'generate' ? '正在生成' : '从事件生成'}
             </Button>
             <Button
-              disabled={
-                !dirty ||
-                !title.trim() ||
-                !body.trim() ||
-                workingAction !== null
-              }
+              disabled={!canSaveScene || workingAction !== null}
               onClick={() => void saveScene()}
               type="button"
             >
@@ -1883,33 +1909,54 @@ export function ManuscriptView() {
           dirty
             ? '存在未保存更改'
             : selectedScene
-              ? `${selectedScene.chapter_id} / 场景 ${String(selectedScene.sequence).padStart(3, '0')}`
+              ? `${chapterLabel(selectedScene.chapter_id)} / 场景 ${String(selectedScene.sequence).padStart(3, '0')}`
               : `${approvedEvents.length} 个已确认事件`
         }
         title="章节正文"
       />
-      <div className="grid min-h-[620px] overflow-hidden border bg-background lg:grid-cols-[210px_minmax(0,1fr)_280px]">
+      <div
+        className={`grid min-h-[620px] overflow-hidden border bg-background ${
+          inspectorOpen
+            ? 'lg:grid-cols-[210px_minmax(0,1fr)_280px]'
+            : 'lg:grid-cols-[210px_minmax(0,1fr)_44px]'
+        }`}
+      >
         <aside className="border-b p-3 lg:border-b-0 lg:border-r">
           <strong className="px-2 text-sm">章节与场景</strong>
           <p className="mb-2 mt-3 px-2 text-xs text-muted-foreground">
             {scenes.length > 0 ? `${scenes.length} 个派生场景` : '尚未生成正文'}
           </p>
-          <div className="flex gap-1 overflow-x-auto lg:block">
-            {scenes.map((scene) => (
-              <Button
-                aria-current={selectedSceneId === scene.id ? 'page' : undefined}
-                className={`mb-1 grid h-auto min-w-44 grid-cols-[32px_1fr] justify-start whitespace-normal rounded-md px-2 py-2 text-left lg:w-full lg:min-w-0 ${selectedSceneId === scene.id ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}
-                disabled={dirty && selectedSceneId !== scene.id}
-                key={scene.id}
-                onClick={() => openScene(scene)}
-                type="button"
-                variant="ghost"
+          <div className="flex gap-3 overflow-x-auto lg:block">
+            {chapters.map((chapter) => (
+              <section
+                aria-label={chapter.label}
+                className="min-w-44 lg:mb-4 lg:min-w-0"
+                key={chapter.id}
               >
-                <span className="font-studio">
-                  {String(scene.sequence).padStart(3, '0')}
-                </span>
-                <span>{scene.title}</span>
-              </Button>
+                <h2 className="mb-1 px-2 text-xs font-medium text-muted-foreground">
+                  {chapter.label}
+                </h2>
+                <div className="flex gap-1 lg:block">
+                  {chapter.scenes.map((scene) => (
+                    <Button
+                      aria-current={
+                        selectedSceneId === scene.id ? 'page' : undefined
+                      }
+                      className={`mb-1 grid h-auto min-w-44 grid-cols-[32px_1fr] justify-start whitespace-normal rounded-md px-2 py-2 text-left lg:w-full lg:min-w-0 ${selectedSceneId === scene.id ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}
+                      disabled={dirty && selectedSceneId !== scene.id}
+                      key={scene.id}
+                      onClick={() => openScene(scene)}
+                      type="button"
+                      variant="ghost"
+                    >
+                      <span className="font-studio">
+                        {String(scene.sequence).padStart(3, '0')}
+                      </span>
+                      <span>{scene.title}</span>
+                    </Button>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         </aside>
@@ -1966,76 +2013,102 @@ export function ManuscriptView() {
             </div>
           )}
         </article>
-        <aside className="p-5 lg:border-l">
-          <p className="text-xs text-muted-foreground">事实来源</p>
-          {sourceEvents.length > 0 ? (
-            sourceEvents.map((event) => (
-              <article className="border-b py-3" key={event.id}>
-                <h2 className="text-sm font-medium">{event.id}</h2>
-                <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                  {event.summary}
+        <aside className={`lg:border-l ${inspectorOpen ? 'p-5' : 'p-1.5'}`}>
+          <div
+            className={`flex items-center ${inspectorOpen ? 'justify-between' : 'justify-center'}`}
+          >
+            {inspectorOpen && (
+              <p className="text-xs text-muted-foreground">事实来源</p>
+            )}
+            <Button
+              aria-expanded={inspectorOpen}
+              aria-label={inspectorOpen ? '收起事实来源' : '展开事实来源'}
+              onClick={() => setInspectorOpen((open) => !open)}
+              size="icon-sm"
+              title={inspectorOpen ? '收起事实来源' : '展开事实来源'}
+              type="button"
+              variant="ghost"
+            >
+              {inspectorOpen ? <PanelRightClose /> : <PanelRightOpen />}
+            </Button>
+          </div>
+          {inspectorOpen && (
+            <div>
+              {sourceEvents.length > 0 ? (
+                sourceEvents.map((event) => (
+                  <article className="border-b py-3" key={event.id}>
+                    <h2 className="text-sm font-medium">{event.id}</h2>
+                    <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                      {event.summary}
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {event.participants.join('、') || '无指定参与者'}
+                    </p>
+                  </article>
+                ))
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {selectedScene
+                    ? '来源事件尚未载入。'
+                    : '选择场景后显示来源。'}
                 </p>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {event.participants.join('、') || '无指定参与者'}
-                </p>
-              </article>
-            ))
-          ) : (
-            <p className="mt-3 text-sm text-muted-foreground">
-              {selectedScene ? '来源事件尚未载入。' : '选择场景后显示来源。'}
-            </p>
-          )}
-          {selectedScene && (
-            <section className="mt-5 border-t pt-5">
-              <p className="text-xs text-muted-foreground">Manuscript Review</p>
-              <div
-                className={`my-3 flex items-start gap-2 p-3 text-xs ${
-                  review?.review.passed
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                    : review
-                      ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                      : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                {review?.review.passed ? (
-                  <ShieldCheck className="mt-0.5 shrink-0" size={15} />
-                ) : (
-                  <TriangleAlert className="mt-0.5 shrink-0" size={15} />
-                )}
-                <span>
-                  {review?.review.summary ?? '保存时由 Editor 检查事实差异。'}
-                </span>
-              </div>
-              {(review?.new_facts.length ?? 0) > 0 && (
-                <div>
-                  <h3 className="text-xs font-medium">检测到的新事实</h3>
-                  <ul className="mt-2 list-disc space-y-2 pl-4 text-sm text-muted-foreground">
-                    {review?.new_facts.map((fact) => (
-                      <li key={fact}>{fact}</li>
-                    ))}
-                  </ul>
-                </div>
               )}
-              {pendingAmendmentId && (
-                <div className="mt-5 border-t pt-4">
-                  <p className="break-all text-xs text-muted-foreground">
-                    {pendingAmendmentId}
+              {selectedScene && (
+                <section className="mt-5 border-t pt-5">
+                  <p className="text-xs text-muted-foreground">
+                    Manuscript Review
                   </p>
-                  <Button
-                    className="mt-3 w-full"
-                    disabled={workingAction !== null}
-                    onClick={() => void confirmAmendment()}
-                    type="button"
-                    variant="outline"
+                  <div
+                    className={`my-3 flex items-start gap-2 p-3 text-xs ${
+                      review?.review.passed
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                        : review
+                          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                          : 'bg-muted text-muted-foreground'
+                    }`}
                   >
-                    <Check />
-                    {workingAction === 'confirm'
-                      ? '正在确认'
-                      : '确认 Amendment'}
-                  </Button>
-                </div>
+                    {review?.review.passed ? (
+                      <ShieldCheck className="mt-0.5 shrink-0" size={15} />
+                    ) : (
+                      <TriangleAlert className="mt-0.5 shrink-0" size={15} />
+                    )}
+                    <span>
+                      {review?.review.summary ??
+                        '保存时由 Editor 检查事实差异。'}
+                    </span>
+                  </div>
+                  {(review?.new_facts.length ?? 0) > 0 && (
+                    <div>
+                      <h3 className="text-xs font-medium">检测到的新事实</h3>
+                      <ul className="mt-2 list-disc space-y-2 pl-4 text-sm text-muted-foreground">
+                        {review?.new_facts.map((fact) => (
+                          <li key={fact}>{fact}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {pendingAmendmentId && (
+                    <div className="mt-5 border-t pt-4">
+                      <p className="break-all text-xs text-muted-foreground">
+                        {pendingAmendmentId}
+                      </p>
+                      <Button
+                        className="mt-3 w-full"
+                        disabled={workingAction !== null}
+                        onClick={() => void confirmAmendment()}
+                        type="button"
+                        variant="outline"
+                      >
+                        <Check />
+                        {workingAction === 'confirm'
+                          ? '正在确认'
+                          : '确认 Amendment'}
+                      </Button>
+                    </div>
+                  )}
+                </section>
               )}
-            </section>
+            </div>
           )}
         </aside>
       </div>
