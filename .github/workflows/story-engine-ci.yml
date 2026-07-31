@@ -38,6 +38,12 @@ jobs:
       - name: Test retained Jan infrastructure and Story UI
         run: yarn test:jan
 
+      - name: Install Chromium for minimum-window layout smoke
+        run: yarn playwright install --with-deps chromium
+
+      - name: Test minimum desktop window layout
+        run: yarn test:visual
+
       - name: Build Web application
         run: yarn build:web
 

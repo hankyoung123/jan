@@ -33,6 +33,8 @@ describe('Story Engine CI contract', () => {
       'yarn install --immutable',
       'yarn lint:jan',
       'yarn test:jan',
+      'yarn playwright install --with-deps chromium',
+      'yarn test:visual',
       'yarn build:web',
       'uv sync --frozen --project apps/story-engine --extra dev',
       'ruff check apps/story-engine/src apps/story-engine/tests',
