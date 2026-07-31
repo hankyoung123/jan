@@ -2,7 +2,9 @@ from pathlib import Path
 from threading import Barrier, Lock, get_ident
 
 from story_engine.domain.models import (
+    Character,
     CharacterIntent,
+    NpcCandidate,
     StateChange,
     WorldOutcome,
     WorldState,
@@ -48,7 +50,9 @@ class DeterministicTurnGenerator:
         self,
         world: WorldState,
         intents: tuple[CharacterIntent, ...],
+        characters: tuple[Character, ...],
     ) -> WorldOutcome:
+        assert characters
         with self._lock:
             self.resolve_calls += 1
         round_number = world.world_variables.get("round", 0)
@@ -73,6 +77,27 @@ class DeterministicTurnGenerator:
                 ),
             ),
             unresolved_consequences=world.active_pressures,
+        )
+
+
+class NpcTurnGenerator(DeterministicTurnGenerator):
+    def resolve(
+        self,
+        world: WorldState,
+        intents: tuple[CharacterIntent, ...],
+        characters: tuple[Character, ...],
+    ) -> WorldOutcome:
+        outcome = super().resolve(world, intents, characters)
+        return outcome.model_copy(
+            update={
+                "new_npcs": (
+                    NpcCandidate(
+                        id="temporary-pilot",
+                        identity="暴风雨中赶到港口的临时引航员",
+                        purpose="引导客船避开近港暗礁",
+                    ),
+                )
+            }
         )
 
 
@@ -125,6 +150,59 @@ def test_character_contexts_isolate_private_facts_and_other_intents(
     assert not hasattr(chen, "other_intents")
     assert chen.character.id == "chen-mo"
     assert lin.character.id == "lin-lan"
+
+
+def test_npc_candidate_is_not_formal_or_active_until_user_confirmation(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path)
+    service = _service(root, NpcTurnGenerator())
+
+    candidate = service.generate_turn()
+
+    assert candidate.outcome.new_npcs[0].id == "temporary-pilot"
+    assert not (root / "characters/npc/temporary-pilot.md").exists()
+    assert "temporary-pilot" not in CharacterContextAssembler().assemble(
+        ProjectStore(root).load()
+    )
+
+    result = service.confirm(candidate.id)
+    snapshot = ProjectStore(root).load()
+    npc = next(item for item in snapshot.characters if item.id == "temporary-pilot")
+
+    assert result.event.id == "event-000001"
+    assert npc.type == "npc"
+    assert npc.identity == "暴风雨中赶到港口的临时引航员"
+    assert npc.core_desire == "引导客船避开近港暗礁"
+    assert npc.current_goal is None
+    assert npc.last_event_id == result.event.id
+    assert npc.location == snapshot.world.current_location
+    assert (root / "characters/npc/temporary-pilot.md").exists()
+    assert "temporary-pilot" not in CharacterContextAssembler().assemble(snapshot)
+
+
+def test_editor_blocks_npc_id_that_already_exists(tmp_path: Path) -> None:
+    service = _service(_project(tmp_path))
+    candidate = service.generate_turn()
+    conflicted = candidate.with_outcome(
+        candidate.outcome.model_copy(
+            update={
+                "new_npcs": (
+                    NpcCandidate(
+                        id="chen-mo",
+                        identity="冒用现有角色 ID 的陌生人",
+                        purpose="制造冲突",
+                    ),
+                )
+            }
+        )
+    )
+
+    reviewed = service.review(conflicted)
+
+    assert reviewed.status == "needs_revision"
+    assert reviewed.review is not None
+    assert any(issue.code == "npc_id_conflict" for issue in reviewed.review.issues)
 
 
 def test_editor_blocks_intent_using_another_characters_secret(

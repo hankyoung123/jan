@@ -92,6 +92,16 @@ to React. Other characters' private facts and current-turn intents are absent
 from every character context. Character entities are invoked concurrently;
 the Concordia Game Master runs only after all selected intents complete.
 
+The Game Master also receives a minimal roster of existing characters so it
+can reuse a plausible person before proposing a new NPC. The roster contains
+identity and public state needed for resolution, not the complete private
+knowledge held by active Character entities. A proposed `NpcCandidate` remains
+derived turn data and is shown to the user before confirmation. Confirming the
+turn creates its `characters/npc/{id}.md` document in the same atomic batch as
+the World, participant Character, and immutable Event writes. NPCs are never
+included in `CharacterContextAssembler`; they become Character Agents only
+through a later explicit promotion workflow.
+
 One process-local `TurnExecutionRegistry` owns the single active generation
 for each project. A cancellation request sets a thread-safe signal shared by
 the parallel Concordia calls; the synchronous language-model bridge converts
@@ -132,6 +142,9 @@ byte-identical.
 - Invalid or missing tokens return `401` without leaking configuration.
 - Provider errors are normalized before crossing the API boundary.
 - Candidate edits invalidate existing review state.
+- Resolver-proposed NPCs remain non-canonical until user confirmation.
+- NPC identifiers cannot collide with an existing Character or another NPC in
+  the same outcome.
 - Cancelled or failed turn generation never writes a candidate or Canonical Markdown.
 - Version conflicts return `409` and never partially write canonical files.
 - Atomic writes use a sibling temporary file, flush, `fsync`, and `os.replace`.

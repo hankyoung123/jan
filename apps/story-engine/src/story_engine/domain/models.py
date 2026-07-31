@@ -89,7 +89,7 @@ class CharacterIntent(DomainModel):
 
 
 class NpcCandidate(DomainModel):
-    id: str = Field(min_length=1)
+    id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9-]*$")
     identity: str = Field(min_length=1)
     purpose: str = Field(min_length=1)
     current_goal: str | None = None
@@ -103,6 +103,13 @@ class WorldOutcome(DomainModel):
     world_changes: tuple[StateChange, ...] = ()
     new_npcs: tuple[NpcCandidate, ...] = ()
     unresolved_consequences: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def npc_ids_are_unique(self) -> Self:
+        npc_ids = [npc.id for npc in self.new_npcs]
+        if len(npc_ids) != len(set(npc_ids)):
+            raise ValueError("NPC IDs must be unique within one outcome")
+        return self
 
 
 class ReviewIssue(DomainModel):
@@ -185,11 +192,7 @@ class TurnCandidate(DomainModel):
         )
 
     def approve(self) -> Self:
-        if (
-            self.status != "reviewed"
-            or self.review is None
-            or not self.review.passed
-        ):
+        if self.status != "reviewed" or self.review is None or not self.review.passed:
             raise InvalidTransitionError(
                 "candidate approval requires a passing current review"
             )

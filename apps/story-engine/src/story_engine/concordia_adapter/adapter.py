@@ -10,7 +10,12 @@ from concordia.typing import entity as entity_lib  # type: ignore[import-untyped
 from pydantic import BaseModel
 
 from story_engine.concordia_adapter.language_model import JanGatewayLanguageModel
-from story_engine.domain.models import CharacterIntent, WorldOutcome, WorldState
+from story_engine.domain.models import (
+    Character,
+    CharacterIntent,
+    WorldOutcome,
+    WorldState,
+)
 from story_engine.evolution.context import CharacterContext
 from story_engine.models.gateway import ModelGateway
 
@@ -91,6 +96,7 @@ class ConcordiaStoryAdapter:
         self,
         world: WorldState,
         intents: tuple[CharacterIntent, ...],
+        characters: tuple[Character, ...],
     ) -> WorldOutcome:
         if not intents:
             raise ValueError("Concordia resolver requires at least one intent")
@@ -106,7 +112,11 @@ class ConcordiaStoryAdapter:
                 state=(
                     "You are the World Resolver. Resolve all supplied intentions "
                     "together against the current world. Characters decide intent; "
-                    "only you decide outcomes. Return candidate state changes only."
+                    "only you decide outcomes. Reuse an existing character whenever "
+                    "that character can reasonably fulfill a required role. Create a "
+                    "minimal new NPC only when no existing character can fulfill it. "
+                    "A new NPC is not an active agent. Return candidate state changes "
+                    "only; never commit canonical state."
                 ),
                 pre_act_label="Story Engine role",
             ),
@@ -117,6 +127,24 @@ class ConcordiaStoryAdapter:
             "intents": agent_components.constant.Constant(
                 state=_json(intents),
                 pre_act_label="Current isolated character intents",
+            ),
+            "existing_characters": agent_components.constant.Constant(
+                state=json.dumps(
+                    [
+                        {
+                            "id": character.id,
+                            "display_name": character.display_name,
+                            "type": character.type,
+                            "identity": character.identity,
+                            "current_goal": character.current_goal,
+                            "location": character.location,
+                        }
+                        for character in characters
+                    ],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                pre_act_label="Existing character roster for reuse",
             ),
         }
         resolver = entity_agent_with_logging.EntityAgentWithLogging(

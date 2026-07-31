@@ -7,6 +7,7 @@ from story_engine.domain.errors import InvalidTransitionError
 from story_engine.domain.models import (
     Character,
     CharacterIntent,
+    NpcCandidate,
     ReviewResult,
     StoryEvent,
     TurnCandidate,
@@ -60,6 +61,25 @@ def test_npc_may_exist_without_current_goal() -> None:
     )
 
     assert character.current_goal is None
+
+
+def test_world_outcome_rejects_duplicate_npc_ids() -> None:
+    with pytest.raises(ValidationError, match="NPC IDs must be unique"):
+        WorldOutcome(
+            summary="港口需要一名临时引航员。",
+            new_npcs=(
+                NpcCandidate(
+                    id="temporary-pilot",
+                    identity="临时引航员",
+                    purpose="引导客船避开暗礁",
+                ),
+                NpcCandidate(
+                    id="temporary-pilot",
+                    identity="另一名引航员",
+                    purpose="维持港口秩序",
+                ),
+            ),
+        )
 
 
 def test_character_intent_rejects_result_fields() -> None:
@@ -146,4 +166,3 @@ def test_candidate_json_contract_uses_snake_case_and_arrays() -> None:
     assert payload["intents"][0]["knowledge_basis"] == [
         "knowledge:lighthouse-never-off"
     ]
-

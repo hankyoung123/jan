@@ -64,6 +64,12 @@ private context per participant, generate isolated character intents, resolve
 one world outcome, and run the Editor review. The resulting candidate is
 derived state below `.story-engine/turns`.
 
+The Resolver receives a minimal existing-character roster and must prefer a
+plausible existing person over creating a new one. Any `outcome.new_npcs` item
+is still derived candidate data. Its lower-case, path-safe identifier must be
+unique within the outcome and must not collide with a Character already in the
+project. NPC candidates are not included in active Character contexts.
+
 Only one generation may run per project. While it is running, React may call:
 
 ```text
@@ -88,6 +94,13 @@ POST /projects/{project_id}/turns/{turn_id}/discard
 Only `confirm` can reach `EventCommitService` and mutate canonical Markdown.
 Revision replaces the derived outcome and reruns review; discard changes only
 the derived candidate lifecycle.
+
+When a confirmed outcome contains NPC candidates, `confirm` creates
+`characters/npc/{npc_id}.md` together with the World, participant Character,
+and append-only Event updates in one recoverable atomic batch. The commit
+boundary repeats the identifier-collision check so a forged passing review
+cannot overwrite an existing Character. An unconfirmed, revised, discarded,
+cancelled, or failed Turn never creates NPC Markdown.
 
 ## Streaming event envelope
 

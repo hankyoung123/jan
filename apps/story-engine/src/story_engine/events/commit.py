@@ -9,6 +9,7 @@ from story_engine.domain.errors import DomainError, InvalidTransitionError
 from story_engine.domain.models import (
     Character,
     DomainModel,
+    NpcCandidate,
     StateChange,
     StoryEvent,
     TurnCandidate,
@@ -101,9 +102,7 @@ class EventCommitService:
                     f"character no longer exists: {character_id}"
                 )
             if current.version != base_version:
-                raise VersionConflictError(
-                    f"character version changed: {character_id}"
-                )
+                raise VersionConflictError(f"character version changed: {character_id}")
         for intent in candidate.intents:
             if intent.character_id not in candidate.base_character_versions:
                 raise VersionConflictError(
@@ -121,6 +120,12 @@ class EventCommitService:
             candidate.outcome.character_changes,
             event_id,
             tuple(intent.character_id for intent in candidate.intents),
+        )
+        created_npcs = self._create_npcs(
+            candidate.outcome.new_npcs,
+            existing_characters=characters,
+            event_id=event_id,
+            location=updated_world.current_location,
         )
         event = StoryEvent(
             id=event_id,
@@ -144,6 +149,16 @@ class EventCommitService:
                 self.root
             )
             batch.add(relative.as_posix(), render_character(character))
+        for character_id in sorted(created_npcs):
+            character = created_npcs[character_id]
+            relative = self.project_store.character_path(character).relative_to(
+                self.root
+            )
+            batch.add(
+                relative.as_posix(),
+                render_character(character),
+                overwrite=False,
+            )
         batch.add(
             f"events/{sequence:06d}.md",
             render_event(event),
@@ -151,6 +166,29 @@ class EventCommitService:
         )
         batch.commit()
         return CommitResult(event=event, candidate=candidate.mark_committed())
+
+    @staticmethod
+    def _create_npcs(
+        candidates: tuple[NpcCandidate, ...],
+        *,
+        existing_characters: dict[str, Character],
+        event_id: str,
+        location: str | None,
+    ) -> dict[str, Character]:
+        created: dict[str, Character] = {}
+        for candidate in candidates:
+            if candidate.id in existing_characters:
+                raise StateChangeConflictError(f"NPC ID already exists: {candidate.id}")
+            created[candidate.id] = Character(
+                id=candidate.id,
+                type="npc",
+                identity=candidate.identity,
+                core_desire=candidate.purpose,
+                current_goal=candidate.current_goal,
+                location=location,
+                last_event_id=event_id,
+            )
+        return created
 
     def commit_scene(self, scene: Scene, *, expected_version: int) -> Scene:
         self._validate_scene(scene, expected_version=expected_version)
@@ -179,9 +217,7 @@ class EventCommitService:
             raise VersionConflictError("world version changed since manuscript review")
         self._validate_scene(scene, expected_version=scene.version - 1)
 
-        source_events = {
-            event.id: event for event in self.event_store.list_events()
-        }
+        source_events = {event.id: event for event in self.event_store.list_events()}
         selected = [
             source_events.get(event_id) for event_id in amendment.source_event_ids
         ]

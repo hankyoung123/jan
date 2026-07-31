@@ -527,6 +527,37 @@ describe('Story evolution', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows a resolver-proposed NPC as an unconfirmed candidate', async () => {
+    setActiveStoryProjectId('north-star')
+    const candidateWithNpc = {
+      ...candidate,
+      outcome: {
+        ...candidate.outcome,
+        new_npcs: [
+          {
+            id: 'temporary-pilot',
+            identity: '赶到观测站的临时导航员',
+            purpose: '协助校准备用通信阵列',
+            current_goal: null,
+          },
+        ],
+      },
+    }
+    h.engineRequest.mockImplementation((path: string) => {
+      if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
+      if (path.endsWith('/turns/generate')) return Promise.resolve(candidateWithNpc)
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    render(<EvolutionView />)
+    await screen.findByText('主天线在极光中失效')
+
+    fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
+
+    expect(await screen.findByText('赶到观测站的临时导航员')).toBeInTheDocument()
+    expect(screen.getByText('协助校准备用通信阵列')).toBeInTheDocument()
+    expect(screen.getByText('待用户确认后创建普通人物')).toBeInTheDocument()
+  })
+
   it('cancels an in-flight turn and retries it through the same generation boundary', async () => {
     setActiveStoryProjectId('north-star')
     let rejectGeneration: ((reason: Error) => void) | null = null

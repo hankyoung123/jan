@@ -108,7 +108,11 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
 
     chen_intent = adapter.generate_intent(contexts["chen-mo"])
     lin_intent = adapter.generate_intent(contexts["lin-lan"])
-    outcome = adapter.resolve(snapshot.world, (chen_intent, lin_intent))
+    outcome = adapter.resolve(
+        snapshot.world,
+        (chen_intent, lin_intent),
+        snapshot.characters,
+    )
 
     assert version("gdm-concordia") == "2.4.0"
     assert chen_intent.character_id == "chen-mo"
@@ -131,6 +135,9 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
     assert "secret:chen-father-disappearance" not in prompts[1]
     assert "检查灯塔机械装置" in prompts[2]
     assert "呼叫客船降低航速" in prompts[2]
+    assert '"id": "chen-mo"' in prompts[2]
+    assert '"id": "lin-lan"' in prompts[2]
+    assert "Reuse an existing character" in prompts[2]
     assert [call["model"] for call in transport.calls] == [
         "qwen3-8b",
         "qwen3-8b",
@@ -186,6 +193,6 @@ def test_concordia_choices_also_use_the_jan_model_gateway(tmp_path: Path) -> Non
 
     assert selected == (1, "等待", {})
     assert transport.calls[0]["model"] == "qwen3-8b"
-    assert transport.calls[0]["response_format"]["json_schema"]["schema"][
-        "properties"
-    ]["choice"] == {"enum": ["调查", "等待"]}
+    assert transport.calls[0]["response_format"]["json_schema"]["schema"]["properties"][
+        "choice"
+    ] == {"enum": ["调查", "等待"]}

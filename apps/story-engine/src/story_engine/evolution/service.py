@@ -7,6 +7,7 @@ from typing import Protocol, cast
 from pydantic import Field, JsonValue
 
 from story_engine.domain.models import (
+    Character,
     CharacterIntent,
     DomainModel,
     ReviewIssue,
@@ -48,6 +49,7 @@ class TurnGenerator(Protocol):
         self,
         world: WorldState,
         intents: tuple[CharacterIntent, ...],
+        characters: tuple[Character, ...],
     ) -> WorldOutcome: ...
 
 
@@ -119,7 +121,11 @@ class EvolutionService:
         intents = tuple(intents_list)
         self._raise_if_cancelled(cancellation)
         emit("resolver.started", {"turn_id": turn_id})
-        outcome = self.generator.resolve(snapshot.world, intents)
+        outcome = self.generator.resolve(
+            snapshot.world,
+            intents,
+            snapshot.characters,
+        )
         self._raise_if_cancelled(cancellation)
         emit(
             "resolver.completed",
@@ -263,6 +269,17 @@ class EvolutionService:
                     ReviewIssue(
                         code="world_rule_conflict",
                         message=f"世界字段来源值不一致: {change.field}",
+                        severity="blocking",
+                    )
+                )
+
+        existing_character_ids = {character.id for character in current.characters}
+        for npc in candidate.outcome.new_npcs:
+            if npc.id in existing_character_ids:
+                issues.append(
+                    ReviewIssue(
+                        code="npc_id_conflict",
+                        message=f"普通人物 ID 已被现有角色使用: {npc.id}",
                         severity="blocking",
                     )
                 )

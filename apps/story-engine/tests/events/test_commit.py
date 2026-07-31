@@ -6,13 +6,18 @@ from story_engine.domain.errors import InvalidTransitionError
 from story_engine.domain.models import (
     Character,
     CharacterIntent,
+    NpcCandidate,
     ReviewResult,
     StateChange,
     TurnCandidate,
     WorldOutcome,
     WorldState,
 )
-from story_engine.events.commit import EventCommitService, VersionConflictError
+from story_engine.events.commit import (
+    EventCommitService,
+    StateChangeConflictError,
+    VersionConflictError,
+)
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectSeed, ProjectStore
 
@@ -189,6 +194,37 @@ def test_participant_version_advances_without_explicit_character_change(
 
     assert character.version == 1
     assert character.last_event_id == result.event.id
+
+
+def test_npc_id_collision_rejects_commit_without_formal_writes(tmp_path: Path) -> None:
+    root = tmp_path / "fog-harbor"
+    ProjectStore(root).create(_seed())
+    before = _formal_bytes(root)
+    candidate = _approved_candidate().with_outcome(
+        _approved_candidate().outcome.model_copy(
+            update={
+                "new_npcs": (
+                    NpcCandidate(
+                        id="chen-mo",
+                        identity="冒用现有角色 ID 的陌生人",
+                        purpose="制造冲突",
+                    ),
+                )
+            }
+        )
+    )
+    candidate = candidate.with_review(
+        ReviewResult(
+            mode="turn_review",
+            passed=True,
+            summary="伪造的通过结果不能绕过提交边界。",
+        )
+    ).approve()
+
+    with pytest.raises(StateChangeConflictError, match="NPC ID already exists"):
+        EventCommitService(root).commit(candidate)
+
+    assert _formal_bytes(root) == before
 
 
 def test_batch_failure_rolls_back_every_formal_file(
