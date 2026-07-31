@@ -24,7 +24,11 @@ import AttachmentIngestionDialog from '@/containers/dialogs/AttachmentIngestionD
 import GlobalError from '@/containers/GlobalError'
 import { GlobalEventHandler } from '@/providers/GlobalEventHandler'
 import { ServiceHubProvider } from '@/providers/ServiceHubProvider'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from '@/components/ui/sidebar'
 import { LeftSidebar } from '@/components/left-sidebar'
 import { WindowControls } from '@/components/WindowControls'
 import { WindowResizeGrips } from '@/components/WindowResizeGrips'
@@ -72,6 +76,11 @@ const AppLayout = () => {
         <DialogAppUpdater />
         <BackendUpdater />
         <LeftSidebar />
+        <SidebarTrigger
+          aria-label="打开导航"
+          className="fixed left-3 top-3 z-40 border bg-background/90 shadow-sm backdrop-blur md:hidden"
+          title="打开导航"
+        />
         <SidebarInset>
           <div className="bg-neutral-50 dark:bg-background size-full">
             <Outlet />

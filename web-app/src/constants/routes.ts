@@ -1,6 +1,12 @@
 export const route = {
-  // home as new chat or thread
+  // Story workspace
   home: '/',
+  submission: '/submission',
+  evolve: '/evolve',
+  characters: '/characters',
+  world: '/world',
+  events: '/events',
+  manuscript: '/manuscript',
   appLogs: '/logs',
   project: '/project',
   projectDetail: '/project/$projectId',
@@ -29,4 +35,4 @@ export const route = {
   localApiServerlogs: '/local-api-server/logs',
   systemMonitor: '/system-monitor',
   threadsDetail: '/threads/$threadId',
-}
+} as const

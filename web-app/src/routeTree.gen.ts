@@ -9,8 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WorldRouteImport } from './routes/world'
 import { Route as SystemMonitorRouteImport } from './routes/system-monitor'
+import { Route as SubmissionRouteImport } from './routes/submission'
+import { Route as ManuscriptRouteImport } from './routes/manuscript'
 import { Route as LogsRouteImport } from './routes/logs'
+import { Route as EvolveRouteImport } from './routes/evolve'
+import { Route as EventsRouteImport } from './routes/events'
+import { Route as CharactersRouteImport } from './routes/characters'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as HubIndexRouteImport } from './routes/hub/index'
 import { Route as ThreadsThreadIdRouteImport } from './routes/threads/$threadId'
@@ -33,14 +39,44 @@ import { Route as HubModelIdRouteImport } from './routes/hub/$modelId'
 import { Route as SettingsProvidersIndexRouteImport } from './routes/settings/providers/index'
 import { Route as SettingsProvidersProviderNameRouteImport } from './routes/settings/providers/$providerName'
 
+const WorldRoute = WorldRouteImport.update({
+  id: '/world',
+  path: '/world',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SystemMonitorRoute = SystemMonitorRouteImport.update({
   id: '/system-monitor',
   path: '/system-monitor',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SubmissionRoute = SubmissionRouteImport.update({
+  id: '/submission',
+  path: '/submission',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ManuscriptRoute = ManuscriptRouteImport.update({
+  id: '/manuscript',
+  path: '/manuscript',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LogsRoute = LogsRouteImport.update({
   id: '/logs',
   path: '/logs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EvolveRoute = EvolveRouteImport.update({
+  id: '/evolve',
+  path: '/evolve',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventsRoute = EventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CharactersRoute = CharactersRouteImport.update({
+  id: '/characters',
+  path: '/characters',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -152,8 +188,14 @@ const SettingsProvidersProviderNameRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/characters': typeof CharactersRoute
+  '/events': typeof EventsRoute
+  '/evolve': typeof EvolveRoute
   '/logs': typeof LogsRoute
+  '/manuscript': typeof ManuscriptRoute
+  '/submission': typeof SubmissionRoute
   '/system-monitor': typeof SystemMonitorRoute
+  '/world': typeof WorldRoute
   '/hub/$modelId': typeof HubModelIdRoute
   '/local-api-server/logs': typeof LocalApiServerLogsRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
@@ -177,8 +219,14 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/characters': typeof CharactersRoute
+  '/events': typeof EventsRoute
+  '/evolve': typeof EvolveRoute
   '/logs': typeof LogsRoute
+  '/manuscript': typeof ManuscriptRoute
+  '/submission': typeof SubmissionRoute
   '/system-monitor': typeof SystemMonitorRoute
+  '/world': typeof WorldRoute
   '/hub/$modelId': typeof HubModelIdRoute
   '/local-api-server/logs': typeof LocalApiServerLogsRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
@@ -203,8 +251,14 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/characters': typeof CharactersRoute
+  '/events': typeof EventsRoute
+  '/evolve': typeof EvolveRoute
   '/logs': typeof LogsRoute
+  '/manuscript': typeof ManuscriptRoute
+  '/submission': typeof SubmissionRoute
   '/system-monitor': typeof SystemMonitorRoute
+  '/world': typeof WorldRoute
   '/hub/$modelId': typeof HubModelIdRoute
   '/local-api-server/logs': typeof LocalApiServerLogsRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
@@ -230,8 +284,14 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/characters'
+    | '/events'
+    | '/evolve'
     | '/logs'
+    | '/manuscript'
+    | '/submission'
     | '/system-monitor'
+    | '/world'
     | '/hub/$modelId'
     | '/local-api-server/logs'
     | '/project/$projectId'
@@ -255,8 +315,14 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/characters'
+    | '/events'
+    | '/evolve'
     | '/logs'
+    | '/manuscript'
+    | '/submission'
     | '/system-monitor'
+    | '/world'
     | '/hub/$modelId'
     | '/local-api-server/logs'
     | '/project/$projectId'
@@ -280,8 +346,14 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/characters'
+    | '/events'
+    | '/evolve'
     | '/logs'
+    | '/manuscript'
+    | '/submission'
     | '/system-monitor'
+    | '/world'
     | '/hub/$modelId'
     | '/local-api-server/logs'
     | '/project/$projectId'
@@ -306,8 +378,14 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CharactersRoute: typeof CharactersRoute
+  EventsRoute: typeof EventsRoute
+  EvolveRoute: typeof EvolveRoute
   LogsRoute: typeof LogsRoute
+  ManuscriptRoute: typeof ManuscriptRoute
+  SubmissionRoute: typeof SubmissionRoute
   SystemMonitorRoute: typeof SystemMonitorRoute
+  WorldRoute: typeof WorldRoute
   HubModelIdRoute: typeof HubModelIdRoute
   LocalApiServerLogsRoute: typeof LocalApiServerLogsRoute
   ProjectProjectIdRoute: typeof ProjectProjectIdRoute
@@ -332,6 +410,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/world': {
+      id: '/world'
+      path: '/world'
+      fullPath: '/world'
+      preLoaderRoute: typeof WorldRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/system-monitor': {
       id: '/system-monitor'
       path: '/system-monitor'
@@ -339,11 +424,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SystemMonitorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/submission': {
+      id: '/submission'
+      path: '/submission'
+      fullPath: '/submission'
+      preLoaderRoute: typeof SubmissionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/manuscript': {
+      id: '/manuscript'
+      path: '/manuscript'
+      fullPath: '/manuscript'
+      preLoaderRoute: typeof ManuscriptRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/logs': {
       id: '/logs'
       path: '/logs'
       fullPath: '/logs'
       preLoaderRoute: typeof LogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/evolve': {
+      id: '/evolve'
+      path: '/evolve'
+      fullPath: '/evolve'
+      preLoaderRoute: typeof EvolveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/events': {
+      id: '/events'
+      path: '/events'
+      fullPath: '/events'
+      preLoaderRoute: typeof EventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/characters': {
+      id: '/characters'
+      path: '/characters'
+      fullPath: '/characters'
+      preLoaderRoute: typeof CharactersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -498,8 +618,14 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CharactersRoute: CharactersRoute,
+  EventsRoute: EventsRoute,
+  EvolveRoute: EvolveRoute,
   LogsRoute: LogsRoute,
+  ManuscriptRoute: ManuscriptRoute,
+  SubmissionRoute: SubmissionRoute,
   SystemMonitorRoute: SystemMonitorRoute,
+  WorldRoute: WorldRoute,
   HubModelIdRoute: HubModelIdRoute,
   LocalApiServerLogsRoute: LocalApiServerLogsRoute,
   ProjectProjectIdRoute: ProjectProjectIdRoute,

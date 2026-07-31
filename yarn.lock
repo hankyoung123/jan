@@ -2998,6 +2998,7 @@ __metadata:
     "@radix-ui/react-slot": "npm:^1.2.4"
     "@radix-ui/react-switch": "npm:1.2.2"
     "@radix-ui/react-tooltip": "npm:^1.2.8"
+    "@story-engine/contracts": "workspace:*"
     "@streamdown/cjk": "npm:^1.0.1"
     "@streamdown/code": "npm:^1.0.1"
     "@streamdown/math": "npm:^1.0.1"
@@ -5952,7 +5953,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@story-engine/contracts@workspace:packages/contracts":
+"@story-engine/contracts@workspace:*, @story-engine/contracts@workspace:packages/contracts":
   version: 0.0.0-use.local
   resolution: "@story-engine/contracts@workspace:packages/contracts"
   languageName: unknown

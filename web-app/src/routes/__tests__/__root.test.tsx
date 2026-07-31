@@ -109,6 +109,7 @@ vi.mock('@/components/ui/sidebar', () => ({
   SidebarInset: ({ children }: any) => (
     <div data-testid="sidebar-inset">{children}</div>
   ),
+  SidebarTrigger: (props: any) => <button {...props} />,
 }))
 
 // Hooks
@@ -168,6 +169,13 @@ describe('__root route', () => {
     expect(screen.getByTestId('left-sidebar')).toBeInTheDocument()
     expect(screen.getByTestId('outlet')).toBeInTheDocument()
     expect(screen.getByTestId('sidebar-provider')).toBeInTheDocument()
+  })
+
+  it('renders an external mobile navigation trigger', () => {
+    renderComponent()
+    expect(
+      screen.getByRole('button', { name: '打开导航' })
+    ).toHaveClass('md:hidden')
   })
 
   it('renders all persistent dialogs', () => {

@@ -20,8 +20,10 @@ vi.mock('@tanstack/react-router', () => ({
 
 // take_pending_webdata_reset returns null (no pending reset) by default
 const mockInvoke = vi.fn().mockResolvedValue(null)
+const mockIsTauri = vi.fn().mockReturnValue(true)
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
+  isTauri: () => mockIsTauri(),
 }))
 
 // Dynamically-imported modules (deferred until after the reset prune)
@@ -47,6 +49,7 @@ describe('main.tsx', () => {
 
     vi.clearAllMocks()
     mockInvoke.mockResolvedValue(null)
+    mockIsTauri.mockReturnValue(true)
   })
 
   afterEach(() => {
@@ -58,6 +61,16 @@ describe('main.tsx', () => {
 
     await vi.waitFor(() => expect(mockRender).toHaveBeenCalled())
     expect(mockInvoke).toHaveBeenCalledWith('take_pending_webdata_reset')
+    expect(mockCreateRoot).toHaveBeenCalledWith(mockRootElement)
+  })
+
+  it('boots in a browser without invoking a Tauri command', async () => {
+    mockIsTauri.mockReturnValue(false)
+
+    await import('../main')
+
+    await vi.waitFor(() => expect(mockRender).toHaveBeenCalled())
+    expect(mockInvoke).not.toHaveBeenCalled()
     expect(mockCreateRoot).toHaveBeenCalledWith(mockRootElement)
   })
 

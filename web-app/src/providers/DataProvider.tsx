@@ -18,7 +18,7 @@ import { useAppState } from '@/hooks/useAppState'
 import { AppEvent, events } from '@janhq/core'
 import { SystemEvent } from '@/types/events'
 import { isDev } from '@/lib/utils'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import { providerHasRemoteApiKeys, providerRemoteApiKeyChain } from '@/lib/provider-api-keys'
 
 type ProviderCustomHeader = {
@@ -36,6 +36,8 @@ type RegisterProviderRequest = {
 }
 
 async function registerRemoteProvider(provider: ModelProvider) {
+  if (!isTauri()) return
+
   // Skip llamacpp - those are local models
   if (provider.provider === 'llamacpp') return
 
@@ -72,6 +74,8 @@ async function registerRemoteProvider(provider: ModelProvider) {
 async function seedProviderKeysFromKeyring(
   providers: ModelProvider[]
 ): Promise<ModelProvider[]> {
+  if (!isTauri()) return providers
+
   return Promise.all(
     providers.map(async (provider) => {
       if (provider.provider === 'llamacpp') return provider
@@ -119,6 +123,11 @@ let registeredProviderNames = new Set<string>()
 
 // Effect to sync remote providers when providers change
 const syncRemoteProviders = () => {
+  if (!isTauri()) {
+    registeredProviderNames = new Set()
+    return
+  }
+
   const providers = useModelProvider.getState().providers
   const currentActive = new Set<string>()
 
@@ -156,6 +165,8 @@ const MLX_SAMPLING_KEY_MAP: Record<string, string> = {
 // that omit these params inherit the GUI-configured values (overridable
 // per-request). Replaces the whole map, so an empty push clears stale entries.
 const syncModelParamDefaults = () => {
+  if (!isTauri()) return
+
   const providers = useModelProvider.getState().providers
   const defaults: Record<string, Record<string, number>> = {}
 
@@ -223,13 +234,15 @@ export function DataProvider() {
     })
     // Re-seed the Hugging Face token from the keyring (no longer persisted to
     // settings storage) into the store + download extension for this session.
-    invoke<string | null>('get_secret', {
-      key: HUGGINGFACE_TOKEN_SECRET_KEY,
-    })
-      .then((token) => {
-        if (token) useGeneralSetting.getState().setHuggingfaceToken(token)
+    if (isTauri()) {
+      invoke<string | null>('get_secret', {
+        key: HUGGINGFACE_TOKEN_SECRET_KEY,
       })
-      .catch(() => {})
+        .then((token) => {
+          if (token) useGeneralSetting.getState().setHuggingfaceToken(token)
+        })
+        .catch(() => {})
+    }
     serviceHub
       .mcp()
       .getMCPConfig()

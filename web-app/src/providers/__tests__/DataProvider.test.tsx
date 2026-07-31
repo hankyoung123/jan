@@ -24,6 +24,7 @@ const h = vi.hoisted(() => {
     setServerStatus: vi.fn(),
     navigate: vi.fn(),
     invoke: vi.fn().mockResolvedValue(undefined),
+    isTauri: vi.fn().mockReturnValue(true),
     isDev: vi.fn().mockReturnValue(false),
     providerHasRemoteApiKeys: vi.fn().mockReturnValue(true),
     providerRemoteApiKeyChain: vi.fn().mockReturnValue(['key-1']),
@@ -129,6 +130,7 @@ vi.mock('@/lib/provider-api-keys', () => ({
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => h.invoke(...args),
+  isTauri: () => h.isTauri(),
 }))
 
 vi.mock('@janhq/core', () => ({
@@ -222,6 +224,7 @@ describe('DataProvider', () => {
     h.providerHasRemoteApiKeys.mockReturnValue(true)
     h.providerRemoteApiKeyChain.mockReturnValue(['key-1'])
     h.invoke.mockResolvedValue(undefined)
+    h.isTauri.mockReturnValue(true)
     h.localApi.enableOnStartup = false
     h.localApi.defaultModelLocalApiServer = null
     h.localApi.lastServerModels = []
@@ -237,6 +240,15 @@ describe('DataProvider', () => {
   it('renders null (no DOM output)', () => {
     const { container } = render(<DataProvider />)
     expect(container.firstChild).toBeNull()
+  })
+
+  it('does not invoke native commands in a browser', async () => {
+    h.isTauri.mockReturnValue(false)
+
+    render(<DataProvider />)
+
+    await waitFor(() => expect(hubState.getProviders).toHaveBeenCalled())
+    expect(h.invoke).not.toHaveBeenCalled()
   })
 
   it('hydrates providers, mcp config, assistants, threads on mount', async () => {

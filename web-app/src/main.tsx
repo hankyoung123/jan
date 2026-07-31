@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import {
   pruneLocalStorageByFlags,
   type WebdataResetFlags,
@@ -69,13 +69,15 @@ declare module '@tanstack/react-router' {
 // any store module loads (Zustand persist hydrates synchronously at import).
 // This is the only race-free, cross-platform way to clear webview localStorage.
 const consumePendingWebdataReset = async () => {
+  if (!isTauri()) return
+
   try {
     const flags = await invoke<WebdataResetFlags | null>(
       'take_pending_webdata_reset'
     )
     if (flags) pruneLocalStorageByFlags(flags)
   } catch {
-    // Non-Tauri (web) build or no sentinel — nothing to do.
+    // A missing sentinel or a native startup failure must not block the UI.
   }
 }
 
@@ -92,7 +94,9 @@ const boot = async () => {
 
   const router = createRouter({ routeTree })
 
-  const rootElement = document.getElementById('root')!
+  const rootElement = document.getElementById('root')
+  if (!rootElement) return
+
   if (!rootElement.innerHTML) {
     const root = ReactDOM.createRoot(rootElement)
     root.render(
