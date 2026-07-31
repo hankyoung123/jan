@@ -20,6 +20,7 @@ class DeterministicTurnGenerator:
     def __init__(self) -> None:
         self.intent_calls: list[str] = []
         self.resolve_calls = 0
+        self.revision_calls: list[str] = []
         self._lock = Lock()
 
     def generate_intent(self, context: CharacterContext) -> CharacterIntent:
@@ -74,6 +75,35 @@ class DeterministicTurnGenerator:
                     old_value=round_number,
                     new_value=next_round,
                     reason="统一结算所有角色行动后推进回合",
+                ),
+            ),
+            unresolved_consequences=world.active_pressures,
+        )
+
+    def revise(
+        self,
+        world: WorldState,
+        intents: tuple[CharacterIntent, ...],
+        characters: tuple[Character, ...],
+        previous_outcome: WorldOutcome,
+        instruction: str,
+    ) -> WorldOutcome:
+        assert previous_outcome.summary
+        with self._lock:
+            self.revision_calls.append(instruction)
+        round_number = world.world_variables.get("round", 0)
+        assert isinstance(round_number, int) and not isinstance(round_number, bool)
+        return WorldOutcome(
+            summary="陈默与林岚暂缓行动, 先观察客船与灯塔的变化。",
+            public_results=("客船维持低速等待进一步指令",),
+            world_changes=(
+                StateChange(
+                    target_type="world",
+                    target_id="world",
+                    field="world_variables.round",
+                    old_value=round_number,
+                    new_value=round_number + 1,
+                    reason="按修改要求降低行动强度后推进回合",
                 ),
             ),
             unresolved_consequences=world.active_pressures,
@@ -150,6 +180,31 @@ def test_character_contexts_isolate_private_facts_and_other_intents(
     assert not hasattr(chen, "other_intents")
     assert chen.character.id == "chen-mo"
     assert lin.character.id == "lin-lan"
+
+
+def test_candidate_locks_every_existing_character_version(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path)
+    store = ProjectStore(root)
+    store.save_character(
+        Character(
+            id="dock-worker",
+            type="npc",
+            identity="在近港码头值守的工人",
+            core_desire="确保码头设备安全",
+            version=3,
+        ),
+        overwrite=False,
+    )
+
+    candidate = _service(root).generate_turn(("chen-mo",))
+
+    assert candidate.base_character_versions == {
+        "chen-mo": 0,
+        "dock-worker": 3,
+        "lin-lan": 0,
+    }
 
 
 def test_npc_candidate_is_not_formal_or_active_until_user_confirmation(
@@ -256,7 +311,9 @@ def test_editor_blocks_world_change_with_incorrect_source_value(tmp_path: Path) 
 
     assert reviewed.status == "needs_revision"
     assert reviewed.review is not None
-    assert any(issue.code == "world_rule_conflict" for issue in reviewed.review.issues)
+    assert any(
+        issue.code == "state_source_conflict" for issue in reviewed.review.issues
+    )
 
 
 def test_revision_and_discard_never_change_formal_markdown(tmp_path: Path) -> None:
@@ -270,7 +327,10 @@ def test_revision_and_discard_never_change_formal_markdown(tmp_path: Path) -> No
     assert revised.review is not None
     assert revised.review != original.review
     assert revised.status == "reviewed"
-    assert "让结果更克制" in revised.outcome.summary
+    assert revised.outcome != original.outcome
+    assert revised.outcome.summary == "陈默与林岚暂缓行动, 先观察客船与灯塔的变化。"
+    assert service.generator.revision_calls == ["让结果更克制"]
+    assert revised.intents == original.intents
     assert _formal_bytes(root) == before
 
     discarded = service.discard(revised.id)

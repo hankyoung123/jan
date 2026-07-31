@@ -99,6 +99,23 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
                 "unresolved_consequences": ["灯塔仍未恢复"],
             }
         ),
+        _json(
+            {
+                "summary": "陈默暂缓拆解装置, 林岚让客船在外港等待。",
+                "public_results": ["客船在外港维持低速"],
+                "world_changes": [
+                    {
+                        "target_type": "world",
+                        "target_id": "world",
+                        "field": "world_variables.round",
+                        "old_value": 0,
+                        "new_value": 1,
+                        "reason": "降低行动强度后推进回合",
+                    }
+                ],
+                "unresolved_consequences": ["灯塔仍未恢复"],
+            }
+        ),
     )
     gateway = ModelGateway(
         ProfileRegistry(tmp_path / "model-profiles.json"),
@@ -112,6 +129,13 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
         snapshot.world,
         (chen_intent, lin_intent),
         snapshot.characters,
+    )
+    revised = adapter.revise(
+        snapshot.world,
+        (chen_intent, lin_intent),
+        snapshot.characters,
+        outcome,
+        "让结果更克制, 不要立即拆解灯塔装置",
     )
 
     assert version("gdm-concordia") == "2.4.0"
@@ -127,6 +151,7 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
             reason="统一结算两个角色的行动",
         ),
     )
+    assert revised.summary == "陈默暂缓拆解装置, 林岚让客船在外港等待。"
 
     prompts = [call["messages"][0]["content"] for call in transport.calls]
     assert "secret:chen-father-disappearance" in prompts[0]
@@ -138,14 +163,18 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
     assert '"id": "chen-mo"' in prompts[2]
     assert '"id": "lin-lan"' in prompts[2]
     assert "Reuse an existing character" in prompts[2]
+    assert "让结果更克制, 不要立即拆解灯塔装置" in prompts[3]
+    assert "陈默检查装置。林岚要求客船降低航速。" in prompts[3]
+    assert "do not merely append the instruction" in prompts[3]
     assert [call["model"] for call in transport.calls] == [
         "qwen3-8b",
         "qwen3-8b",
         "gpt-5-mini",
+        "gpt-5-mini",
     ]
     assert all("response_format" in call for call in transport.calls)
     assert transport.contents == []
-    assert gateway.usage.totals().requests == 3
+    assert gateway.usage.totals().requests == 4
 
 
 def test_concordia_adapter_rejects_an_intent_for_another_character(

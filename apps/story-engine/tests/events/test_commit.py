@@ -7,6 +7,7 @@ from story_engine.domain.models import (
     Character,
     CharacterIntent,
     NpcCandidate,
+    PromotionCandidate,
     ReviewResult,
     StateChange,
     TurnCandidate,
@@ -18,6 +19,7 @@ from story_engine.events.commit import (
     StateChangeConflictError,
     VersionConflictError,
 )
+from story_engine.evolution.context import CharacterContextAssembler
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectSeed, ProjectStore
 
@@ -32,6 +34,7 @@ def _seed() -> ProjectSeed:
         world=WorldState(
             current_time="暴风雨前夜",
             current_location="雾港",
+            public_fact_ids=("fact:lighthouse-controls-night-navigation",),
             version=0,
         ),
         characters=(
@@ -43,6 +46,26 @@ def _seed() -> ProjectSeed:
                 current_goal="检查灯塔",
                 location="港务所",
                 version=0,
+            ),
+            Character(
+                id="lin-lan",
+                type="active",
+                identity="港务所值班员",
+                core_desire="保护进港船只",
+                current_goal="维持近港秩序",
+                location="港务所",
+                version=0,
+            ),
+            Character(
+                id="temporary-pilot",
+                display_name="临时引航员",
+                type="npc",
+                identity="暴风雨中赶到港口的引航员",
+                core_desire="让客船安全避开暗礁",
+                current_goal="观察近港水流",
+                known_fact_ids=("fact:near-harbor-reefs",),
+                location="近港码头",
+                version=2,
             ),
         ),
     )
@@ -104,6 +127,21 @@ def _approved_candidate(*, world_version: int = 0) -> TurnCandidate:
     )
 
 
+def _promotion_candidate(*, version: int = 2) -> PromotionCandidate:
+    return PromotionCandidate(
+        id=f"promotion-temporary-pilot-v{version}",
+        project_id="fog-harbor",
+        character_id="temporary-pilot",
+        base_character_version=version,
+        proposed_goal="主动引导客船避开近港暗礁",
+        review=ReviewResult(
+            mode="promotion_review",
+            passed=True,
+            summary="该人物已经形成独立目标并可能主动影响后续局势。",
+        ),
+    )
+
+
 def _formal_bytes(root: Path) -> dict[str, bytes]:
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
@@ -145,6 +183,44 @@ def test_stale_character_version_rejects_commit_without_writes(
     )
 
     with pytest.raises(VersionConflictError, match="character version"):
+        EventCommitService(root).commit(candidate)
+
+    assert _formal_bytes(root) == before
+
+
+def test_changed_nonparticipant_requires_base_version_without_writes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "fog-harbor"
+    ProjectStore(root).create(_seed())
+    before = _formal_bytes(root)
+    outcome = _candidate().outcome.model_copy(
+        update={
+            "character_changes": (
+                StateChange(
+                    target_type="character",
+                    target_id="lin-lan",
+                    field="location",
+                    old_value="港务所",
+                    new_value="近港码头",
+                    reason="林岚前往码头协调客船",
+                ),
+            )
+        }
+    )
+    candidate = _approved_candidate().with_outcome(outcome)
+    candidate = candidate.with_review(
+        ReviewResult(
+            mode="turn_review",
+            passed=True,
+            summary="伪造审核不能绕过角色版本检查。",
+        )
+    ).approve()
+
+    with pytest.raises(
+        VersionConflictError,
+        match="missing base character version: lin-lan",
+    ):
         EventCommitService(root).commit(candidate)
 
     assert _formal_bytes(root) == before
@@ -225,6 +301,46 @@ def test_npc_id_collision_rejects_commit_without_formal_writes(tmp_path: Path) -
         EventCommitService(root).commit(candidate)
 
     assert _formal_bytes(root) == before
+
+
+def test_user_confirmed_promotion_moves_npc_and_appends_event_atomically(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "fog-harbor"
+    store = ProjectStore(root)
+    store.create(_seed())
+
+    result = EventCommitService(root).promote_npc(_promotion_candidate())
+    snapshot = store.load()
+    promoted = next(
+        character
+        for character in snapshot.characters
+        if character.id == "temporary-pilot"
+    )
+
+    assert result.candidate.status == "committed"
+    assert result.event.source_turn_id == "promotion-temporary-pilot-v2"
+    assert result.event.approved_by_user is True
+    assert promoted.type == "active"
+    assert promoted.current_goal == "主动引导客船避开近港暗礁"
+    assert promoted.version == 3
+    assert promoted.last_event_id == result.event.id
+    assert not (root / "characters/npc/temporary-pilot.md").exists()
+    assert (root / "characters/active/temporary-pilot.md").exists()
+    assert "temporary-pilot" in CharacterContextAssembler().assemble(snapshot)
+    assert EventStore(root).list_events() == (result.event,)
+
+
+def test_stale_promotion_rejects_without_formal_writes(tmp_path: Path) -> None:
+    root = tmp_path / "fog-harbor"
+    ProjectStore(root).create(_seed())
+    before = _formal_bytes(root)
+
+    with pytest.raises(VersionConflictError, match="version changed"):
+        EventCommitService(root).promote_npc(_promotion_candidate(version=1))
+
+    assert _formal_bytes(root) == before
+    assert EventStore(root).list_events() == ()
 
 
 def test_batch_failure_rolls_back_every_formal_file(

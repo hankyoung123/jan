@@ -9,6 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from story_engine import __version__
+from story_engine.api.routes.characters import create_characters_router
 from story_engine.api.routes.manuscript import create_manuscript_router
 from story_engine.api.routes.models import create_models_router
 from story_engine.api.routes.projects import create_projects_router
@@ -170,6 +171,10 @@ def create_app(
     )
     app.include_router(
         create_manuscript_router(runtime_settings, gateway, workspace_manager),
+        dependencies=[Depends(require_session_token)],
+    )
+    app.include_router(
+        create_characters_router(runtime_settings, gateway, workspace_manager),
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(

@@ -92,6 +92,12 @@ to React. Other characters' private facts and current-turn intents are absent
 from every character context. Character entities are invoked concurrently;
 the Concordia Game Master runs only after all selected intents complete.
 
+Every generated candidate snapshots the version of every Character currently
+in the project, not only the participants. Review and commit both require a
+baseline version for each participant or modified Character, so a Resolver
+cannot smuggle an unchecked non-participant state change into a passing
+candidate.
+
 The Game Master also receives a minimal roster of existing characters so it
 can reuse a plausible person before proposing a new NPC. The roster contains
 identity and public state needed for resolution, not the complete private
@@ -101,6 +107,21 @@ turn creates its `characters/npc/{id}.md` document in the same atomic batch as
 the World, participant Character, and immutable Event writes. NPCs are never
 included in `CharacterContextAssembler`; they become Character Agents only
 through a later explicit promotion workflow.
+
+Requesting a revision preserves the original Character intents but sends the
+current world, Character roster, previous outcome, and the user's instruction
+back through the Concordia Resolver. The replacement `WorldOutcome` invalidates
+the old review and is reviewed again before it can be confirmed. A failed
+Resolver call leaves the previous candidate unchanged.
+
+NPC promotion is a separate two-step boundary. The Editor first performs a
+`promotion_review` and may write a derived `PromotionCandidate` below
+`.story-engine/reviews`; this never changes the Character or appends an Event.
+Only an explicit user confirmation can pass that exact candidate to
+`EventCommitService`. Commit rechecks the NPC version, writes the active
+Character document, deletes the NPC document, and appends the approval Event in
+one recoverable `AtomicBatch`. Rejected, stale, or already committed candidates
+cannot promote a Character.
 
 One process-local `TurnExecutionRegistry` owns the single active generation
 for each project. A cancellation request sets a thread-safe signal shared by
@@ -142,9 +163,13 @@ byte-identical.
 - Invalid or missing tokens return `401` without leaking configuration.
 - Provider errors are normalized before crossing the API boundary.
 - Candidate edits invalidate existing review state.
+- Resolver revision regenerates the outcome and reruns review; it never edits a
+  reviewed summary in place.
 - Resolver-proposed NPCs remain non-canonical until user confirmation.
 - NPC identifiers cannot collide with an existing Character or another NPC in
   the same outcome.
+- Promotion review remains derived until the user confirms the matching
+  versioned `PromotionCandidate`.
 - Cancelled or failed turn generation never writes a candidate or Canonical Markdown.
 - Version conflicts return `409` and never partially write canonical files.
 - Atomic writes use a sibling temporary file, flush, `fsync`, and `os.replace`.

@@ -26,6 +26,15 @@ of the three V1 decisions: request revision, discard, or confirm. Confirmation
 writes through the Story Engine and then reloads the canonical project snapshot
 before the UI displays the new world version. When no project is selected, the
 page links back to Submission instead of assuming a bundled example project.
+Revision keeps the displayed Character intents, replaces the Resolver outcome,
+and shows only the newly generated Editor review.
+
+The Characters workspace always loads the canonical project snapshot. Selecting
+an NPC exposes an Editor assessment action. A passing assessment displays its
+proposed goal but keeps the Character visibly marked as an NPC; promotion
+requires a separate confirmation action. After confirmation the UI reloads the
+project snapshot and displays the Character as active. The browser never edits
+the Character type or stores a second canonical copy.
 
 Submission begins with an empty, non-canonical setting draft. The discussion
 panel sends user/assistant history and that draft to the Python Editor profile;

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
 from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.errors import ModelConfigurationError
 from story_engine.submission.service import (
     SubmissionDraft,
     fog_harbor_submission,
@@ -59,6 +60,29 @@ class StoryTurnTransport:
                 "goal": "让客船安全进入雾港",
                 "knowledge_basis": ["secret:lin-unfiled-duty-roster"],
                 "recognized_risk": "备用航标可能不足",
+            }
+        elif model == "gpt-5-mini" and "turn_review mode" in prompt:
+            content = {
+                "mode": "turn_review",
+                "passed": True,
+                "summary": "行动、世界规则和状态来源检查通过。",
+                "issues": [],
+            }
+        elif model == "gpt-5-mini" and "Requested revision" in prompt:
+            content = {
+                "summary": "陈默暂缓拆解装置, 林岚让客船在外港等待。",
+                "public_results": ["客船在外港维持低速"],
+                "world_changes": [
+                    {
+                        "target_type": "world",
+                        "target_id": "world",
+                        "field": "world_variables.round",
+                        "old_value": 0,
+                        "new_value": 1,
+                        "reason": "降低行动强度后推进回合",
+                    }
+                ],
+                "unresolved_consequences": ["灯塔仍未恢复"],
             }
         elif model == "gpt-5-mini":
             content = {
@@ -123,6 +147,23 @@ class CancellableStoryTurnTransport(StoryTurnTransport):
             except asyncio.CancelledError:
                 self.cancelled.set()
                 raise
+        return await super().complete(payload, timeout_seconds=timeout_seconds)
+
+
+class FailingRevisionTransport(StoryTurnTransport):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_editor = False
+
+    async def complete(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: int,
+    ) -> Mapping[str, Any]:
+        prompt = payload["messages"][0]["content"]
+        if self.fail_editor and "turn_review mode" in str(prompt):
+            raise ModelConfigurationError("Jan model runtime bridge is unavailable")
         return await super().complete(payload, timeout_seconds=timeout_seconds)
 
 
@@ -238,9 +279,7 @@ def test_submission_message_without_jan_bridge_fails_without_project(
     tmp_path: Path,
 ) -> None:
     client = TestClient(
-        create_app(
-            EngineSettings(session_token="test-token", projects_root=tmp_path)
-        )
+        create_app(EngineSettings(session_token="test-token", projects_root=tmp_path))
     )
 
     response = client.post(
@@ -288,9 +327,16 @@ def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
     assert len(turn.json()["intents"]) == 2
     assert sorted(call["model"] for call in transport.calls) == [
         "gpt-5-mini",
+        "gpt-5-mini",
         "qwen3-8b",
         "qwen3-8b",
     ]
+    editor_calls = [
+        call
+        for call in transport.calls
+        if "turn_review mode" in call["messages"][0]["content"]
+    ]
+    assert len(editor_calls) == 1
 
     approved = client.post(
         "/projects/fog-harbor/turns/turn-000001/confirm",
@@ -304,6 +350,44 @@ def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
     assert project.status_code == 200
     assert project.json()["world"]["version"] == 1
     assert all(character["version"] == 1 for character in project.json()["characters"])
+
+
+def test_revision_maps_editor_gateway_error_without_changing_candidate(
+    tmp_path: Path,
+) -> None:
+    transport = FailingRevisionTransport()
+    client = TestClient(
+        create_app(
+            EngineSettings(session_token="test-token", projects_root=tmp_path),
+            model_transport=transport,
+        )
+    )
+    client.post(
+        "/submissions/finalize",
+        headers=AUTH,
+        json=fog_harbor_submission().model_dump(mode="json"),
+    )
+    generated = client.post(
+        "/projects/fog-harbor/turns/generate",
+        headers=AUTH,
+        json={},
+    )
+    original = generated.json()
+    transport.fail_editor = True
+
+    response = client.post(
+        "/projects/fog-harbor/turns/turn-000001/request-revision",
+        headers=AUTH,
+        json={"instruction": "让结果更克制"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "model_configuration_error"
+    persisted = client.get(
+        "/projects/fog-harbor/turns/turn-000001",
+        headers=AUTH,
+    )
+    assert persisted.json() == original
 
 
 def test_running_turn_can_be_cancelled_and_retried_without_writing_candidate(
@@ -365,9 +449,7 @@ def test_running_turn_can_be_cancelled_and_retried_without_writing_candidate(
 def test_turn_api_separates_generation_cancellation_from_candidate_decisions(
     tmp_path: Path,
 ) -> None:
-    app = create_app(
-        EngineSettings(session_token="test-token", projects_root=tmp_path)
-    )
+    app = create_app(EngineSettings(session_token="test-token", projects_root=tmp_path))
     paths = app.openapi()["paths"]
 
     assert "/projects/{project_id}/turns/{turn_id}/request-revision" in paths
@@ -381,9 +463,7 @@ def test_turn_api_separates_generation_cancellation_from_candidate_decisions(
 
 def test_unrunnable_submission_returns_conflict_without_project(tmp_path: Path) -> None:
     client = TestClient(
-        create_app(
-            EngineSettings(session_token="test-token", projects_root=tmp_path)
-        )
+        create_app(EngineSettings(session_token="test-token", projects_root=tmp_path))
     )
     payload = fog_harbor_submission().model_dump(mode="json")
     payload["pressures"] = []

@@ -98,6 +98,35 @@ class ConcordiaStoryAdapter:
         intents: tuple[CharacterIntent, ...],
         characters: tuple[Character, ...],
     ) -> WorldOutcome:
+        return self._resolve(world, intents, characters)
+
+    def revise(
+        self,
+        world: WorldState,
+        intents: tuple[CharacterIntent, ...],
+        characters: tuple[Character, ...],
+        previous_outcome: WorldOutcome,
+        instruction: str,
+    ) -> WorldOutcome:
+        if not instruction.strip():
+            raise ValueError("Concordia revision requires an instruction")
+        return self._resolve(
+            world,
+            intents,
+            characters,
+            previous_outcome=previous_outcome,
+            revision_instruction=instruction,
+        )
+
+    def _resolve(
+        self,
+        world: WorldState,
+        intents: tuple[CharacterIntent, ...],
+        characters: tuple[Character, ...],
+        *,
+        previous_outcome: WorldOutcome | None = None,
+        revision_instruction: str | None = None,
+    ) -> WorldOutcome:
         if not intents:
             raise ValueError("Concordia resolver requires at least one intent")
         model = JanGatewayLanguageModel(
@@ -107,17 +136,25 @@ class ConcordiaStoryAdapter:
             output_schema=_schema(WorldOutcome),
             cancellation=self._cancellation,
         )
+        instructions = (
+            "You are the World Resolver. Resolve all supplied intentions "
+            "together against the current world. Characters decide intent; "
+            "only you decide outcomes. Reuse an existing character whenever "
+            "that character can reasonably fulfill a required role. Create a "
+            "minimal new NPC only when no existing character can fulfill it. "
+            "A new NPC is not an active agent. Return candidate state changes "
+            "only; never commit canonical state."
+        )
+        if revision_instruction is not None:
+            instructions += (
+                " Replace the previous non-canonical outcome according to the "
+                "requested revision while preserving the supplied character "
+                "intents and canonical source values. Produce a genuinely revised "
+                "WorldOutcome; do not merely append the instruction to its summary."
+            )
         components = {
             "instructions": agent_components.constant.Constant(
-                state=(
-                    "You are the World Resolver. Resolve all supplied intentions "
-                    "together against the current world. Characters decide intent; "
-                    "only you decide outcomes. Reuse an existing character whenever "
-                    "that character can reasonably fulfill a required role. Create a "
-                    "minimal new NPC only when no existing character can fulfill it. "
-                    "A new NPC is not an active agent. Return candidate state changes "
-                    "only; never commit canonical state."
-                ),
+                state=instructions,
                 pre_act_label="Story Engine role",
             ),
             "world": agent_components.constant.Constant(
@@ -147,6 +184,15 @@ class ConcordiaStoryAdapter:
                 pre_act_label="Existing character roster for reuse",
             ),
         }
+        if previous_outcome is not None and revision_instruction is not None:
+            components["previous_outcome"] = agent_components.constant.Constant(
+                state=_json(previous_outcome),
+                pre_act_label="Previous non-canonical outcome",
+            )
+            components["revision_instruction"] = agent_components.constant.Constant(
+                state=revision_instruction,
+                pre_act_label="Requested revision",
+            )
         resolver = entity_agent_with_logging.EntityAgentWithLogging(
             agent_name="world-resolver",
             act_component=switch_act.SwitchAct(
@@ -160,7 +206,11 @@ class ConcordiaStoryAdapter:
             entity_lib.ActionSpec(
                 call_to_action="Return exactly one WorldOutcome JSON object.",
                 output_type=entity_lib.OutputType.RESOLVE,
-                tag="story-world-outcome",
+                tag=(
+                    "story-world-outcome-revision"
+                    if revision_instruction is not None
+                    else "story-world-outcome"
+                ),
             )
         )
         return WorldOutcome.model_validate_json(raw)

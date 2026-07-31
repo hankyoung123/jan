@@ -70,6 +70,11 @@ is still derived candidate data. Its lower-case, path-safe identifier must be
 unique within the outcome and must not collide with a Character already in the
 project. NPC candidates are not included in active Character contexts.
 
+`TurnCandidate.base_character_versions` contains every Character present when
+generation starts. Review and commit reject a participant or changed Character
+without a baseline version, and commit rejects any version that no longer
+matches canonical Markdown.
+
 Only one generation may run per project. While it is running, React may call:
 
 ```text
@@ -92,8 +97,11 @@ POST /projects/{project_id}/turns/{turn_id}/discard
 ```
 
 Only `confirm` can reach `EventCommitService` and mutate canonical Markdown.
-Revision replaces the derived outcome and reruns review; discard changes only
-the derived candidate lifecycle.
+Revision sends the current world, existing Character roster, original intents,
+previous outcome, and user instruction through the Resolver again. It replaces
+the derived outcome, invalidates the old review, and runs a new Editor review;
+discard changes only the derived candidate lifecycle. A Resolver or Editor
+failure leaves the previous candidate unchanged.
 
 When a confirmed outcome contains NPC candidates, `confirm` creates
 `characters/npc/{npc_id}.md` together with the World, participant Character,
@@ -101,6 +109,24 @@ and append-only Event updates in one recoverable atomic batch. The commit
 boundary repeats the identifier-collision check so a forged passing review
 cannot overwrite an existing Character. An unconfirmed, revised, discarded,
 cancelled, or failed Turn never creates NPC Markdown.
+
+## Characters and promotion
+
+```text
+GET  /projects/{project_id}/characters
+GET  /projects/{project_id}/characters/{character_id}
+POST /projects/{project_id}/characters/{character_id}/promotion-review
+POST /projects/{project_id}/characters/{character_id}/promote
+```
+
+`promotion-review` accepts only a canonical NPC. The Editor may return a
+versioned, derived `PromotionCandidate`, but the Character remains an NPC and no
+Event is written. A later `promote` request contains only the candidate ID. The
+engine loads that exact candidate, requires it to be pending and still match the
+NPC version, then atomically moves the Character Markdown to
+`characters/active`, applies the reviewed goal, appends a user-approved Event,
+and marks the derived candidate committed. Repeated confirmation or a stale
+version returns a conflict without a partial canonical write.
 
 ## Streaming event envelope
 

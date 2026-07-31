@@ -10,6 +10,7 @@ from story_engine.domain.models import (
     Character,
     DomainModel,
     NpcCandidate,
+    PromotionCandidate,
     StateChange,
     StoryEvent,
     TurnCandidate,
@@ -47,6 +48,12 @@ class UnsupportedStateChangeError(DomainError):
 class CommitResult(DomainModel):
     event: StoryEvent
     candidate: TurnCandidate
+
+
+class PromotionCommitResult(DomainModel):
+    event: StoryEvent
+    character: Character
+    candidate: PromotionCandidate
 
 
 class EventCommitService:
@@ -95,6 +102,19 @@ class EventCommitService:
             )
 
         characters = {character.id: character for character in snapshot.characters}
+        required_character_versions = {
+            intent.character_id for intent in candidate.intents
+        }
+        required_character_versions.update(
+            change.target_id
+            for change in candidate.outcome.character_changes
+            if change.target_type == "character"
+        )
+        for character_id in sorted(required_character_versions):
+            if character_id not in candidate.base_character_versions:
+                raise VersionConflictError(
+                    f"missing base character version: {character_id}"
+                )
         for character_id, base_version in candidate.base_character_versions.items():
             current = characters.get(character_id)
             if current is None:
@@ -103,11 +123,6 @@ class EventCommitService:
                 )
             if current.version != base_version:
                 raise VersionConflictError(f"character version changed: {character_id}")
-        for intent in candidate.intents:
-            if intent.character_id not in candidate.base_character_versions:
-                raise VersionConflictError(
-                    f"missing base character version: {intent.character_id}"
-                )
 
         sequence = self.event_store.next_sequence()
         event_id = f"event-{sequence:06d}"
@@ -166,6 +181,94 @@ class EventCommitService:
         )
         batch.commit()
         return CommitResult(event=event, candidate=candidate.mark_committed())
+
+    def promote_npc(self, candidate: PromotionCandidate) -> PromotionCommitResult:
+        if candidate.status != "pending":
+            raise InvalidTransitionError("only a pending promotion can be committed")
+
+        snapshot = self.project_store.load()
+        if snapshot.project.id != candidate.project_id:
+            raise VersionConflictError("promotion project does not match workspace")
+        characters = {character.id: character for character in snapshot.characters}
+        current = characters.get(candidate.character_id)
+        if current is None:
+            raise VersionConflictError("promotion character no longer exists")
+        if current.type != "npc":
+            raise InvalidTransitionError("only an NPC can be promoted")
+        if current.version != candidate.base_character_version:
+            raise VersionConflictError(
+                "character version changed since promotion review"
+            )
+
+        sequence = self.event_store.next_sequence()
+        event_id = f"event-{sequence:06d}"
+        promoted = current.model_copy(
+            update={
+                "type": "active",
+                "current_goal": candidate.proposed_goal,
+                "last_event_id": event_id,
+                "version": current.version + 1,
+            }
+        )
+        promoted = Character.model_validate(promoted)
+        changes = [
+            StateChange(
+                target_type="character",
+                target_id=current.id,
+                field="type",
+                old_value="npc",
+                new_value="active",
+                reason="用户确认 Editor 的角色升级建议",
+            )
+        ]
+        if current.current_goal != promoted.current_goal:
+            changes.append(
+                StateChange(
+                    target_type="character",
+                    target_id=current.id,
+                    field="current_goal",
+                    old_value=current.current_goal,
+                    new_value=promoted.current_goal,
+                    reason="采用已确认升级建议中的独立目标",
+                )
+            )
+        display_name = promoted.display_name or promoted.id
+        event = StoryEvent(
+            id=event_id,
+            sequence=sequence,
+            occurred_at=self.clock(),
+            summary=f"{display_name} 升级为活跃角色。",
+            participants=(promoted.id,),
+            public_results=(f"{display_name} 将从后续回合开始独立行动",),
+            character_changes=tuple(changes),
+            source_turn_id=candidate.id,
+            approved_by_user=True,
+        )
+
+        previous_path = self.project_store.character_path(current).relative_to(
+            self.root
+        )
+        promoted_path = self.project_store.character_path(promoted).relative_to(
+            self.root
+        )
+        batch = AtomicBatch(self.root)
+        batch.add(
+            promoted_path.as_posix(),
+            render_character(promoted),
+            overwrite=False,
+        )
+        batch.delete(previous_path.as_posix())
+        batch.add(
+            f"events/{sequence:06d}.md",
+            render_event(event),
+            overwrite=False,
+        )
+        batch.commit()
+        return PromotionCommitResult(
+            event=event,
+            character=promoted,
+            candidate=candidate.mark_committed(),
+        )
 
     @staticmethod
     def _create_npcs(

@@ -26,6 +26,7 @@ from story_engine.evolution.service import (
 )
 from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
+from story_engine.review.service import EditorReviewService
 from story_engine.submission.service import (
     SubmissionConversationRequest,
     SubmissionConversationResponse,
@@ -188,6 +189,10 @@ def create_projects_router(
                     model_gateway,
                     cancellation=execution.cancellation,
                 ),
+                reviewer=EditorReviewService(
+                    model_gateway,
+                    cancellation=execution.cancellation,
+                ),
             )
             return await asyncio.to_thread(
                 service.generate_turn,
@@ -273,15 +278,20 @@ def create_projects_router(
     ) -> TurnCandidate:
         root = _require_project(settings, project_id)
         try:
-            return EvolutionService(
+            service = EvolutionService(
                 root,
                 generator=ConcordiaStoryAdapter(model_gateway),
-            ).request_revision(
+                reviewer=EditorReviewService(model_gateway),
+            )
+            return await asyncio.to_thread(
+                service.request_revision,
                 turn_id,
                 request.instruction,
             )
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Turn not found") from error
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
         except (DomainError, InvalidTransitionError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 

@@ -17,6 +17,11 @@ become a `Character` until the containing Turn is approved by the user and
 committed. The committed Character has type `npc` and remains outside active
 Character Agent contexts.
 
+`PromotionCandidate` is a derived Editor recommendation tied to one project,
+one NPC, and the NPC's current version. It carries a proposed active goal, a
+passing `promotion_review`, and a `pending` or `committed` lifecycle. It is not
+Canon and cannot move a Character by itself.
+
 `StoryEvent` is the immutable canonical record produced from an approved
 candidate. Corrections are new amendment events; existing event files never
 change.
@@ -34,10 +39,19 @@ change.
   Markdown in the Event commit batch.
 - NPC Characters are not Character Agents unless a user explicitly promotes
   them to active status.
+- Promotion requires a passing derived recommendation plus explicit user
+  confirmation of the matching candidate ID.
+- Promotion commit rechecks the NPC version and atomically moves its Markdown
+  from `characters/npc` to `characters/active` while appending an approval
+  Event.
 - Character context includes only authorized facts and experienced events.
 - A candidate cannot be approved without a passing current review.
 - Editing a reviewed candidate clears its review and returns it to draft.
-- Commit requires matching base versions for the world and every participant.
+- Revision preserves Character intents, regenerates the Resolver outcome, and
+  requires a new Editor review.
+- A generated candidate snapshots every existing Character version. Commit
+  requires matching base versions for the world and every participating or
+  modified Character.
 - Only an approved candidate can be committed.
 - Event sequence numbers are monotonically increasing and append-only.
 - Writer inputs contain confirmed events and authorized style/world context only.
@@ -46,6 +60,7 @@ change.
 
 - `CharacterIntent`
 - `NpcCandidate`
+- `PromotionCandidate`
 - `WorldOutcome`
 - `ReviewResult`
 - `StateChange`

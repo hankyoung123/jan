@@ -31,7 +31,11 @@ vi.mock('./engine', () => ({
 }))
 
 vi.mock('@/containers/MessageItem', () => ({
-  MessageItem: ({ message }: { message: { parts: Array<{ type: string; text?: string }> } }) => (
+  MessageItem: ({
+    message,
+  }: {
+    message: { parts: Array<{ type: string; text?: string }> }
+  }) => (
     <div data-testid="jan-message-item">
       {message.parts
         .filter((part) => part.type === 'text')
@@ -47,6 +51,7 @@ import {
   setActiveStoryProjectId,
 } from './activeProject'
 import {
+  CharactersView,
   EvolutionView,
   ManuscriptView,
   SubmissionView,
@@ -279,10 +284,9 @@ describe('Story workspace lifecycle', () => {
 
     expect(await screen.findByText('极夜第三日')).toBeInTheDocument()
     expect(getActiveStoryProjectId()).toBe('north-star')
-    expect(h.engineRequest).toHaveBeenCalledWith(
-      '/projects/north-star/open',
-      { method: 'POST' }
-    )
+    expect(h.engineRequest).toHaveBeenCalledWith('/projects/north-star/open', {
+      method: 'POST',
+    })
     expect(h.subscribeProjectEvents).toHaveBeenCalledWith(
       'north-star',
       expect.any(Function)
@@ -317,10 +321,9 @@ describe('Story workspace lifecycle', () => {
 
     await waitFor(() => expect(getActiveStoryProjectId()).toBeNull())
     expect(screen.getByText('选择一个项目开始工作')).toBeInTheDocument()
-    expect(h.engineRequest).toHaveBeenCalledWith(
-      '/projects/north-star/close',
-      { method: 'POST' }
-    )
+    expect(h.engineRequest).toHaveBeenCalledWith('/projects/north-star/close', {
+      method: 'POST',
+    })
   })
 })
 
@@ -407,7 +410,9 @@ describe('Story submission', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
 
     expect(
-      await screen.findByText('初始世界已经具备运行条件，可以继续调整或创建项目。')
+      await screen.findByText(
+        '初始世界已经具备运行条件，可以继续调整或创建项目。'
+      )
     ).toBeInTheDocument()
     expect(screen.getAllByTestId('jan-message-item')).toHaveLength(3)
     expect(screen.getByText('北辰')).toBeInTheDocument()
@@ -505,7 +510,9 @@ describe('Story evolution', () => {
     expect(screen.getByText('北境观测站')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
 
-    expect(await screen.findByText(candidate.outcome.summary)).toBeInTheDocument()
+    expect(
+      await screen.findByText(candidate.outcome.summary)
+    ).toBeInTheDocument()
     expect(screen.getByText('阿岚')).toBeInTheDocument()
     expect(screen.getByText('柏舟')).toBeInTheDocument()
     expect(h.engineRequest).toHaveBeenCalledWith('/projects/north-star')
@@ -519,9 +526,7 @@ describe('Story evolution', () => {
     expect(screen.getByRole('button', { name: '要求修改' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '放弃本轮' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '确认本轮' })).toBeEnabled()
-    expect(
-      screen.getByRole('button', { name: '本轮待确认' })
-    ).toBeDisabled()
+    expect(screen.getByRole('button', { name: '本轮待确认' })).toBeDisabled()
     expect(
       screen.queryByRole('button', { name: '重新生成角色行动' })
     ).not.toBeInTheDocument()
@@ -544,8 +549,10 @@ describe('Story evolution', () => {
       },
     }
     h.engineRequest.mockImplementation((path: string) => {
-      if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
-      if (path.endsWith('/turns/generate')) return Promise.resolve(candidateWithNpc)
+      if (path === '/projects/north-star')
+        return Promise.resolve(projectSnapshot)
+      if (path.endsWith('/turns/generate'))
+        return Promise.resolve(candidateWithNpc)
       throw new Error(`Unexpected request: ${path}`)
     })
     render(<EvolutionView />)
@@ -553,7 +560,9 @@ describe('Story evolution', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
 
-    expect(await screen.findByText('赶到观测站的临时导航员')).toBeInTheDocument()
+    expect(
+      await screen.findByText('赶到观测站的临时导航员')
+    ).toBeInTheDocument()
     expect(screen.getByText('协助校准备用通信阵列')).toBeInTheDocument()
     expect(screen.getByText('待用户确认后创建普通人物')).toBeInTheDocument()
   })
@@ -563,7 +572,8 @@ describe('Story evolution', () => {
     let rejectGeneration: ((reason: Error) => void) | null = null
     let generationAttempts = 0
     h.engineRequest.mockImplementation((path: string) => {
-      if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
+      if (path === '/projects/north-star')
+        return Promise.resolve(projectSnapshot)
       if (path.endsWith('/turns/generate')) {
         generationAttempts += 1
         if (generationAttempts === 1) {
@@ -598,7 +608,9 @@ describe('Story evolution', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: '重试本轮' }))
 
-    expect(await screen.findByText(candidate.outcome.summary)).toBeInTheDocument()
+    expect(
+      await screen.findByText(candidate.outcome.summary)
+    ).toBeInTheDocument()
     expect(generationAttempts).toBe(2)
   })
 
@@ -606,11 +618,15 @@ describe('Story evolution', () => {
     setActiveStoryProjectId('north-star')
     const revised = {
       ...candidate,
-      outcome: { ...candidate.outcome, summary: '通信链路以更克制的方式恢复。' },
+      outcome: {
+        ...candidate.outcome,
+        summary: '通信链路以更克制的方式恢复。',
+      },
     }
     const discarded = { ...revised, status: 'discarded' }
     h.engineRequest.mockImplementation((path: string) => {
-      if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
+      if (path === '/projects/north-star')
+        return Promise.resolve(projectSnapshot)
       if (path.endsWith('/turns/generate')) return Promise.resolve(candidate)
       if (path.endsWith('/request-revision')) return Promise.resolve(revised)
       if (path.endsWith('/discard')) return Promise.resolve(discarded)
@@ -649,7 +665,9 @@ describe('Story evolution', () => {
     h.engineRequest.mockImplementation((path: string) => {
       if (path === '/projects/north-star') {
         projectReads += 1
-        return Promise.resolve(projectReads === 1 ? projectSnapshot : committedProject)
+        return Promise.resolve(
+          projectReads === 1 ? projectSnapshot : committedProject
+        )
       }
       if (path.endsWith('/turns/generate')) return Promise.resolve(candidate)
       if (path.endsWith('/confirm')) {
@@ -687,6 +705,104 @@ describe('Story evolution', () => {
   })
 })
 
+describe('Character workspace', () => {
+  beforeEach(() => {
+    h.engineRequest.mockReset()
+    clearActiveStoryProject()
+  })
+
+  it('keeps an Editor promotion suggestion derived until explicit confirmation', async () => {
+    setActiveStoryProjectId('north-star')
+    const npc = {
+      id: 'temporary-pilot',
+      display_name: '临时导航员',
+      type: 'npc',
+      identity: '赶到观测站的临时导航员',
+      core_desire: '帮助观测站恢复通信',
+      current_goal: '观察备用阵列',
+      known_fact_ids: ['fact:backup-array'],
+      relationships: [],
+      location: '备用阵列',
+      emotional_state: '警觉',
+      resources: [],
+      last_event_id: 'event-000005',
+      version: 2,
+    }
+    const withNpc = {
+      ...projectSnapshot,
+      characters: [...projectSnapshot.characters, npc],
+    }
+    const promotedCharacter = {
+      ...npc,
+      type: 'active',
+      current_goal: '主动校准备用通信阵列',
+      version: 3,
+    }
+    const promotedProject = {
+      ...projectSnapshot,
+      characters: [...projectSnapshot.characters, promotedCharacter],
+    }
+    const promotionCandidate = {
+      id: 'promotion-temporary-pilot-v2',
+      project_id: 'north-star',
+      character_id: 'temporary-pilot',
+      base_character_version: 2,
+      proposed_goal: '主动校准备用通信阵列',
+      review: {
+        mode: 'promotion_review',
+        passed: true,
+        summary: '该人物已经形成独立目标并可能主动影响后续局势。',
+        issues: [],
+      },
+      status: 'pending',
+    }
+    let projectReads = 0
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/projects/north-star') {
+        projectReads += 1
+        return Promise.resolve(projectReads === 1 ? withNpc : promotedProject)
+      }
+      if (path.endsWith('/promotion-review')) {
+        return Promise.resolve({
+          project_id: 'north-star',
+          character_id: 'temporary-pilot',
+          review: promotionCandidate.review,
+          candidate: promotionCandidate,
+        })
+      }
+      if (path.endsWith('/promote')) {
+        expect(init?.body).toBe(
+          JSON.stringify({ candidate_id: 'promotion-temporary-pilot-v2' })
+        )
+        return Promise.resolve({
+          candidate: { ...promotionCandidate, status: 'committed' },
+          character: promotedCharacter,
+          event: { id: 'event-000006' },
+        })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    render(<CharactersView />)
+    fireEvent.click(await screen.findByRole('button', { name: /临时导航员/ }))
+    expect(screen.getByText('普通人物')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '评估升级建议' }))
+
+    expect(
+      await screen.findByText('建议目标：主动校准备用通信阵列')
+    ).toBeInTheDocument()
+    expect(screen.getByText('普通人物')).toBeInTheDocument()
+    expect(projectReads).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: '确认升级为活跃角色' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '临时导航员 已升级为活跃角色'
+    )
+    expect(screen.getByText('活跃角色')).toBeInTheDocument()
+    expect(projectReads).toBe(2)
+  })
+})
+
 describe('Manuscript workspace', () => {
   beforeEach(() => {
     h.engineRequest.mockReset()
@@ -709,7 +825,9 @@ describe('Manuscript workspace', () => {
     mockManuscriptWorkspace()
     render(<ManuscriptView />)
 
-    expect(await screen.findByDisplayValue(sceneDraft.title)).toBeInTheDocument()
+    expect(
+      await screen.findByDisplayValue(sceneDraft.title)
+    ).toBeInTheDocument()
     expect(
       await screen.findByTestId(
         'novel-manuscript-editor',
@@ -756,7 +874,9 @@ describe('Manuscript workspace', () => {
     expect(await screen.findByText('从确认事件生成第一幕')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '从事件生成' }))
 
-    expect(await screen.findByDisplayValue('最后的氧气循环')).toBeInTheDocument()
+    expect(
+      await screen.findByDisplayValue('最后的氧气循环')
+    ).toBeInTheDocument()
     expect(h.engineRequest).toHaveBeenCalledWith(
       '/projects/north-star/scenes/generate',
       expect.objectContaining({ method: 'POST' })
@@ -771,8 +891,10 @@ describe('Manuscript workspace', () => {
       revision: 3,
     }
     h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
-      if (path === '/projects/north-star/events') return Promise.resolve(storyEvents)
-      if (path === '/projects/north-star/scenes') return Promise.resolve([sceneDraft])
+      if (path === '/projects/north-star/events')
+        return Promise.resolve(storyEvents)
+      if (path === '/projects/north-star/scenes')
+        return Promise.resolve([sceneDraft])
       if (path === '/projects/north-star/scenes/scene-000004') {
         const request = JSON.parse(String(init?.body))
         expect(request).toEqual({
@@ -859,8 +981,10 @@ describe('Manuscript workspace', () => {
       status: 'saved',
     }
     h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
-      if (path === '/projects/north-star/events') return Promise.resolve(storyEvents)
-      if (path === '/projects/north-star/scenes') return Promise.resolve([sceneDraft])
+      if (path === '/projects/north-star/events')
+        return Promise.resolve(storyEvents)
+      if (path === '/projects/north-star/scenes')
+        return Promise.resolve([sceneDraft])
       if (
         path === '/projects/north-star/scenes/scene-000004' &&
         init?.method === 'PUT'
@@ -922,7 +1046,9 @@ describe('Manuscript workspace', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '保存并检查事实' }))
 
-    expect(await screen.findByText(amendmentReview.new_facts[0])).toBeInTheDocument()
+    expect(
+      await screen.findByText(amendmentReview.new_facts[0])
+    ).toBeInTheDocument()
     expect(
       screen.getByText('检测到新事实，确认 Amendment 前正式正文不会改变')
     ).toBeInTheDocument()
@@ -955,8 +1081,10 @@ describe('Manuscript workspace', () => {
       value: vi.fn(),
     })
     h.engineRequest.mockImplementation((path: string) => {
-      if (path === '/projects/north-star/events') return Promise.resolve(storyEvents)
-      if (path === '/projects/north-star/scenes') return Promise.resolve([sceneDraft])
+      if (path === '/projects/north-star/events')
+        return Promise.resolve(storyEvents)
+      if (path === '/projects/north-star/scenes')
+        return Promise.resolve([sceneDraft])
       if (path === '/projects/north-star/manuscript/export') {
         return Promise.resolve({
           filename: 'north-star-manuscript.md',

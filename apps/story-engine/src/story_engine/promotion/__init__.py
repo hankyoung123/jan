@@ -1,0 +1,1 @@
+"""Explicit NPC promotion workflow."""

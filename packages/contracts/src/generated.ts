@@ -171,6 +171,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/characters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Characters */
+        get: operations["list_characters_projects__project_id__characters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/characters/{character_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Character */
+        get: operations["get_character_projects__project_id__characters__character_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/characters/{character_id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Promotion */
+        post: operations["confirm_promotion_projects__project_id__characters__character_id__promote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/characters/{character_id}/promotion-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Promotion */
+        post: operations["review_promotion_projects__project_id__characters__character_id__promotion_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/close": {
         parameters: {
             query?: never;
@@ -746,6 +814,46 @@ export interface components {
             characters: components["schemas"]["Character"][];
             project: components["schemas"]["ProjectDocument"];
             world: components["schemas"]["WorldState"];
+        };
+        /** PromotionAssessment */
+        PromotionAssessment: {
+            candidate?: components["schemas"]["PromotionCandidate"] | null;
+            /** Character Id */
+            character_id: string;
+            /** Project Id */
+            project_id: string;
+            review: components["schemas"]["ReviewResult"];
+        };
+        /** PromotionCandidate */
+        PromotionCandidate: {
+            /** Base Character Version */
+            base_character_version: number;
+            /** Character Id */
+            character_id: string;
+            /** Id */
+            id: string;
+            /** Project Id */
+            project_id: string;
+            /** Proposed Goal */
+            proposed_goal: string;
+            review: components["schemas"]["ReviewResult"];
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "committed";
+        };
+        /** PromotionCommitResult */
+        PromotionCommitResult: {
+            candidate: components["schemas"]["PromotionCandidate"];
+            character: components["schemas"]["Character"];
+            event: components["schemas"]["StoryEvent"];
+        };
+        /** PromotionConfirmationRequest */
+        PromotionConfirmationRequest: {
+            /** Candidate Id */
+            candidate_id: string;
         };
         /** Relationship */
         Relationship: {
@@ -1527,6 +1635,137 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_characters_projects__project_id__characters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Character"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_character_projects__project_id__characters__character_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                character_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Character"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_promotion_projects__project_id__characters__character_id__promote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                character_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromotionConfirmationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromotionCommitResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_promotion_projects__project_id__characters__character_id__promotion_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                character_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromotionAssessment"];
                 };
             };
             /** @description Validation Error */

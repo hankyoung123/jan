@@ -794,6 +794,127 @@
         "title": "ProjectSnapshot",
         "type": "object"
       },
+      "PromotionAssessment": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromotionCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "character_id": {
+            "title": "Character Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "review": {
+            "$ref": "#/components/schemas/ReviewResult"
+          }
+        },
+        "required": [
+          "project_id",
+          "character_id",
+          "review"
+        ],
+        "title": "PromotionAssessment",
+        "type": "object"
+      },
+      "PromotionCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "base_character_version": {
+            "minimum": 0.0,
+            "title": "Base Character Version",
+            "type": "integer"
+          },
+          "character_id": {
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "title": "Character Id",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^promotion-[a-z0-9][a-z0-9-]*-v[0-9]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "minLength": 1,
+            "title": "Project Id",
+            "type": "string"
+          },
+          "proposed_goal": {
+            "minLength": 1,
+            "title": "Proposed Goal",
+            "type": "string"
+          },
+          "review": {
+            "$ref": "#/components/schemas/ReviewResult"
+          },
+          "status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "committed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "character_id",
+          "base_character_version",
+          "proposed_goal",
+          "review"
+        ],
+        "title": "PromotionCandidate",
+        "type": "object"
+      },
+      "PromotionCommitResult": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/PromotionCandidate"
+          },
+          "character": {
+            "$ref": "#/components/schemas/Character"
+          },
+          "event": {
+            "$ref": "#/components/schemas/StoryEvent"
+          }
+        },
+        "required": [
+          "event",
+          "character",
+          "candidate"
+        ],
+        "title": "PromotionCommitResult",
+        "type": "object"
+      },
+      "PromotionConfirmationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "pattern": "^promotion-[a-z0-9][a-z0-9-]*-v[0-9]+$",
+            "title": "Candidate Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id"
+        ],
+        "title": "PromotionConfirmationRequest",
+        "type": "object"
+      },
       "Relationship": {
         "additionalProperties": false,
         "properties": {
@@ -2501,6 +2622,235 @@
         "summary": "Get Project",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/projects/{project_id}/characters": {
+      "get": {
+        "operationId": "list_characters_projects__project_id__characters_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Character"
+                  },
+                  "title": "Response List Characters Projects  Project Id  Characters Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Characters",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/projects/{project_id}/characters/{character_id}": {
+      "get": {
+        "operationId": "get_character_projects__project_id__characters__character_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Character"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Character",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/projects/{project_id}/characters/{character_id}/promote": {
+      "post": {
+        "operationId": "confirm_promotion_projects__project_id__characters__character_id__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromotionConfirmationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromotionCommitResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Confirm Promotion",
+        "tags": [
+          "characters"
+        ]
+      }
+    },
+    "/projects/{project_id}/characters/{character_id}/promotion-review": {
+      "post": {
+        "operationId": "review_promotion_projects__project_id__characters__character_id__promotion_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "character_id",
+            "required": true,
+            "schema": {
+              "title": "Character Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromotionAssessment"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Review Promotion",
+        "tags": [
+          "characters"
         ]
       }
     },

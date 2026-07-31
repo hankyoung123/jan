@@ -19,20 +19,23 @@ class _PendingWrite:
     overwrite: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingDelete:
+    relative_path: PurePosixPath
+
+
+type _PendingOperation = _PendingWrite | _PendingDelete
+
+
 class AtomicBatch:
     """A recoverable all-or-nothing batch for files below one project root."""
 
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()
-        self._writes: list[_PendingWrite] = []
+        self._operations: list[_PendingOperation] = []
 
-    def add(
-        self,
-        relative_path: str,
-        content: str,
-        *,
-        overwrite: bool = True,
-    ) -> None:
+    @staticmethod
+    def _validate_path(relative_path: str) -> PurePosixPath:
         relative = PurePosixPath(relative_path)
         invalid = (
             relative.is_absolute()
@@ -41,12 +44,30 @@ class AtomicBatch:
         )
         if invalid:
             raise ValueError("transaction paths must stay below the project root")
-        if any(item.relative_path == relative for item in self._writes):
+        return relative
+
+    def _ensure_unique(self, relative: PurePosixPath) -> None:
+        if any(item.relative_path == relative for item in self._operations):
             raise ValueError(f"duplicate transaction path: {relative}")
-        self._writes.append(_PendingWrite(relative, content, overwrite))
+
+    def add(
+        self,
+        relative_path: str,
+        content: str,
+        *,
+        overwrite: bool = True,
+    ) -> None:
+        relative = self._validate_path(relative_path)
+        self._ensure_unique(relative)
+        self._operations.append(_PendingWrite(relative, content, overwrite))
+
+    def delete(self, relative_path: str) -> None:
+        relative = self._validate_path(relative_path)
+        self._ensure_unique(relative)
+        self._operations.append(_PendingDelete(relative))
 
     def commit(self) -> None:
-        if not self._writes:
+        if not self._operations:
             return
 
         transaction_root = (
@@ -59,20 +80,32 @@ class AtomicBatch:
         items: list[dict[str, object]] = []
 
         try:
-            for write in self._writes:
-                relative = write.relative_path.as_posix()
+            for operation in self._operations:
+                relative = operation.relative_path.as_posix()
                 destination = self.root / relative
-                if not write.overwrite and destination.exists():
-                    raise FileExistsError(destination)
-
-                staged = staged_root / relative
-                atomic_write_text(staged, write.content, overwrite=False)
                 existed = destination.exists()
+                if isinstance(operation, _PendingWrite):
+                    if not operation.overwrite and existed:
+                        raise FileExistsError(destination)
+                    staged = staged_root / relative
+                    atomic_write_text(staged, operation.content, overwrite=False)
+                elif not existed:
+                    raise FileNotFoundError(destination)
                 if existed:
                     backup = backup_root / relative
                     backup.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(destination, backup)
-                items.append({"path": relative, "existed": existed})
+                items.append(
+                    {
+                        "path": relative,
+                        "existed": existed,
+                        "operation": (
+                            "write"
+                            if isinstance(operation, _PendingWrite)
+                            else "delete"
+                        ),
+                    }
+                )
 
             manifest = {"state": "prepared", "items": items}
             atomic_write_text(
@@ -85,8 +118,11 @@ class AtomicBatch:
                 for item in items:
                     relative = str(item["path"])
                     destination = self.root / relative
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    _replace(staged_root / relative, destination)
+                    if item["operation"] == "delete":
+                        destination.unlink()
+                    else:
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        _replace(staged_root / relative, destination)
             except BaseException:
                 self._rollback(items, backup_root)
                 raise
