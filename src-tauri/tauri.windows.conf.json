@@ -30,7 +30,11 @@
   },
   "bundle": {
     "targets": ["nsis", "msi"],
-    "resources": ["resources/LICENSE", "resources/bin/jan-cli.exe"],
+    "resources": {
+      "resources/LICENSE": "LICENSE",
+      "resources/bin/jan-cli.exe": "resources/bin/jan-cli.exe",
+      "resources/story-engine/": "story-engine/"
+    },
     "externalBin": ["resources/bin/bun", "resources/bin/uv"],
     "windows": {
       "webviewInstallMode": {

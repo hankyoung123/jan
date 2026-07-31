@@ -76,6 +76,12 @@ jobs:
       - name: Build Python package
         run: uv run --project apps/story-engine python -m build apps/story-engine
 
+      - name: Build and smoke-test packaged Sidecar
+        run: |
+          uv sync --frozen --project apps/story-engine --extra packaging
+          uv run --frozen --project apps/story-engine --extra packaging pyinstaller --noconfirm --clean --distpath src-tauri/resources --workpath .build/pyinstaller apps/story-engine/packaging/story-engine.spec
+          uv run --frozen --project apps/story-engine python scripts/smoke_story_engine_sidecar.py
+
   contracts:
     name: Generated Contracts
     runs-on: ubuntu-latest

@@ -20,7 +20,11 @@
   },
   "bundle": {
     "targets": ["deb", "appimage"],
-    "resources": ["resources/LICENSE", "resources/bin/jan-cli"],
+    "resources": {
+      "resources/LICENSE": "LICENSE",
+      "resources/bin/jan-cli": "resources/bin/jan-cli",
+      "resources/story-engine/": "story-engine/"
+    },
     "externalBin": ["resources/bin/uv"],
     "linux": {
       "appimage": {

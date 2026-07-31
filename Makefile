@@ -206,6 +206,7 @@ ifeq ($(DETECTED_OS),Darwin)
 		-output src-tauri/resources/bin/jan-cli
 	chmod +x src-tauri/resources/bin/jan-cli
 	$(call MKDIR,'src-tauri/target/universal-apple-darwin/release')
+	$(call MKDIR,'src-tauri/target/release')
 
 	echo "Checking for code signing identity..."; \
 	SIGNING_IDENTITY=$$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/'); \
@@ -218,6 +219,7 @@ ifeq ($(DETECTED_OS),Darwin)
 	fi
 
 	cp src-tauri/resources/bin/jan-cli src-tauri/target/universal-apple-darwin/release/jan-cli
+	cp src-tauri/resources/bin/jan-cli src-tauri/target/release/jan-cli
 else ifeq ($(DETECTED_OS),Windows)
 	cd src-tauri && cargo build --release --features cli --bin jan-cli
 	cp src-tauri/target/release/jan-cli.exe src-tauri/resources/bin/jan-cli.exe

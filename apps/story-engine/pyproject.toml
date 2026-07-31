@@ -28,6 +28,9 @@ dev = [
   "ruff>=0.12.0,<1",
   "types-jsonschema>=4.25.0.20250822,<5",
 ]
+packaging = [
+  "pyinstaller>=6.16.0,<7",
+]
 
 [project.scripts]
 story-engine = "story_engine.cli:main"
