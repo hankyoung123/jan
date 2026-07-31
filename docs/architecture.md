@@ -89,5 +89,22 @@ immediate status event on startup, readiness, stop, or crash. The UI exposes a
 restart action for stopped or crashed states. Development uses `uv`; packaged
 builds resolve the onedir Sidecar from application resources.
 
+## Model boundary
+
+Jan owns model discovery, download, loading, Provider configuration UI, and the
+local llama.cpp process. Domain calls cross into Python through `ModelGateway`,
+which resolves Character, Resolver, Editor, Writer, and Embedding profiles from
+one application-level registry. Both remote and Jan-local endpoints use the
+same OpenAI-compatible contract.
+
+Non-sensitive registry data is written atomically under application data, not
+inside story projects. Provider credentials are stored by provider ID in the
+operating-system keychain; model APIs expose only whether a credential exists.
+Remote endpoints require HTTPS and local endpoints require loopback addresses.
+
+The gateway enforces request and response byte ceilings, timeout and output
+token limits, transient retries, stable provider errors, per-call and aggregate
+usage accounting, and final JSON Schema validation for structured responses.
+
 See [ADR-0001](adr/0001-platform-and-upstream-locks.md) and
 [ADR-0002](adr/0002-markdown-canonical-state.md).

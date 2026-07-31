@@ -11,6 +11,9 @@ class EngineSettings:
     host: str = "127.0.0.1"
     port: int = 0
     projects_root: Path = field(default_factory=lambda: Path.cwd() / "projects")
+    model_registry_path: Path = field(
+        default_factory=lambda: Path.cwd() / "config" / "model-registry.json"
+    )
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:1420",
         "http://localhost:1420",

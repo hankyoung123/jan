@@ -8,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from story_engine import __version__
+from story_engine.api.routes.models import create_models_router
 from story_engine.api.routes.projects import create_projects_router
 from story_engine.config import EngineSettings
 from story_engine.events.stream import (
@@ -15,6 +16,9 @@ from story_engine.events.stream import (
     stream_events,
     websocket_token_is_valid,
 )
+from story_engine.models.gateway import ModelGateway, ModelTransport
+from story_engine.models.registry import ProfileRegistry
+from story_engine.models.secrets import KeyringSecretStore, SecretStore
 
 
 class HealthResponse(BaseModel):
@@ -59,7 +63,13 @@ def _auth_dependency(settings: EngineSettings) -> AuthDependency:
     return require_session_token
 
 
-def create_app(settings: EngineSettings | None = None) -> FastAPI:
+def create_app(
+    settings: EngineSettings | None = None,
+    *,
+    model_registry: ProfileRegistry | None = None,
+    secret_store: SecretStore | None = None,
+    model_transport: ModelTransport | None = None,
+) -> FastAPI:
     runtime_settings = settings or EngineSettings()
     require_session_token = _auth_dependency(runtime_settings)
     app = FastAPI(
@@ -68,6 +78,11 @@ def create_app(settings: EngineSettings | None = None) -> FastAPI:
         description="Local story-domain sidecar API",
     )
     app.state.settings = runtime_settings
+    registry = model_registry or ProfileRegistry(runtime_settings.model_registry_path)
+    secrets = secret_store or KeyringSecretStore()
+    gateway = ModelGateway(registry, secrets, model_transport)
+    app.state.model_registry = registry
+    app.state.model_gateway = gateway
     event_bus = EngineEventBus()
     app.state.event_bus = event_bus
     app.add_middleware(
@@ -107,6 +122,10 @@ def create_app(settings: EngineSettings | None = None) -> FastAPI:
 
     app.include_router(
         create_projects_router(runtime_settings, event_bus),
+        dependencies=[Depends(require_session_token)],
+    )
+    app.include_router(
+        create_models_router(registry, secrets, gateway),
         dependencies=[Depends(require_session_token)],
     )
 

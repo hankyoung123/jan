@@ -70,6 +70,20 @@ Unknown event types must be ignored by clients for forward compatibility.
 The bounded in-memory stream drops the oldest queued event for a slow client;
 canonical state remains available through HTTP and Markdown reload.
 
+## Model profiles
+
+`GET /models/profiles` returns the five application-level task routes.
+`PUT /models/profiles/{profile_id}` updates only non-sensitive routing and limit
+data. Provider writes may contain a write-only `api_key`; Provider reads return
+`has_api_key` and never return the credential. Story projects reference profile
+IDs and task overrides only.
+
+`POST /models/complete` and `POST /models/stream` share the `ModelRequest`
+contract. Structured calls include a JSON Schema string and fail with the
+stable `structured_output_invalid` code when schema parsing, JSON parsing, or
+validation fails. Streaming uses server-sent event records and applies the same
+final validation before accounting the request as complete.
+
 ## Contract generation
 
 The engine exports OpenAPI deterministically. The root verification command

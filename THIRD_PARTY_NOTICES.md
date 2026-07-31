@@ -43,3 +43,11 @@ The desktop product currently links or bundles the following package families:
 These are consumed as package dependencies; their source files and trademarks
 have not been copied or modified. Exact resolved versions are recorded in
 `pnpm-lock.yaml` and `apps/desktop/src-tauri/Cargo.lock`.
+
+## Python runtime dependencies
+
+The Story Engine consumes FastAPI, Pydantic, Uvicorn, HTTPX, jsonschema,
+python-frontmatter, and keyring under their respective permissive licenses.
+Exact resolved versions and transitive dependencies are recorded in
+`apps/story-engine/uv.lock`. Keyring is used only as the operating-system secret
+storage adapter; Provider credentials are not persisted in project files.

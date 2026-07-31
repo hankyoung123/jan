@@ -14,6 +14,14 @@ def test_openapi_contains_core_paths_and_bearer_security() -> None:
         "/projects/{project_id}/turns/{turn_id}/request-revision",
         "/projects/{project_id}/turns/{turn_id}/confirm",
         "/projects/{project_id}/turns/{turn_id}/discard",
+        "/models/catalog",
+        "/models/providers",
+        "/models/providers/{provider_id}",
+        "/models/profiles",
+        "/models/profiles/{profile_id}",
+        "/models/complete",
+        "/models/stream",
+        "/models/usage",
     } <= set(schema["paths"])
     assert "/projects/{project_id}/turns" not in schema["paths"]
     assert "/projects/{project_id}/turns/{turn_id}/approve" not in schema["paths"]

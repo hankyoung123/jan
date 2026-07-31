@@ -235,6 +235,283 @@
         "type": "object"
       },
       "JsonValue": {},
+      "Message": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "Message",
+        "type": "object"
+      },
+      "ModelCatalog": {
+        "additionalProperties": false,
+        "properties": {
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/ModelProfile"
+            },
+            "title": "Profiles",
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderView"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers",
+          "profiles"
+        ],
+        "title": "ModelCatalog",
+        "type": "object"
+      },
+      "ModelProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "max_output_tokens": {
+            "default": 2048,
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Max Output Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "provider_id": {
+            "minLength": 1,
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "task_type": {
+            "enum": [
+              "character",
+              "resolver",
+              "editor",
+              "writer",
+              "embedding"
+            ],
+            "title": "Task Type",
+            "type": "string"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "timeout_seconds": {
+            "default": 60,
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "task_type",
+          "provider_id",
+          "model"
+        ],
+        "title": "ModelProfile",
+        "type": "object"
+      },
+      "ModelRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "max_output_tokens": {
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Max Output Tokens",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "maxItems": 128,
+            "minItems": 1,
+            "title": "Messages",
+            "type": "array"
+          },
+          "output_schema": {
+            "anyOf": [
+              {
+                "maxLength": 131072,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema"
+          },
+          "profile_id": {
+            "minLength": 1,
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "task_type": {
+            "enum": [
+              "character",
+              "resolver",
+              "editor",
+              "writer",
+              "embedding"
+            ],
+            "title": "Task Type",
+            "type": "string"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "timeout_seconds": {
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "profile_id",
+          "task_type",
+          "messages",
+          "max_output_tokens",
+          "timeout_seconds"
+        ],
+        "title": "ModelRequest",
+        "type": "object"
+      },
+      "ModelResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Reason"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "parsed_output": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "profile_id": {
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/ModelUsage"
+          }
+        },
+        "required": [
+          "profile_id",
+          "provider_id",
+          "model",
+          "content"
+        ],
+        "title": "ModelResponse",
+        "type": "object"
+      },
+      "ModelUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "completion_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "prompt_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "title": "ModelUsage",
+        "type": "object"
+      },
       "NpcCandidate": {
         "additionalProperties": false,
         "properties": {
@@ -347,6 +624,104 @@
           "characters"
         ],
         "title": "ProjectSnapshot",
+        "type": "object"
+      },
+      "ProviderView": {
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "has_api_key": {
+            "title": "Has Api Key",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "remote",
+              "local"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "requires_api_key": {
+            "title": "Requires Api Key",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "base_url",
+          "requires_api_key",
+          "has_api_key"
+        ],
+        "title": "ProviderView",
+        "type": "object"
+      },
+      "ProviderWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "base_url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Base Url",
+            "type": "string"
+          },
+          "clear_api_key": {
+            "default": false,
+            "title": "Clear Api Key",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "remote",
+              "local"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "requires_api_key": {
+            "default": false,
+            "title": "Requires Api Key",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "base_url"
+        ],
+        "title": "ProviderWrite",
         "type": "object"
       },
       "Relationship": {
@@ -859,6 +1234,37 @@
         "title": "TurnGenerationRequest",
         "type": "object"
       },
+      "UsageTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "completion_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "prompt_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "requests": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Requests",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "title": "UsageTotals",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1100,6 +1506,317 @@
         "summary": "Health",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/models/catalog": {
+      "get": {
+        "operationId": "get_model_catalog_models_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Model Catalog",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/complete": {
+      "post": {
+        "operationId": "complete_model_models_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Complete Model",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/profiles": {
+      "get": {
+        "operationId": "get_model_profiles_models_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModelProfile"
+                  },
+                  "title": "Response Get Model Profiles Models Profiles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Model Profiles",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/profiles/{profile_id}": {
+      "put": {
+        "operationId": "put_model_profile_models_profiles__profile_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelProfile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Put Model Profile",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/providers": {
+      "get": {
+        "operationId": "get_model_providers_models_providers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderView"
+                  },
+                  "title": "Response Get Model Providers Models Providers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Model Providers",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/providers/{provider_id}": {
+      "put": {
+        "operationId": "put_model_provider_models_providers__provider_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Put Model Provider",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/stream": {
+      "post": {
+        "operationId": "stream_model_models_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Stream Model",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/models/usage": {
+      "get": {
+        "operationId": "model_usage_models_usage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageTotals"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Model Usage",
+        "tags": [
+          "models"
         ]
       }
     },

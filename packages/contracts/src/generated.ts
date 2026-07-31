@@ -35,6 +35,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/models/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Model Catalog */
+        get: operations["get_model_catalog_models_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Model */
+        post: operations["complete_model_models_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Model Profiles */
+        get: operations["get_model_profiles_models_profiles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Model Profile */
+        put: operations["put_model_profile_models_profiles__profile_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Model Providers */
+        get: operations["get_model_providers_models_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/providers/{provider_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Model Provider */
+        put: operations["put_model_provider_models_providers__provider_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stream Model */
+        post: operations["stream_model_models_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Model Usage */
+        get: operations["model_usage_models_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -254,6 +390,109 @@ export interface components {
             version: string;
         };
         JsonValue: unknown;
+        /** Message */
+        Message: {
+            /** Content */
+            content: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "system" | "user" | "assistant";
+        };
+        /** ModelCatalog */
+        ModelCatalog: {
+            /** Profiles */
+            profiles: components["schemas"]["ModelProfile"][];
+            /** Providers */
+            providers: components["schemas"]["ProviderView"][];
+        };
+        /** ModelProfile */
+        ModelProfile: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Max Output Tokens
+             * @default 2048
+             */
+            max_output_tokens: number;
+            /** Model */
+            model: string;
+            /** Name */
+            name: string;
+            /** Provider Id */
+            provider_id: string;
+            /**
+             * Task Type
+             * @enum {string}
+             */
+            task_type: "character" | "resolver" | "editor" | "writer" | "embedding";
+            /** Temperature */
+            temperature?: number | null;
+            /**
+             * Timeout Seconds
+             * @default 60
+             */
+            timeout_seconds: number;
+        };
+        /** ModelRequest */
+        ModelRequest: {
+            /** Max Output Tokens */
+            max_output_tokens: number;
+            /** Messages */
+            messages: components["schemas"]["Message"][];
+            /** Output Schema */
+            output_schema?: string | null;
+            /** Profile Id */
+            profile_id: string;
+            /**
+             * Task Type
+             * @enum {string}
+             */
+            task_type: "character" | "resolver" | "editor" | "writer" | "embedding";
+            /** Temperature */
+            temperature?: number | null;
+            /** Timeout Seconds */
+            timeout_seconds: number;
+        };
+        /** ModelResponse */
+        ModelResponse: {
+            /** Content */
+            content: string;
+            /** Finish Reason */
+            finish_reason?: string | null;
+            /** Model */
+            model: string;
+            parsed_output?: components["schemas"]["JsonValue"];
+            /** Profile Id */
+            profile_id: string;
+            /** Provider Id */
+            provider_id: string;
+            usage?: components["schemas"]["ModelUsage"];
+        };
+        /** ModelUsage */
+        ModelUsage: {
+            /**
+             * Completion Tokens
+             * @default 0
+             */
+            completion_tokens: number;
+            /**
+             * Prompt Tokens
+             * @default 0
+             */
+            prompt_tokens: number;
+            /**
+             * Total Tokens
+             * @default 0
+             */
+            total_tokens: number;
+        };
         /** NpcCandidate */
         NpcCandidate: {
             /** Current Goal */
@@ -295,6 +534,48 @@ export interface components {
             characters: components["schemas"]["Character"][];
             project: components["schemas"]["ProjectDocument"];
             world: components["schemas"]["WorldState"];
+        };
+        /** ProviderView */
+        ProviderView: {
+            /** Base Url */
+            base_url: string;
+            /** Has Api Key */
+            has_api_key: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "remote" | "local";
+            /** Name */
+            name: string;
+            /** Requires Api Key */
+            requires_api_key: boolean;
+        };
+        /** ProviderWrite */
+        ProviderWrite: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Base Url */
+            base_url: string;
+            /**
+             * Clear Api Key
+             * @default false
+             */
+            clear_api_key: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "remote" | "local";
+            /** Name */
+            name: string;
+            /**
+             * Requires Api Key
+             * @default false
+             */
+            requires_api_key: boolean;
         };
         /** Relationship */
         Relationship: {
@@ -488,6 +769,29 @@ export interface components {
              */
             participant_ids: string[];
         };
+        /** UsageTotals */
+        UsageTotals: {
+            /**
+             * Completion Tokens
+             * @default 0
+             */
+            completion_tokens: number;
+            /**
+             * Prompt Tokens
+             * @default 0
+             */
+            prompt_tokens: number;
+            /**
+             * Requests
+             * @default 0
+             */
+            requests: number;
+            /**
+             * Total Tokens
+             * @default 0
+             */
+            total_tokens: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -612,6 +916,220 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    get_model_catalog_models_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCatalog"];
+                };
+            };
+        };
+    };
+    complete_model_models_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_profiles_models_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProfile"][];
+                };
+            };
+        };
+    };
+    put_model_profile_models_profiles__profile_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelProfile"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProfile"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_providers_models_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderView"][];
+                };
+            };
+        };
+    };
+    put_model_provider_models_providers__provider_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_model_models_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    model_usage_models_usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageTotals"];
                 };
             };
         };
