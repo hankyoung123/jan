@@ -8,8 +8,9 @@ location, pressures, public facts, variables, and an optimistic version.
 location, state, and optimistic version.
 
 `TurnCandidate` is explicitly non-canonical. It records the base world and
-character versions, isolated character intents, a resolver outcome, one review,
-and lifecycle status.
+character versions, the canonical workspace revision seen during generation,
+isolated character intents, a resolver outcome, one review, and lifecycle
+status.
 
 `NpcCandidate` is a minimal, non-canonical Resolver proposal. It carries a
 filesystem-safe identifier, identity, purpose, and optional goal. It does not
@@ -18,9 +19,10 @@ committed. The committed Character has type `npc` and remains outside active
 Character Agent contexts.
 
 `PromotionCandidate` is a derived Editor recommendation tied to one project,
-one NPC, and the NPC's current version. It carries a proposed active goal, a
-passing `promotion_review`, and a `pending` or `committed` lifecycle. It is not
-Canon and cannot move a Character by itself.
+one NPC, its current version, and the canonical workspace revision seen during
+review. It carries a proposed active goal, a passing `promotion_review`, and a
+`pending` or `committed` lifecycle. It is not Canon and cannot move a Character
+by itself.
 
 `StoryEvent` is the immutable canonical record produced from an approved
 candidate. Corrections are new amendment events; existing event files never

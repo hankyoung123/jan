@@ -1,3 +1,5 @@
+import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Lock, get_ident
 
@@ -6,6 +8,7 @@ from story_engine.domain.models import (
     CharacterIntent,
     NpcCandidate,
     StateChange,
+    StoryEvent,
     WorldOutcome,
     WorldState,
 )
@@ -368,6 +371,75 @@ def test_ten_confirmed_rounds_remain_fully_traceable(tmp_path: Path) -> None:
     assert [event.id for event in events] == [
         f"event-{sequence:06d}" for sequence in range(1, 11)
     ]
+
+
+def test_large_project_supports_thirty_traceable_rounds(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    store = ProjectStore(root)
+    event_store = EventStore(root)
+    history_size = 500
+    history_start = datetime(2026, 1, 1, tzinfo=UTC)
+
+    for sequence in range(1, history_size + 1):
+        event_store.append(
+            StoryEvent(
+                id=f"event-{sequence:06d}",
+                sequence=sequence,
+                occurred_at=history_start + timedelta(minutes=sequence),
+                summary=f"归档事件 {sequence}",
+                participants=("chen-mo", "lin-lan"),
+                public_results=(f"历史回合推进至 {sequence}",),
+                source_turn_id=f"archived-turn-{sequence:06d}",
+                approved_by_user=True,
+            )
+        )
+
+    snapshot = store.load()
+    store.save_world(
+        snapshot.world.model_copy(
+            update={
+                "version": history_size,
+                "world_variables": {"round": history_size},
+            }
+        )
+    )
+    for character in snapshot.characters:
+        store.save_character(
+            character.model_copy(
+                update={
+                    "version": history_size,
+                    "last_event_id": f"event-{history_size:06d}",
+                }
+            )
+        )
+
+    service = _service(root)
+    started = time.perf_counter()
+    for offset in range(1, 31):
+        expected_version = history_size + offset
+        candidate = service.generate_turn()
+        assert candidate.base_world_version == expected_version - 1
+        assert candidate.base_workspace_revision is not None
+        result = service.confirm(candidate.id)
+        current = ProjectStore(root).load()
+
+        assert result.event.sequence == expected_version
+        assert result.event.source_turn_id == candidate.id
+        assert current.world.version == expected_version
+        assert current.world.world_variables["round"] == expected_version
+        assert all(
+            character.version == expected_version
+            and character.last_event_id == result.event.id
+            for character in current.characters
+        )
+
+    elapsed = time.perf_counter() - started
+    events = EventStore(root).list_events()
+    assert len(events) == history_size + 30
+    assert [event.sequence for event in events[-30:]] == list(
+        range(history_size + 1, history_size + 31)
+    )
+    assert elapsed < 60, f"30 rounds over a 500-event project took {elapsed:.2f}s"
 
 
 def test_generation_emits_ordered_pipeline_events(tmp_path: Path) -> None:
