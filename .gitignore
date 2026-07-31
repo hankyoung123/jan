@@ -17,8 +17,6 @@ coverage/
 .vite/
 *.tsbuildinfo
 package-lock.json
-apps/desktop/vite.config.js
-apps/desktop/vite.config.d.ts
 core/lib/**
 .yarn/
 .yarnrc
@@ -37,7 +35,6 @@ __pycache__/
 # Rust / Tauri
 target/
 Cargo.lock
-apps/desktop/src-tauri/gen/
 src-tauri/resources/
 src-tauri/gen/apple/
 src-tauri/gen/android/

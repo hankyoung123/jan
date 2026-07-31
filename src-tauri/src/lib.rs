@@ -11,6 +11,11 @@ use core::{
 };
 #[cfg(not(feature = "cli"))]
 use jan_utils::generate_app_token;
+#[cfg(all(
+    not(feature = "cli"),
+    not(any(target_os = "android", target_os = "ios"))
+))]
+use core::story_engine_runtime::EngineRuntime;
 #[cfg(not(feature = "cli"))]
 use std::{
     collections::{HashMap, HashSet},
@@ -273,6 +278,7 @@ pub fn run() {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         app_builder = app_builder.plugin(tauri_plugin_hardware::init());
+        app_builder = app_builder.manage(Arc::new(EngineRuntime::default()));
     }
 
     // Desktop: include updater commands
@@ -281,6 +287,11 @@ pub fn run() {
         // Custom updater commands (desktop only)
         core::updater::commands::check_for_app_updates,
         core::updater::commands::is_update_available,
+        // Product-owned Python Sidecar commands
+        core::story_engine_runtime::engine_runtime_state,
+        core::story_engine_runtime::engine_runtime_logs,
+        core::story_engine_runtime::restart_story_engine,
+        core::story_engine_runtime::stop_story_engine,
     ]);
 
     // Mobile: no updater commands
@@ -381,6 +392,14 @@ pub fn run() {
             #[cfg(desktop)]
             setup::setup_jan_cli(app.handle().clone(), stored_version != app_version);
             setup::setup_theme_listener(app)?;
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            {
+                let runtime = app.state::<Arc<EngineRuntime>>().inner().clone();
+                core::story_engine_runtime::start_managed_sidecar(
+                    app.handle().clone(),
+                    runtime,
+                );
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -448,6 +467,14 @@ pub fn run() {
         }
         if let RunEvent::Exit = event {
             let app_handle = app.clone();
+
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            {
+                let runtime = app_handle.state::<Arc<EngineRuntime>>();
+                if let Err(error) = runtime.stop() {
+                    log::warn!("Failed to stop Story Engine Sidecar: {error}");
+                }
+            }
 
             // Drain any debounced settings writes before the process dies so
             // jan-cli never reads a stale settings.json.

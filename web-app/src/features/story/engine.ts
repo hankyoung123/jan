@@ -1,8 +1,9 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 export type EnginePhase = 'starting' | 'ready' | 'stopped' | 'crashed'
 
-interface EngineRuntimeState {
+export interface EngineRuntimeState {
   phase: EnginePhase
   base_url: string | null
   websocket_url: string | null
@@ -10,6 +11,8 @@ interface EngineRuntimeState {
   restart_count: number
   last_error: string | null
 }
+
+export type EngineRuntimeStatus = Omit<EngineRuntimeState, 'session_token'>
 
 const developmentRuntime: EngineRuntimeState = {
   phase: 'ready',
@@ -25,6 +28,20 @@ const developmentRuntime: EngineRuntimeState = {
 export async function resolveEngineRuntime(): Promise<EngineRuntimeState> {
   if (!isTauri()) return developmentRuntime
   return invoke<EngineRuntimeState>('engine_runtime_state')
+}
+
+export async function restartEngineRuntime(): Promise<EngineRuntimeState> {
+  if (!isTauri()) return developmentRuntime
+  return invoke<EngineRuntimeState>('restart_story_engine')
+}
+
+export async function subscribeEngineRuntime(
+  listener: (state: EngineRuntimeStatus) => void
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined
+  return listen<EngineRuntimeStatus>('story-engine://status', (event) => {
+    listener(event.payload)
+  })
 }
 
 function errorMessage(payload: unknown, status: number): string {

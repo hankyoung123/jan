@@ -3,7 +3,7 @@ use std::{
     env,
     io::{BufRead, BufReader, Read},
     net::TcpListener,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -15,6 +15,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 const MAX_LOG_LINES: usize = 200;
+const HEALTH_ATTEMPTS: usize = 50;
+const HEALTH_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +38,8 @@ pub struct EngineConnection {
     pub last_error: Option<String>,
 }
 
+/// Status notifications deliberately omit the bearer token. The webview may
+/// obtain it only through the explicit `engine_runtime_state` command.
 #[derive(Clone, Debug, Serialize)]
 struct EngineStatusEvent {
     phase: EnginePhase,
@@ -85,20 +89,28 @@ impl EngineRuntime {
             .map_err(|_| "Story Engine runtime lock is poisoned".to_owned())
     }
 
-    pub(crate) fn stop(&self) -> Result<EngineConnection, String> {
-        let mut inner = self
-            .inner
-            .lock()
-            .map_err(|_| "Story Engine runtime lock is poisoned".to_owned())?;
-        inner.generation = inner.generation.wrapping_add(1);
-        if let Some(mut process) = inner.process.take() {
-            let _ = process.kill();
-            let _ = process.wait();
-        }
-        inner.connection.phase = EnginePhase::Stopped;
-        inner.connection.session_token = None;
-        inner.connection.last_error = None;
-        Ok(inner.connection.clone())
+    pub fn stop(&self) -> Result<EngineConnection, String> {
+        let (process, connection) = {
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| "Story Engine runtime lock is poisoned".to_owned())?;
+            inner.generation = inner.generation.wrapping_add(1);
+            let process = inner.process.take();
+            inner.connection.phase = EnginePhase::Stopped;
+            inner.connection.session_token = None;
+            inner.connection.last_error = None;
+            (process, inner.connection.clone())
+        };
+        terminate_process(process);
+        Ok(connection)
+    }
+}
+
+fn terminate_process(process: Option<Child>) {
+    if let Some(mut process) = process {
+        let _ = process.kill();
+        let _ = process.wait();
     }
 }
 
@@ -115,11 +127,18 @@ fn session_token() -> String {
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
 }
 
+fn development_project_path(manifest_dir: &Path) -> PathBuf {
+    manifest_dir
+        .parent()
+        .unwrap_or(manifest_dir)
+        .join("apps/story-engine")
+}
+
 fn sidecar_command(app: &AppHandle, port: u16, token: &str) -> Result<Command, String> {
     let mut command = if let Some(binary) = env::var_os("STORY_ENGINE_SIDECAR_BIN") {
         Command::new(binary)
     } else if cfg!(debug_assertions) {
-        let project = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../story-engine");
+        let project = development_project_path(Path::new(env!("CARGO_MANIFEST_DIR")));
         let mut command =
             Command::new(env::var_os("STORY_ENGINE_UV_BIN").unwrap_or_else(|| "uv".into()));
         command.args(["run", "--project"]);
@@ -147,9 +166,8 @@ fn sidecar_command(app: &AppHandle, port: u16, token: &str) -> Result<Command, S
         .map_err(|error| format!("failed to resolve app data directory: {error}"))?;
     std::fs::create_dir_all(&data_dir)
         .map_err(|error| format!("failed to create app data directory: {error}"))?;
-    let port_argument = port.to_string();
     command
-        .args(["serve", "--host", "127.0.0.1", "--port", &port_argument])
+        .args(["serve", "--host", "127.0.0.1", "--port", &port.to_string()])
         .env("STORY_ENGINE_SESSION_TOKEN", token)
         .current_dir(data_dir)
         .stdin(Stdio::null())
@@ -186,18 +204,20 @@ fn emit_status(app: &AppHandle, connection: &EngineConnection) {
 }
 
 fn set_crashed(app: &AppHandle, runtime: &EngineRuntime, generation: u64, message: String) {
-    let Ok(mut inner) = runtime.inner.lock() else {
-        return;
+    let (process, connection) = {
+        let Ok(mut inner) = runtime.inner.lock() else {
+            return;
+        };
+        if inner.generation != generation {
+            return;
+        }
+        let process = inner.process.take();
+        inner.connection.phase = EnginePhase::Crashed;
+        inner.connection.session_token = None;
+        inner.connection.last_error = Some(message);
+        (process, inner.connection.clone())
     };
-    if inner.generation != generation {
-        return;
-    }
-    inner.process = None;
-    inner.connection.phase = EnginePhase::Crashed;
-    inner.connection.session_token = None;
-    inner.connection.last_error = Some(message);
-    let connection = inner.connection.clone();
-    drop(inner);
+    terminate_process(process);
     emit_status(app, &connection);
 }
 
@@ -210,7 +230,7 @@ fn start(
     let port = reserve_port()?;
     let token = session_token();
     let base_url = format!("http://127.0.0.1:{port}");
-    let websocket_url = format!("ws://127.0.0.1:{port}");
+    let websocket_url = format!("ws://127.0.0.1:{port}/ws/events");
     let mut command = sidecar_command(&app, port, &token)?;
     let mut process = command
         .spawn()
@@ -266,8 +286,8 @@ async fn monitor(app: AppHandle, runtime: Arc<EngineRuntime>, generation: u64, b
     };
 
     let mut ready = false;
-    for _ in 0..50 {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    for _ in 0..HEALTH_ATTEMPTS {
+        tokio::time::sleep(HEALTH_INTERVAL).await;
         let exited = {
             let Ok(mut inner) = runtime.inner.lock() else {
                 return;
@@ -380,20 +400,49 @@ pub fn stop_story_engine(
 
 pub fn start_managed_sidecar(app: AppHandle, runtime: Arc<EngineRuntime>) {
     if let Err(error) = start(app.clone(), runtime.clone(), false) {
-        if let Ok(mut inner) = runtime.inner.lock() {
+        let connection = {
+            let Ok(mut inner) = runtime.inner.lock() else {
+                return;
+            };
             inner.connection.phase = EnginePhase::Crashed;
             inner.connection.session_token = None;
             inner.connection.last_error = Some(error);
-            let connection = inner.connection.clone();
-            drop(inner);
-            emit_status(&app, &connection);
-        }
+            inner.connection.clone()
+        };
+        emit_status(&app, &connection);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn development_sidecar_uses_the_repository_story_engine() {
+        assert_eq!(
+            development_project_path(Path::new("/workspace/src-tauri")),
+            PathBuf::from("/workspace/apps/story-engine")
+        );
+    }
+
+    #[test]
+    fn status_events_never_serialize_the_session_token() {
+        let connection = EngineConnection {
+            phase: EnginePhase::Ready,
+            base_url: Some("http://127.0.0.1:41000".to_owned()),
+            websocket_url: Some("ws://127.0.0.1:41000/ws/events".to_owned()),
+            session_token: Some("runtime-secret".to_owned()),
+            restart_count: 1,
+            last_error: None,
+        };
+
+        let payload = serde_json::to_value(EngineStatusEvent::from(&connection))
+            .expect("status event serializes");
+
+        assert_eq!(payload["phase"], "ready");
+        assert!(payload.get("session_token").is_none());
+        assert!(!payload.to_string().contains("runtime-secret"));
+    }
 
     #[test]
     fn generated_session_tokens_are_strong_and_distinct() {
@@ -408,9 +457,7 @@ mod tests {
     #[test]
     fn reserved_port_is_loopback_bindable_after_release() {
         let port = reserve_port().expect("port should be available");
-        let rebound = TcpListener::bind(("127.0.0.1", port));
-
-        assert!(rebound.is_ok());
+        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
     }
 
     #[test]

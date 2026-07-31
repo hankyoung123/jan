@@ -36,6 +36,7 @@ import ErrorDialog from '@/containers/dialogs/ErrorDialog'
 import LlamacppBusyOnExitDialog from '@/containers/dialogs/LlamacppBusyOnExitDialog'
 import LlamacppOomListener from '@/containers/dialogs/LlamacppOomListener'
 import MissingDependenciesDialog from '@/containers/dialogs/MissingDependenciesDialog'
+import { EngineStatus } from '@/features/story/EngineStatus'
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -86,6 +87,7 @@ const AppLayout = () => {
             <Outlet />
           </div>
         </SidebarInset>
+        <EngineStatus />
 
         {productAnalyticPrompt && <PromptAnalytic />}
         {showJanModelPrompt && <PromptJanModel />}

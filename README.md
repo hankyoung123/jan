@@ -29,10 +29,6 @@ apps/story-engine/    Python story-domain Sidecar
 packages/contracts/   Generated Story Engine OpenAPI/TypeScript contracts
 ```
 
-`apps/desktop` is a temporary pre-integration story-view snapshot. Its story
-routes are being ported into `web-app`; it is not the authoritative desktop
-runtime on this branch.
-
 ## Prerequisites
 
 - Node.js 20 or newer

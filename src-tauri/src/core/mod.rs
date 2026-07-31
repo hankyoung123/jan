@@ -7,6 +7,8 @@ pub mod mcp;
 pub mod server;
 pub mod setup;
 pub mod state;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub mod story_engine_runtime;
 pub mod system;
 pub mod threads;
 

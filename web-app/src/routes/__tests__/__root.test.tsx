@@ -102,6 +102,9 @@ vi.mock('@/components/left-sidebar', () => ({
 vi.mock('@/components/WindowControls', () => ({
   WindowControls: () => <div data-testid="window-controls" />,
 }))
+vi.mock('@/features/story/EngineStatus', () => ({
+  EngineStatus: () => <div data-testid="engine-status" />,
+}))
 vi.mock('@/components/ui/sidebar', () => ({
   SidebarProvider: ({ children }: any) => (
     <div data-testid="sidebar-provider">{children}</div>
@@ -169,6 +172,7 @@ describe('__root route', () => {
     expect(screen.getByTestId('left-sidebar')).toBeInTheDocument()
     expect(screen.getByTestId('outlet')).toBeInTheDocument()
     expect(screen.getByTestId('sidebar-provider')).toBeInTheDocument()
+    expect(screen.getByTestId('engine-status')).toBeInTheDocument()
   })
 
   it('renders an external mobile navigation trigger', () => {

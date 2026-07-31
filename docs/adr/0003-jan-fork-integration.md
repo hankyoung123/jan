@@ -28,9 +28,10 @@ The Jan Yarn 4 workspace remains the root JavaScript build system during the
 integration. Python continues under `apps/story-engine`, and generated API
 contracts remain under `packages/contracts`.
 
-The pre-integration `apps/desktop` tree is temporary migration input only. Its
-story-specific routes may be ported into `web-app`; its independent shell,
-model-center placeholder, and duplicate Tauri runtime must then be removed.
+The pre-integration `apps/desktop` tree was migration input only. Its
+story-specific routes and Python Sidecar lifecycle were ported into `web-app`
+and the root `src-tauri`; the independent shell, model-center placeholder, and
+duplicate Tauri runtime were then removed.
 
 ## Boundaries
 
