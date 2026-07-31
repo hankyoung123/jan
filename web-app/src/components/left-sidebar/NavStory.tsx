@@ -20,7 +20,7 @@ export function NavStory() {
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>雾港</SidebarGroupLabel>
+      <SidebarGroupLabel>故事工作区</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
           {storyRoutes.map(({ title, url, icon: Icon }) => (

@@ -15,9 +15,13 @@ import {
   TriangleAlert,
   UsersRound,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { route } from '@/constants/routes'
+import {
+  setActiveStoryProjectId,
+  useActiveStoryProjectId,
+} from './activeProject'
 import { engineRequest } from './engine'
 
 type SubmissionPackage = components['schemas']['SubmissionPackage']
@@ -201,7 +205,12 @@ export function SubmissionView() {
     setSaving(true)
     setError(null)
     try {
-      setProject(await engineRequest<ProjectSnapshot>('/submissions/finalize', { method: 'POST', body: JSON.stringify(submission) }))
+      const createdProject = await engineRequest<ProjectSnapshot>(
+        '/submissions/finalize',
+        { method: 'POST', body: JSON.stringify(submission) }
+      )
+      setActiveStoryProjectId(createdProject.project.id)
+      setProject(createdProject)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '投稿创建失败')
     } finally {
@@ -222,13 +231,16 @@ export function SubmissionView() {
           </div>
           {error && <p className="mt-4 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p>}
         </section>
-        <aside className="bg-muted/30 p-6"><p className="mb-1 text-xs text-muted-foreground">Editor 整理结果</p><h2 className="mb-5 font-studio text-2xl">{submission.title}</h2><dl className="grid grid-cols-3 gap-px border bg-border text-xs">{[['时间', submission.initial_time], ['地点', submission.initial_location], ['压力', submission.pressures[0]]].map(([label, value]) => <div className="bg-background p-3" key={label}><dt className="text-muted-foreground">{label}</dt><dd className="mt-1 font-medium">{value}</dd></div>)}</dl><section className="mt-6 border-t pt-5"><h3 className="mb-3 text-xs font-medium text-muted-foreground">世界规则</h3><ul className="list-disc space-y-2 pl-5 text-sm">{submission.world_rules.map((rule) => <li key={rule}>{rule}</li>)}</ul></section><section className="mt-6 border-t pt-5"><h3 className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground"><UsersRound size={14} /> 初始角色</h3>{submission.characters.map((character) => <article className="border-b py-3 last:border-0" key={character.id}><strong className="text-sm">{character.display_name}</strong><p className="mt-1 text-sm text-muted-foreground">{character.identity}</p><small className="text-xs text-muted-foreground">{character.current_goal}</small></article>)}</section>{project && <p className="mt-5 flex items-center gap-2 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status"><Check size={15} /> 世界版本 {project.world.version}，可进入第一轮</p>}</aside>
+        <aside className="bg-muted/30 p-6"><p className="mb-1 text-xs text-muted-foreground">Editor 整理结果</p><h2 className="mb-5 font-studio text-2xl">{submission.title}</h2><dl className="grid grid-cols-3 gap-px border bg-border text-xs">{[['时间', submission.initial_time], ['地点', submission.initial_location], ['压力', submission.pressures[0]]].map(([label, value]) => <div className="bg-background p-3" key={label}><dt className="text-muted-foreground">{label}</dt><dd className="mt-1 font-medium">{value}</dd></div>)}</dl><section className="mt-6 border-t pt-5"><h3 className="mb-3 text-xs font-medium text-muted-foreground">世界规则</h3><ul className="list-disc space-y-2 pl-5 text-sm">{submission.world_rules.map((rule) => <li key={rule}>{rule}</li>)}</ul></section><section className="mt-6 border-t pt-5"><h3 className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground"><UsersRound size={14} /> 初始角色</h3>{submission.characters.map((character) => <article className="border-b py-3 last:border-0" key={character.id}><strong className="text-sm">{character.display_name}</strong><p className="mt-1 text-sm text-muted-foreground">{character.identity}</p><small className="text-xs text-muted-foreground">{character.current_goal}</small></article>)}</section>{project && <div className="mt-5 flex flex-wrap items-center gap-3 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status"><span className="flex items-center gap-2"><Check size={15} /> 世界版本 {project.world.version}，可进入第一轮</span><Link className="font-medium underline underline-offset-4" to={route.evolve}>进入第一轮</Link></div>}</aside>
       </div>
     </StoryPage>
   )
 }
 
 export function EvolutionView() {
+  const projectId = useActiveStoryProjectId()
+  const [project, setProject] = useState<ProjectSnapshot | null>(null)
+  const [loading, setLoading] = useState(projectId !== null)
   const [candidate, setCandidate] = useState<TurnCandidate | null>(null)
   const [committed, setCommitted] = useState<CommitResult | null>(null)
   const [revision, setRevision] = useState('让结果更克制')
@@ -237,6 +249,23 @@ export function EvolutionView() {
   >(null)
   const [error, setError] = useState<string | null>(null)
   const working = workingAction !== null
+
+  const loadProject = useCallback(async () => {
+    if (!projectId) return
+    setLoading(true)
+    setError(null)
+    try {
+      setProject(await engineRequest<ProjectSnapshot>(`/projects/${projectId}`))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '项目加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    void loadProject()
+  }, [loadProject])
 
   async function act<Response>(
     action: NonNullable<typeof workingAction>,
@@ -253,15 +282,136 @@ export function EvolutionView() {
       setWorkingAction(null)
     }
   }
-  async function generate() { const value = await act('generate', () => engineRequest<TurnCandidate>('/projects/fog-harbor/turns/generate', { method: 'POST', body: JSON.stringify({ participant_ids: ['chen-mo', 'lin-lan'] }) })); if (value) { setCandidate(value); setCommitted(null) } }
-  async function revise() { if (!candidate) return; const value = await act('revise', () => engineRequest<TurnCandidate>(`/projects/fog-harbor/turns/${candidate.id}/request-revision`, { method: 'POST', body: JSON.stringify({ instruction: revision }) })); if (value) setCandidate(value) }
-  async function discard() { if (!candidate) return; const value = await act('discard', () => engineRequest<TurnCandidate>(`/projects/fog-harbor/turns/${candidate.id}/discard`, { method: 'POST' })); if (value) setCandidate(value) }
-  async function confirm() { if (!candidate) return; const value = await act('confirm', () => engineRequest<CommitResult>(`/projects/fog-harbor/turns/${candidate.id}/confirm`, { method: 'POST' })); if (value) setCommitted(value) }
+  const participants = project?.characters.filter(
+    (character) => character.type === 'active'
+  ) ?? []
+  const characterNames = new Map(
+    project?.characters.map((character) => [
+      character.id,
+      character.display_name || character.id,
+    ]) ?? []
+  )
+  const candidatePending =
+    candidate !== null && candidate.status !== 'discarded' && committed === null
+
+  async function generate() {
+    if (!projectId || participants.length === 0 || candidatePending) return
+    const value = await act('generate', () =>
+      engineRequest<TurnCandidate>(`/projects/${projectId}/turns/generate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          participant_ids: participants.map((character) => character.id),
+        }),
+      })
+    )
+    if (value) {
+      setCandidate(value)
+      setCommitted(null)
+    }
+  }
+  async function revise() {
+    if (!projectId || !candidate) return
+    const value = await act('revise', () =>
+      engineRequest<TurnCandidate>(
+        `/projects/${projectId}/turns/${candidate.id}/request-revision`,
+        { method: 'POST', body: JSON.stringify({ instruction: revision }) }
+      )
+    )
+    if (value) setCandidate(value)
+  }
+  async function discard() {
+    if (!projectId || !candidate) return
+    const value = await act('discard', () =>
+      engineRequest<TurnCandidate>(
+        `/projects/${projectId}/turns/${candidate.id}/discard`,
+        { method: 'POST' }
+      )
+    )
+    if (value) setCandidate(value)
+  }
+  async function confirm() {
+    if (!projectId || !candidate) return
+    const value = await act('confirm', async () => {
+      const result = await engineRequest<CommitResult>(
+        `/projects/${projectId}/turns/${candidate.id}/confirm`,
+        { method: 'POST' }
+      )
+      const refreshedProject = await engineRequest<ProjectSnapshot>(
+        `/projects/${projectId}`
+      )
+      return { result, refreshedProject }
+    })
+    if (value) {
+      setCandidate(value.result.candidate)
+      setCommitted(value.result)
+      setProject(value.refreshedProject)
+    }
+  }
+
+  if (!projectId) {
+    return (
+      <StoryPage>
+        <PageHeader eyebrow="故事工作区" title="推进故事" />
+        <section className="border bg-background p-8">
+          <h2 className="font-studio text-xl">尚未选择故事项目</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            先完成投稿，Story Engine 才能建立第一版正式世界状态。
+          </p>
+          <Link className={`${primaryButton} mt-5`} to={route.submission}>
+            前往投稿 <ArrowRight size={15} />
+          </Link>
+        </section>
+      </StoryPage>
+    )
+  }
+
+  if (loading) {
+    return (
+      <StoryPage>
+        <PageHeader eyebrow="正在读取 Story Engine" title="推进故事" />
+        <section className="border bg-background p-8 text-sm text-muted-foreground">
+          正在加载项目…
+        </section>
+      </StoryPage>
+    )
+  }
+
+  if (!project) {
+    return (
+      <StoryPage>
+        <PageHeader eyebrow="项目不可用" title="推进故事" />
+        <section className="border bg-background p-8">
+          <p className="text-sm text-destructive" role="alert">
+            {error || '项目加载失败'}
+          </p>
+          <button className={`${secondaryButton} mt-5`} onClick={() => void loadProject()} type="button">
+            <RotateCcw size={15} /> 重试加载
+          </button>
+        </section>
+      </StoryPage>
+    )
+  }
+
+  const incident =
+    typeof project.world.world_variables?.initial_incident === 'string'
+      ? project.world.world_variables.initial_incident
+      : '等待角色根据当前世界状态采取行动'
+  const progress = [
+    ['当前局面', true],
+    ['角色行动', candidate !== null],
+    ['世界结算', candidate !== null],
+    ['编辑检查', candidate?.review !== null && candidate?.review !== undefined],
+    ['用户确认', committed !== null],
+    ['正文', committed !== null],
+  ] as const
 
   return (
     <StoryPage>
-      <PageHeader eyebrow={`雾港 / 世界版本 ${candidate?.base_world_version ?? 0}`} title="推进故事" action={<button aria-busy={workingAction === 'generate'} className={secondaryButton} disabled={working} onClick={() => void generate()} type="button"><Sparkles size={15} /> {workingAction === 'generate' ? '正在生成' : candidate ? '重新生成角色行动' : '生成角色行动'}</button>} />
-      {!candidate ? <section className="border bg-background p-8"><p className="text-xs text-muted-foreground">当前局面</p><h2 className="my-3 font-studio text-xl">灯塔熄灭，客船正在接近雾港</h2><p className="text-muted-foreground">陈默与林岚将依据各自的私有知识独立行动。</p></section> : <><section className="border bg-background"><div className="flex items-center justify-between border-b px-5 py-4"><div><p className="text-xs text-muted-foreground">私有上下文已隔离</p><h2 className="font-medium">角色行动</h2></div><StatusPill tone="success">{candidate.intents.length} / {candidate.intents.length} 完成</StatusPill></div>{candidate.intents.map((intent) => <div className="grid gap-3 border-b px-5 py-4 md:grid-cols-[22px_160px_1fr_auto] md:items-center" key={intent.character_id}><CheckCircle2 className="text-emerald-600" size={17} /><div><strong className="text-sm">{intent.character_id === 'chen-mo' ? '陈默' : '林岚'}</strong><p className="text-xs text-muted-foreground">{intent.goal}</p></div><p className="text-sm text-muted-foreground">{intent.action}</p><StatusPill tone="success">已完成</StatusPill></div>)}</section><section className="mt-5 grid gap-5 border bg-background p-5 md:grid-cols-[1fr_280px]"><div><p className="text-xs text-muted-foreground">统一结算</p><h2 className="my-2 font-studio text-lg">{candidate.outcome.summary}</h2><p className="text-sm text-muted-foreground">{candidate.outcome.public_results.join(' · ')}</p></div><div className="border-l pl-5"><p className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className={candidate.review?.passed ? 'text-emerald-600' : 'text-destructive'} size={17} /> Editor {candidate.review?.passed ? '检查通过' : '要求修订'}</p><p className="mt-2 text-xs text-muted-foreground">{candidate.review?.summary}</p></div></section>{!committed && candidate.status !== 'discarded' && <section aria-busy={working} className="mt-5 grid gap-3 border bg-background p-4 md:grid-cols-[1fr_auto_auto_auto]"><input aria-label="修改要求" className={inputClass} value={revision} onChange={(event) => setRevision(event.target.value)} /><button className={secondaryButton} disabled={working || !revision.trim()} onClick={() => void revise()} type="button"><RotateCcw size={15} /> {workingAction === 'revise' ? '正在修改' : '要求修改'}</button><button aria-label={workingAction === 'discard' ? '正在放弃本轮' : '放弃本轮'} className={secondaryButton} disabled={working} onClick={() => void discard()} title="放弃本轮" type="button"><Trash2 size={15} /></button><button className={primaryButton} disabled={working || !candidate.review?.passed} onClick={() => void confirm()} type="button"><Check size={15} /> {workingAction === 'confirm' ? '正在提交' : '确认本轮'}</button></section>}{committed && <p className="mt-5 flex items-center gap-2 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status"><CheckCircle2 size={16} /> {committed.event.id} 已写入正式 Markdown</p>}{candidate.status === 'discarded' && <p className="mt-5 bg-muted p-3 text-sm text-muted-foreground" role="status">本轮已放弃，正式状态未改变。</p>}</>}
+      <PageHeader eyebrow={`${project.project.title} / 世界版本 ${project.world.version}`} title="推进故事" action={<button aria-busy={workingAction === 'generate'} className={secondaryButton} disabled={working || candidatePending || participants.length === 0} onClick={() => void generate()} type="button"><Sparkles size={15} /> {workingAction === 'generate' ? '正在生成' : candidatePending ? '本轮待确认' : '生成角色行动'}</button>} />
+      <ol aria-label="故事推进步骤" className="mb-5 grid grid-cols-2 gap-px overflow-hidden border bg-border text-xs sm:grid-cols-3 lg:grid-cols-6">
+        {progress.map(([label, complete], index) => <li className="flex items-center gap-2 bg-background px-3 py-3" key={label}><span className={`grid size-5 shrink-0 place-items-center rounded-full ${complete ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{complete ? <Check size={12} /> : index + 1}</span><span className={complete ? 'font-medium' : 'text-muted-foreground'}>{label}</span></li>)}
+      </ol>
+      {!candidate ? <section className="border bg-background p-8"><p className="text-xs text-muted-foreground">当前局面</p><h2 className="my-3 font-studio text-xl">{incident}</h2><dl className="mb-4 grid max-w-2xl grid-cols-1 gap-px border bg-border text-sm sm:grid-cols-3">{[['时间', project.world.current_time], ['地点', project.world.current_location || '未指定'], ['压力', project.world.active_pressures.join('；') || '暂无']].map(([label, value]) => <div className="bg-background p-3" key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1">{value}</dd></div>)}</dl><p className="text-muted-foreground">{participants.map((character) => character.display_name || character.id).join('、')} 将依据各自的私有知识独立行动。</p></section> : <><section className="border bg-background"><div className="flex items-center justify-between border-b px-5 py-4"><div><p className="text-xs text-muted-foreground">私有上下文已隔离</p><h2 className="font-medium">角色行动</h2></div><StatusPill tone="success">{candidate.intents.length} / {candidate.intents.length} 完成</StatusPill></div>{candidate.intents.map((intent) => <div className="grid gap-3 border-b px-5 py-4 md:grid-cols-[22px_160px_1fr_auto] md:items-center" key={intent.character_id}><CheckCircle2 className="text-emerald-600" size={17} /><div><strong className="text-sm">{characterNames.get(intent.character_id) || intent.character_id}</strong><p className="text-xs text-muted-foreground">{intent.goal}</p></div><p className="text-sm text-muted-foreground">{intent.action}</p><StatusPill tone="success">已完成</StatusPill></div>)}</section><section className="mt-5 grid gap-5 border bg-background p-5 md:grid-cols-[1fr_280px]"><div><p className="text-xs text-muted-foreground">统一结算</p><h2 className="my-2 font-studio text-lg">{candidate.outcome.summary}</h2><p className="text-sm text-muted-foreground">{candidate.outcome.public_results.join(' · ')}</p></div><div className="border-t pt-5 md:border-l md:border-t-0 md:pl-5 md:pt-0"><p className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className={candidate.review?.passed ? 'text-emerald-600' : 'text-destructive'} size={17} /> Editor {candidate.review?.passed ? '检查通过' : '要求修订'}</p><p className="mt-2 text-xs text-muted-foreground">{candidate.review?.summary}</p></div></section>{!committed && candidate.status !== 'discarded' && <section aria-busy={working} className="mt-5 grid gap-3 border bg-background p-4 md:grid-cols-[1fr_auto_auto_auto]"><input aria-label="修改要求" className={inputClass} value={revision} onChange={(event) => setRevision(event.target.value)} /><button className={secondaryButton} disabled={working || !revision.trim()} onClick={() => void revise()} type="button"><RotateCcw size={15} /> {workingAction === 'revise' ? '正在修改' : '要求修改'}</button><button aria-label={workingAction === 'discard' ? '正在放弃本轮' : '放弃本轮'} className={secondaryButton} disabled={working} onClick={() => void discard()} title="放弃本轮" type="button"><Trash2 size={15} /></button><button className={primaryButton} disabled={working || !candidate.review?.passed} onClick={() => void confirm()} type="button"><Check size={15} /> {workingAction === 'confirm' ? '正在提交' : '确认本轮'}</button></section>}{committed && <p className="mt-5 flex items-center gap-2 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status"><CheckCircle2 size={16} /> {committed.event.id} 已写入正式 Markdown</p>}{candidate.status === 'discarded' && <p className="mt-5 bg-muted p-3 text-sm text-muted-foreground" role="status">本轮已放弃，正式状态未改变。</p>}</>}
       {error && <p className="mt-4 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p>}
     </StoryPage>
   )
