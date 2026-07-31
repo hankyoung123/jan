@@ -53,6 +53,20 @@ runtime console. Story Engine adds a task-profile surface for the five domain
 routes. Provider CRUD is not exposed by the Python API. Secrets never appear in
 project files, browser persistence, Sidecar arguments, status events, or logs.
 
+## Evolution integration
+
+The FastAPI app constructs one `ModelGateway` and injects it into both model
+routes and `ConcordiaStoryAdapter`. `EvolutionService` sends one authorized
+`CharacterContext` to each Concordia entity concurrently, then gives the
+completed intents and current world to one Concordia Game Master for unified
+resolution. The previous fog-harbor-specific production generator has been
+removed.
+
+Concordia exposes a synchronous entity interface, so the project route runs a
+turn in a worker thread. Character calls use their own worker pool inside that
+turn. The gateway registry, transport, and usage accounting remain shared;
+there is still only one Jan Provider/runtime authority.
+
 ## Verification
 
 Unit tests cover atomic profile persistence and v1 migration, all five profile
@@ -62,3 +76,8 @@ parse and schema failures, streaming, and usage accounting. Rust tests cover
 random-port binding, environment-only bridge credentials, and lifecycle
 cleanup. OpenAPI generation, Python static checks, frontend tests, and desktop
 runtime checks remain release gates.
+
+Evolution integration tests additionally prove two isolated Character calls,
+one later Resolver call, parallel Character execution, stable failure when the
+Tauri bridge is unavailable, and byte-identical canonical Markdown after that
+failure.

@@ -1,11 +1,91 @@
 from pathlib import Path
+from threading import Barrier, Lock, get_ident
 
-from story_engine.domain.models import CharacterIntent, StateChange
-from story_engine.evolution.context import CharacterContextAssembler
+from story_engine.domain.models import (
+    CharacterIntent,
+    StateChange,
+    WorldOutcome,
+    WorldState,
+)
+from story_engine.evolution.context import CharacterContext, CharacterContextAssembler
 from story_engine.evolution.service import EvolutionService
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectStore
+
+
+class DeterministicTurnGenerator:
+    def __init__(self) -> None:
+        self.intent_calls: list[str] = []
+        self.resolve_calls = 0
+        self._lock = Lock()
+
+    def generate_intent(self, context: CharacterContext) -> CharacterIntent:
+        with self._lock:
+            self.intent_calls.append(context.character.id)
+        fact_id = next(
+            (
+                item
+                for item in context.character.known_fact_ids
+                if item in context.visible_fact_ids
+            ),
+            context.visible_fact_ids[0],
+        )
+        actions = {
+            "chen-mo": "检查灯塔机械装置",
+            "lin-lan": "呼叫客船降低航速",
+        }
+        return CharacterIntent(
+            character_id=context.character.id,
+            action=actions.get(context.character.id, "观察当前局势"),
+            target=context.world.current_location,
+            goal=context.character.current_goal or context.character.core_desire,
+            knowledge_basis=(fact_id,),
+            recognized_risk="行动可能加剧当前压力",
+        )
+
+    def resolve(
+        self,
+        world: WorldState,
+        intents: tuple[CharacterIntent, ...],
+    ) -> WorldOutcome:
+        with self._lock:
+            self.resolve_calls += 1
+        round_number = world.world_variables.get("round", 0)
+        assert isinstance(round_number, int) and not isinstance(round_number, bool)
+        display_names = {"chen-mo": "陈默", "lin-lan": "林岚"}
+        participants = "、".join(
+            display_names.get(intent.character_id, intent.character_id)
+            for intent in intents
+        )
+        next_round = round_number + 1
+        return WorldOutcome(
+            summary=f"第 {next_round} 轮: {participants} 的行动改变了当前局势。",
+            public_results=(f"局势推进至第 {next_round} 轮",),
+            world_changes=(
+                StateChange(
+                    target_type="world",
+                    target_id="world",
+                    field="world_variables.round",
+                    old_value=round_number,
+                    new_value=next_round,
+                    reason="统一结算所有角色行动后推进回合",
+                ),
+            ),
+            unresolved_consequences=world.active_pressures,
+        )
+
+
+class ParallelProbeGenerator(DeterministicTurnGenerator):
+    def __init__(self) -> None:
+        super().__init__()
+        self._barrier = Barrier(2)
+        self.thread_ids: set[int] = set()
+
+    def generate_intent(self, context: CharacterContext) -> CharacterIntent:
+        self.thread_ids.add(get_ident())
+        self._barrier.wait(timeout=2)
+        return super().generate_intent(context)
 
 
 def _formal_bytes(root: Path) -> dict[str, bytes]:
@@ -19,6 +99,13 @@ def _formal_bytes(root: Path) -> dict[str, bytes]:
 def _project(tmp_path: Path) -> Path:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     return tmp_path / "fog-harbor"
+
+
+def _service(
+    root: Path,
+    generator: DeterministicTurnGenerator | None = None,
+) -> EvolutionService:
+    return EvolutionService(root, generator=generator or DeterministicTurnGenerator())
 
 
 def test_character_contexts_isolate_private_facts_and_other_intents(
@@ -43,7 +130,7 @@ def test_character_contexts_isolate_private_facts_and_other_intents(
 def test_editor_blocks_intent_using_another_characters_secret(
     tmp_path: Path,
 ) -> None:
-    service = EvolutionService(_project(tmp_path))
+    service = _service(_project(tmp_path))
     candidate = service.generate_turn()
     leaked = candidate.model_copy(
         update={
@@ -68,7 +155,7 @@ def test_editor_blocks_intent_using_another_characters_secret(
 
 
 def test_editor_blocks_world_change_with_incorrect_source_value(tmp_path: Path) -> None:
-    service = EvolutionService(_project(tmp_path))
+    service = _service(_project(tmp_path))
     candidate = service.generate_turn()
     conflicted = candidate.with_outcome(
         candidate.outcome.model_copy(
@@ -96,7 +183,7 @@ def test_editor_blocks_world_change_with_incorrect_source_value(tmp_path: Path) 
 
 def test_revision_and_discard_never_change_formal_markdown(tmp_path: Path) -> None:
     root = _project(tmp_path)
-    service = EvolutionService(root)
+    service = _service(root)
     before = _formal_bytes(root)
 
     original = service.generate_turn()
@@ -115,7 +202,7 @@ def test_revision_and_discard_never_change_formal_markdown(tmp_path: Path) -> No
 
 def test_ten_confirmed_rounds_remain_fully_traceable(tmp_path: Path) -> None:
     root = _project(tmp_path)
-    service = EvolutionService(root)
+    service = _service(root)
 
     for expected_version in range(1, 11):
         candidate = service.generate_turn()
@@ -146,7 +233,7 @@ def test_ten_confirmed_rounds_remain_fully_traceable(tmp_path: Path) -> None:
 
 
 def test_generation_emits_ordered_pipeline_events(tmp_path: Path) -> None:
-    service = EvolutionService(_project(tmp_path))
+    service = _service(_project(tmp_path))
     emitted: list[tuple[str, dict[str, object]]] = []
 
     candidate = service.generate_turn(
@@ -156,8 +243,8 @@ def test_generation_emits_ordered_pipeline_events(tmp_path: Path) -> None:
     assert [event_type for event_type, _ in emitted] == [
         "turn.started",
         "character.intent.started",
-        "character.intent.completed",
         "character.intent.started",
+        "character.intent.completed",
         "character.intent.completed",
         "resolver.started",
         "resolver.completed",
@@ -166,4 +253,29 @@ def test_generation_emits_ordered_pipeline_events(tmp_path: Path) -> None:
     ]
     assert all(payload["turn_id"] == candidate.id for _, payload in emitted)
     assert emitted[1][1]["character_id"] == "chen-mo"
-    assert emitted[3][1]["character_id"] == "lin-lan"
+    assert emitted[2][1]["character_id"] == "lin-lan"
+
+
+def test_generation_delegates_intents_and_resolution_to_injected_generator(
+    tmp_path: Path,
+) -> None:
+    generator = DeterministicTurnGenerator()
+    service = _service(_project(tmp_path), generator)
+
+    candidate = service.generate_turn()
+
+    assert sorted(generator.intent_calls) == ["chen-mo", "lin-lan"]
+    assert generator.resolve_calls == 1
+    assert tuple(intent.character_id for intent in candidate.intents) == (
+        "chen-mo",
+        "lin-lan",
+    )
+
+
+def test_character_intents_are_generated_in_parallel(tmp_path: Path) -> None:
+    generator = ParallelProbeGenerator()
+    service = _service(_project(tmp_path), generator)
+
+    service.generate_turn()
+
+    assert len(generator.thread_ids) == 2

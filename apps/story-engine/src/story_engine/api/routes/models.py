@@ -1,9 +1,10 @@
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from story_engine.api.model_errors import model_http_error
 from story_engine.models.contracts import (
     ModelCatalog,
     ModelProfile,
@@ -11,47 +12,13 @@ from story_engine.models.contracts import (
     ModelResponse,
     UsageTotals,
 )
-from story_engine.models.errors import (
-    ModelConfigurationError,
-    ModelGatewayError,
-    ModelTimeoutError,
-    ProfileMismatchError,
-    ProfileNotFoundError,
-    ProviderResponseError,
-    ResponseLimitError,
-    StructuredOutputError,
-)
+from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.registry import ProfileRegistry
 
 
 def _catalog(registry: ProfileRegistry) -> ModelCatalog:
     return ModelCatalog(profiles=registry.load().profiles)
-
-
-def _http_error(error: ModelGatewayError) -> HTTPException:
-    if isinstance(error, ProfileNotFoundError):
-        code = status.HTTP_404_NOT_FOUND
-    elif isinstance(error, ModelTimeoutError):
-        code = status.HTTP_504_GATEWAY_TIMEOUT
-    elif isinstance(error, ProviderResponseError):
-        code = status.HTTP_502_BAD_GATEWAY
-    elif isinstance(
-        error,
-        (
-            ModelConfigurationError,
-            ProfileMismatchError,
-            ResponseLimitError,
-            StructuredOutputError,
-        ),
-    ):
-        code = status.HTTP_422_UNPROCESSABLE_CONTENT
-    else:
-        code = status.HTTP_500_INTERNAL_SERVER_ERROR
-    return HTTPException(
-        status_code=code,
-        detail={"code": error.code, "message": str(error)},
-    )
 
 
 def create_models_router(
@@ -65,14 +32,14 @@ def create_models_router(
         try:
             return _catalog(registry)
         except ModelGatewayError as error:
-            raise _http_error(error) from error
+            raise model_http_error(error) from error
 
     @router.get("/models/profiles", response_model=list[ModelProfile])
     async def get_model_profiles() -> list[ModelProfile]:
         try:
             return list(registry.load().profiles)
         except ModelGatewayError as error:
-            raise _http_error(error) from error
+            raise model_http_error(error) from error
 
     @router.put(
         "/models/profiles/{profile_id}",
@@ -90,14 +57,14 @@ def create_models_router(
             registry.upsert_profile(request)
             return request
         except ModelGatewayError as error:
-            raise _http_error(error) from error
+            raise model_http_error(error) from error
 
     @router.post("/models/complete", response_model=ModelResponse)
     async def complete_model(request: ModelRequest) -> ModelResponse:
         try:
             return await gateway.complete(request)
         except ModelGatewayError as error:
-            raise _http_error(error) from error
+            raise model_http_error(error) from error
 
     @router.post("/models/stream", response_class=StreamingResponse)
     async def stream_model(request: ModelRequest) -> StreamingResponse:

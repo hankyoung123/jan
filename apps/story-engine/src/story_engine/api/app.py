@@ -131,7 +131,7 @@ def create_app(
         await stream_events(websocket, event_bus, project_id=project_id)
 
     app.include_router(
-        create_projects_router(runtime_settings, event_bus),
+        create_projects_router(runtime_settings, event_bus, gateway),
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(

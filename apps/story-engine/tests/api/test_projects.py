@@ -1,21 +1,112 @@
+import json
+from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
+from threading import Lock
+from typing import Any
 
 from fastapi.testclient import TestClient
 
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
+from story_engine.models.contracts import ModelStreamChunk
 from story_engine.submission.service import fog_harbor_submission
 
 AUTH = {"Authorization": "Bearer test-token"}
 
 
+def _formal_bytes(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*.md"))
+        if ".story-engine" not in path.parts
+    }
+
+
+class StoryTurnTransport:
+    def __init__(self) -> None:
+        self.calls: list[Mapping[str, Any]] = []
+        self._lock = Lock()
+
+    async def complete(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: int,
+    ) -> Mapping[str, Any]:
+        del timeout_seconds
+        prompt = payload["messages"][0]["content"]
+        assert isinstance(prompt, str)
+        model = payload["model"]
+        if model == "qwen3-8b" and '"id": "chen-mo"' in prompt:
+            content = {
+                "character_id": "chen-mo",
+                "action": "检查灯塔机械装置",
+                "target": "灯塔",
+                "goal": "查明灯塔熄灭原因",
+                "knowledge_basis": ["secret:chen-father-disappearance"],
+                "recognized_risk": "可能暴露自己的调查",
+            }
+        elif model == "qwen3-8b" and '"id": "lin-lan"' in prompt:
+            content = {
+                "character_id": "lin-lan",
+                "action": "呼叫客船降低航速",
+                "target": "近港客船",
+                "goal": "让客船安全进入雾港",
+                "knowledge_basis": ["secret:lin-unfiled-duty-roster"],
+                "recognized_risk": "备用航标可能不足",
+            }
+        elif model == "gpt-5-mini":
+            content = {
+                "summary": "陈默检查装置。林岚要求客船降低航速。",
+                "public_results": ["客船开始减速"],
+                "world_changes": [
+                    {
+                        "target_type": "world",
+                        "target_id": "world",
+                        "field": "world_variables.round",
+                        "old_value": 0,
+                        "new_value": 1,
+                        "reason": "统一结算两个角色的行动",
+                    }
+                ],
+                "unresolved_consequences": ["灯塔仍未恢复"],
+            }
+        else:
+            raise AssertionError("unexpected Story ModelGateway request")
+        with self._lock:
+            self.calls.append(payload)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(content, ensure_ascii=False),
+                    },
+                    "finish_reason": "stop",
+                }
+            ]
+        }
+
+    async def stream(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: int,
+    ) -> AsyncIterator[ModelStreamChunk]:
+        del payload, timeout_seconds
+        if False:
+            yield ModelStreamChunk()
+        raise AssertionError("turn generation does not use streaming yet")
+
+
 def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
+    transport = StoryTurnTransport()
     client = TestClient(
         create_app(
             EngineSettings(
                 session_token="test-token",
                 projects_root=tmp_path,
-            )
+            ),
+            model_transport=transport,
         )
     )
 
@@ -35,6 +126,11 @@ def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
     assert turn.status_code == 201
     assert turn.json()["status"] == "reviewed"
     assert len(turn.json()["intents"]) == 2
+    assert sorted(call["model"] for call in transport.calls) == [
+        "gpt-5-mini",
+        "qwen3-8b",
+        "qwen3-8b",
+    ]
 
     approved = client.post(
         "/projects/fog-harbor/turns/turn-000001/confirm",
@@ -100,3 +196,36 @@ def test_project_routes_require_session_token(tmp_path: Path) -> None:
 
     assert response.status_code == 401
     assert not (tmp_path / "fog-harbor").exists()
+
+
+def test_turn_generation_without_the_tauri_model_bridge_fails_explicitly(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(
+        create_app(
+            EngineSettings(
+                session_token="test-token",
+                projects_root=tmp_path,
+            )
+        )
+    )
+    created = client.post(
+        "/submissions/finalize",
+        headers=AUTH,
+        json=fog_harbor_submission().model_dump(mode="json"),
+    )
+    assert created.status_code == 201
+    root = tmp_path / "fog-harbor"
+    before = _formal_bytes(root)
+
+    response = client.post(
+        "/projects/fog-harbor/turns/generate",
+        headers=AUTH,
+        json={},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "model_configuration_error"
+    assert "Jan model runtime bridge" in response.json()["detail"]["message"]
+    assert _formal_bytes(root) == before
+    assert not (root / ".story-engine/turns/turn-000001.json").exists()

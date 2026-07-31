@@ -1,15 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 from pydantic import Field, JsonValue
 
-from story_engine.domain.errors import InvalidTransitionError
 from story_engine.domain.models import (
     CharacterIntent,
     DomainModel,
     ReviewIssue,
     ReviewResult,
-    StateChange,
     TurnCandidate,
     WorldOutcome,
     WorldState,
@@ -39,9 +38,20 @@ class TurnGenerationRequest(DomainModel):
     participant_ids: tuple[str, ...] = ()
 
 
+class TurnGenerator(Protocol):
+    def generate_intent(self, context: CharacterContext) -> CharacterIntent: ...
+
+    def resolve(
+        self,
+        world: WorldState,
+        intents: tuple[CharacterIntent, ...],
+    ) -> WorldOutcome: ...
+
+
 class EvolutionService:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, generator: TurnGenerator) -> None:
         self.root = root
+        self.generator = generator
         self.project_store = ProjectStore(root)
         self.candidate_store = CandidateStore(root)
         self.context_assembler = CharacterContextAssembler()
@@ -62,39 +72,44 @@ class EvolutionService:
         if len(selected) != len(set(selected)):
             raise ValueError("participants must be unique")
 
-        round_number = self._round_number(snapshot.world)
         turn_id = self.candidate_store.next_identifier()
         emit = event_sink or (lambda _event_type, _payload: None)
         emit("turn.started", {"turn_id": turn_id})
-        intents_list: list[CharacterIntent] = []
         for character_id in selected:
             emit(
                 "character.intent.started",
                 {"turn_id": turn_id, "character_id": character_id},
             )
-            intent = self._generate_intent(contexts[character_id], round_number)
-            intents_list.append(intent)
-            emit(
-                "character.intent.completed",
-                {
-                    "turn_id": turn_id,
-                    "character_id": character_id,
-                    "intent": cast(JsonValue, intent.model_dump(mode="json")),
-                },
-            )
-        intents = tuple(intents_list)
-        emit("resolver.started", {"turn_id": turn_id})
-        outcome = self._resolve(
-            snapshot.world,
-            intents,
-            round_number,
-            {
-                character_id: (
-                    contexts[character_id].character.display_name or character_id
+        with ThreadPoolExecutor(
+            max_workers=len(selected),
+            thread_name_prefix="story-character",
+        ) as executor:
+            intent_futures = {
+                character_id: executor.submit(
+                    self.generator.generate_intent,
+                    contexts[character_id],
                 )
                 for character_id in selected
-            },
-        )
+            }
+            intents_list: list[CharacterIntent] = []
+            for character_id in selected:
+                intent = intent_futures[character_id].result()
+                if intent.character_id != character_id:
+                    raise ValueError(
+                        "generator returned an intent for another character"
+                    )
+                intents_list.append(intent)
+                emit(
+                    "character.intent.completed",
+                    {
+                        "turn_id": turn_id,
+                        "character_id": character_id,
+                        "intent": cast(JsonValue, intent.model_dump(mode="json")),
+                    },
+                )
+        intents = tuple(intents_list)
+        emit("resolver.started", {"turn_id": turn_id})
+        outcome = self.generator.resolve(snapshot.world, intents)
         emit(
             "resolver.completed",
             {
@@ -273,65 +288,3 @@ class EvolutionService:
         candidate = self.candidate_store.load(turn_id).discard()
         self.candidate_store.save(candidate)
         return candidate
-
-    @staticmethod
-    def _round_number(world: WorldState) -> int:
-        value = world.world_variables.get("round", 0)
-        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-            raise InvalidTransitionError("world round must be a non-negative integer")
-        return value
-
-    @staticmethod
-    def _generate_intent(
-        context: CharacterContext,
-        round_number: int,
-    ) -> CharacterIntent:
-        fact_id = next(
-            (
-                item
-                for item in context.character.known_fact_ids
-                if item in context.visible_fact_ids
-            ),
-            context.visible_fact_ids[0],
-        )
-        if context.character.id == "chen-mo":
-            actions = ("检查灯塔机械装置", "沿灯塔台阶核对异常痕迹")
-        elif context.character.id == "lin-lan":
-            actions = ("呼叫客船降低航速", "切换备用航标并报告能见度")
-        else:
-            actions = ("观察当前局势", "采取符合当前目标的谨慎行动")
-        return CharacterIntent(
-            character_id=context.character.id,
-            action=actions[round_number % len(actions)],
-            target=context.world.current_location,
-            goal=context.character.current_goal or context.character.core_desire,
-            knowledge_basis=(fact_id,),
-            recognized_risk="行动可能加剧当前压力",
-        )
-
-    @staticmethod
-    def _resolve(
-        world: WorldState,
-        intents: tuple[CharacterIntent, ...],
-        round_number: int,
-        display_names: dict[str, str],
-    ) -> WorldOutcome:
-        next_round = round_number + 1
-        participants = "、".join(
-            display_names[intent.character_id] for intent in intents
-        )
-        return WorldOutcome(
-            summary=f"第 {next_round} 轮: {participants} 的行动共同改变了雾港局势。",
-            public_results=(f"雾港局势推进至第 {next_round} 轮",),
-            world_changes=(
-                StateChange(
-                    target_type="world",
-                    target_id="world",
-                    field="world_variables.round",
-                    old_value=round_number,
-                    new_value=next_round,
-                    reason="统一结算所有角色行动后推进回合",
-                ),
-            ),
-            unresolved_consequences=world.active_pressures,
-        )

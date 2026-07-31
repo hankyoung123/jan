@@ -1,9 +1,12 @@
+import asyncio
 import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import JsonValue
 
+from story_engine.api.model_errors import model_http_error
+from story_engine.concordia_adapter import ConcordiaStoryAdapter
 from story_engine.config import EngineSettings
 from story_engine.domain.errors import DomainError, InvalidTransitionError
 from story_engine.domain.models import TurnCandidate
@@ -14,6 +17,8 @@ from story_engine.evolution.service import (
     RevisionRequest,
     TurnGenerationRequest,
 )
+from story_engine.models.errors import ModelGatewayError
+from story_engine.models.gateway import ModelGateway
 from story_engine.submission.service import SubmissionPackage, SubmissionService
 from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.event_store import EventStore
@@ -38,6 +43,7 @@ def _require_project(settings: EngineSettings, project_id: str) -> Path:
 def create_projects_router(
     settings: EngineSettings,
     event_bus: EngineEventBus,
+    model_gateway: ModelGateway,
 ) -> APIRouter:
     router = APIRouter(tags=["projects"])
 
@@ -89,11 +95,16 @@ def create_projects_router(
                     payload=payload,
                 )
 
-            return EvolutionService(root).generate_turn(
+            service = EvolutionService(
+                root,
+                generator=ConcordiaStoryAdapter(model_gateway),
+            )
+            return await asyncio.to_thread(
+                service.generate_turn,
                 participants,
                 event_sink=emit,
             )
-        except (DomainError, ValueError) as error:
+        except (ModelGatewayError, DomainError, ValueError) as error:
             if active_turn_id is not None:
                 event_bus.publish(
                     project_id=project_id,
@@ -101,6 +112,8 @@ def create_projects_router(
                     event_type="turn.failed",
                     payload={"turn_id": active_turn_id, "reason": str(error)},
                 )
+            if isinstance(error, ModelGatewayError):
+                raise model_http_error(error) from error
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.get(
@@ -121,7 +134,10 @@ def create_projects_router(
     async def confirm_turn(project_id: str, turn_id: str) -> CommitResult:
         root = _require_project(settings, project_id)
         try:
-            return EvolutionService(root).confirm(turn_id)
+            return EvolutionService(
+                root,
+                generator=ConcordiaStoryAdapter(model_gateway),
+            ).confirm(turn_id)
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Turn not found") from error
         except (DomainError, InvalidTransitionError) as error:
@@ -138,7 +154,10 @@ def create_projects_router(
     ) -> TurnCandidate:
         root = _require_project(settings, project_id)
         try:
-            return EvolutionService(root).request_revision(
+            return EvolutionService(
+                root,
+                generator=ConcordiaStoryAdapter(model_gateway),
+            ).request_revision(
                 turn_id,
                 request.instruction,
             )
@@ -154,7 +173,10 @@ def create_projects_router(
     async def discard_turn(project_id: str, turn_id: str) -> TurnCandidate:
         root = _require_project(settings, project_id)
         try:
-            candidate = EvolutionService(root).discard(turn_id)
+            candidate = EvolutionService(
+                root,
+                generator=ConcordiaStoryAdapter(model_gateway),
+            ).discard(turn_id)
             event_bus.publish(
                 project_id=project_id,
                 turn_id=turn_id,

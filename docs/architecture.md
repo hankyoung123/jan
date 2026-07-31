@@ -16,6 +16,11 @@ Every request except the unauthenticated liveness probe must include the
 per-process session token. Production builds package Python as an onedir
 sidecar.
 
+Inside the Python boundary, unmodified Concordia 2.4.0 is the character and
+Game Master engine. It is a library used by the Story Engine, not a second
+desktop process or model runtime. The concrete stack is therefore Tauri shell,
+React UI, Python Story Engine, and original Concordia.
+
 ## Source of truth
 
 Canonical project state is Markdown:
@@ -51,7 +56,8 @@ public world facts with only the selected character's private fact IDs.
 `EvolutionService` generates each intent from one such context, performs one
 unified resolution, and obtains an Editor review before exposing a candidate
 to React. Other characters' private facts and current-turn intents are absent
-from every character context.
+from every character context. Character entities are invoked concurrently;
+the Concordia Game Master runs only after all selected intents complete.
 
 ## Dependency direction
 
@@ -72,6 +78,12 @@ all completed intents. Concordia's language-model interface is backed only by
 the existing Python `ModelGateway`, which reaches Jan's private runtime bridge;
 the adapter contains no Provider SDK, credential store, or canonical write
 path.
+
+FastAPI injects its single process-level `ModelGateway` into the Concordia
+adapter. Since Concordia's entity API is synchronous, turn generation runs in
+a worker thread rather than blocking the API event loop. A missing Tauri model
+bridge fails before a candidate is saved and leaves canonical Markdown
+byte-identical.
 
 ## Failure handling
 
