@@ -152,6 +152,9 @@ jobs:
       - name: Check Story Engine Rust formatting
         run: rustfmt --check --edition 2021 src-tauri/src/core/story_engine_runtime.rs src-tauri/src/core/story_model_bridge.rs
 
+      - name: Test Story Engine desktop runtime
+        run: cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features test-tauri story_engine_runtime::tests --lib
+
       - name: Lint Rust
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --no-default-features --features test-tauri -- -D warnings
 

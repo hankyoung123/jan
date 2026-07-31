@@ -48,6 +48,8 @@ describe('Story Engine CI contract', () => {
       'rustfmt --check --edition 2021',
       'src-tauri/src/core/story_engine_runtime.rs',
       'src-tauri/src/core/story_model_bridge.rs',
+      'cargo test --manifest-path src-tauri/Cargo.toml',
+      'story_engine_runtime::tests --lib',
       'cargo clippy',
       'yarn tauri build --no-bundle',
     ]) {

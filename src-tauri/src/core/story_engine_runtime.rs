@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use log::Level;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
@@ -17,6 +18,7 @@ use uuid::Uuid;
 use crate::core::story_model_bridge::{ModelBridge, ModelBridgeConnection};
 
 const MAX_LOG_LINES: usize = 200;
+const SIDECAR_LOG_TARGET: &str = "story_engine::sidecar";
 const HEALTH_ATTEMPTS: usize = 50;
 const HEALTH_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -69,6 +71,7 @@ struct RuntimeInner {
     process: Option<Child>,
     generation: u64,
     logs: VecDeque<String>,
+    log_secrets: Vec<String>,
 }
 
 pub struct EngineRuntime {
@@ -108,6 +111,7 @@ impl EngineRuntime {
                 .map_err(|_| "Story Engine runtime lock is poisoned".to_owned())?;
             inner.generation = inner.generation.wrapping_add(1);
             let process = inner.process.take();
+            inner.log_secrets.clear();
             inner.connection.phase = EnginePhase::Stopped;
             inner.connection.session_token = None;
             inner.connection.last_error = None;
@@ -166,6 +170,35 @@ fn redact_secrets(line: &str, secrets: &[String]) -> String {
         })
 }
 
+fn record_runtime_log(runtime: &EngineRuntime, generation: u64, line: &str, level: Level) {
+    let safe_line = {
+        let Ok(mut inner) = runtime.inner.lock() else {
+            return;
+        };
+        if inner.generation != generation {
+            return;
+        }
+        let safe_line = redact_secrets(line, &inner.log_secrets);
+        inner.logs.push_back(safe_line.clone());
+        while inner.logs.len() > MAX_LOG_LINES {
+            inner.logs.pop_front();
+        }
+        safe_line
+    };
+
+    // Jan's app logger persists this target to app.log and exposes it through
+    // the existing desktop log viewer. Only the redacted value reaches it.
+    log::log!(target: SIDECAR_LOG_TARGET, level, "{safe_line}");
+}
+
+fn record_current_runtime_log(runtime: &EngineRuntime, line: &str, level: Level) {
+    let generation = match runtime.inner.lock() {
+        Ok(inner) => inner.generation,
+        Err(_) => return,
+    };
+    record_runtime_log(runtime, generation, line, level);
+}
+
 fn sidecar_command(
     app: &AppHandle,
     port: u16,
@@ -218,21 +251,11 @@ fn capture_logs<R: Read + Send + 'static>(
     reader: R,
     runtime: Arc<EngineRuntime>,
     generation: u64,
-    secrets: Vec<String>,
+    level: Level,
 ) {
     thread::spawn(move || {
         for line in BufReader::new(reader).lines().map_while(Result::ok) {
-            let safe_line = redact_secrets(&line, &secrets);
-            let Ok(mut inner) = runtime.inner.lock() else {
-                return;
-            };
-            if inner.generation != generation {
-                return;
-            }
-            inner.logs.push_back(safe_line);
-            while inner.logs.len() > MAX_LOG_LINES {
-                inner.logs.pop_front();
-            }
+            record_runtime_log(&runtime, generation, &line, level);
         }
     });
 }
@@ -242,6 +265,7 @@ fn emit_status(app: &AppHandle, connection: &EngineConnection) {
 }
 
 fn set_crashed(app: &AppHandle, runtime: &EngineRuntime, generation: u64, message: String) {
+    let crash_log = format!("Story Engine crashed: {message}");
     let (process, connection) = {
         let Ok(mut inner) = runtime.inner.lock() else {
             return;
@@ -255,6 +279,7 @@ fn set_crashed(app: &AppHandle, runtime: &EngineRuntime, generation: u64, messag
         inner.connection.last_error = Some(message);
         (process, inner.connection.clone())
     };
+    record_runtime_log(runtime, generation, &crash_log, Level::Error);
     terminate_process(process);
     emit_status(app, &connection);
 }
@@ -276,6 +301,7 @@ async fn start(
         .map_err(|error| format!("failed to start Story Engine Sidecar: {error}"))?;
     let stdout = process.stdout.take();
     let stderr = process.stderr.take();
+    let log_secrets = vec![token.clone(), model_bridge.api_key.clone()];
 
     let (generation, connection) = {
         let mut inner = runtime
@@ -292,15 +318,21 @@ async fn start(
         inner.connection.session_token = Some(token.clone());
         inner.connection.last_error = None;
         inner.process = Some(process);
+        inner.log_secrets = log_secrets;
         (inner.generation, inner.connection.clone())
     };
 
-    let log_secrets = vec![token, model_bridge.api_key];
+    record_runtime_log(
+        &runtime,
+        generation,
+        "Story Engine Sidecar process started",
+        Level::Info,
+    );
     if let Some(stdout) = stdout {
-        capture_logs(stdout, runtime.clone(), generation, log_secrets.clone());
+        capture_logs(stdout, runtime.clone(), generation, Level::Info);
     }
     if let Some(stderr) = stderr {
-        capture_logs(stderr, runtime.clone(), generation, log_secrets);
+        capture_logs(stderr, runtime.clone(), generation, Level::Error);
     }
     emit_status(&app, &connection);
 
@@ -315,12 +347,20 @@ async fn start_with_bridge_cleanup(
 ) -> Result<EngineConnection, String> {
     match start(app, runtime.clone(), is_restart).await {
         Ok(connection) => Ok(connection),
-        Err(start_error) => match runtime.model_bridge.shutdown().await {
-            Ok(()) => Err(start_error),
-            Err(shutdown_error) => Err(format!(
-                "{start_error}; failed to clean up model bridge: {shutdown_error}"
-            )),
-        },
+        Err(start_error) => {
+            let final_error = match runtime.model_bridge.shutdown().await {
+                Ok(()) => start_error,
+                Err(shutdown_error) => {
+                    format!("{start_error}; failed to clean up model bridge: {shutdown_error}")
+                }
+            };
+            record_current_runtime_log(
+                &runtime,
+                &format!("Story Engine failed to start: {final_error}"),
+                Level::Error,
+            );
+            Err(final_error)
+        }
     }
 }
 
@@ -396,6 +436,12 @@ async fn monitor(app: AppHandle, runtime: Arc<EngineRuntime>, generation: u64, b
         inner.connection.phase = EnginePhase::Ready;
         inner.connection.clone()
     };
+    record_runtime_log(
+        &runtime,
+        generation,
+        "Story Engine Sidecar is ready",
+        Level::Info,
+    );
     emit_status(&app, &connection);
 
     loop {
@@ -486,6 +532,37 @@ pub fn start_managed_sidecar(app: AppHandle, runtime: Arc<EngineRuntime>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
+
+    struct CapturingLogger;
+
+    static CAPTURED_LOGS: Mutex<Vec<(String, Level, String)>> = Mutex::new(Vec::new());
+    static LOGGER_INIT: Once = Once::new();
+
+    impl log::Log for CapturingLogger {
+        fn enabled(&self, _metadata: &log::Metadata<'_>) -> bool {
+            true
+        }
+
+        fn log(&self, record: &log::Record<'_>) {
+            if record.target() == SIDECAR_LOG_TARGET {
+                CAPTURED_LOGS.lock().expect("captured logger").push((
+                    record.target().to_owned(),
+                    record.level(),
+                    record.args().to_string(),
+                ));
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    fn install_capturing_logger() {
+        LOGGER_INIT.call_once(|| {
+            log::set_logger(&CapturingLogger).expect("test logger");
+            log::set_max_level(log::LevelFilter::Trace);
+        });
+    }
 
     #[test]
     fn development_sidecar_uses_the_repository_story_engine() {
@@ -527,20 +604,52 @@ mod tests {
 
     #[test]
     fn captured_logs_redact_session_and_model_bridge_tokens() {
-        let secrets = vec![
-            "session-secret".to_owned(),
-            "private-bridge-token".to_owned(),
-        ];
+        install_capturing_logger();
+        let runtime = EngineRuntime::default();
+        {
+            let mut inner = runtime.inner.lock().expect("runtime state");
+            inner.generation = 7;
+            inner.log_secrets = vec![
+                "session-secret".to_owned(),
+                "private-bridge-token".to_owned(),
+            ];
+        }
 
-        let safe_line = redact_secrets(
+        record_runtime_log(
+            &runtime,
+            7,
             "session-secret called private-bridge-token; harmless context remains",
-            &secrets,
+            log::Level::Error,
         );
 
         assert_eq!(
-            safe_line,
-            "[redacted] called [redacted]; harmless context remains"
+            runtime.logs().expect("captured logs"),
+            vec!["[redacted] called [redacted]; harmless context remains"]
         );
+        assert!(CAPTURED_LOGS.lock().expect("captured logger").iter().any(
+            |(target, level, message)| {
+                target == SIDECAR_LOG_TARGET
+                    && *level == Level::Error
+                    && message == "[redacted] called [redacted]; harmless context remains"
+            }
+        ));
+    }
+
+    #[test]
+    fn stale_sidecar_output_cannot_enter_the_runtime_or_persistent_logger() {
+        install_capturing_logger();
+        let runtime = EngineRuntime::default();
+        runtime.inner.lock().expect("runtime state").generation = 9;
+        let stale_message = "unique output from a stopped Sidecar";
+
+        record_runtime_log(&runtime, 8, stale_message, log::Level::Info);
+
+        assert!(runtime.logs().expect("captured logs").is_empty());
+        assert!(!CAPTURED_LOGS
+            .lock()
+            .expect("captured logger")
+            .iter()
+            .any(|(_, _, message)| message == stale_message));
     }
 
     #[test]

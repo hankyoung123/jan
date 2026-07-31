@@ -188,7 +188,10 @@ before declaring the engine ready, monitors the child process, and emits an
 immediate status event on startup, readiness, stop, or crash. The UI exposes
 explicit start, stop, and restart controls; start is idempotent while the
 Sidecar is starting or ready. Development uses `uv`; packaged builds resolve
-the onedir Sidecar from application resources.
+the onedir Sidecar from application resources. Sidecar stdout, stderr, and
+crash lifecycle messages are redacted before they enter Jan's persistent
+`app.log`. They remain available through normal application restarts until
+Jan's configured log rotation or the existing desktop log reset removes them.
 
 ## Model boundary
 
