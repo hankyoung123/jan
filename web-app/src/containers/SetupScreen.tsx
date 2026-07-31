@@ -326,9 +326,6 @@ function SetupScreen() {
       navigate({
         to: route.home,
         replace: true,
-        search: {
-          threadModel: { id: modelId, provider: 'llamacpp' },
-        },
       })
     }
 

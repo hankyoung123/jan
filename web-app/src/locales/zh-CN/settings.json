@@ -61,6 +61,8 @@
     "application": "应用程序",
     "newChat": "新建聊天",
     "newChatDesc": "创建一个新的聊天。",
+    "newProject": "新建故事项目",
+    "newProjectDesc": "打开投稿流程并创建故事项目。",
     "toggleSidebar": "切换侧边栏",
     "toggleSidebarDesc": "显示或隐藏侧边栏。",
     "zoomIn": "放大",

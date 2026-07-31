@@ -16,23 +16,11 @@ export const PlatformShortcuts: ShortcutMap = {
     usePlatformMetaKey: true,
   },
 
-  // New chat - different per platform to avoid browser "new window" conflict
-  [ShortcutAction.NEW_CHAT]: { key: 'n', usePlatformMetaKey: true },
-
-  // New agent chat - opens home screen with agent mode pre-enabled
-  [ShortcutAction.NEW_AGENT_CHAT]: { key: 'm', usePlatformMetaKey: true },
-
-  // New project - opens create project dialog
+  // New project - opens the Story submission flow.
   [ShortcutAction.NEW_PROJECT]: { key: 'p', usePlatformMetaKey: true },
 
   // Go to settings - different per platform to avoid browser "preferences" conflict
   [ShortcutAction.GO_TO_SETTINGS]: { key: ',', usePlatformMetaKey: true },
-
-  // Search - opens search dialog
-  [ShortcutAction.SEARCH]: { key: 'k', usePlatformMetaKey: true },
-
-  // Switch assistant - opens the chat input assistant switcher
-  [ShortcutAction.SWITCH_ASSISTANT]: { key: 'j', usePlatformMetaKey: true },
 
   // Zoom shortcuts - same on both platforms (standard shortcuts)
   [ShortcutAction.ZOOM_IN]: {

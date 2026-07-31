@@ -359,22 +359,6 @@ function HubContent() {
       'jan-nano-gguf') as boolean
   }, [])
 
-  const handleUseModel = useCallback(
-    (modelId: string) => {
-      navigate({
-        to: route.home,
-        params: {},
-        search: {
-          threadModel: {
-            id: modelId,
-            provider: 'llamacpp',
-          },
-        },
-      })
-    },
-    [navigate]
-  )
-
   const renderFilter = () => {
     return (
       <>
@@ -594,7 +578,6 @@ function HubContent() {
                               ) : (
                                 <DownloadButtonPlaceholder
                                   model={filteredModels[virtualItem.index]}
-                                  handleUseModel={handleUseModel}
                                 />
                               )}
                             </div>

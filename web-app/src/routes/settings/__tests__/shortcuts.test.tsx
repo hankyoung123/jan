@@ -143,6 +143,20 @@ describe('Shortcuts Settings Route', () => {
     expect(cards.length).toBeGreaterThan(0)
   })
 
+  it('exposes Story project shortcuts without Jan chat actions', () => {
+    const Component = ShortcutsRoute.component as React.ComponentType
+    render(<Component />)
+
+    expect(
+      screen.getByText('settings:shortcuts.newProject')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('settings:shortcuts.newChat')).not.toBeInTheDocument()
+    expect(screen.queryByText('settings:shortcuts.chat')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('settings:shortcuts.switchAssistant')
+    ).not.toBeInTheDocument()
+  })
+
   it('should be properly structured as a route component', () => {
     const Component = ShortcutsRoute.component as React.ComponentType
     

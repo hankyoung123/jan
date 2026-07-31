@@ -1,6 +1,4 @@
-import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { route } from '@/constants/routes'
 import { useDownloadStore } from '@/hooks/useDownloadStore'
 import { useGeneralSetting } from '@/hooks/useGeneralSetting'
 import { useModelProvider } from '@/hooks/useModelProvider'
@@ -8,9 +6,9 @@ import { useServiceHub } from '@/hooks/useServiceHub'
 import { useTranslation } from '@/i18n'
 import { CatalogModel } from '@/services/models/types'
 import { IconDownload } from '@tabler/icons-react'
-import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
+import { DownloadedModelAction } from './DownloadedModelAction'
 
 export const ModelDownloadAction = ({
   variant,
@@ -40,24 +38,6 @@ export const ModelDownloadAction = ({
         total: download.total,
       })),
     [downloads]
-  )
-
-  const navigate = useNavigate()
-
-  const handleUseModel = useCallback(
-    (modelId: string) => {
-      navigate({
-        to: route.home,
-        params: {},
-        search: {
-          threadModel: {
-            id: modelId,
-            provider: 'llamacpp',
-          },
-        },
-      })
-    },
-    [navigate]
   )
 
   const handleDownloadModel = useCallback(async () => {
@@ -125,16 +105,7 @@ export const ModelDownloadAction = ({
   }
 
   if (isDownloaded) {
-    return (
-      <Button
-        variant="default"
-        size="sm"
-        onClick={() => handleUseModel(variant.model_id)}
-        title={t('hub:useModel')}
-      >
-        {t('hub:newChat')}
-      </Button>
-    )
+    return <DownloadedModelAction />
   }
 
   return (

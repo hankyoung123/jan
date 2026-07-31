@@ -18,15 +18,14 @@ import { DownloadEvent, DownloadState, events } from '@janhq/core'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/shallow'
 import { DEFAULT_MODEL_QUANTIZATIONS } from '@/constants/models'
+import { DownloadedModelAction } from './DownloadedModelAction'
 
 type ModelProps = {
   model: CatalogModel
-  handleUseModel: (modelId: string) => void
 }
 
 export function DownloadButtonPlaceholder({
   model,
-  handleUseModel,
 }: ModelProps) {
   const {
     downloads,
@@ -54,16 +53,6 @@ export function DownloadButtonPlaceholder({
   const quant = selectDefaultQuant(model.quants, DEFAULT_MODEL_QUANTIZATIONS)
 
   const modelId = quant?.model_id || model.model_name
-
-  // Get the actual downloaded model ID (with or without developer prefix)
-  const downloadedModelId = useMemo(() => {
-    const foundModel = llamaProvider?.models.find(
-      (m: { id: string }) =>
-        m.id === modelId ||
-        m.id === `${model.developer}/${sanitizeModelId(modelId)}`
-    )
-    return foundModel?.id || modelId
-  }, [llamaProvider, modelId, model.developer])
 
   const downloadProcesses = useMemo(
     () =>
@@ -177,14 +166,7 @@ export function DownloadButtonPlaceholder({
         </div>
       )}
       {isDownloaded ? (
-        <Button
-          variant="default"
-          size="sm"
-          onClick={() => handleUseModel(downloadedModelId)}
-          data-test-id={`hub-model-${modelId}`}
-        >
-          {t('hub:newChat')}
-        </Button>
+        <DownloadedModelAction />
       ) : (
         <Button
           data-test-id={`hub-model-${modelId}`}

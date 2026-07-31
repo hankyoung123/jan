@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils'
 import { useGeneralSetting } from '@/hooks/useGeneralSetting'
 import { ModelInfoHoverCard } from '@/containers/ModelInfoHoverCard'
 import { DEFAULT_MODEL_QUANTIZATIONS } from '@/constants/models'
-import { useTranslation } from '@/i18n'
+import { DownloadedModelAction } from '@/containers/DownloadedModelAction'
 
 type SearchParams = {
   repo: string
@@ -41,7 +41,6 @@ export const Route = createFileRoute('/hub/$modelId')({
 })
 
 function HubModelDetailContent() {
-  const { t } = useTranslation()
   const { modelId } = useParams({ from: Route.id })
   const navigate = useNavigate()
   const { huggingfaceToken } = useGeneralSetting()
@@ -106,23 +105,6 @@ function HubModelDetailContent() {
         total: download.total,
       })),
     [downloads]
-  )
-
-  // Handle model use
-  const handleUseModel = useCallback(
-    (modelId: string) => {
-      navigate({
-        to: route.home,
-        params: {},
-        search: {
-          threadModel: {
-            id: modelId,
-            provider: 'llamacpp',
-          },
-        },
-      })
-    },
-    [navigate]
   )
 
   // Format the date
@@ -411,17 +393,7 @@ function HubModelDetailContent() {
                                 }
 
                                 if (isDownloaded) {
-                                  return (
-                                    <Button
-                                      variant="default"
-                                      size="sm"
-                                      onClick={() =>
-                                        handleUseModel(variant.model_id)
-                                      }
-                                    >
-                                      {t('hub:newChat')}
-                                    </Button>
-                                  )
+                                  return <DownloadedModelAction />
                                 }
 
                                 return (

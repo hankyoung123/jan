@@ -87,11 +87,6 @@ function Shortcuts() {
             {/* Application */}
             <Card title={t('settings:shortcuts.application')}>
               <CardItem
-                title={t('settings:shortcuts.newChat')}
-                description={t('settings:shortcuts.newChatDesc')}
-                actions={<ShortcutLabel action={ShortcutAction.NEW_CHAT} />}
-              />
-              <CardItem
                 title={t('settings:shortcuts.newProject')}
                 description={t('settings:shortcuts.newProjectDesc')}
                 actions={<ShortcutLabel action={ShortcutAction.NEW_PROJECT} />}
@@ -113,43 +108,8 @@ function Shortcuts() {
               />
             </Card>
 
-            {/* Chat */}
-            <Card title={t('settings:shortcuts.chat')}>
-              <CardItem
-                title={t('settings:shortcuts.sendMessage')}
-                description={t('settings:shortcuts.sendMessageDesc')}
-                actions={
-                  <KbdGroup>
-                    <Kbd>Enter</Kbd>
-                  </KbdGroup>
-                }
-              />
-              <CardItem
-                title={t('settings:shortcuts.newLine')}
-                description={t('settings:shortcuts.newLineDesc')}
-                actions={
-                  <KbdGroup>
-                    <Kbd>Shift</Kbd>
-                    <Kbd>Enter</Kbd>
-                  </KbdGroup>
-                }
-              />
-              <CardItem
-                title={t('settings:shortcuts.switchAssistant')}
-                description={t('settings:shortcuts.switchAssistantDesc')}
-                actions={
-                  <ShortcutLabel action={ShortcutAction.SWITCH_ASSISTANT} />
-                }
-              />
-            </Card>
-
             {/* Navigation */}
             <Card title={t('settings:shortcuts.navigation')}>
-              <CardItem
-                title={t('settings:shortcuts.search')}
-                description={t('settings:shortcuts.searchDesc')}
-                actions={<ShortcutLabel action={ShortcutAction.SEARCH} />}
-              />
               <CardItem
                 title={t('settings:shortcuts.goToSettings')}
                 description={t('settings:shortcuts.goToSettingsDesc')}

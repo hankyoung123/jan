@@ -1,6 +1,5 @@
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { route } from '@/constants/routes'
 import { useDownloadStore } from '@/hooks/useDownloadStore'
 import { useGeneralSetting } from '@/hooks/useGeneralSetting'
 import { useModelProvider } from '@/hooks/useModelProvider'
@@ -11,14 +10,12 @@ import { cn } from '@/lib/utils'
 import { DownloadEvent, EngineManager, events } from '@janhq/core'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { useNavigate } from '@tanstack/react-router'
+import { DownloadedModelAction } from './DownloadedModelAction'
 
 export const MlxModelDownloadAction = memo(({ model }: { model: CatalogModel }) => {
   const serviceHub = useServiceHub()
   const { t } = useTranslation()
   const huggingfaceToken = useGeneralSetting((state) => state.huggingfaceToken)
-
-  const navigate = useNavigate()
 
   const [isDownloaded, setDownloaded] = useState(false)
 
@@ -53,17 +50,6 @@ export const MlxModelDownloadAction = memo(({ model }: { model: CatalogModel }) 
   const downloadProgress =
     downloadProcesses.find((e) => e.id === modelId)?.progress || 0
 
-  // Get the actual downloaded model ID (with or without developer prefix)
-  const downloadedModelId = useMemo(() => {
-    const mlxProvider = useModelProvider.getState().getProviderByName('mlx')
-    const foundModel = mlxProvider?.models.find(
-      (m: { id: string }) =>
-        m.id === modelId ||
-        m.id === `${model.developer}/${modelId}`
-    )
-    return foundModel?.id || modelId
-  }, [modelId, model.developer])
-
   // Check if MLX model is already downloaded
   useEffect(() => {
     const mlxProvider = useModelProvider.getState().getProviderByName('mlx')
@@ -93,19 +79,6 @@ export const MlxModelDownloadAction = memo(({ model }: { model: CatalogModel }) 
       )
     }
   }, [modelId])
-
-  const handleUseModel = useCallback(() => {
-    navigate({
-      to: route.home,
-      params: {},
-      search: {
-        threadModel: {
-          id: downloadedModelId,
-          provider: 'mlx',
-        },
-      },
-    })
-  }, [navigate, downloadedModelId])
 
   const handleDownloadMlxModel = useCallback(async () => {
     addLocalDownloadingModel(modelId)
@@ -181,14 +154,7 @@ export const MlxModelDownloadAction = memo(({ model }: { model: CatalogModel }) 
         </div>
       )}
       {isDownloaded ? (
-        <Button
-          variant="default"
-          size="sm"
-          onClick={handleUseModel}
-          data-test-id={`hub-model-${modelId}`}
-        >
-          {t('hub:newChat')}
-        </Button>
+        <DownloadedModelAction />
       ) : (
         <Button
           data-test-id={`hub-model-${modelId}`}
