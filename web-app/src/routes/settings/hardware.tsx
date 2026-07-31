@@ -152,7 +152,7 @@ function HardwareContent() {
           </Button>
         </div>
       </HeaderPage>
-      <div className="flex h-[calc(100%-60px)]">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <SettingsMenu />
         <div className="p-4 pt-0 w-full overflow-y-auto">
           {isLoading ? (

@@ -1,5 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { invoke } from '@tauri-apps/api/core'
 import { route } from '@/constants/routes'
 import SettingsMenu from '@/containers/SettingsMenu'
 import HeaderPage from '@/containers/HeaderPage'
@@ -15,9 +14,6 @@ import { FactoryResetDialog } from '@/containers/dialogs'
 import type { FactoryResetOptions } from '@/services/app/types'
 import { useServiceHub } from '@/hooks/useServiceHub'
 import {
-  IconBrandDiscord,
-  IconBrandGithub,
-  IconExternalLink,
   IconFolder,
   IconLogs,
   IconCopy,
@@ -40,8 +36,6 @@ export const Route = createFileRoute(route.settings.general as any)({
 function General() {
   const { t } = useTranslation()
   const {
-    spellCheckChatInput,
-    setSpellCheckChatInput,
     autoUpdateCheck,
     setAutoUpdateCheck,
     huggingfaceToken,
@@ -66,9 +60,6 @@ function General() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
   const [isValidatingToken, setIsValidatingToken] = useState(false)
-  const [cliInstalled, setCliInstalled] = useState<boolean | null>(null)
-  const [cliPath, setCliPath] = useState<string | null>(null)
-  const [isCliLoading, setIsCliLoading] = useState(false)
 
   useEffect(() => {
     const fetchDataFolder = async () => {
@@ -78,41 +69,6 @@ function General() {
 
     fetchDataFolder()
   }, [serviceHub])
-
-  useEffect(() => {
-    if (!IS_TAURI) return
-    invoke<{ installed: boolean; path: string | null }>('check_jan_cli_installed')
-      .then((s) => { setCliInstalled(s.installed); setCliPath(s.path) })
-      .catch(() => setCliInstalled(false))
-  }, [])
-
-  const handleInstallCli = async () => {
-    setIsCliLoading(true)
-    try {
-      const s = await invoke<{ installed: boolean; path: string | null }>('install_jan_cli')
-      setCliInstalled(s.installed)
-      setCliPath(s.path)
-      toast.success(`Jan CLI installed to ${s.path}`)
-    } catch (e) {
-      toast.error('Install failed', { description: String(e) })
-    } finally {
-      setIsCliLoading(false)
-    }
-  }
-
-  const handleUninstallCli = async () => {
-    setIsCliLoading(true)
-    try {
-      await invoke('uninstall_jan_cli')
-      setCliInstalled(false)
-      setCliPath(null)
-      toast.success('Jan CLI uninstalled')
-    } catch (e) {
-      toast.error('Uninstall failed', { description: String(e) })
-    } finally {
-      setIsCliLoading(false)
-    }
-  }
 
   const resetApp = async (options: FactoryResetOptions) => {
     if (isRootDir(janDataFolder ?? '/')) {
@@ -215,7 +171,7 @@ function General() {
           <span className='font-medium text-base font-studio'>{t('common:settings')}</span>
         </div>
       </HeaderPage>
-      <div className="flex h-[calc(100%-60px)]">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <SettingsMenu />
         <div className="p-4 pt-0 w-full overflow-y-auto">
           <div className="flex flex-col justify-between gap-4 gap-y-3 w-full">
@@ -235,7 +191,7 @@ function General() {
                   <CardItem
                     title={t('settings:general.autoUpdateCheck')}
                     description={t('settings:general.autoUpdateCheckDesc')}
-                    className="items-center flex-row gap-y-2"
+                    className="gap-y-2"
                     actions={
                       <Switch
                         checked={autoUpdateCheck}
@@ -245,8 +201,8 @@ function General() {
                   />
                   <CardItem
                     title={t('settings:general.checkForUpdates')}
-                    description={t('settings:general.checkForUpdatesDesc')}
-                    className="items-center flex-row gap-y-2"
+                    description={t('settings:general.autoUpdateCheckDesc')}
+                    className="gap-y-2"
                     actions={
                       <Button
                         variant="secondary"
@@ -275,51 +231,43 @@ function General() {
                   ns: 'settings',
                 })}
                 align="start"
-                className="items-start flex-row gap-2"
+                className="gap-2"
                 description={
-                  <>
-                    <span>
-                      {t('settings:dataFolder.appDataDesc', {
-                        ns: 'settings',
-                      })}
-                      &nbsp;
-                    </span>
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className="max-w-100 bg-secondary rounded-sm px-1 py-0.5">
-                        <span
-                          title={janDataFolder}
-                          className="text-xs line-clamp-1 break-all"
-                        >
-                          {janDataFolder}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() =>
-                          janDataFolder && copyToClipboard(janDataFolder)
-                        }
-                        className="cursor-pointer flex items-center justify-center rounded-sm bg-secondary transition-all duration-200 ease-in-out p-1"
-                        title={
-                          isCopied
-                            ? t('settings:general.copied')
-                            : t('settings:general.copyPath')
-                        }
+                  <div className="flex items-center gap-2">
+                    <div className="max-w-100 bg-secondary rounded-sm px-1 py-0.5">
+                      <span
+                        title={janDataFolder}
+                        className="text-xs line-clamp-1 break-all"
                       >
-                        {isCopied ? (
-                          <div className="flex items-center gap-1">
-                            <IconCopyCheck size={14} className="text-green-500 dark:text-green-600" />
-                            <span className="text-xs leading-0">
-                              {t('settings:general.copied')}
-                            </span>
-                          </div>
-                        ) : (
-                          <IconCopy
-                            size={14}
-                            className="text-muted-foreground"
-                          />
-                        )}
-                      </button>
+                        {janDataFolder}
+                      </span>
                     </div>
-                  </>
+                    <button
+                      onClick={() =>
+                        janDataFolder && copyToClipboard(janDataFolder)
+                      }
+                      className="cursor-pointer flex items-center justify-center rounded-sm bg-secondary transition-all duration-200 ease-in-out p-1"
+                      title={
+                        isCopied
+                          ? t('settings:general.copied')
+                          : t('settings:general.copyPath')
+                      }
+                    >
+                      {isCopied ? (
+                        <div className="flex items-center gap-1">
+                          <IconCopyCheck size={14} className="text-green-500 dark:text-green-600" />
+                          <span className="text-xs leading-0">
+                            {t('settings:general.copied')}
+                          </span>
+                        </div>
+                      ) : (
+                        <IconCopy
+                          size={14}
+                          className="text-muted-foreground"
+                        />
+                      )}
+                    </button>
+                  </div>
                 }
                 actions={
                   <>
@@ -359,7 +307,7 @@ function General() {
                   ns: 'settings',
                 })}
                 description={t('settings:dataFolder.appLogsDesc')}
-                className="items-start flex-row gap-y-2"
+                className="gap-y-2"
                 actions={
                   <div className="flex items-center gap-2">
                     <Button
@@ -404,46 +352,13 @@ function General() {
               />
             </Card>
 
-            {/* Advanced - Desktop only */}
+            {/* Advanced */}
             <Card title="Advanced">
-              {IS_TAURI && (
-                <CardItem
-                  title="Jan CLI"
-                  description={
-                    cliInstalled && cliPath
-                      ? `Installed at ${cliPath} — use jan from your terminal to serve models.`
-                      : 'Use jan from your terminal to serve models without opening the app.'
-                  }
-                  actions={
-                    cliInstalled ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleUninstallCli}
-                        disabled={isCliLoading || cliInstalled === null}
-                      >
-                        {isCliLoading ? 'Uninstalling…' : 'Uninstall'}
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleInstallCli}
-                        disabled={isCliLoading || cliInstalled === null}
-                      >
-                        {isCliLoading ? 'Installing…' : 'Install'}
-                      </Button>
-                    )
-                  }
-                />
-              )}
               <CardItem
                 title={t('settings:others.resetFactory', {
                   ns: 'settings',
                 })}
-                description={t('settings:others.resetFactoryDesc', {
-                  ns: 'settings',
-                })}
+                description={t('settings:general.factoryResetDesc')}
                 actions={
                   <FactoryResetDialog onReset={resetApp}>
                     <Button variant="destructive" size="sm">
@@ -456,20 +371,6 @@ function General() {
 
             {/* Other */}
             <Card title={t('common:others')}>
-              <CardItem
-                title={t('settings:others.spellCheck', {
-                  ns: 'settings',
-                })}
-                description={t('settings:others.spellCheckDesc', {
-                  ns: 'settings',
-                })}
-                actions={
-                  <Switch
-                    checked={spellCheckChatInput}
-                    onCheckedChange={(e) => setSpellCheckChatInput(e)}
-                  />
-                }
-              />
               <CardItem
                 title={t('settings:general.huggingfaceToken', {
                   ns: 'settings',
@@ -551,109 +452,6 @@ function General() {
               />
             </Card>
 
-            {/* Resources */}
-            <Card title={t('settings:general.resources')}>
-              <CardItem
-                title={t('settings:general.documentation')}
-                description={t('settings:general.documentationDesc')}
-                actions={
-                  <a
-                    href="https://jan.ai/docs"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <div className="flex items-center gap-1">
-                      <span>{t('settings:general.viewDocs')}</span>
-                      <IconExternalLink size={14} />
-                    </div>
-                  </a>
-                }
-              />
-              <CardItem
-                title={t('settings:general.releaseNotes')}
-                description={t('settings:general.releaseNotesDesc')}
-                actions={
-                  <a
-                    href="https://github.com/janhq/jan/releases"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <div className="flex items-center gap-1">
-                      <span>{t('settings:general.viewReleases')}</span>
-                      <IconExternalLink size={14} />
-                    </div>
-                  </a>
-                }
-              />
-            </Card>
-
-            {/* Community */}
-            <Card title={t('settings:general.community')}>
-              <CardItem
-                title={t('settings:general.github')}
-                description={t('settings:general.githubDesc')}
-                actions={
-                  <a
-                    href="https://github.com/janhq/jan"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                      <IconBrandGithub
-                        size={18}
-                        className="text-muted-foreground"
-                      />
-                  </a>
-                }
-              />
-              <CardItem
-                title={t('settings:general.discord')}
-                description={t('settings:general.discordDesc')}
-                actions={
-                  <a
-                    href="https://discord.com/invite/FTk2MvZwJH"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <IconBrandDiscord
-                      size={18}
-                      className="text-muted-foreground"
-                    />
-                  </a>
-                }
-              />
-            </Card>
-
-            {/* Support */}
-            <Card title={t('settings:general.support')}>
-              <CardItem
-                title={t('settings:general.reportAnIssue')}
-                description={t('settings:general.reportAnIssueDesc')}
-                actions={
-                  <a
-                    href="https://github.com/janhq/jan/issues/new"
-                    target="_blank"
-                  >
-                    <div className="flex items-center gap-1">
-                      <span>{t('settings:general.reportIssue')}</span>
-                      <IconExternalLink size={14} />
-                    </div>
-                  </a>
-                }
-              />
-            </Card>
-
-            {/* Credits */}
-            <Card title={t('settings:general.credits')}>
-              <CardItem
-                align="start"
-                description={
-                  <div className="text-muted-foreground -mt-2">
-                    <p>{t('settings:general.creditsDesc1')}</p>
-                    <p className="mt-2">{t('settings:general.creditsDesc2')}</p>
-                  </div>
-                }
-              />
-            </Card>
           </div>
         </div>
       </div>

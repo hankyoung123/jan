@@ -65,9 +65,6 @@ export function FactoryResetDialog({
                 <span className="text-sm font-medium text-foreground">
                   {t('settings:general.keepAppData')}
                 </span>
-                <span className="text-xs text-muted-foreground">
-                  {t('settings:general.keepAppDataDesc')}
-                </span>
               </div>
             </label>
             <label className="flex items-start gap-2 cursor-pointer">
@@ -80,9 +77,6 @@ export function FactoryResetDialog({
               <div className="flex flex-col">
                 <span className="text-sm font-medium text-foreground">
                   {t('settings:general.keepModelsAndConfigs')}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {t('settings:general.keepModelsAndConfigsDesc')}
                 </span>
               </div>
             </label>

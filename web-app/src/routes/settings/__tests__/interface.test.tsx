@@ -109,6 +109,25 @@ describe('Interface Settings Route', () => {
     expect(screen.getByTestId('theme-switcher')).toBeInTheDocument()
     expect(screen.getByTestId('font-size-switcher')).toBeInTheDocument()
     expect(screen.getByTestId('accent-color-picker')).toBeInTheDocument()
+    expect(screen.getByTestId('notification-position-switcher')).toBeInTheDocument()
+  })
+
+  it('does not expose chat-specific appearance controls', () => {
+    const Component = InterfaceRoute.component as React.ComponentType
+    render(<Component />)
+
+    expect(
+      screen.queryByText('settings:interface.showTokenSpeed')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('settings:interface.coloredUserBubble')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('settings:interface.renderHtmlArtifacts')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('settings:interface.autoGenerateTitle')
+    ).not.toBeInTheDocument()
   })
 
   it('should render reset interface button', () => {

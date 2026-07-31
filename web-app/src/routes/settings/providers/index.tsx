@@ -103,7 +103,7 @@ function ModelProviders() {
           </AddProviderDialog>
         </div>
       </HeaderPage>
-      <div className="flex h-[calc(100%-60px)]">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <SettingsMenu />
         <div className="p-4 pt-0 w-full h-[calc(100%-32px)] overflow-y-auto">
           <div className="flex flex-col justify-between gap-4 gap-y-3 w-full">
@@ -120,7 +120,7 @@ function ModelProviders() {
               <CardItem
                 title={t('provider:stripReasoning')}
                 description={t('provider:stripReasoningDesc')}
-                className="items-center flex-row gap-y-2"
+                className="gap-y-2"
                 actions={
                   <Switch
                     checked={stripReasoningFromContext}

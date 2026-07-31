@@ -10,7 +10,6 @@ import { AccentColorPicker } from '@/containers/AccentColorPicker'
 import { NotificationPositionSwitcher } from '@/containers/NotificationPositionSwitcher'
 import { useInterfaceSettings } from '@/hooks/useInterfaceSettings'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,17 +19,7 @@ export const Route = createFileRoute(route.settings.interface as any)({
 
 function InterfaceSettings() {
   const { t } = useTranslation()
-  const {
-    resetInterface,
-    showTokenSpeed,
-    setShowTokenSpeed,
-    coloredUserBubble,
-    setColoredUserBubble,
-    renderHtmlArtifacts,
-    setRenderHtmlArtifacts,
-    autoGenerateTitle,
-    setAutoGenerateTitle,
-  } = useInterfaceSettings()
+  const { resetInterface } = useInterfaceSettings()
 
   return (
     <div className="flex flex-col h-svh w-full">
@@ -39,7 +28,7 @@ function InterfaceSettings() {
           <span className='font-medium text-base font-studio'>{t('common:settings')}</span>
         </div>
       </HeaderPage>
-      <div className="flex h-[calc(100%-60px)]">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <SettingsMenu />
         <div className="p-4 pt-0 w-full overflow-y-auto">
           <div className="flex flex-col justify-between gap-4 gap-y-3 w-full">
@@ -65,53 +54,6 @@ function InterfaceSettings() {
                 title={t('settings:interface.notificationPosition')}
                 description={t('settings:interface.notificationPositionDesc')}
                 actions={<NotificationPositionSwitcher />}
-              />
-              <CardItem
-                title={t('settings:interface.showTokenSpeed')}
-                description={t('settings:interface.showTokenSpeedDesc')}
-                actions={
-                  <Switch
-                    checked={showTokenSpeed}
-                    onCheckedChange={setShowTokenSpeed}
-                  />
-                }
-              />
-              <CardItem
-                title={t('settings:interface.coloredUserBubble')}
-                description={t('settings:interface.coloredUserBubbleDesc')}
-                actions={
-                  <Switch
-                    checked={coloredUserBubble}
-                    onCheckedChange={setColoredUserBubble}
-                  />
-                }
-              />
-              <CardItem
-                title={
-                  <span className="inline-flex items-center gap-2">
-                    <span>{t('settings:interface.renderHtmlArtifacts')}</span>
-                    <span className="text-xs bg-secondary border text-muted-foreground rounded-full py-0.5 px-2">
-                      {t('common:experimental')}
-                    </span>
-                  </span>
-                }
-                description={t('settings:interface.renderHtmlArtifactsDesc')}
-                actions={
-                  <Switch
-                    checked={renderHtmlArtifacts}
-                    onCheckedChange={setRenderHtmlArtifacts}
-                  />
-                }
-              />
-              <CardItem
-                title={t('settings:interface.autoGenerateTitle')}
-                description={t('settings:interface.autoGenerateTitleDesc')}
-                actions={
-                  <Switch
-                    checked={autoGenerateTitle}
-                    onCheckedChange={setAutoGenerateTitle}
-                  />
-                }
               />
               <CardItem
                 title={t('settings:interface.resetToDefault')}

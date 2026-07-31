@@ -321,6 +321,10 @@ describe('General Settings Route', () => {
     expect(screen.getByTestId('header-page')).toBeInTheDocument()
     expect(screen.getByTestId('settings-menu')).toBeInTheDocument()
     expect(screen.getByText('common:settings')).toBeInTheDocument()
+    expect(screen.getByTestId('settings-menu').parentElement).toHaveClass(
+      'flex-col',
+      'md:flex-row'
+    )
   })
 
   it('should render app version', async () => {
@@ -351,20 +355,31 @@ describe('General Settings Route', () => {
     expect(input).toHaveValue('test-token')
   })
 
-  it('should handle spell check toggle', async () => {
+  it('does not expose chat settings, Jan CLI, or Jan product links', async () => {
     const Component = GeneralRoute.component as React.ComponentType
     await act(async () => {
       render(<Component />)
     })
 
-    const switches = screen.getAllByTestId('switch')
-    expect(switches.length).toBeGreaterThan(0)
-
-    // Test that switches are interactive
-    await act(async () => {
-      fireEvent.click(switches[0])
-    })
-    expect(switches[0]).toBeInTheDocument()
+    expect(screen.queryByText('settings:others.spellCheck')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('settings:others.resetFactoryDesc')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('settings:general.keepAppDataDesc')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('settings:general.keepModelsAndConfigsDesc')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('settings:general.checkForUpdatesDesc')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('settings:dataFolder.appDataDesc')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Jan CLI')).not.toBeInTheDocument()
+    expect(document.querySelector('a[href*="jan.ai"]')).not.toBeInTheDocument()
+    expect(document.querySelector('a[href*="janhq"]')).not.toBeInTheDocument()
   })
 
   it('should handle huggingface token change', async () => {
@@ -435,17 +450,6 @@ describe('General Settings Route', () => {
     expect(screen.getByTestId('dialog')).toBeInTheDocument()
     expect(screen.getByTestId('dialog-trigger')).toBeInTheDocument()
     expect(screen.getByTestId('dialog-content')).toBeInTheDocument()
-  })
-
-  it('should render external links', async () => {
-    const Component = GeneralRoute.component as React.ComponentType
-    await act(async () => {
-      render(<Component />)
-    })
-
-    // Check for external links
-    const links = screen.getAllByRole('link')
-    expect(links.length).toBeGreaterThan(0)
   })
 
   it('should handle logs window opening', async () => {

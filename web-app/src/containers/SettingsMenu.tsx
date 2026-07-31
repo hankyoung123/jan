@@ -4,19 +4,14 @@ import { useTranslation } from '@/i18n/react-i18next-compat'
 import { useState, useEffect, useCallback } from 'react'
 import {
   IconAdjustmentsHorizontal,
-  IconCircles,
   IconChevronDown,
   IconChevronRight,
   IconCommand,
-  IconFeather,
   IconPalette,
   IconPlus,
-  IconTopologyStar3,
   IconLock,
   IconCpu,
   IconWorld,
-  IconWorldSearch,
-  IconPaperclip,
 } from '@tabler/icons-react'
 import { useMatches, useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
@@ -177,26 +172,10 @@ const SettingsMenu = () => {
       route: route.settings.interface,
       icon: IconPalette,
     },
-    { title: 'common:assistants', route: route.settings.assistant, icon: IconFeather },
-    {
-      title: 'common:attachments',
-      route: route.settings.attachments,
-      icon: IconPaperclip,
-    },
-    {
-      title: 'common:local_api_server',
-      route: route.settings.local_api_server,
-      icon: IconCircles,
-    },
     {
       title: 'common:https_proxy',
       route: route.settings.https_proxy,
       icon: IconWorld,
-    },
-    {
-      title: 'common:web_search',
-      route: route.settings.web_search,
-      icon: IconWorldSearch,
     },
     {
       title: 'common:keyboardShortcuts',
@@ -213,28 +192,16 @@ const SettingsMenu = () => {
     { title: 'common:privacy', route: route.settings.privacy, icon: IconLock },
   ]
 
-  const integrationSettings = [
-    {
-      title: 'common:mcp-servers',
-      route: route.settings.mcp_servers,
-      icon: IconTopologyStar3,
-    },
-    {
-      title: 'common:claude_code',
-      route: route.settings.claude_code,
-      icon: ({ size, className }: { size?: number; className?: string }) => (
-        <img src="/images/code-claude.svg" width={size} height={size} className={cn(className, 'dark:invert opacity-60')} />
-      ),
-    },
-  ]
-
   return (
     <>
-      <div className="h-full w-58 shrink-0 px-1.5 flex overflow-auto">
-        <div className="flex flex-col gap-1 w-full font-medium">
+      <nav
+        aria-label={t('common:settings')}
+        className="flex w-full shrink-0 overflow-x-auto border-b px-2 pb-2 md:h-full md:w-58 md:overflow-y-auto md:border-b-0 md:px-1.5 md:pb-0"
+      >
+        <div className="flex min-w-max flex-row gap-1 font-medium md:w-full md:min-w-0 md:flex-col">
           {/* Core settings */}
           {coreSettings.map((menu) => (
-            <div key={menu.title}>
+            <div className="shrink-0" key={menu.title}>
               <Link
                 to={menu.route}
                 className="block px-2 gap-1.5 cursor-pointer hover:dark:bg-secondary/60 hover:bg-secondary py-1 w-full rounded-sm [&.active]:dark:bg-secondary/80 [&.active]:bg-secondary"
@@ -247,30 +214,8 @@ const SettingsMenu = () => {
             </div>
           ))}
 
-          {/* Integrations section */}
-          <div className="mt-4">
-            <span className="px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {t('common:integrations')}
-              <span className="text-[11px] capitalize ml-2 font-medium px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-600 dark:text-blue-400">
-                {t('common:experimental')}
-              </span>
-            </span>
-            <div className="mt-1 flex flex-col gap-1">
-              {integrationSettings.map((menu) => (
-                <Link
-                  key={menu.title}
-                  to={menu.route}
-                  className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:dark:bg-secondary/60 hover:bg-secondary rounded-sm [&.active]:dark:bg-secondary/80 [&.active]:bg-secondary"
-                >
-                  <menu.icon size={18} className="shrink-0 text-muted-foreground" />
-                  <span>{t(menu.title)}</span>
-                </Link>
-              ))}
-            </div>
-          </div>
-
           {/* Model Providers section */}
-          <div className="mt-4">
+          <div className="mt-4 hidden md:block">
             <div className="flex items-center justify-between pl-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {t('common:modelProviders')}
@@ -358,7 +303,7 @@ const SettingsMenu = () => {
             <div className="m-3" />
           </div>
         </div>
-      </div>
+      </nav>
     </>
   )
 }

@@ -32,16 +32,16 @@ export function CardItem({
     <>
       <div
         className={cn(
-          'flex justify-between mt-2 first:mt-0 border-b border-border/40 pb-3 last:border-none last:pb-0 gap-8',
+          'flex flex-col items-stretch justify-between mt-2 first:mt-0 border-b border-border/40 pb-3 last:border-none last:pb-0 gap-3 sm:flex-row sm:gap-8',
           descriptionOutside && 'border-0',
-          align === 'start' && 'items-start',
-          align === 'center' && 'items-center',
-          align === 'end' && 'items-end',
-          column && 'flex-col gap-y-0 items-start',
+          align === 'start' && 'sm:items-start',
+          align === 'center' && 'sm:items-center',
+          align === 'end' && 'sm:items-end',
+          column && 'flex-col items-start gap-y-0 sm:flex-col sm:items-start',
           className
         )}
       >
-        <div className="space-y-1.5">
+        <div className="min-w-0 space-y-1.5">
           <h1 className="font-medium text-foreground">{title}</h1>
           {description && (
             <span className="text-muted-foreground leading-normal">
@@ -52,9 +52,9 @@ export function CardItem({
         {actions && (
           <div
             className={cn(
-              'shrink-0',
+              'w-full shrink-0 sm:w-auto',
               classNameWrapperAction,
-              column && 'w-full'
+              column && 'sm:w-full'
             )}
           >
             {actions}

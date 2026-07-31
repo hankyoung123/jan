@@ -102,18 +102,32 @@ describe('SettingsMenu', () => {
     expect(screen.getByText('common:privacy')).toBeInTheDocument()
   })
 
-  it('renders core settings links', () => {
+  it('uses a horizontal mobile navigation and desktop sidebar', () => {
+    render(<SettingsMenu />)
+
+    expect(
+      screen.getByRole('navigation', { name: 'common:settings' })
+    ).toHaveClass('w-full', 'overflow-x-auto', 'md:h-full', 'md:w-58')
+  })
+
+  it('renders only product-relevant core settings links', () => {
     render(<SettingsMenu />)
     expect(screen.getByText('common:keyboardShortcuts')).toBeInTheDocument()
-    expect(screen.getByText('common:assistants')).toBeInTheDocument()
-    expect(screen.getByText('common:local_api_server')).toBeInTheDocument()
+    expect(screen.getByText('common:https_proxy')).toBeInTheDocument()
+    expect(screen.getByText('common:hardware')).toBeInTheDocument()
     expect(screen.getByText('common:privacy')).toBeInTheDocument()
   })
 
-  it('renders integrations links', () => {
+  it('does not expose Jan chat-product settings', () => {
     render(<SettingsMenu />)
-    expect(screen.getByText('common:mcp-servers')).toBeInTheDocument()
-    expect(screen.getByText('common:claude_code')).toBeInTheDocument()
+
+    expect(screen.queryByText('common:assistants')).not.toBeInTheDocument()
+    expect(screen.queryByText('common:attachments')).not.toBeInTheDocument()
+    expect(screen.queryByText('common:local_api_server')).not.toBeInTheDocument()
+    expect(screen.queryByText('common:web_search')).not.toBeInTheDocument()
+    expect(screen.queryByText('common:mcp-servers')).not.toBeInTheDocument()
+    expect(screen.queryByText('common:claude_code')).not.toBeInTheDocument()
+    expect(screen.queryByText('common:integrations')).not.toBeInTheDocument()
   })
 
   it('shows provider expansion chevron when providers are active', () => {
