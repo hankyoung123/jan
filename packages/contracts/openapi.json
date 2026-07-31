@@ -915,6 +915,197 @@
         "title": "PromotionConfirmationRequest",
         "type": "object"
       },
+      "RagHit": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_id": {
+            "minLength": 1,
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "content": {
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "heading": {
+            "minLength": 1,
+            "title": "Heading",
+            "type": "string"
+          },
+          "permission_scope": {
+            "minLength": 1,
+            "title": "Permission Scope",
+            "type": "string"
+          },
+          "retrieval_mode": {
+            "enum": [
+              "exact",
+              "bm25"
+            ],
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "score": {
+            "exclusiveMinimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "source_id": {
+            "minLength": 1,
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_path": {
+            "minLength": 1,
+            "title": "Source Path",
+            "type": "string"
+          },
+          "source_type": {
+            "enum": [
+              "project",
+              "world",
+              "character",
+              "event",
+              "scene",
+              "source"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "source_type",
+          "source_id",
+          "source_path",
+          "heading",
+          "permission_scope",
+          "score",
+          "retrieval_mode",
+          "content"
+        ],
+        "title": "RagHit",
+        "type": "object"
+      },
+      "RagIndexSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_count": {
+            "minimum": 0.0,
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "document_count": {
+            "minimum": 0.0,
+            "title": "Document Count",
+            "type": "integer"
+          },
+          "fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "project_id": {
+            "minLength": 1,
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "fingerprint",
+          "document_count",
+          "chunk_count"
+        ],
+        "title": "RagIndexSummary",
+        "type": "object"
+      },
+      "RagSearchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "exact_id": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exact Id"
+          },
+          "limit": {
+            "default": 8,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "default": "",
+            "maxLength": 4096,
+            "title": "Query",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/RetrievalScope"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "RagSearchRequest",
+        "type": "object"
+      },
+      "RagSearchResult": {
+        "additionalProperties": false,
+        "properties": {
+          "exact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exact Id"
+          },
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/RagHit"
+            },
+            "title": "Hits",
+            "type": "array"
+          },
+          "index_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Index Fingerprint",
+            "type": "string"
+          },
+          "permission_scope": {
+            "minLength": 1,
+            "title": "Permission Scope",
+            "type": "string"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "permission_scope",
+          "index_fingerprint",
+          "hits"
+        ],
+        "title": "RagSearchResult",
+        "type": "object"
+      },
       "Relationship": {
         "additionalProperties": false,
         "properties": {
@@ -934,6 +1125,118 @@
           "description"
         ],
         "title": "Relationship",
+        "type": "object"
+      },
+      "RetrievalEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_id": {
+            "minLength": 1,
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "content": {
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "heading": {
+            "minLength": 1,
+            "title": "Heading",
+            "type": "string"
+          },
+          "permission_scope": {
+            "minLength": 1,
+            "title": "Permission Scope",
+            "type": "string"
+          },
+          "retrieval_mode": {
+            "enum": [
+              "exact",
+              "bm25"
+            ],
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "score": {
+            "exclusiveMinimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "source_id": {
+            "minLength": 1,
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_path": {
+            "minLength": 1,
+            "title": "Source Path",
+            "type": "string"
+          },
+          "source_type": {
+            "enum": [
+              "project",
+              "world",
+              "character",
+              "event",
+              "scene",
+              "source"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          },
+          "task": {
+            "enum": [
+              "writer",
+              "editor"
+            ],
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "source_type",
+          "source_id",
+          "source_path",
+          "heading",
+          "permission_scope",
+          "score",
+          "retrieval_mode",
+          "content",
+          "task"
+        ],
+        "title": "RetrievalEvidence",
+        "type": "object"
+      },
+      "RetrievalScope": {
+        "additionalProperties": false,
+        "properties": {
+          "character_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Character Id"
+          },
+          "kind": {
+            "enum": [
+              "editorial",
+              "writer",
+              "character"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "RetrievalScope",
         "type": "object"
       },
       "ReviewIssue": {
@@ -1140,6 +1443,14 @@
             "minLength": 1,
             "title": "Project Id",
             "type": "string"
+          },
+          "retrieval_evidence": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RetrievalEvidence"
+            },
+            "title": "Retrieval Evidence",
+            "type": "array"
           },
           "review": {
             "anyOf": [
@@ -3041,6 +3352,110 @@
         "summary": "Open Project",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/projects/{project_id}/rag/rebuild": {
+      "post": {
+        "operationId": "rebuild_index_projects__project_id__rag_rebuild_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RagIndexSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Rebuild Index",
+        "tags": [
+          "rag"
+        ]
+      }
+    },
+    "/projects/{project_id}/rag/search": {
+      "post": {
+        "operationId": "search_projects__project_id__rag_search_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RagSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RagSearchResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Search",
+        "tags": [
+          "rag"
         ]
       }
     },

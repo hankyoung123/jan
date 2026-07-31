@@ -18,6 +18,13 @@ from story_engine.manuscript.models import (
 )
 from story_engine.models.contracts import Message, ModelRequest
 from story_engine.models.gateway import ModelGateway
+from story_engine.rag.models import (
+    RagHit,
+    RagSearchRequest,
+    RetrievalEvidence,
+    RetrievalScope,
+)
+from story_engine.rag.service import RagService
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.scene_store import (
@@ -36,6 +43,7 @@ class ManuscriptAgent(Protocol):
         genre: str,
         theme: str,
         tone: str,
+        evidence: tuple[RetrievalEvidence, ...],
     ) -> WriterOutput: ...
 
     async def review(
@@ -45,6 +53,7 @@ class ManuscriptAgent(Protocol):
         title: str,
         body: str,
         public_fact_ids: tuple[str, ...],
+        evidence: tuple[RetrievalEvidence, ...],
     ) -> ManuscriptReviewOutput: ...
 
 
@@ -67,6 +76,22 @@ def _event_context(events: tuple[StoryEvent, ...]) -> str:
     return json.dumps(values, ensure_ascii=False, default=str)
 
 
+def _evidence_context(evidence: tuple[RetrievalEvidence, ...]) -> str:
+    values = [
+        {
+            "chunk_id": item.chunk_id,
+            "source_type": item.source_type,
+            "source_id": item.source_id,
+            "source_path": item.source_path,
+            "heading": item.heading,
+            "permission_scope": item.permission_scope,
+            "content": item.content,
+        }
+        for item in evidence
+    ]
+    return json.dumps(values, ensure_ascii=False)
+
+
 class GatewayManuscriptAgent:
     """Run Writer and manuscript Editor through the existing Jan model bridge."""
 
@@ -81,6 +106,7 @@ class GatewayManuscriptAgent:
         genre: str,
         theme: str,
         tone: str,
+        evidence: tuple[RetrievalEvidence, ...],
     ) -> WriterOutput:
         context = _event_context(events)
         prompt = (
@@ -89,7 +115,9 @@ class GatewayManuscriptAgent:
             "location, cause, discovery, or outcome that is absent from them. "
             "Return exactly the requested JSON schema. "
             f"Project: {project_title}; genre: {genre}; theme: {theme}; tone: {tone}. "
-            f"Confirmed events: {context}"
+            f"Confirmed events: {context}. "
+            "Retrieval evidence (every item carries mandatory source metadata): "
+            f"{_evidence_context(evidence)}"
         )
         response = await self.gateway.complete(
             ModelRequest(
@@ -113,6 +141,7 @@ class GatewayManuscriptAgent:
         title: str,
         body: str,
         public_fact_ids: tuple[str, ...],
+        evidence: tuple[RetrievalEvidence, ...],
     ) -> ManuscriptReviewOutput:
         prompt = (
             "You are the Story Engine manuscript Editor. Compare the prose to "
@@ -123,7 +152,9 @@ class GatewayManuscriptAgent:
             "requested JSON schema. "
             f"Confirmed events: {_event_context(events)}. "
             f"Public fact IDs: {json.dumps(public_fact_ids, ensure_ascii=False)}. "
-            f"Scene title: {title}. Prose: {body}"
+            f"Scene title: {title}. Prose: {body}. "
+            "Retrieval evidence (every item carries mandatory source metadata): "
+            f"{_evidence_context(evidence)}"
         )
         response = await self.gateway.complete(
             ModelRequest(
@@ -150,6 +181,88 @@ class ManuscriptService:
         self.scenes = SceneStore(root)
         self.drafts = SceneDraftStore(root)
         self.amendments = AmendmentStore(root)
+        self.rag = RagService(root)
+
+    @staticmethod
+    def _as_evidence(
+        hits: tuple[RagHit, ...],
+        *,
+        task: str,
+    ) -> tuple[RetrievalEvidence, ...]:
+        return tuple(
+            RetrievalEvidence.model_validate(
+                {**hit.model_dump(mode="json"), "task": task}
+            )
+            for hit in hits
+        )
+
+    @staticmethod
+    def _deduplicate_evidence(
+        evidence: tuple[RetrievalEvidence, ...],
+        *,
+        limit: int = 10,
+    ) -> tuple[RetrievalEvidence, ...]:
+        unique: list[RetrievalEvidence] = []
+        seen: set[str] = set()
+        for item in evidence:
+            if item.chunk_id in seen:
+                continue
+            seen.add(item.chunk_id)
+            unique.append(item)
+            if len(unique) == limit:
+                break
+        return tuple(unique)
+
+    def _writer_evidence(
+        self,
+        events: tuple[StoryEvent, ...],
+        *,
+        project_title: str,
+        genre: str,
+        theme: str,
+    ) -> tuple[RetrievalEvidence, ...]:
+        scope = RetrievalScope(kind="writer")
+        exact = tuple(
+            evidence
+            for event in events
+            for evidence in self._as_evidence(
+                self.rag.search(
+                    RagSearchRequest(exact_id=event.id, scope=scope, limit=6)
+                ).hits,
+                task="writer",
+            )
+        )
+        query = " ".join(
+            (
+                project_title,
+                genre,
+                theme,
+                *(event.summary for event in events),
+                *(result for event in events for result in event.public_results),
+            )
+        )
+        ranked = self._as_evidence(
+            self.rag.search(
+                RagSearchRequest(query=query, scope=scope, limit=8)
+            ).hits,
+            task="writer",
+        )
+        return self._deduplicate_evidence(exact + ranked)
+
+    def _editor_evidence(
+        self,
+        *,
+        title: str,
+        body: str,
+    ) -> tuple[RetrievalEvidence, ...]:
+        result = self.rag.search(
+            RagSearchRequest(
+                query=f"{title}\n{body}",
+                scope=RetrievalScope(kind="editorial"),
+                limit=10,
+            )
+        )
+        return self._as_evidence(result.hits, task="editor")
 
     def _confirmed_events(self, event_ids: tuple[str, ...]) -> tuple[StoryEvent, ...]:
         if not event_ids or len(event_ids) != len(set(event_ids)):
@@ -170,18 +283,27 @@ class ManuscriptService:
     ) -> SceneDraft:
         events = self._confirmed_events(event_ids)
         snapshot = self.projects.load()
+        writer_evidence = self._writer_evidence(
+            events,
+            project_title=snapshot.project.title,
+            genre=snapshot.project.genre,
+            theme=snapshot.project.theme,
+        )
         output = await self.agent.generate(
             events,
             project_title=snapshot.project.title,
             genre=snapshot.project.genre,
             theme=snapshot.project.theme,
             tone=snapshot.project.tone,
+            evidence=writer_evidence,
         )
+        editor_evidence = self._editor_evidence(title=output.title, body=output.body)
         review = await self.agent.review(
             events,
             title=output.title,
             body=output.body,
             public_fact_ids=snapshot.world.public_fact_ids,
+            evidence=editor_evidence,
         )
         scene_id, sequence = self.scenes.next_identifier()
         writer_is_grounded = review.review.passed and not review.new_facts
@@ -195,16 +317,18 @@ class ManuscriptService:
             source_event_ids=event_ids,
             base_world_version=snapshot.world.version,
             review=review,
+            retrieval_evidence=writer_evidence + editor_evidence,
             status="reviewed" if writer_is_grounded else "needs_revision",
         )
         self.drafts.save(draft, overwrite=False)
         return draft
 
     def get_scene(self, scene_id: str) -> SceneDraft:
+        derived: SceneDraft | None = None
         try:
-            draft = self.drafts.load(scene_id)
-            if draft.status != "saved":
-                return draft
+            derived = self.drafts.load(scene_id)
+            if derived.status != "saved":
+                return derived
         except FileNotFoundError:
             pass
         scene = self.scenes.load(scene_id)
@@ -219,6 +343,8 @@ class ManuscriptService:
             source_event_ids=scene.source_event_ids,
             base_world_version=snapshot.world.version,
             base_scene_version=scene.version,
+            review=derived.review if derived else None,
+            retrieval_evidence=derived.retrieval_evidence if derived else (),
             status="draft",
         )
 
@@ -228,6 +354,7 @@ class ManuscriptService:
         for scene in self.scenes.list_scenes():
             if scene.id in drafts and drafts[scene.id].status != "saved":
                 continue
+            derived = drafts.get(scene.id)
             drafts[scene.id] = SceneDraft(
                 id=scene.id,
                 project_id=scene.project_id,
@@ -238,6 +365,8 @@ class ManuscriptService:
                 source_event_ids=scene.source_event_ids,
                 base_world_version=snapshot.world.version,
                 base_scene_version=scene.version,
+                review=derived.review if derived else None,
+                retrieval_evidence=derived.retrieval_evidence if derived else (),
             )
         return tuple(sorted(drafts.values(), key=lambda item: item.sequence))
 
@@ -254,12 +383,20 @@ class ManuscriptService:
         updated = draft.with_content(title=request.title, body=request.body)
         events = self._confirmed_events(updated.source_event_ids)
         snapshot = self.projects.load()
+        editor_evidence = self._editor_evidence(
+            title=updated.title,
+            body=updated.body,
+        )
         review = await self.agent.review(
             events,
             title=updated.title,
             body=updated.body,
             public_fact_ids=snapshot.world.public_fact_ids,
+            evidence=editor_evidence,
         )
+        retrieval_evidence = tuple(
+            item for item in updated.retrieval_evidence if item.task == "writer"
+        ) + editor_evidence
         if review.new_facts:
             amendment_id = f"amendment-{updated.id}-{updated.revision:06d}"
             amendment = EventAmendmentCandidate(
@@ -278,6 +415,7 @@ class ManuscriptService:
             candidate_draft = updated.model_copy(
                 update={
                     "review": review,
+                    "retrieval_evidence": retrieval_evidence,
                     "amendment_id": amendment.id,
                     "status": "amendment_required",
                 }
@@ -292,7 +430,11 @@ class ManuscriptService:
             )
         if not review.review.passed:
             rejected = updated.model_copy(
-                update={"review": review, "status": "needs_revision"}
+                update={
+                    "review": review,
+                    "retrieval_evidence": retrieval_evidence,
+                    "status": "needs_revision",
+                }
             )
             self.drafts.save(rejected)
             return SceneMutationResult(
@@ -301,7 +443,13 @@ class ManuscriptService:
                 review=review,
             )
 
-        reviewed = updated.model_copy(update={"review": review, "status": "reviewed"})
+        reviewed = updated.model_copy(
+            update={
+                "review": review,
+                "retrieval_evidence": retrieval_evidence,
+                "status": "reviewed",
+            }
+        )
         scene = self._scene_from_draft(reviewed)
         EventCommitService(self.root).commit_scene(
             scene,

@@ -61,6 +61,7 @@ type SceneDraft = components['schemas']['SceneDraft']
 type SceneMutationResult = components['schemas']['SceneMutationResult']
 type AmendmentCommitResult = components['schemas']['AmendmentCommitResult']
 type ManuscriptExport = components['schemas']['ManuscriptExport']
+type RagIndexSummary = components['schemas']['RagIndexSummary']
 type ProjectCatalogEntry = components['schemas']['ProjectCatalogEntry']
 type WorkspaceState = components['schemas']['WorkspaceState']
 type PromotionAssessment = components['schemas']['PromotionAssessment']
@@ -1588,7 +1589,7 @@ export function ManuscriptView() {
   const [inspectorOpen, setInspectorOpen] = useState(true)
   const [loading, setLoading] = useState(projectId !== null)
   const [workingAction, setWorkingAction] = useState<
-    'generate' | 'save' | 'confirm' | 'export' | null
+    'generate' | 'save' | 'confirm' | 'export' | 'rebuild' | null
   >(null)
   const [mutation, setMutation] = useState<SceneMutationResult | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -1842,6 +1843,24 @@ export function ManuscriptView() {
     }
   }
 
+  async function rebuildRetrievalIndex() {
+    if (!projectId || workingAction) return
+    setWorkingAction('rebuild')
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await engineRequest<RagIndexSummary>(
+        `/projects/${projectId}/rag/rebuild`,
+        { method: 'POST' }
+      )
+      setNotice(`检索索引已重建：${result.chunk_count} 个片段`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '检索索引重建失败')
+    } finally {
+      setWorkingAction(null)
+    }
+  }
+
   if (!projectId) {
     return (
       <StoryPage>
@@ -2020,17 +2039,32 @@ export function ManuscriptView() {
             {inspectorOpen && (
               <p className="text-xs text-muted-foreground">事实来源</p>
             )}
-            <Button
-              aria-expanded={inspectorOpen}
-              aria-label={inspectorOpen ? '收起事实来源' : '展开事实来源'}
-              onClick={() => setInspectorOpen((open) => !open)}
-              size="icon-sm"
-              title={inspectorOpen ? '收起事实来源' : '展开事实来源'}
-              type="button"
-              variant="ghost"
-            >
-              {inspectorOpen ? <PanelRightClose /> : <PanelRightOpen />}
-            </Button>
+            <div className="flex items-center gap-0.5">
+              {inspectorOpen && (
+                <Button
+                  aria-label="重建检索索引"
+                  disabled={workingAction !== null}
+                  onClick={() => void rebuildRetrievalIndex()}
+                  size="icon-sm"
+                  title="重建检索索引"
+                  type="button"
+                  variant="ghost"
+                >
+                  <RotateCcw />
+                </Button>
+              )}
+              <Button
+                aria-expanded={inspectorOpen}
+                aria-label={inspectorOpen ? '收起事实来源' : '展开事实来源'}
+                onClick={() => setInspectorOpen((open) => !open)}
+                size="icon-sm"
+                title={inspectorOpen ? '收起事实来源' : '展开事实来源'}
+                type="button"
+                variant="ghost"
+              >
+                {inspectorOpen ? <PanelRightClose /> : <PanelRightOpen />}
+              </Button>
+            </div>
           </div>
           {inspectorOpen && (
             <div>
@@ -2052,6 +2086,42 @@ export function ManuscriptView() {
                     ? '来源事件尚未载入。'
                     : '选择场景后显示来源。'}
                 </p>
+              )}
+              {(selectedScene?.retrieval_evidence.length ?? 0) > 0 && (
+                <section className="mt-5 border-t pt-5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">检索证据</p>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedScene?.retrieval_evidence.length} 个片段
+                    </span>
+                  </div>
+                  <div className="mt-2">
+                    {selectedScene?.retrieval_evidence.map((evidence) => (
+                      <article className="border-b py-3" key={`${evidence.task}:${evidence.chunk_id}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="text-xs font-medium">
+                            {evidence.task === 'writer'
+                              ? 'Writer 证据'
+                              : 'Editor 证据'}
+                          </h3>
+                          <span className="font-mono text-[11px] text-muted-foreground">
+                            {evidence.score.toFixed(2)}
+                          </span>
+                        </div>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">
+                          {evidence.source_id} · {evidence.heading}
+                        </p>
+                        <p className="mt-2 max-h-20 overflow-hidden text-xs leading-5">
+                          {evidence.content}
+                        </p>
+                        <p className="mt-2 break-all font-mono text-[10px] text-muted-foreground">
+                          {evidence.chunk_id} · {evidence.source_path} ·{' '}
+                          {evidence.permission_scope}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
               )}
               {selectedScene && (
                 <section className="mt-5 border-t pt-5">

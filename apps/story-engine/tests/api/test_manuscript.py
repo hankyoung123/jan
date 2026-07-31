@@ -123,8 +123,18 @@ def test_scene_api_generates_lists_and_saves_reviewed_markdown(tmp_path: Path) -
     draft = generated.json()
     assert draft["status"] == "reviewed"
     assert draft["source_event_ids"] == ["event-000001"]
+    assert {item["task"] for item in draft["retrieval_evidence"]} == {
+        "writer",
+        "editor",
+    }
+    assert all(
+        item["chunk_id"] and item["source_path"]
+        for item in draft["retrieval_evidence"]
+    )
     assert "event-000001" in transport.prompts[0]
     assert "hidden_results" not in transport.prompts[0]
+    assert all("Retrieval evidence" in prompt for prompt in transport.prompts[:2])
+    assert all('"chunk_id"' in prompt for prompt in transport.prompts[:2])
 
     listed = client.get("/projects/fog-harbor/scenes", headers=AUTH)
     loaded = client.get(

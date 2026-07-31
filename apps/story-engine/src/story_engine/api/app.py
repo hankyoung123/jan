@@ -13,6 +13,7 @@ from story_engine.api.routes.characters import create_characters_router
 from story_engine.api.routes.manuscript import create_manuscript_router
 from story_engine.api.routes.models import create_models_router
 from story_engine.api.routes.projects import create_projects_router
+from story_engine.api.routes.rag import create_rag_router
 from story_engine.config import EngineSettings
 from story_engine.events.stream import (
     EngineEventBus,
@@ -179,6 +180,10 @@ def create_app(
     )
     app.include_router(
         create_models_router(registry, gateway),
+        dependencies=[Depends(require_session_token)],
+    )
+    app.include_router(
+        create_rag_router(runtime_settings, workspace_manager),
         dependencies=[Depends(require_session_token)],
     )
 

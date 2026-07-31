@@ -9,6 +9,7 @@ from story_engine.domain.models import (
     ReviewResult,
     StoryEvent,
 )
+from story_engine.rag.models import RetrievalEvidence
 
 SceneDraftStatus = Literal[
     "draft",
@@ -91,6 +92,7 @@ class SceneDraft(DomainModel):
     base_scene_version: int = Field(default=0, ge=0)
     revision: int = Field(default=0, ge=0)
     review: ManuscriptReviewOutput | None = None
+    retrieval_evidence: tuple[RetrievalEvidence, ...] = ()
     amendment_id: str | None = None
     status: SceneDraftStatus = "draft"
 

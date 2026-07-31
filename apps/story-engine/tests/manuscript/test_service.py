@@ -12,6 +12,7 @@ from story_engine.manuscript.models import (
     WriterOutput,
 )
 from story_engine.manuscript.service import ManuscriptService
+from story_engine.rag.models import RetrievalEvidence
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectStore
@@ -21,7 +22,9 @@ from story_engine.workspace.scene_store import SceneStore
 class DeterministicManuscriptAgent:
     def __init__(self) -> None:
         self.generated_from: list[tuple[str, ...]] = []
+        self.generated_evidence: list[tuple[RetrievalEvidence, ...]] = []
         self.reviewed_bodies: list[str] = []
+        self.reviewed_evidence: list[tuple[RetrievalEvidence, ...]] = []
 
     async def generate(
         self,
@@ -31,9 +34,11 @@ class DeterministicManuscriptAgent:
         genre: str,
         theme: str,
         tone: str,
+        evidence: tuple[RetrievalEvidence, ...],
     ) -> WriterOutput:
         del project_title, genre, theme, tone
         self.generated_from.append(tuple(event.id for event in events))
+        self.generated_evidence.append(evidence)
         return WriterOutput(
             title="灯芯槽的刮痕",
             body="陈默抵达灯塔, 并在灯芯槽上发现了新鲜刮痕。",
@@ -46,9 +51,11 @@ class DeterministicManuscriptAgent:
         title: str,
         body: str,
         public_fact_ids: tuple[str, ...],
+        evidence: tuple[RetrievalEvidence, ...],
     ) -> ManuscriptReviewOutput:
         del events, title, public_fact_ids
         self.reviewed_bodies.append(body)
+        self.reviewed_evidence.append(evidence)
         if "黑色纤维" in body:
             return ManuscriptReviewOutput.with_new_facts(
                 ("刮痕末端沾着黑色纤维",)
@@ -100,6 +107,16 @@ def test_writer_uses_only_confirmed_events_and_creates_derived_draft(
     assert draft.status == "reviewed"
     assert draft.source_event_ids == ("event-000001",)
     assert agent.generated_from == [("event-000001",)]
+    assert agent.generated_evidence[0]
+    assert agent.reviewed_evidence[0]
+    assert {item.task for item in draft.retrieval_evidence} == {"writer", "editor"}
+    assert all(
+        item.chunk_id
+        and item.source_id
+        and item.source_path
+        and item.permission_scope
+        for item in draft.retrieval_evidence
+    )
     assert _formal_bytes(root) == before
     assert (root / ".story-engine/scenes/scene-000001.json").is_file()
     assert not any((root / "scenes").glob("*.md"))

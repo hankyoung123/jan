@@ -203,6 +203,32 @@ const sceneDraft = {
   base_scene_version: 2,
   revision: 2,
   review: manuscriptReview,
+  retrieval_evidence: [
+    {
+      chunk_id: 'event-000004#event-000004-1-1',
+      source_type: 'event',
+      source_id: 'event-000004',
+      source_path: 'events/000004.md',
+      heading: 'Event 000004',
+      permission_scope: 'writer',
+      score: 1,
+      retrieval_mode: 'exact',
+      content: '# Event 000004\n\n阿岚在主天线里找到烧蚀的校验模块。',
+      task: 'writer',
+    },
+    {
+      chunk_id: 'world#rules-1-1',
+      source_type: 'world',
+      source_id: 'world',
+      source_path: 'world.md',
+      heading: 'Rules',
+      permission_scope: 'editorial',
+      score: 0.76,
+      retrieval_mode: 'bm25',
+      content: '## Rules\n\n- 备用电源只能维持一小时',
+      task: 'editor',
+    },
+  ],
   amendment_id: null,
   status: 'saved',
 } as const
@@ -842,6 +868,11 @@ describe('Manuscript workspace', () => {
     expect(screen.getByText(storyEvents[0].summary)).toBeInTheDocument()
     expect(screen.getByText('章节与场景')).toBeInTheDocument()
     expect(screen.getByText('事实来源')).toBeInTheDocument()
+    expect(screen.getByText('Writer 证据')).toBeInTheDocument()
+    expect(screen.getByText('Editor 证据')).toBeInTheDocument()
+    expect(
+      screen.getByText('event-000004#event-000004-1-1', { exact: false })
+    ).toBeInTheDocument()
     expect(h.engineRequest).toHaveBeenCalledWith('/projects/north-star/events')
     expect(h.engineRequest).toHaveBeenCalledWith('/projects/north-star/scenes')
   })
@@ -985,6 +1016,37 @@ describe('Manuscript workspace', () => {
       'false'
     )
     expect(screen.queryByText(storyEvents[1].summary)).not.toBeInTheDocument()
+  })
+
+  it('rebuilds the derived retrieval index from the manuscript inspector', async () => {
+    setActiveStoryProjectId('north-star')
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/projects/north-star/events') {
+        return Promise.resolve(storyEvents)
+      }
+      if (path === '/projects/north-star/scenes') {
+        return Promise.resolve([sceneDraft])
+      }
+      if (path === '/projects/north-star/rag/rebuild') {
+        expect(init?.method).toBe('POST')
+        return Promise.resolve({
+          project_id: 'north-star',
+          fingerprint: 'a'.repeat(64),
+          document_count: 12,
+          chunk_count: 48,
+        })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    render(<ManuscriptView />)
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: '重建检索索引' })
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '检索索引已重建：48 个片段'
+    )
   })
 
   it('saves edited Markdown with draft and canonical scene versions', async () => {

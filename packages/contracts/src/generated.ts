@@ -307,6 +307,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/rag/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rebuild Index */
+        post: operations["rebuild_index_projects__project_id__rag_rebuild_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/rag/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search */
+        post: operations["search_projects__project_id__rag_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/scenes": {
         parameters: {
             query?: never;
@@ -855,12 +889,121 @@ export interface components {
             /** Candidate Id */
             candidate_id: string;
         };
+        /** RagHit */
+        RagHit: {
+            /** Chunk Id */
+            chunk_id: string;
+            /** Content */
+            content: string;
+            /** Heading */
+            heading: string;
+            /** Permission Scope */
+            permission_scope: string;
+            /**
+             * Retrieval Mode
+             * @enum {string}
+             */
+            retrieval_mode: "exact" | "bm25";
+            /** Score */
+            score: number;
+            /** Source Id */
+            source_id: string;
+            /** Source Path */
+            source_path: string;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "project" | "world" | "character" | "event" | "scene" | "source";
+        };
+        /** RagIndexSummary */
+        RagIndexSummary: {
+            /** Chunk Count */
+            chunk_count: number;
+            /** Document Count */
+            document_count: number;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Project Id */
+            project_id: string;
+        };
+        /** RagSearchRequest */
+        RagSearchRequest: {
+            /** Exact Id */
+            exact_id?: string | null;
+            /**
+             * Limit
+             * @default 8
+             */
+            limit: number;
+            /**
+             * Query
+             * @default
+             */
+            query: string;
+            scope: components["schemas"]["RetrievalScope"];
+        };
+        /** RagSearchResult */
+        RagSearchResult: {
+            /** Exact Id */
+            exact_id?: string | null;
+            /** Hits */
+            hits: components["schemas"]["RagHit"][];
+            /** Index Fingerprint */
+            index_fingerprint: string;
+            /** Permission Scope */
+            permission_scope: string;
+            /** Query */
+            query: string;
+        };
         /** Relationship */
         Relationship: {
             /** Character Id */
             character_id: string;
             /** Description */
             description: string;
+        };
+        /** RetrievalEvidence */
+        RetrievalEvidence: {
+            /** Chunk Id */
+            chunk_id: string;
+            /** Content */
+            content: string;
+            /** Heading */
+            heading: string;
+            /** Permission Scope */
+            permission_scope: string;
+            /**
+             * Retrieval Mode
+             * @enum {string}
+             */
+            retrieval_mode: "exact" | "bm25";
+            /** Score */
+            score: number;
+            /** Source Id */
+            source_id: string;
+            /** Source Path */
+            source_path: string;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "project" | "world" | "character" | "event" | "scene" | "source";
+            /**
+             * Task
+             * @enum {string}
+             */
+            task: "writer" | "editor";
+        };
+        /** RetrievalScope */
+        RetrievalScope: {
+            /** Character Id */
+            character_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "editorial" | "writer" | "character";
         };
         /** ReviewIssue */
         ReviewIssue: {
@@ -939,6 +1082,11 @@ export interface components {
             id: string;
             /** Project Id */
             project_id: string;
+            /**
+             * Retrieval Evidence
+             * @default []
+             */
+            retrieval_evidence: components["schemas"]["RetrievalEvidence"][];
             review?: components["schemas"]["ManuscriptReviewOutput"] | null;
             /**
              * Revision
@@ -1890,6 +2038,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rebuild_index_projects__project_id__rag_rebuild_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagIndexSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_projects__project_id__rag_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RagSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RagSearchResult"];
                 };
             };
             /** @description Validation Error */
