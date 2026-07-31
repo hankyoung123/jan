@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from story_engine.domain.errors import InvalidTransitionError
 
@@ -42,8 +42,8 @@ class StateChange(DomainModel):
     target_type: Literal["character", "world"]
     target_id: str = Field(min_length=1)
     field: str = Field(min_length=1)
-    old_value: JsonScalar = None
-    new_value: JsonScalar
+    old_value: JsonValue = None
+    new_value: JsonValue
     reason: str = Field(min_length=1)
 
 
@@ -202,4 +202,3 @@ class TurnCandidate(DomainModel):
         if self.status != "approved":
             raise InvalidTransitionError("only an approved candidate can be committed")
         return self.model_copy(update={"status": "committed"})
-

@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel
 
 from story_engine import __version__
+from story_engine.api.routes.projects import create_projects_router
 from story_engine.config import EngineSettings
 
 
@@ -69,5 +70,9 @@ def create_app(settings: EngineSettings | None = None) -> FastAPI:
     async def engine_status() -> StatusResponse:
         return StatusResponse(status="ready")
 
-    return app
+    app.include_router(
+        create_projects_router(runtime_settings),
+        dependencies=[Depends(require_session_token)],
+    )
 
+    return app
