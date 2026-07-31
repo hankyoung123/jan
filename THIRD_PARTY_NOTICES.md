@@ -9,10 +9,12 @@ original Python Story Engine and story-focused React product layer.
 - Source: https://github.com/janhq/jan
 - Locked version: `v0.8.4`
 - Commit: `5f30aee467f08941964a83f946e2663e7ae0e01f`
-- License: Apache License 2.0
+- Root repository license: Apache License 2.0
 - Copyright: 2025 Menlo Research
-- Included source: `web-app`, `core`, `extensions`, `src-tauri`, build scripts,
-  and supporting tests from the locked commit
+- Included source: `web-app`, `core`, selected model/runtime extensions,
+  `src-tauri`, build scripts, and supporting tests from the locked commit
+- Excluded source: Jan's `rag-extension`, `vector-db-extension`,
+  `tauri-plugin-rag`, and `tauri-plugin-vector-db`
 - Modification status: desktop package metadata, icons, routes and domain
   workflows are rebranded for Story Engine; the model, Provider and local
   inference infrastructure is retained
@@ -45,9 +47,13 @@ The desktop product currently links or bundles the following package families:
 - Newsreader variable font: SIL Open Font License 1.1
 
 Jan's direct and transitive JavaScript versions are recorded in `yarn.lock` and
-its Rust versions in `src-tauri/Cargo.lock`. Temporary pre-integration desktop
-dependencies remain recorded in `pnpm-lock.yaml` until that duplicate tree is
-removed.
+its Rust versions in `src-tauri/Cargo.lock`.
+
+The retained `assistant-extension`, `download-extension`,
+`llamacpp-extension`, and `mlx-extension` package manifests each declare
+`AGPL-3.0`, despite the Jan repository root carrying Apache-2.0. That
+package-level conflict must be resolved through upstream clarification,
+license-compliant distribution, or replacement before a closed-source release.
 
 ## Python runtime dependencies
 

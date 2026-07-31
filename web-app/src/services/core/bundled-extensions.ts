@@ -54,21 +54,6 @@ const ENTRIES: BundledEntry[] = [
     version: '1.0.1',
     description: 'This extension enables llama.cpp chat completion API calls',
   },
-  {
-    load: () => import('@janhq/rag-extension'),
-    name: '@janhq/rag-extension',
-    productName: 'RAG Tools',
-    version: '0.1.0',
-    description:
-      'Registers RAG tools and orchestrates retrieval across parser, embeddings, and vector DB',
-  },
-  {
-    load: () => import('@janhq/vector-db-extension'),
-    name: '@janhq/vector-db-extension',
-    productName: 'Vector DB',
-    version: '0.1.0',
-    description: 'Vector DB integration using sqlite-vec if available with linear fallback',
-  },
 ]
 
 // The MLX extension depends on @janhq/tauri-plugin-mlx-api, which only exists

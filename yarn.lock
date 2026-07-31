@@ -2866,22 +2866,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@janhq/rag-extension@workspace:extensions/rag-extension":
-  version: 0.0.0-use.local
-  resolution: "@janhq/rag-extension@workspace:extensions/rag-extension"
-  dependencies:
-    "@janhq/core": "workspace:*"
-    "@janhq/tauri-plugin-rag-api": "link:../../src-tauri/plugins/tauri-plugin-rag"
-    "@janhq/tauri-plugin-vector-db-api": "link:../../src-tauri/plugins/tauri-plugin-vector-db"
-    cpx: "npm:1.5.0"
-    jsdom: "npm:^26.1.0"
-    rimraf: "npm:6.0.1"
-    rolldown: "npm:1.0.0-beta.1"
-    typescript: "npm:5.9.2"
-    vitest: "npm:3.2.4"
-  languageName: unknown
-  linkType: soft
-
 "@janhq/remend@npm:@janhq/remend@^1.1.0, @janhq/remend@npm:^1.0.1":
   version: 1.1.0
   resolution: "@janhq/remend@npm:1.1.0"
@@ -2919,50 +2903,10 @@ __metadata:
   languageName: node
   linkType: soft
 
-"@janhq/tauri-plugin-rag-api@link:../../src-tauri/plugins/tauri-plugin-rag::locator=%40janhq%2Frag-extension%40workspace%3Aextensions%2Frag-extension":
-  version: 0.0.0-use.local
-  resolution: "@janhq/tauri-plugin-rag-api@link:../../src-tauri/plugins/tauri-plugin-rag::locator=%40janhq%2Frag-extension%40workspace%3Aextensions%2Frag-extension"
-  languageName: node
-  linkType: soft
-
-"@janhq/tauri-plugin-rag-api@link:../../src-tauri/plugins/tauri-plugin-rag::locator=%40janhq%2Fvector-db-extension%40workspace%3Aextensions%2Fvector-db-extension":
-  version: 0.0.0-use.local
-  resolution: "@janhq/tauri-plugin-rag-api@link:../../src-tauri/plugins/tauri-plugin-rag::locator=%40janhq%2Fvector-db-extension%40workspace%3Aextensions%2Fvector-db-extension"
-  languageName: node
-  linkType: soft
-
-"@janhq/tauri-plugin-vector-db-api@link:../../src-tauri/plugins/tauri-plugin-vector-db::locator=%40janhq%2Frag-extension%40workspace%3Aextensions%2Frag-extension":
-  version: 0.0.0-use.local
-  resolution: "@janhq/tauri-plugin-vector-db-api@link:../../src-tauri/plugins/tauri-plugin-vector-db::locator=%40janhq%2Frag-extension%40workspace%3Aextensions%2Frag-extension"
-  languageName: node
-  linkType: soft
-
-"@janhq/tauri-plugin-vector-db-api@link:../../src-tauri/plugins/tauri-plugin-vector-db::locator=%40janhq%2Fvector-db-extension%40workspace%3Aextensions%2Fvector-db-extension":
-  version: 0.0.0-use.local
-  resolution: "@janhq/tauri-plugin-vector-db-api@link:../../src-tauri/plugins/tauri-plugin-vector-db::locator=%40janhq%2Fvector-db-extension%40workspace%3Aextensions%2Fvector-db-extension"
-  languageName: node
-  linkType: soft
-
 "@janhq/tauri-plugin-websearch-api@link:../src-tauri/plugins/tauri-plugin-websearch::locator=%40janhq%2Fweb-app%40workspace%3Aweb-app":
   version: 0.0.0-use.local
   resolution: "@janhq/tauri-plugin-websearch-api@link:../src-tauri/plugins/tauri-plugin-websearch::locator=%40janhq%2Fweb-app%40workspace%3Aweb-app"
   languageName: node
-  linkType: soft
-
-"@janhq/vector-db-extension@workspace:extensions/vector-db-extension":
-  version: 0.0.0-use.local
-  resolution: "@janhq/vector-db-extension@workspace:extensions/vector-db-extension"
-  dependencies:
-    "@janhq/core": "workspace:*"
-    "@janhq/tauri-plugin-rag-api": "link:../../src-tauri/plugins/tauri-plugin-rag"
-    "@janhq/tauri-plugin-vector-db-api": "link:../../src-tauri/plugins/tauri-plugin-vector-db"
-    cpx: "npm:1.5.0"
-    jsdom: "npm:^26.1.0"
-    rimraf: "npm:6.0.1"
-    rolldown: "npm:1.0.0-beta.1"
-    typescript: "npm:5.9.2"
-    vitest: "npm:3.2.4"
-  languageName: unknown
   linkType: soft
 
 "@janhq/web-app@workspace:web-app":

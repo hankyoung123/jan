@@ -23,14 +23,6 @@ declare module '@janhq/mlx-extension' {
   const ext: BundledExtensionCtor
   export default ext
 }
-declare module '@janhq/rag-extension' {
-  const ext: BundledExtensionCtor
-  export default ext
-}
-declare module '@janhq/vector-db-extension' {
-  const ext: BundledExtensionCtor
-  export default ext
-}
 declare module '@janhq/conversational-extension' {
   const ext: BundledExtensionCtor
   export default ext

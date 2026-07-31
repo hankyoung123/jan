@@ -483,4 +483,25 @@ mod tests {
 
         assert_eq!(desktop_icon, web_icon);
     }
+
+    #[test]
+    fn desktop_runtime_excludes_legacy_rag_plugins() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let cargo = fs::read_to_string(manifest_dir.join("Cargo.toml"))
+            .expect("read desktop Cargo.toml");
+        let runtime =
+            fs::read_to_string(manifest_dir.join("src/lib.rs")).expect("read desktop runtime");
+
+        for forbidden in [
+            "tauri-plugin-rag",
+            "tauri-plugin-vector-db",
+            "tauri_plugin_rag",
+            "tauri_plugin_vector_db",
+        ] {
+            assert!(
+                !cargo.contains(forbidden) && !runtime.contains(forbidden),
+                "closed desktop runtime must not distribute {forbidden}"
+            );
+        }
+    }
 }

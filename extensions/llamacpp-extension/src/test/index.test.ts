@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import llamacpp_extension from '../index'
 
 import { normalizeLlamacppConfig } from '@janhq/tauri-plugin-llamacpp-api'
@@ -920,70 +922,17 @@ describe('refreshRouterPreset embedding slot reservation', () => {
   })
 })
 
-describe('bootstrapDefaultEmbedder', () => {
-  let extension: llamacpp_extension
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    extension = new llamacpp_extension()
-  })
-
-  it('imports the fallback embedder when none is installed, then marks the bootstrap done', async () => {
-    vi.mocked(getBackendSetting).mockResolvedValue(null)
-    const list = vi
-      .spyOn(extension, 'list')
-      .mockResolvedValue([{ id: 'chat-model', embedding: false }] as never)
-    const importSpy = vi
-      .spyOn(extension, 'import')
-      .mockResolvedValue(undefined as never)
-
-    await extension['bootstrapDefaultEmbedder']()
-
-    expect(list).toHaveBeenCalled()
-    expect(importSpy).toHaveBeenCalledWith(
-      'sentence-transformer-mini',
-      expect.objectContaining({ modelPath: expect.stringContaining('MiniLM') })
+describe('embedding startup policy', () => {
+  it('does not bootstrap or auto-download an embedding model on startup', () => {
+    const source = readFileSync(
+      path.join(
+        process.cwd(),
+        'extensions/llamacpp-extension/src/index.ts'
+      ),
+      'utf8'
     )
-    expect(setBackendSetting).toHaveBeenCalledWith(
-      'llamacpp-embedder-bootstrapped',
-      'true'
-    )
-  })
 
-  it('skips the download when an embedder is already installed but still marks done', async () => {
-    vi.mocked(getBackendSetting).mockResolvedValue(null)
-    vi.spyOn(extension, 'list').mockResolvedValue([
-      { id: 'custom-embedder', embedding: true },
-    ] as never)
-    const importSpy = vi.spyOn(extension, 'import')
-
-    await extension['bootstrapDefaultEmbedder']()
-
-    expect(importSpy).not.toHaveBeenCalled()
-    expect(setBackendSetting).toHaveBeenCalledWith(
-      'llamacpp-embedder-bootstrapped',
-      'true'
-    )
-  })
-
-  it('does nothing when the bootstrap already ran (respects user deletion)', async () => {
-    vi.mocked(getBackendSetting).mockResolvedValue('true')
-    const list = vi.spyOn(extension, 'list')
-
-    await extension['bootstrapDefaultEmbedder']()
-
-    expect(list).not.toHaveBeenCalled()
-    expect(setBackendSetting).not.toHaveBeenCalled()
-  })
-
-  it('does not mark done when the download fails, so it retries next launch', async () => {
-    vi.mocked(getBackendSetting).mockResolvedValue(null)
-    vi.spyOn(extension, 'list').mockResolvedValue([] as never)
-    vi.spyOn(extension, 'import').mockRejectedValue(new Error('offline'))
-
-    await expect(
-      extension['bootstrapDefaultEmbedder']()
-    ).resolves.toBeUndefined()
-    expect(setBackendSetting).not.toHaveBeenCalled()
+    expect(source).not.toContain('bootstrapDefaultEmbedder')
+    expect(source).not.toContain('llamacpp-embedder-bootstrapped')
   })
 })

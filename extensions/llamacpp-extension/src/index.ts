@@ -162,7 +162,6 @@ type PersistedModelState = {
 
 const MODEL_PROVIDER_STORE_KEY = 'model-provider'
 const INTERFACE_SETTINGS_STORE_KEY = 'setting-appearance'
-const EMBEDDER_BOOTSTRAP_KEY = 'llamacpp-embedder-bootstrapped'
 const FALLBACK_EMBEDDING_MODEL_ID = 'sentence-transformer-mini'
 const FALLBACK_EMBEDDING_MODEL_URL =
   'https://huggingface.co/second-state/All-MiniLM-L6-v2-Embedding-GGUF/resolve/main/all-MiniLM-L6-v2-ggml-model-f16.gguf?download=true'
@@ -499,41 +498,7 @@ export default class llamacpp_extension extends AIEngine {
           logger.error('Router failed to start during onLoad:', e)
         }
       }
-      await this.bootstrapDefaultEmbedder()
     })()
-  }
-
-  /**
-   * One-shot startup install of the fallback embedder so the router reserves
-   * the +1 embedding slot from its first start instead of importing the model
-   * mid-session on the first RAG call. Runs after the router is up so the
-   * download never delays chat availability; the import's preset refresh then
-   * resizes models_max via an idle restart (nothing is loaded yet at startup).
-   * The persisted flag keeps this from resurrecting a model the user deleted,
-   * and is only set on success so a failed download retries next launch.
-   */
-  private async bootstrapDefaultEmbedder(): Promise<void> {
-    try {
-      if (await getBackendSetting(EMBEDDER_BOOTSTRAP_KEY)) return
-      const models = await this.list()
-      const hasEmbedder = models.some(
-        (m) => (m as { embedding?: boolean }).embedding === true
-      )
-      if (!hasEmbedder) {
-        await this.import(FALLBACK_EMBEDDING_MODEL_ID, {
-          modelPath: FALLBACK_EMBEDDING_MODEL_URL,
-        })
-        logger.info(
-          `Pre-installed fallback embedding model "${FALLBACK_EMBEDDING_MODEL_ID}" at startup`
-        )
-      }
-      await setBackendSetting(EMBEDDER_BOOTSTRAP_KEY, 'true')
-    } catch (e) {
-      logger.warn(
-        'Fallback embedder bootstrap failed (will import on demand):',
-        e
-      )
-    }
   }
 
   // True when config.version_backend names a backend that's already downloaded,

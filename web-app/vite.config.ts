@@ -69,8 +69,6 @@ export default defineConfig(({ mode }) => {
         '@janhq/download-extension': path.resolve(__dirname, '../extensions/download-extension/dist/index.js'),
         '@janhq/llamacpp-extension': path.resolve(__dirname, '../extensions/llamacpp-extension/dist/index.js'),
         '@janhq/mlx-extension': path.resolve(__dirname, '../extensions/mlx-extension/dist/index.js'),
-        '@janhq/rag-extension': path.resolve(__dirname, '../extensions/rag-extension/dist/index.js'),
-        '@janhq/vector-db-extension': path.resolve(__dirname, '../extensions/vector-db-extension/dist/index.js'),
       },
     },
     optimizeDeps: {
@@ -84,8 +82,6 @@ export default defineConfig(({ mode }) => {
         '@janhq/download-extension',
         '@janhq/llamacpp-extension',
         '@janhq/mlx-extension',
-        '@janhq/rag-extension',
-        '@janhq/vector-db-extension',
       ],
     },
     define: {
