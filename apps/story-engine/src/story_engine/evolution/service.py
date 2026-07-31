@@ -5,7 +5,6 @@ from pydantic import Field, JsonValue
 
 from story_engine.domain.errors import InvalidTransitionError
 from story_engine.domain.models import (
-    Character,
     CharacterIntent,
     DomainModel,
     ReviewIssue,
@@ -17,6 +16,7 @@ from story_engine.domain.models import (
 )
 from story_engine.events.commit import CommitResult, EventCommitService
 from story_engine.events.stream import EventSink
+from story_engine.evolution.context import CharacterContext, CharacterContextAssembler
 from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.project_store import ProjectSnapshot, ProjectStore
 
@@ -29,26 +29,6 @@ _MUTABLE_WORLD_FIELDS = frozenset(
         "world_variables",
     }
 )
-
-
-class CharacterContext(DomainModel):
-    character: Character
-    world: WorldState
-    visible_fact_ids: tuple[str, ...] = Field(min_length=1)
-
-
-class CharacterContextAssembler:
-    def assemble(self, snapshot: ProjectSnapshot) -> dict[str, CharacterContext]:
-        public = set(snapshot.world.public_fact_ids)
-        return {
-            character.id: CharacterContext(
-                character=character,
-                world=snapshot.world,
-                visible_fact_ids=tuple(sorted(public | set(character.known_fact_ids))),
-            )
-            for character in snapshot.characters
-            if character.type == "active"
-        }
 
 
 class RevisionRequest(DomainModel):

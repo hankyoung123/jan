@@ -32,8 +32,12 @@ original Python Story Engine and story-focused React product layer.
 - Package: `gdm-concordia==2.4.0`
 - License: Apache License 2.0
 - Copyright: 2023 DeepMind Technologies Limited
-- Modification status: dependency not yet installed; future use is through an
-  unmodified package behind `concordia_adapter`
+- Included code: unmodified `gdm-concordia==2.4.0` Python dependency
+- Integration boundary: Story-owned code under
+  `apps/story-engine/src/story_engine/concordia_adapter` converts domain
+  contracts to Concordia entities and routes every language-model call through
+  the existing Jan-backed `ModelGateway`
+- License text: `licenses/Concordia-2.4.0-APACHE-2.0.txt`
 
 Full license text and per-directory migration records belong in `licenses/`.
 
@@ -59,8 +63,8 @@ license-compliant distribution, or replacement before a closed-source release.
 
 ## Python runtime dependencies
 
-The Story Engine consumes FastAPI, Pydantic, Uvicorn, HTTPX, jsonschema,
-python-frontmatter, and keyring under their respective permissive licenses.
+The Story Engine consumes Concordia, FastAPI, Pydantic, Uvicorn, HTTPX,
+jsonschema, and python-frontmatter under their respective permissive licenses.
 Exact resolved versions and transitive dependencies are recorded in
-`apps/story-engine/uv.lock`. Keyring is used only as the operating-system secret
-storage adapter; Provider credentials are not persisted in project files.
+`apps/story-engine/uv.lock`. Provider credentials remain in Jan's operating-
+system secret storage and are not persisted in project files.

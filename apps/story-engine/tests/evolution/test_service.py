@@ -1,10 +1,8 @@
 from pathlib import Path
 
 from story_engine.domain.models import CharacterIntent, StateChange
-from story_engine.evolution.service import (
-    CharacterContextAssembler,
-    EvolutionService,
-)
+from story_engine.evolution.context import CharacterContextAssembler
+from story_engine.evolution.service import EvolutionService
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectStore

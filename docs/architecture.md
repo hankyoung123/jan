@@ -66,6 +66,13 @@ The domain package has no FastAPI, filesystem, Concordia, or provider imports.
 Concordia remains behind `concordia_adapter` and only returns candidate intent
 or outcome values.
 
+The adapter builds original Concordia entities from one authorized
+`CharacterContext` at a time and a Concordia Game Master from the world plus
+all completed intents. Concordia's language-model interface is backed only by
+the existing Python `ModelGateway`, which reaches Jan's private runtime bridge;
+the adapter contains no Provider SDK, credential store, or canonical write
+path.
+
 ## Failure handling
 
 - Invalid or missing tokens return `401` without leaking configuration.
