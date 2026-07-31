@@ -679,6 +679,44 @@
         "title": "NpcCandidate",
         "type": "object"
       },
+      "ProjectCatalogEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "genre": {
+            "minLength": 1,
+            "title": "Genre",
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "is_open": {
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "title": {
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "world_version": {
+            "minimum": 0.0,
+            "title": "World Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "genre",
+          "world_version",
+          "is_open"
+        ],
+        "title": "ProjectCatalogEntry",
+        "type": "object"
+      },
       "ProjectDocument": {
         "additionalProperties": false,
         "properties": {
@@ -1757,6 +1795,178 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WorkspaceClosedState": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "minLength": 1,
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "closed",
+            "default": "closed",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "WorkspaceClosedState",
+        "type": "object"
+      },
+      "WorkspaceDocumentEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "document_id": {
+            "minLength": 1,
+            "title": "Document Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "project",
+              "world",
+              "character",
+              "event",
+              "scene"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "relative_path": {
+            "minLength": 1,
+            "title": "Relative Path",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "relative_path",
+          "kind",
+          "document_id",
+          "sha256"
+        ],
+        "title": "WorkspaceDocumentEntry",
+        "type": "object"
+      },
+      "WorkspaceIndex": {
+        "additionalProperties": false,
+        "properties": {
+          "character_versions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Character Versions",
+            "type": "object"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceDocumentEntry"
+            },
+            "minItems": 2,
+            "title": "Documents",
+            "type": "array"
+          },
+          "event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "project_id": {
+            "minLength": 1,
+            "title": "Project Id",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision",
+            "type": "string"
+          },
+          "scene_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scene Ids",
+            "type": "array"
+          },
+          "world_version": {
+            "minimum": 0.0,
+            "title": "World Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "revision",
+          "world_version",
+          "character_versions",
+          "event_ids",
+          "scene_ids",
+          "documents"
+        ],
+        "title": "WorkspaceIndex",
+        "type": "object"
+      },
+      "WorkspaceState": {
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "$ref": "#/components/schemas/WorkspaceIndex"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectSnapshot"
+          },
+          "recovered_transactions": {
+            "minimum": 0.0,
+            "title": "Recovered Transactions",
+            "type": "integer"
+          },
+          "status": {
+            "const": "open",
+            "default": "open",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "index",
+          "recovered_transactions"
+        ],
+        "title": "WorkspaceState",
+        "type": "object"
+      },
       "WorldOutcome": {
         "additionalProperties": false,
         "properties": {
@@ -2185,6 +2395,36 @@
         ]
       }
     },
+    "/projects": {
+      "get": {
+        "operationId": "list_projects_projects_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectCatalogEntry"
+                  },
+                  "title": "Response List Projects Projects Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Projects",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
     "/projects/{project_id}": {
       "get": {
         "operationId": "get_project_projects__project_id__get",
@@ -2227,6 +2467,53 @@
           }
         ],
         "summary": "Get Project",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/projects/{project_id}/close": {
+      "post": {
+        "operationId": "close_project_projects__project_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceClosedState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Close Project",
         "tags": [
           "projects"
         ]
@@ -2325,6 +2612,53 @@
         "summary": "Export Manuscript",
         "tags": [
           "manuscript"
+        ]
+      }
+    },
+    "/projects/{project_id}/open": {
+      "post": {
+        "operationId": "open_project_projects__project_id__open_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Open Project",
+        "tags": [
+          "projects"
         ]
       }
     },
@@ -2964,6 +3298,53 @@
           }
         ],
         "summary": "Request Turn Revision",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/projects/{project_id}/workspace": {
+      "get": {
+        "operationId": "get_workspace_projects__project_id__workspace_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Workspace",
         "tags": [
           "projects"
         ]

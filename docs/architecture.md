@@ -50,6 +50,22 @@ Derived state lives below `.story-engine/` and must be rebuildable. Models,
 retrieval indexes, caches, UI stores, and Concordia objects are never canonical
 story state.
 
+## Workspace lifecycle
+
+Opening a project validates every canonical Markdown document, rolls back any
+prepared multi-file transaction left below `.story-engine/recovery`, recreates
+missing derived directories, and builds one process-local `WorkspaceIndex`.
+The index records canonical file hashes, world and character versions, Event
+IDs, and Scene IDs; its JSON copy below `.story-engine/index` is diagnostic and
+may be deleted at any time.
+
+An open workspace owns a cross-platform polling watcher. A valid external
+Markdown change rebuilds the in-memory index and emits `workspace.changed` over
+the existing authenticated WebSocket. An invalid external edit preserves the
+last valid in-memory snapshot and emits an error state so React can require the
+user to repair or reload it. Closing a project stops its watcher and drops only
+derived process state; it never deletes project Markdown.
+
 ## Write path
 
 All formal mutations flow through `EventCommitService`:
@@ -62,6 +78,10 @@ candidate -> schema validation -> editor review -> user approval
 
 An unapproved turn may write only to `.story-engine/turns` and
 `.story-engine/reviews`.
+
+API-owned canonical writes refresh the open workspace immediately after the
+atomic commit. The watcher is the fallback for edits made by an external text
+editor and for changes originating outside the active API process.
 
 `SubmissionService` validates the runnable initial package before creating a
 project directory. During evolution, `CharacterContextAssembler` combines

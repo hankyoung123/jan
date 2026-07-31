@@ -20,6 +20,7 @@ from story_engine.manuscript.service import (
 )
 from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
+from story_engine.workspace.session import WorkspaceSessionManager
 
 _SCENE_ID = re.compile(r"^scene-[0-9]{6}$")
 _AMENDMENT_ID = re.compile(r"^amendment-scene-[0-9]{6}-[0-9]{6}$")
@@ -33,10 +34,12 @@ def _require_identifier(value: str, pattern: re.Pattern[str], label: str) -> Non
 def create_manuscript_router(
     settings: EngineSettings,
     model_gateway: ModelGateway,
+    workspace_manager: WorkspaceSessionManager,
 ) -> APIRouter:
     router = APIRouter(tags=["manuscript"])
 
     def service(project_id: str) -> ManuscriptService:
+        workspace_manager.open(project_id)
         return ManuscriptService(
             _require_project(settings, project_id),
             agent=GatewayManuscriptAgent(model_gateway),
@@ -90,7 +93,10 @@ def create_manuscript_router(
     ) -> SceneMutationResult:
         _require_identifier(scene_id, _SCENE_ID, "Scene")
         try:
-            return await service(project_id).update_scene(scene_id, request)
+            result = await service(project_id).update_scene(scene_id, request)
+            if result.status == "saved":
+                workspace_manager.refresh(project_id)
+            return result
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Scene not found") from error
         except ModelGatewayError as error:
@@ -111,10 +117,12 @@ def create_manuscript_router(
         _require_identifier(scene_id, _SCENE_ID, "Scene")
         _require_identifier(amendment_id, _AMENDMENT_ID, "Amendment")
         try:
-            return service(project_id).confirm_amendment(
+            result = service(project_id).confirm_amendment(
                 amendment_id,
                 expected_scene_id=scene_id,
             )
+            workspace_manager.refresh(project_id)
+            return result
         except FileNotFoundError as error:
             raise HTTPException(
                 status_code=404,

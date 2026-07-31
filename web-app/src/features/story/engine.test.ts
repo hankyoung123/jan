@@ -17,6 +17,7 @@ import {
   resolveEngineRuntime,
   restartEngineRuntime,
   subscribeEngineRuntime,
+  subscribeProjectEvents,
 } from './engine'
 
 describe('Story Engine client', () => {
@@ -120,5 +121,62 @@ describe('Story Engine client', () => {
     expect(listener).toHaveBeenCalledWith(
       expect.not.objectContaining({ session_token: expect.anything() })
     )
+  })
+
+  it('subscribes to project events without placing the token in the URL', async () => {
+    h.isTauri.mockReturnValue(true)
+    h.invoke.mockResolvedValue({
+      phase: 'ready',
+      base_url: 'http://127.0.0.1:41000',
+      websocket_url: 'ws://127.0.0.1:41000/ws/events',
+      session_token: 'runtime-secret',
+      restart_count: 0,
+      last_error: null,
+    })
+    const sockets: FakeWebSocket[] = []
+    class FakeWebSocket {
+      onmessage: ((event: MessageEvent<string>) => void) | null = null
+      closed = false
+
+      constructor(
+        readonly url: string,
+        readonly protocols: string[]
+      ) {
+        sockets.push(this)
+      }
+
+      close() {
+        this.closed = true
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const listener = vi.fn()
+
+    const cleanup = await subscribeProjectEvents('fog-harbor', listener)
+    const socket = sockets[0]
+    socket.onmessage?.({
+      data: JSON.stringify({
+        event_id: '01J00000000000000000000000',
+        project_id: 'fog-harbor',
+        turn_id: 'workspace',
+        timestamp: '2026-07-31T12:00:00Z',
+        type: 'workspace.changed',
+        payload: { changed_paths: ['world.md'] },
+      }),
+    } as MessageEvent<string>)
+
+    expect(socket.url).toBe(
+      'ws://127.0.0.1:41000/ws/events?project_id=fog-harbor'
+    )
+    expect(socket.url).not.toContain('runtime-secret')
+    expect(socket.protocols).toEqual([
+      'story-engine.v1',
+      'story-engine.token.runtime-secret',
+    ])
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'workspace.changed' })
+    )
+    cleanup()
+    expect(socket.closed).toBe(true)
   })
 })

@@ -1,5 +1,6 @@
 export type EngineEventType =
   | "engine.status"
+  | "workspace.changed"
   | "turn.started"
   | "character.intent.started"
   | "character.intent.delta"
@@ -22,6 +23,7 @@ export interface EngineEventEnvelope {
 
 const eventTypes: ReadonlySet<string> = new Set<EngineEventType>([
   "engine.status",
+  "workspace.changed",
   "turn.started",
   "character.intent.started",
   "character.intent.delta",

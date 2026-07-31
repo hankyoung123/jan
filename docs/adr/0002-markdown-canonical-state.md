@@ -19,3 +19,9 @@ Indexes must rebuild from Markdown. Event records are append-only. Candidate
 generation, model calls, and UI state cannot directly mutate canonical files.
 Multi-file commit recovery metadata is required before production packaging.
 
+Project open is the recovery boundary: prepared transactions are rolled back
+before canonical documents are validated. Each open project has one disposable
+in-memory index and one file watcher; closing it drops both without touching
+Markdown. API commits refresh the index synchronously, while external edits
+are detected by the watcher and surfaced through authenticated workspace
+events.

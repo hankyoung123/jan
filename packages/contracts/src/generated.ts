@@ -137,6 +137,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Projects */
+        get: operations["list_projects_projects_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -148,6 +165,23 @@ export interface paths {
         get: operations["get_project_projects__project_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close Project */
+        post: operations["close_project_projects__project_id__close_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -182,6 +216,23 @@ export interface paths {
         get: operations["export_manuscript_projects__project_id__manuscript_export_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open Project */
+        post: operations["open_project_projects__project_id__open_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -353,6 +404,23 @@ export interface paths {
         put?: never;
         /** Request Turn Revision */
         post: operations["request_turn_revision_projects__project_id__turns__turn_id__request_revision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Workspace */
+        get: operations["get_workspace_projects__project_id__workspace_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -617,6 +685,19 @@ export interface components {
             identity: string;
             /** Purpose */
             purpose: string;
+        };
+        /** ProjectCatalogEntry */
+        ProjectCatalogEntry: {
+            /** Genre */
+            genre: string;
+            /** Id */
+            id: string;
+            /** Is Open */
+            is_open: boolean;
+            /** Title */
+            title: string;
+            /** World Version */
+            world_version: number;
         };
         /** ProjectDocument */
         ProjectDocument: {
@@ -1044,6 +1125,67 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WorkspaceClosedState */
+        WorkspaceClosedState: {
+            /** Project Id */
+            project_id: string;
+            /**
+             * Status
+             * @default closed
+             * @constant
+             */
+            status: "closed";
+        };
+        /** WorkspaceDocumentEntry */
+        WorkspaceDocumentEntry: {
+            /** Document Id */
+            document_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "project" | "world" | "character" | "event" | "scene";
+            /** Relative Path */
+            relative_path: string;
+            /** Sha256 */
+            sha256: string;
+            /** Version */
+            version?: number | null;
+        };
+        /** WorkspaceIndex */
+        WorkspaceIndex: {
+            /** Character Versions */
+            character_versions: {
+                [key: string]: number;
+            };
+            /** Documents */
+            documents: components["schemas"]["WorkspaceDocumentEntry"][];
+            /** Event Ids */
+            event_ids: string[];
+            /** Project Id */
+            project_id: string;
+            /** Revision */
+            revision: string;
+            /** Scene Ids */
+            scene_ids: string[];
+            /** World Version */
+            world_version: number;
+        };
+        /** WorkspaceState */
+        WorkspaceState: {
+            index: components["schemas"]["WorkspaceIndex"];
+            /** Last Error */
+            last_error?: string | null;
+            project: components["schemas"]["ProjectSnapshot"];
+            /** Recovered Transactions */
+            recovered_transactions: number;
+            /**
+             * Status
+             * @default open
+             * @constant
+             */
+            status: "open";
+        };
         /** WorldOutcome */
         WorldOutcome: {
             /**
@@ -1318,6 +1460,26 @@ export interface operations {
             };
         };
     };
+    list_projects_projects_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectCatalogEntry"][];
+                };
+            };
+        };
+    };
     get_project_projects__project_id__get: {
         parameters: {
             query?: never;
@@ -1336,6 +1498,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_project_projects__project_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceClosedState"];
                 };
             };
             /** @description Validation Error */
@@ -1398,6 +1591,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ManuscriptExport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_project_projects__project_id__open_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceState"];
                 };
             };
             /** @description Validation Error */
@@ -1767,6 +1991,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TurnCandidate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workspace_projects__project_id__workspace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceState"];
                 };
             };
             /** @description Validation Error */

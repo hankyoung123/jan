@@ -14,6 +14,7 @@ from story_engine.domain.models import DomainModel
 
 EngineEventType = Literal[
     "engine.status",
+    "workspace.changed",
     "turn.started",
     "character.intent.started",
     "character.intent.delta",

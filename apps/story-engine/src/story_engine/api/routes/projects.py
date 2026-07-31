@@ -28,7 +28,14 @@ from story_engine.submission.service import (
 )
 from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.event_store import EventStore
-from story_engine.workspace.project_store import ProjectSnapshot, ProjectStore
+from story_engine.workspace.project_store import ProjectSnapshot
+from story_engine.workspace.session import (
+    ProjectCatalogEntry,
+    WorkspaceClosedState,
+    WorkspaceNotOpenError,
+    WorkspaceSessionManager,
+    WorkspaceState,
+)
 
 _PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
@@ -50,8 +57,40 @@ def create_projects_router(
     settings: EngineSettings,
     event_bus: EngineEventBus,
     model_gateway: ModelGateway,
+    workspace_manager: WorkspaceSessionManager,
 ) -> APIRouter:
     router = APIRouter(tags=["projects"])
+
+    @router.get("/projects", response_model=tuple[ProjectCatalogEntry, ...])
+    async def list_projects() -> tuple[ProjectCatalogEntry, ...]:
+        return workspace_manager.list_projects()
+
+    @router.post("/projects/{project_id}/open", response_model=WorkspaceState)
+    async def open_project(project_id: str) -> WorkspaceState:
+        _require_project(settings, project_id)
+        try:
+            return workspace_manager.open(project_id)
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.post(
+        "/projects/{project_id}/close",
+        response_model=WorkspaceClosedState,
+    )
+    async def close_project(project_id: str) -> WorkspaceClosedState:
+        _require_project(settings, project_id)
+        return workspace_manager.close(project_id)
+
+    @router.get(
+        "/projects/{project_id}/workspace",
+        response_model=WorkspaceState,
+    )
+    async def get_workspace(project_id: str) -> WorkspaceState:
+        _require_project(settings, project_id)
+        try:
+            return workspace_manager.get(project_id)
+        except WorkspaceNotOpenError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
         "/projects/{project_id}/submission/messages",
@@ -84,7 +123,8 @@ def create_projects_router(
     async def finalize_submission(package: SubmissionPackage) -> ProjectSnapshot:
         settings.projects_root.mkdir(parents=True, exist_ok=True)
         try:
-            return SubmissionService(settings.projects_root).finalize(package)
+            snapshot = SubmissionService(settings.projects_root).finalize(package)
+            return workspace_manager.open(snapshot.project.id).project
         except FileExistsError as error:
             raise HTTPException(
                 status_code=409,
@@ -95,7 +135,11 @@ def create_projects_router(
 
     @router.get("/projects/{project_id}", response_model=ProjectSnapshot)
     async def get_project(project_id: str) -> ProjectSnapshot:
-        return ProjectStore(_require_project(settings, project_id)).load()
+        _require_project(settings, project_id)
+        try:
+            return workspace_manager.open(project_id).project
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
         "/projects/{project_id}/turns/generate",
@@ -107,6 +151,7 @@ def create_projects_router(
         request: TurnGenerationRequest,
     ) -> TurnCandidate:
         root = _require_project(settings, project_id)
+        workspace_manager.open(project_id)
         active_turn_id: str | None = None
         try:
             participants = request.participant_ids or None
@@ -163,10 +208,12 @@ def create_projects_router(
     async def confirm_turn(project_id: str, turn_id: str) -> CommitResult:
         root = _require_project(settings, project_id)
         try:
-            return EvolutionService(
+            result = EvolutionService(
                 root,
                 generator=ConcordiaStoryAdapter(model_gateway),
             ).confirm(turn_id)
+            workspace_manager.refresh(project_id)
+            return result
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Turn not found") from error
         except (DomainError, InvalidTransitionError) as error:
@@ -221,6 +268,7 @@ def create_projects_router(
     @router.get("/projects/{project_id}/events")
     async def list_events(project_id: str) -> tuple[object, ...]:
         root = _require_project(settings, project_id)
+        workspace_manager.open(project_id)
         return EventStore(root).list_events()
 
     return router

@@ -2,7 +2,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const h = vi.hoisted(() => ({ engineRequest: vi.fn() }))
+const h = vi.hoisted(() => ({
+  engineRequest: vi.fn(),
+  subscribeProjectEvents: vi.fn(),
+}))
 
 vi.stubGlobal(
   'ResizeObserver',
@@ -22,7 +25,10 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({}),
 }))
 
-vi.mock('./engine', () => ({ engineRequest: h.engineRequest }))
+vi.mock('./engine', () => ({
+  engineRequest: h.engineRequest,
+  subscribeProjectEvents: h.subscribeProjectEvents,
+}))
 
 vi.mock('@/containers/MessageItem', () => ({
   MessageItem: ({ message }: { message: { parts: Array<{ type: string; text?: string }> } }) => (
@@ -40,7 +46,12 @@ import {
   getActiveStoryProjectId,
   setActiveStoryProjectId,
 } from './activeProject'
-import { EvolutionView, ManuscriptView, SubmissionView } from './StoryViews'
+import {
+  EvolutionView,
+  ManuscriptView,
+  SubmissionView,
+  WorkbenchView,
+} from './StoryViews'
 
 const projectSnapshot = {
   project: {
@@ -204,6 +215,114 @@ function mockManuscriptWorkspace(
     throw new Error(`Unexpected request: ${path}`)
   })
 }
+
+const workspaceState = {
+  project: projectSnapshot,
+  index: {
+    project_id: 'north-star',
+    revision: 'a'.repeat(64),
+    world_version: 4,
+    character_versions: { ara: 2, bo: 1 },
+    event_ids: ['event-000004', 'event-000005'],
+    scene_ids: ['scene-000004'],
+    documents: [
+      {
+        relative_path: 'project.md',
+        kind: 'project',
+        document_id: 'north-star',
+        version: 0,
+        sha256: 'b'.repeat(64),
+      },
+      {
+        relative_path: 'world.md',
+        kind: 'world',
+        document_id: 'world',
+        version: 4,
+        sha256: 'c'.repeat(64),
+      },
+    ],
+  },
+  recovered_transactions: 0,
+  status: 'open',
+  last_error: null,
+}
+
+describe('Story workspace lifecycle', () => {
+  beforeEach(() => {
+    clearActiveStoryProject()
+    h.engineRequest.mockReset()
+    h.subscribeProjectEvents.mockReset()
+    h.subscribeProjectEvents.mockResolvedValue(() => undefined)
+  })
+
+  it('lists canonical projects and explicitly opens the selected workspace', async () => {
+    h.engineRequest.mockImplementation((path: string) => {
+      if (path === '/projects') {
+        return Promise.resolve([
+          {
+            id: 'north-star',
+            title: '北辰',
+            genre: '科幻',
+            world_version: 4,
+            is_open: false,
+          },
+        ])
+      }
+      if (path === '/projects/north-star/open') {
+        return Promise.resolve(workspaceState)
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    render(<WorkbenchView />)
+    fireEvent.click(await screen.findByRole('button', { name: '打开 北辰' }))
+
+    expect(await screen.findByText('极夜第三日')).toBeInTheDocument()
+    expect(getActiveStoryProjectId()).toBe('north-star')
+    expect(h.engineRequest).toHaveBeenCalledWith(
+      '/projects/north-star/open',
+      { method: 'POST' }
+    )
+    expect(h.subscribeProjectEvents).toHaveBeenCalledWith(
+      'north-star',
+      expect.any(Function)
+    )
+  })
+
+  it('restores and closes the active workspace without deleting Markdown', async () => {
+    setActiveStoryProjectId('north-star')
+    h.engineRequest.mockImplementation((path: string) => {
+      if (path === '/projects') {
+        return Promise.resolve([
+          {
+            id: 'north-star',
+            title: '北辰',
+            genre: '科幻',
+            world_version: 4,
+            is_open: false,
+          },
+        ])
+      }
+      if (path === '/projects/north-star/open') {
+        return Promise.resolve(workspaceState)
+      }
+      if (path === '/projects/north-star/close') {
+        return Promise.resolve({ project_id: 'north-star', status: 'closed' })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    render(<WorkbenchView />)
+    fireEvent.click(await screen.findByRole('button', { name: '关闭项目' }))
+
+    await waitFor(() => expect(getActiveStoryProjectId()).toBeNull())
+    expect(screen.getByText('选择一个项目开始工作')).toBeInTheDocument()
+    expect(h.engineRequest).toHaveBeenCalledWith(
+      '/projects/north-star/close',
+      { method: 'POST' }
+    )
+  })
+})
 
 function mockLoadedProject() {
   h.engineRequest.mockImplementation((path: string) => {

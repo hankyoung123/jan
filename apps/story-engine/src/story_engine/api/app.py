@@ -1,4 +1,5 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from secrets import compare_digest
 from typing import Annotated
 
@@ -24,6 +25,7 @@ from story_engine.models.gateway import (
     UnavailableModelTransport,
 )
 from story_engine.models.registry import ProfileRegistry
+from story_engine.workspace.session import WorkspaceChange, WorkspaceSessionManager
 
 
 class HealthResponse(BaseModel):
@@ -76,10 +78,31 @@ def create_app(
 ) -> FastAPI:
     runtime_settings = settings or EngineSettings()
     require_session_token = _auth_dependency(runtime_settings)
+    event_bus = EngineEventBus()
+
+    def publish_workspace_change(change: WorkspaceChange) -> None:
+        event_bus.publish(
+            project_id=change.project_id,
+            turn_id="workspace",
+            event_type="workspace.changed",
+            payload=change.model_dump(mode="json"),
+        )
+
+    workspace_manager = WorkspaceSessionManager(
+        runtime_settings.projects_root,
+        on_change=publish_workspace_change,
+    )
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        yield
+        workspace_manager.close_all()
+
     app = FastAPI(
         title="AI Story Evolution Engine",
         version=__version__,
         description="Local story-domain sidecar API",
+        lifespan=lifespan,
     )
     app.state.settings = runtime_settings
     registry = model_registry or ProfileRegistry(runtime_settings.model_registry_path)
@@ -94,8 +117,8 @@ def create_app(
     gateway = ModelGateway(registry, transport or UnavailableModelTransport())
     app.state.model_registry = registry
     app.state.model_gateway = gateway
-    event_bus = EngineEventBus()
     app.state.event_bus = event_bus
+    app.state.workspace_manager = workspace_manager
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(runtime_settings.allowed_origins),
@@ -132,11 +155,16 @@ def create_app(
         await stream_events(websocket, event_bus, project_id=project_id)
 
     app.include_router(
-        create_projects_router(runtime_settings, event_bus, gateway),
+        create_projects_router(
+            runtime_settings,
+            event_bus,
+            gateway,
+            workspace_manager,
+        ),
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(
-        create_manuscript_router(runtime_settings, gateway),
+        create_manuscript_router(runtime_settings, gateway, workspace_manager),
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(

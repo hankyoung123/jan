@@ -36,6 +36,29 @@ direction, world rules, a concrete incident and pressure, and two to four
 active characters with explicit private fact identifiers. It has no outline
 or future plot contract.
 
+## Workspace lifecycle
+
+`GET /projects` lists valid Markdown projects and whether each has an open
+process-local workspace. It ignores directories that cannot validate as a
+project; it never repairs canonical Markdown implicitly.
+
+```text
+POST /projects/{project_id}/open
+GET  /projects/{project_id}/workspace
+POST /projects/{project_id}/close
+```
+
+Open performs interrupted-transaction recovery before validating Markdown,
+recreates missing derived cache/index directories, builds the in-memory index,
+and starts the file watcher. Close stops that watcher and discards only the
+in-memory session. It never deletes project files. Finalizing a submission
+opens the new project automatically.
+
+`WorkspaceIndex.revision` is a SHA-256 digest over ordered canonical relative
+paths and their content hashes. Its document entries cover only `project.md`,
+`world.md`, `characters/**/*.md`, `events/*.md`, and `scenes/*.md`. The JSON
+copy below `.story-engine/index/project.json` is derived and rebuildable.
+
 `POST /projects/{project_id}/turns/generate` asks the engine to assemble one
 private context per participant, generate isolated character intents, resolve
 one world outcome, and run the Editor review. The resulting candidate is
@@ -76,6 +99,11 @@ The initial event type set is defined in `docs/product-plan.md` section 13.2.
 Unknown event types must be ignored by clients for forward compatibility.
 The bounded in-memory stream drops the oldest queued event for a slow client;
 canonical state remains available through HTTP and Markdown reload.
+
+`workspace.changed` uses `turn_id: "workspace"`. A ready payload contains
+`changed_paths`, `revision`, and `world_version`. An error payload contains a
+safe validation message. The bearer token remains in the WebSocket subprotocol,
+never in its URL.
 
 ## Model profiles
 

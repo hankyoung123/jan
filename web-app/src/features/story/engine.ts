@@ -1,5 +1,9 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import {
+  isEngineEvent,
+  type EngineEventEnvelope,
+} from '@story-engine/contracts'
 
 export type EnginePhase = 'starting' | 'ready' | 'stopped' | 'crashed'
 
@@ -14,11 +18,13 @@ export interface EngineRuntimeState {
 
 export type EngineRuntimeStatus = Omit<EngineRuntimeState, 'session_token'>
 
+const developmentBaseUrl =
+  import.meta.env.VITE_STORY_ENGINE_URL ?? 'http://127.0.0.1:39281'
+
 const developmentRuntime: EngineRuntimeState = {
   phase: 'ready',
-  base_url:
-    import.meta.env.VITE_STORY_ENGINE_URL ?? 'http://127.0.0.1:39281',
-  websocket_url: null,
+  base_url: developmentBaseUrl,
+  websocket_url: `${developmentBaseUrl.replace(/^http/, 'ws').replace(/\/$/, '')}/ws/events`,
   session_token:
     import.meta.env.VITE_STORY_ENGINE_TOKEN ?? 'development-token',
   restart_count: 0,
@@ -42,6 +48,36 @@ export async function subscribeEngineRuntime(
   return listen<EngineRuntimeStatus>('story-engine://status', (event) => {
     listener(event.payload)
   })
+}
+
+export async function subscribeProjectEvents(
+  projectId: string,
+  listener: (event: EngineEventEnvelope) => void
+): Promise<() => void> {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(projectId)) {
+    throw new Error('invalid Story Engine project ID')
+  }
+  const runtime = await resolveEngineRuntime()
+  if (!runtime.websocket_url || !runtime.session_token) {
+    throw new Error(runtime.last_error ?? 'Story Engine event stream is unavailable')
+  }
+  const url = new URL(runtime.websocket_url)
+  url.searchParams.set('project_id', projectId)
+  const socket = new WebSocket(url.toString(), [
+    'story-engine.v1',
+    `story-engine.token.${runtime.session_token}`,
+  ])
+  socket.onmessage = (message) => {
+    try {
+      const value: unknown = JSON.parse(String(message.data))
+      if (isEngineEvent(value) && value.project_id === projectId) {
+        listener(value)
+      }
+    } catch {
+      // Ignore malformed or forward-incompatible event records. HTTP remains canonical.
+    }
+  }
+  return () => socket.close()
 }
 
 function errorMessage(payload: unknown, status: number): string {

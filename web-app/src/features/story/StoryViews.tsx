@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Download,
   FileText,
+  FolderOpen,
   LockKeyhole,
   RotateCcw,
   Save,
@@ -36,10 +37,11 @@ import { route } from '@/constants/routes'
 import type { NovelManuscriptValue } from '@/editor/NovelManuscriptEditor'
 import { novelDocumentFromMarkdown } from '@/editor/manuscriptMarkdown'
 import {
+  clearActiveStoryProject,
   setActiveStoryProjectId,
   useActiveStoryProjectId,
 } from './activeProject'
-import { engineRequest } from './engine'
+import { engineRequest, subscribeProjectEvents } from './engine'
 
 type SubmissionPackage = components['schemas']['SubmissionPackage']
 type SubmissionDraft = components['schemas']['SubmissionDraft']
@@ -54,6 +56,8 @@ type SceneDraft = components['schemas']['SceneDraft']
 type SceneMutationResult = components['schemas']['SceneMutationResult']
 type AmendmentCommitResult = components['schemas']['AmendmentCommitResult']
 type ManuscriptExport = components['schemas']['ManuscriptExport']
+type ProjectCatalogEntry = components['schemas']['ProjectCatalogEntry']
+type WorkspaceState = components['schemas']['WorkspaceState']
 
 const NovelManuscriptEditor = lazy(() =>
   import('@/editor/NovelManuscriptEditor').then((module) => ({
@@ -119,34 +123,240 @@ function StatusPill({
 }
 
 export function WorkbenchView() {
+  const activeProjectId = useActiveStoryProjectId()
+  const [projects, setProjects] = useState<ProjectCatalogEntry[]>([])
+  const [workspace, setWorkspace] = useState<WorkspaceState | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [workingProjectId, setWorkingProjectId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [watchError, setWatchError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let disposed = false
+    setLoading(true)
+    void engineRequest<ProjectCatalogEntry[]>('/projects')
+      .then((catalog) => {
+        if (!disposed) setProjects(catalog)
+      })
+      .catch((cause: unknown) => {
+        if (!disposed) {
+          setError(cause instanceof Error ? cause.message : '项目列表读取失败')
+        }
+      })
+      .finally(() => {
+        if (!disposed) setLoading(false)
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      setWorkspace(null)
+      setWatchError(null)
+      return
+    }
+    let disposed = false
+    setWorkingProjectId(activeProjectId)
+    setError(null)
+    void engineRequest<WorkspaceState>(`/projects/${activeProjectId}/open`, {
+      method: 'POST',
+    })
+      .then((opened) => {
+        if (disposed) return
+        setWorkspace(opened)
+        setProjects((current) =>
+          current.map((project) => ({
+            ...project,
+            is_open: project.id === activeProjectId,
+            world_version:
+              project.id === activeProjectId
+                ? opened.index.world_version
+                : project.world_version,
+          }))
+        )
+      })
+      .catch((cause: unknown) => {
+        if (!disposed) {
+          setError(cause instanceof Error ? cause.message : '项目打开失败')
+          clearActiveStoryProject()
+        }
+      })
+      .finally(() => {
+        if (!disposed) setWorkingProjectId(null)
+      })
+    return () => {
+      disposed = true
+    }
+  }, [activeProjectId])
+
+  useEffect(() => {
+    const projectId = workspace?.project.project.id
+    if (!projectId) return
+    let disposed = false
+    let cleanup: () => void = () => undefined
+    void subscribeProjectEvents(projectId, (event) => {
+      if (event.type !== 'workspace.changed') return
+      if (event.payload.status === 'error') {
+        const message = event.payload.error
+        setWatchError(
+          typeof message === 'string' ? message : '外部 Markdown 修改无效'
+        )
+        return
+      }
+      setWatchError(null)
+      void engineRequest<WorkspaceState>(`/projects/${projectId}/workspace`)
+        .then((current) => {
+          if (!disposed) setWorkspace(current)
+        })
+        .catch((cause: unknown) => {
+          if (!disposed) {
+            setWatchError(
+              cause instanceof Error ? cause.message : '工作区索引刷新失败'
+            )
+          }
+        })
+    })
+      .then((unsubscribe) => {
+        if (disposed) unsubscribe()
+        else cleanup = unsubscribe
+      })
+      .catch((cause: unknown) => {
+        if (!disposed) {
+          setWatchError(
+            cause instanceof Error ? cause.message : '工作区监听连接失败'
+          )
+        }
+      })
+    return () => {
+      disposed = true
+      cleanup()
+    }
+  }, [workspace?.project.project.id])
+
+  async function closeProject() {
+    if (!activeProjectId) return
+    setWorkingProjectId(activeProjectId)
+    setError(null)
+    try {
+      await engineRequest(`/projects/${activeProjectId}/close`, {
+        method: 'POST',
+      })
+      setProjects((current) =>
+        current.map((project) => ({ ...project, is_open: false }))
+      )
+      setWorkspace(null)
+      clearActiveStoryProject()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '项目关闭失败')
+    } finally {
+      setWorkingProjectId(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <StoryPage>
+        <PageHeader eyebrow="Markdown Workspace" title="工作台" />
+        <p className="border bg-background p-8 text-sm text-muted-foreground" role="status">
+          正在读取项目目录…
+        </p>
+      </StoryPage>
+    )
+  }
+
+  if (!workspace) {
+    return (
+      <StoryPage>
+        <PageHeader eyebrow="Markdown Workspace" title="工作台" />
+        {error && <p className="mb-4 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p>}
+        <section className="border bg-background">
+          <div className="border-b px-5 py-4">
+            <p className="text-xs text-muted-foreground">项目目录</p>
+            <h2 className="mt-1 font-medium">选择一个项目开始工作</h2>
+          </div>
+          {projects.length === 0 ? (
+            <div className="p-8 text-sm text-muted-foreground">
+              尚无项目。先前往投稿页创建一个可运行的初始世界。
+            </div>
+          ) : (
+            projects.map((project) => (
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b px-5 py-4 last:border-0" key={project.id}>
+                <div>
+                  <strong className="text-sm">{project.title}</strong>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {project.genre} · 世界版本 {project.world_version}
+                  </p>
+                </div>
+                <Button
+                  aria-label={`打开 ${project.title}`}
+                  disabled={workingProjectId !== null}
+                  onClick={() => setActiveStoryProjectId(project.id)}
+                  size="sm"
+                  variant="outline"
+                >
+                  <FolderOpen size={15} />
+                  {workingProjectId === project.id ? '正在打开' : '打开'}
+                </Button>
+              </div>
+            ))
+          )}
+        </section>
+      </StoryPage>
+    )
+  }
+
+  const snapshot = workspace.project
+  const activeCharacters = snapshot.characters.filter(
+    (character) => character.type === 'active'
+  )
+  const incident = snapshot.world.world_variables?.initial_incident
+  const incidentLabel =
+    typeof incident === 'string' ? incident : snapshot.world.active_pressures[0]
+
   return (
     <StoryPage>
       <PageHeader
-        eyebrow="雾港 / 世界版本 12"
+        eyebrow={`${snapshot.project.title} / 世界版本 ${workspace.index.world_version}`}
         title="工作台"
         action={
-          <Link className={primaryButton} to={route.evolve}>
-            推进下一轮 <ArrowRight size={15} />
-          </Link>
+          <div className="flex gap-2">
+            <Button disabled={workingProjectId !== null} onClick={() => void closeProject()} size="sm" variant="outline">
+              关闭项目
+            </Button>
+            <Link className={primaryButton} to={route.evolve}>
+              推进下一轮 <ArrowRight size={15} />
+            </Link>
+          </div>
         }
       />
+      {(error || watchError || workspace.last_error) && (
+        <p className="mb-4 flex items-center gap-2 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+          <TriangleAlert size={16} />
+          {watchError || workspace.last_error || error}
+        </p>
+      )}
+      {workspace.recovered_transactions > 0 && (
+        <p className="mb-4 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status">
+          已恢复 {workspace.recovered_transactions} 个未完成的文件事务，并从 Markdown 重建索引。
+        </p>
+      )}
       <section className="grid gap-6 border bg-background p-6 md:grid-cols-[1fr_auto]">
         <div className="max-w-2xl">
           <p className="mb-2 text-xs font-medium text-muted-foreground">
             当前世界
           </p>
-          <h2 className="mb-3 font-studio text-xl font-medium">
-            暴风雨前夜，灯塔失去光源
-          </h2>
+          <h2 className="mb-3 font-studio text-xl font-medium">{incidentLabel || '当前世界已就绪'}</h2>
           <p className="leading-6 text-muted-foreground">
-            客船“海燕号”将在四十分钟后抵港。陈默已经进入灯塔，林岚仍在港务所尝试恢复备用航标。
+            {snapshot.world.active_pressures.join('；') || '当前没有未解决的世界压力。'}
           </p>
         </div>
         <dl className="grid grid-cols-3 gap-px self-start overflow-hidden border bg-border text-center">
           {[
-            ['时间', '22:18'],
-            ['地点', '雾港'],
-            ['压力', '客船逼近'],
+            ['时间', snapshot.world.current_time],
+            ['地点', snapshot.world.current_location || '未指定'],
+            ['压力', String(snapshot.world.active_pressures.length)],
           ].map(([label, value]) => (
             <div className="min-w-24 bg-background px-3 py-3" key={label}>
               <dt className="text-xs text-muted-foreground">{label}</dt>
@@ -159,15 +369,15 @@ export function WorkbenchView() {
         <section className="border bg-background">
           <div className="flex items-center justify-between border-b px-5 py-4">
             <div>
-              <p className="text-xs text-muted-foreground">待处理</p>
-              <h2 className="font-medium">编辑队列</h2>
+              <p className="text-xs text-muted-foreground">内存索引</p>
+              <h2 className="font-medium">Canonical Markdown</h2>
             </div>
-            <span className="grid size-7 place-items-center rounded-full bg-muted text-xs">3</span>
+            <span className="grid size-7 place-items-center rounded-full bg-muted text-xs">{workspace.index.documents.length}</span>
           </div>
           {[
-            [TriangleAlert, '确认守塔人的知识边界', 'Editor 标记了 1 项潜在越界', '待检查'],
-            [FileText, '场景 012 尚未生成正文', '来源事件 event-000012', '未开始'],
-            [Check, '世界索引已重建', '42 个片段均有来源', '完成'],
+            [FileText, '正式事件', `${workspace.index.event_ids.length} 个不可变 Event`, '已索引'],
+            [FileText, '正文场景', `${workspace.index.scene_ids.length} 个 Scene`, '已索引'],
+            [Check, '工作区索引', workspace.index.revision.slice(0, 12), '同步'],
           ].map(([Icon, title, detail, state], index) => (
             <div className="grid grid-cols-[28px_1fr_auto] items-center gap-3 border-b px-5 py-4 last:border-0" key={String(title)}>
               <Icon className={index === 0 ? 'text-amber-600' : index === 2 ? 'text-emerald-600' : 'text-muted-foreground'} size={16} />
@@ -175,7 +385,7 @@ export function WorkbenchView() {
                 <strong className="text-sm font-medium">{String(title)}</strong>
                 <p className="mt-1 text-xs text-muted-foreground">{String(detail)}</p>
               </div>
-              <StatusPill tone={index === 0 ? 'warning' : index === 2 ? 'success' : 'neutral'}>{String(state)}</StatusPill>
+              <StatusPill tone={index === 2 ? 'success' : 'neutral'}>{String(state)}</StatusPill>
             </div>
           ))}
         </section>
@@ -187,24 +397,15 @@ export function WorkbenchView() {
             </div>
             <Link className="text-xs font-medium text-primary" to={route.characters}>查看全部</Link>
           </div>
-          {[
-            ['陈', '陈默', '查明灯塔熄灭原因', '灯塔一层'],
-            ['林', '林岚', '让海燕号安全进港', '港务所'],
-            ['周', '周放', '避免十年前的记录曝光', '旧码头'],
-          ].map(([initial, name, goal, location]) => (
-            <div className="grid grid-cols-[34px_1fr_auto] items-center gap-3 border-b px-5 py-4 last:border-0" key={name}>
-              <span className="grid size-8 place-items-center rounded-full bg-muted text-xs font-medium">{initial}</span>
-              <div><strong className="text-sm font-medium">{name}</strong><p className="mt-1 text-xs text-muted-foreground">目标：{goal}</p></div>
-              <span className="text-xs text-muted-foreground">{location}</span>
+          {activeCharacters.map((character) => (
+            <div className="grid grid-cols-[34px_1fr_auto] items-center gap-3 border-b px-5 py-4 last:border-0" key={character.id}>
+              <span className="grid size-8 place-items-center rounded-full bg-muted text-xs font-medium">{(character.display_name || character.id).slice(0, 1)}</span>
+              <div><strong className="text-sm font-medium">{character.display_name || character.id}</strong><p className="mt-1 text-xs text-muted-foreground">目标：{character.current_goal}</p></div>
+              <span className="text-xs text-muted-foreground">{character.location || '未指定'}</span>
             </div>
           ))}
         </section>
       </div>
-      <section className="mt-5 grid grid-cols-[48px_1fr_auto] items-center gap-4 border bg-background px-5 py-4">
-        <span className="grid size-10 place-items-center rounded-full border font-studio">12</span>
-        <div><p className="text-xs text-muted-foreground">最近确认事件 · 22:12</p><h2 className="mt-1 font-medium">陈默在灯芯槽中发现新鲜刮痕</h2></div>
-        <StatusPill tone="success">已确认</StatusPill>
-      </section>
     </StoryPage>
   )
 }
