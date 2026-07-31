@@ -14,10 +14,12 @@ original Python Story Engine and story-focused React product layer.
 - Included source: `web-app`, `core`, selected model/runtime extensions,
   `src-tauri`, build scripts, and supporting tests from the locked commit
 - Excluded source: Jan's `rag-extension`, `vector-db-extension`,
-  `tauri-plugin-rag`, and `tauri-plugin-vector-db`
+  `tauri-plugin-rag`, `tauri-plugin-vector-db`, marketing website, end-user
+  documentation site, changelog media, and promotional repository assets
 - Modification status: desktop package metadata, icons, routes and domain
-  workflows are rebranded for Story Engine; the model, Provider and local
-  inference infrastructure is retained
+  workflows are rebranded for Story Engine; the inherited marketing/docs
+  distribution is removed; the model, Provider and local inference
+  infrastructure is retained
 - Trademark note: Jan names, logos, illustrations, and branded assets are not
   part of the product identity and must be removed from distributed builds.
 

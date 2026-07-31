@@ -69,6 +69,39 @@ describe('Story Engine product branding', () => {
     }
   })
 
+  it('excludes the inherited Jan marketing site and promotional assets', () => {
+    for (const path of [
+      'JanBanner.png',
+      'demo.gif',
+      'README.ja.md',
+      'README.zh.md',
+      'docs/src',
+      'docs/public',
+      'docs/static',
+      'docs/package.json',
+      '.github/workflows/jan-docs.yml',
+      '.github/workflows/clean-cloudflare-page-preview-url-and-r2.yml',
+    ]) {
+      expect(existsSync(join(workspaceRoot, path)), path).toBe(false)
+    }
+
+    for (const path of [
+      'docs/product-plan.md',
+      'docs/architecture.md',
+      'docs/domain-model.md',
+      'docs/data-contracts.md',
+    ]) {
+      expect(existsSync(join(workspaceRoot, path)), path).toBe(true)
+    }
+
+    const contributingGuide = readFileSync(
+      join(workspaceRoot, 'CONTRIBUTING.md'),
+      'utf8'
+    )
+    expect(contributingGuide).toContain('# Contributing to Story Engine')
+    expect(contributingGuide).not.toContain('# Contributing to Jan')
+  })
+
   it('contains no inherited Jan product name or Menlo attribution in localized copy', () => {
     const localeRoot = join(workspaceRoot, 'web-app/src/locales')
     const pending = [localeRoot]

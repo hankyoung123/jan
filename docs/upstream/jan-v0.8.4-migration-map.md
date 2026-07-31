@@ -22,9 +22,10 @@ following dependency chains as source, not as visual references:
 | `src-tauri/plugins/tauri-plugin-hardware` | Model compatibility and hardware status | Keep |
 
 Jan's `rag-extension`, vector database plugin, general chat domain, assistant
-domain, Jan branding, screenshots, and trademark assets are not product
-foundations. The AGPL RAG implementation is not distributed in the closed
-product; Python implements the V1 retrieval gateway after scope authorization.
+domain, marketing website, end-user documentation site, Jan branding,
+screenshots, and trademark assets are not product foundations. The AGPL RAG
+implementation is not distributed in the closed product; Python implements the
+V1 retrieval gateway after scope authorization.
 
 ## Product-owned additions
 
