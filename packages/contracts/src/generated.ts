@@ -171,6 +171,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/submission/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discuss Submission */
+        post: operations["discuss_submission_projects__project_id__submission_messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/turns/generate": {
         parameters: {
             query?: never;
@@ -630,6 +647,86 @@ export interface components {
              */
             resources: string[];
         };
+        /** SubmissionConversationRequest */
+        SubmissionConversationRequest: {
+            draft: components["schemas"]["SubmissionDraft"];
+            /** Messages */
+            messages: components["schemas"]["Message"][];
+        };
+        /** SubmissionConversationResponse */
+        SubmissionConversationResponse: {
+            draft: components["schemas"]["SubmissionDraft"];
+            /** Missing Requirements */
+            missing_requirements: string[];
+            /** Reply */
+            reply: string;
+            review: components["schemas"]["ReviewResult"];
+            /** Runnable */
+            runnable: boolean;
+        };
+        /**
+         * SubmissionDraft
+         * @description Non-canonical setting package assembled during submission discussion.
+         */
+        SubmissionDraft: {
+            /**
+             * Characters
+             * @default []
+             */
+            characters: components["schemas"]["SubmissionCharacter"][];
+            /**
+             * Genre
+             * @default
+             */
+            genre: string;
+            /** Id */
+            id: string;
+            /**
+             * Initial Incident
+             * @default
+             */
+            initial_incident: string;
+            /**
+             * Initial Location
+             * @default
+             */
+            initial_location: string;
+            /**
+             * Initial Time
+             * @default
+             */
+            initial_time: string;
+            /**
+             * Pressures
+             * @default []
+             */
+            pressures: string[];
+            /**
+             * Public Fact Ids
+             * @default []
+             */
+            public_fact_ids: string[];
+            /**
+             * Theme
+             * @default
+             */
+            theme: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Tone
+             * @default
+             */
+            tone: string;
+            /**
+             * World Rules
+             * @default []
+             */
+            world_rules: string[];
+        };
         /** SubmissionPackage */
         SubmissionPackage: {
             /** Characters */
@@ -1050,6 +1147,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discuss_submission_projects__project_id__submission_messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmissionConversationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionConversationResponse"];
                 };
             };
             /** @description Validation Error */

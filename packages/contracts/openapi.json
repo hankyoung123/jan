@@ -948,6 +948,149 @@
         "title": "SubmissionCharacter",
         "type": "object"
       },
+      "SubmissionConversationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/SubmissionDraft"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "maxItems": 40,
+            "minItems": 1,
+            "title": "Messages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "draft",
+          "messages"
+        ],
+        "title": "SubmissionConversationRequest",
+        "type": "object"
+      },
+      "SubmissionConversationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/SubmissionDraft"
+          },
+          "missing_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Requirements",
+            "type": "array"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "review": {
+            "$ref": "#/components/schemas/ReviewResult"
+          },
+          "runnable": {
+            "title": "Runnable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reply",
+          "draft",
+          "review",
+          "runnable",
+          "missing_requirements"
+        ],
+        "title": "SubmissionConversationResponse",
+        "type": "object"
+      },
+      "SubmissionDraft": {
+        "additionalProperties": false,
+        "description": "Non-canonical setting package assembled during submission discussion.",
+        "properties": {
+          "characters": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SubmissionCharacter"
+            },
+            "maxItems": 4,
+            "title": "Characters",
+            "type": "array"
+          },
+          "genre": {
+            "default": "",
+            "title": "Genre",
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "initial_incident": {
+            "default": "",
+            "title": "Initial Incident",
+            "type": "string"
+          },
+          "initial_location": {
+            "default": "",
+            "title": "Initial Location",
+            "type": "string"
+          },
+          "initial_time": {
+            "default": "",
+            "title": "Initial Time",
+            "type": "string"
+          },
+          "pressures": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Pressures",
+            "type": "array"
+          },
+          "public_fact_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Public Fact Ids",
+            "type": "array"
+          },
+          "theme": {
+            "default": "",
+            "title": "Theme",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "tone": {
+            "default": "",
+            "title": "Tone",
+            "type": "string"
+          },
+          "world_rules": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "World Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "SubmissionDraft",
+        "type": "object"
+      },
       "SubmissionPackage": {
         "additionalProperties": false,
         "properties": {
@@ -1718,6 +1861,63 @@
           }
         ],
         "summary": "List Events",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/projects/{project_id}/submission/messages": {
+      "post": {
+        "operationId": "discuss_submission_projects__project_id__submission_messages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionConversationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Discuss Submission",
         "tags": [
           "projects"
         ]

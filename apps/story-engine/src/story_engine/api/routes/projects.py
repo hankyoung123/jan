@@ -19,7 +19,13 @@ from story_engine.evolution.service import (
 )
 from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
-from story_engine.submission.service import SubmissionPackage, SubmissionService
+from story_engine.submission.service import (
+    SubmissionConversationRequest,
+    SubmissionConversationResponse,
+    SubmissionDiscussionService,
+    SubmissionPackage,
+    SubmissionService,
+)
 from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectSnapshot, ProjectStore
@@ -46,6 +52,29 @@ def create_projects_router(
     model_gateway: ModelGateway,
 ) -> APIRouter:
     router = APIRouter(tags=["projects"])
+
+    @router.post(
+        "/projects/{project_id}/submission/messages",
+        response_model=SubmissionConversationResponse,
+    )
+    async def discuss_submission(
+        project_id: str,
+        request: SubmissionConversationRequest,
+    ) -> SubmissionConversationResponse:
+        root = _project_root(settings, project_id)
+        if request.draft.id != project_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Submission draft does not match project id",
+            )
+        if (root / "project.md").is_file():
+            raise HTTPException(status_code=409, detail="Project already exists")
+        try:
+            return await SubmissionDiscussionService(model_gateway).respond(request)
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
+        except (DomainError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
         "/submissions/finalize",

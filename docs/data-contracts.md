@@ -23,6 +23,13 @@
 
 ## Submission and evolution
 
+`POST /projects/{project_id}/submission/messages` accepts a non-canonical
+`SubmissionDraft` plus user/assistant discussion history. Python invokes the
+Editor task profile through the Jan model bridge, validates the structured
+draft and submission review, and independently reports missing runnable
+requirements. The path identifier and draft identifier must match. This route
+does not create a project directory or write canonical Markdown.
+
 `POST /submissions/finalize` validates a complete initial setting package and
 creates the canonical Markdown project. The package contains creative
 direction, world rules, a concrete incident and pressure, and two to four

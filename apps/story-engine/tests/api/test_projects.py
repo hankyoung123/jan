@@ -9,7 +9,10 @@ from fastapi.testclient import TestClient
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
 from story_engine.models.contracts import ModelStreamChunk
-from story_engine.submission.service import fog_harbor_submission
+from story_engine.submission.service import (
+    SubmissionDraft,
+    fog_harbor_submission,
+)
 
 AUTH = {"Authorization": "Bearer test-token"}
 
@@ -96,6 +99,138 @@ class StoryTurnTransport:
         if False:
             yield ModelStreamChunk()
         raise AssertionError("turn generation does not use streaming yet")
+
+
+class SubmissionTransport:
+    def __init__(self) -> None:
+        self.calls: list[Mapping[str, Any]] = []
+
+    async def complete(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: int,
+    ) -> Mapping[str, Any]:
+        del timeout_seconds
+        self.calls.append(payload)
+        content = {
+            "reply": "初始世界已经具备运行条件, 你可以继续调整或创建项目。",
+            "draft": fog_harbor_submission().model_dump(mode="json"),
+            "review": {
+                "mode": "submission_review",
+                "passed": True,
+                "summary": "创作方向、世界压力和两个角色的知识边界明确。",
+                "issues": [],
+            },
+        }
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(content, ensure_ascii=False),
+                    },
+                    "finish_reason": "stop",
+                }
+            ]
+        }
+
+    async def stream(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: int,
+    ) -> AsyncIterator[ModelStreamChunk]:
+        del payload, timeout_seconds
+        if False:
+            yield ModelStreamChunk()
+        raise AssertionError("submission discussion does not stream yet")
+
+
+def test_submission_message_uses_editor_profile_without_creating_project(
+    tmp_path: Path,
+) -> None:
+    transport = SubmissionTransport()
+    client = TestClient(
+        create_app(
+            EngineSettings(session_token="test-token", projects_root=tmp_path),
+            model_transport=transport,
+        )
+    )
+
+    response = client.post(
+        "/projects/fog-harbor/submission/messages",
+        headers=AUTH,
+        json={
+            "draft": SubmissionDraft(id="fog-harbor").model_dump(mode="json"),
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "我想写一个暴风雨中的港口悬疑故事。",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["runnable"] is True
+    assert response.json()["missing_requirements"] == []
+    assert response.json()["draft"]["characters"][0]["known_fact_ids"] == [
+        "secret:chen-father-disappearance"
+    ]
+    assert not (tmp_path / "fog-harbor").exists()
+    assert len(transport.calls) == 1
+    assert transport.calls[0]["model"] == "gpt-5-mini"
+    assert transport.calls[0]["messages"][0]["role"] == "system"
+    assert transport.calls[0]["response_format"]["type"] == "json_schema"
+
+
+def test_submission_message_rejects_path_and_draft_id_mismatch(
+    tmp_path: Path,
+) -> None:
+    transport = SubmissionTransport()
+    client = TestClient(
+        create_app(
+            EngineSettings(session_token="test-token", projects_root=tmp_path),
+            model_transport=transport,
+        )
+    )
+
+    response = client.post(
+        "/projects/north-star/submission/messages",
+        headers=AUTH,
+        json={
+            "draft": SubmissionDraft(id="fog-harbor").model_dump(mode="json"),
+            "messages": [{"role": "user", "content": "继续"}],
+        },
+    )
+
+    assert response.status_code == 409
+    assert transport.calls == []
+    assert not any(tmp_path.iterdir())
+
+
+def test_submission_message_without_jan_bridge_fails_without_project(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(
+        create_app(
+            EngineSettings(session_token="test-token", projects_root=tmp_path)
+        )
+    )
+
+    response = client.post(
+        "/projects/north-star/submission/messages",
+        headers=AUTH,
+        json={
+            "draft": SubmissionDraft(id="north-star").model_dump(mode="json"),
+            "messages": [{"role": "user", "content": "我想写科幻故事。"}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "model_configuration_error"
+    assert "Jan model runtime bridge" in response.json()["detail"]["message"]
+    assert not any(tmp_path.iterdir())
 
 
 def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
