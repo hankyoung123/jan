@@ -4,15 +4,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({ engineRequest: vi.fn() }))
 
+vi.stubGlobal(
+  'ResizeObserver',
+  class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+)
+
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
     <a href={to} {...props}>
       {children}
     </a>
   ),
+  useParams: () => ({}),
 }))
 
 vi.mock('./engine', () => ({ engineRequest: h.engineRequest }))
+
+vi.mock('@/containers/MessageItem', () => ({
+  MessageItem: ({ message }: { message: { parts: Array<{ type: string; text?: string }> } }) => (
+    <div data-testid="jan-message-item">
+      {message.parts
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('')}
+    </div>
+  ),
+}))
 
 import {
   clearActiveStoryProject,
@@ -131,28 +152,142 @@ describe('Story submission', () => {
     clearActiveStoryProject()
   })
 
-  it('creates a runnable initial world and selects it without storing domain state', async () => {
-    h.engineRequest.mockResolvedValue({
-      ...projectSnapshot,
-      project: { ...projectSnapshot.project, id: 'fog-harbor', title: '雾港' },
-      world: { ...projectSnapshot.world, version: 1 },
+  it('discusses a setting package before creating and selecting the project', async () => {
+    let draftId = ''
+    const completedDraft = {
+      id: '',
+      title: '北辰',
+      genre: '科幻',
+      theme: '记忆与身份',
+      tone: '冷静、辽阔',
+      world_rules: ['观测站与外界失联'],
+      public_fact_ids: ['fact:station-offline'],
+      characters: projectSnapshot.characters.map((character) => ({
+        id: character.id,
+        display_name: character.display_name,
+        identity: character.identity,
+        core_desire: character.core_desire,
+        current_goal: character.current_goal,
+        known_fact_ids: character.known_fact_ids,
+        location: character.location,
+        emotional_state: character.emotional_state,
+        resources: character.resources,
+      })),
+      initial_time: projectSnapshot.world.current_time,
+      initial_location: projectSnapshot.world.current_location,
+      initial_incident: '主天线在极光中失效',
+      pressures: projectSnapshot.world.active_pressures,
+    }
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith('/submission/messages')) {
+        const request = JSON.parse(String(init?.body))
+        draftId = request.draft.id
+        return Promise.resolve({
+          reply: '初始世界已经具备运行条件，可以继续调整或创建项目。',
+          draft: { ...completedDraft, id: draftId },
+          review: {
+            mode: 'submission_review',
+            passed: true,
+            summary: '创作方向、世界压力和角色知识边界明确。',
+            issues: [],
+          },
+          runnable: true,
+          missing_requirements: [],
+        })
+      }
+      if (path === '/submissions/finalize') {
+        return Promise.resolve({
+          ...projectSnapshot,
+          project: { ...projectSnapshot.project, id: draftId },
+          world: { ...projectSnapshot.world, version: 1 },
+        })
+      }
+      throw new Error(`Unexpected request: ${path}`)
     })
     render(<SubmissionView />)
 
-    fireEvent.click(screen.getByRole('button', { name: '创建雾港项目' }))
+    expect(screen.getByTestId('jan-chat-shell')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-input')).toHaveAttribute(
+      'placeholder',
+      '描述类型、主题、世界规则、人物或起始事件…'
+    )
+    expect(screen.getAllByTestId('jan-message-item')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '创建项目' })).toBeDisabled()
+    fireEvent.change(screen.getByRole('textbox', { name: '投稿消息' }), {
+      target: { value: '我想写一篇极夜观测站里的科幻故事。' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
 
-    await waitFor(() => expect(h.engineRequest).toHaveBeenCalledOnce())
-    const [path, init] = h.engineRequest.mock.calls[0]
+    expect(
+      await screen.findByText('初始世界已经具备运行条件，可以继续调整或创建项目。')
+    ).toBeInTheDocument()
+    expect(screen.getAllByTestId('jan-message-item')).toHaveLength(3)
+    expect(screen.getByText('北辰')).toBeInTheDocument()
+    expect(screen.getByText('阿岚')).toBeInTheDocument()
+    expect(screen.getByText('柏舟')).toBeInTheDocument()
+    expect(screen.getByText('设定包可运行')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '创建项目' })).toBeEnabled()
+
+    const discussionCall = h.engineRequest.mock.calls[0]
+    expect(discussionCall[0]).toMatch(
+      /^\/projects\/story-[a-z0-9-]+\/submission\/messages$/
+    )
+    expect(JSON.parse(String(discussionCall[1].body)).messages).toEqual([
+      expect.objectContaining({ role: 'assistant' }),
+      {
+        role: 'user',
+        content: '我想写一篇极夜观测站里的科幻故事。',
+      },
+    ])
+
+    fireEvent.click(screen.getByRole('button', { name: '创建项目' }))
+
+    await waitFor(() => expect(h.engineRequest).toHaveBeenCalledTimes(2))
+    const [path, init] = h.engineRequest.mock.calls[1]
     const payload = JSON.parse(String(init.body)) as Record<string, unknown>
     expect(path).toBe('/submissions/finalize')
     expect(payload.characters).toHaveLength(2)
     expect(payload).not.toHaveProperty('outline')
-    expect(getActiveStoryProjectId()).toBe('fog-harbor')
+    expect(getActiveStoryProjectId()).toBe(draftId)
     expect(await screen.findByRole('status')).toHaveTextContent('世界版本 1')
     expect(screen.getByRole('link', { name: '进入第一轮' })).toHaveAttribute(
       'href',
       '/evolve'
     )
+  })
+
+  it('shows missing requirements and keeps creation locked', async () => {
+    h.engineRequest.mockImplementation((_path: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body))
+      return Promise.resolve({
+        reply: '先确定故事发生的时间、地点和起始事件。',
+        draft: {
+          ...request.draft,
+          title: '无名站',
+          genre: '科幻',
+          theme: '孤独',
+          tone: '冷静',
+        },
+        review: {
+          mode: 'submission_review',
+          passed: false,
+          summary: '初始设定包尚未达到可运行条件。',
+          issues: [],
+        },
+        runnable: false,
+        missing_requirements: ['世界规则与公共事实', '初始角色 (2-4 个)'],
+      })
+    })
+    render(<SubmissionView />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: '投稿消息' }), {
+      target: { value: '我想写科幻。' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+
+    expect(await screen.findByText('世界规则与公共事实')).toBeInTheDocument()
+    expect(screen.getByText('初始角色 (2-4 个)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '创建项目' })).toBeDisabled()
   })
 })
 

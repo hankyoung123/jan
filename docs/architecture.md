@@ -21,6 +21,19 @@ Game Master engine. It is a library used by the Story Engine, not a second
 desktop process or model runtime. The concrete stack is therefore Tauri shell,
 React UI, Python Story Engine, and original Concordia.
 
+## UI foundation
+
+Jan's original desktop shell is the primary UI template: application layout,
+navigation, theme, spacing, model center, and chat presentation are adapted
+from Jan instead of being reimplemented beside it. Reusable controls are built
+from the repository's shadcn/ui primitives so story views do not create a
+parallel component library.
+
+Long-form world and manuscript editing use a shared Novel/Tiptap integration.
+The chapter workspace composes that editor between the chapter/scene navigator
+and the source-event inspector; raw `contentEditable` or a bespoke rich-text
+engine is not a production editor boundary.
+
 ## Source of truth
 
 Canonical project state is Markdown:

@@ -27,6 +27,23 @@ writes through the Story Engine and then reloads the canonical project snapshot
 before the UI displays the new world version. When no project is selected, the
 page links back to Submission instead of assuming a bundled example project.
 
+Submission begins with an empty, non-canonical setting draft. The discussion
+panel sends user/assistant history and that draft to the Python Editor profile;
+the adjacent inspector shows the returned creative direction, world rules,
+characters, initial situation, review summary, and missing runnable
+requirements. Project creation stays locked until the server marks the package
+runnable. Discussion never writes canonical Markdown, and successful
+finalization selects the created project before linking to the first turn.
+
+The discussion panel is an adaptation of Jan's original thread UI, not a second
+chat implementation. It directly composes Jan's `Conversation`,
+`ConversationContent`, `ConversationScrollButton`, and `MessageItem`, together
+with a controlled composer extracted from the visual and keyboard interaction
+layer of Jan's `ChatInput`. Only the transport and message adapter are replaced:
+submission history goes to the Python Story Engine and returns as Jan
+`UIMessage` display data. Jan thread persistence, chat stores, and direct
+Provider inference are intentionally not mounted in this flow.
+
 This flow remains inside the Jan-based React application. Tauri owns desktop
 lifecycle and the Jan model bridge, while the Python Story Engine owns story
 domain state and delegates candidate generation to original Concordia through

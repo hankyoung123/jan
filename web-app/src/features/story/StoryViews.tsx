@@ -1,5 +1,6 @@
 import type { components } from '@story-engine/contracts'
 import { Link } from '@tanstack/react-router'
+import type { ChatStatus, UIMessage } from 'ai'
 import {
   ArrowRight,
   Check,
@@ -8,15 +9,25 @@ import {
   LockKeyhole,
   RotateCcw,
   Save,
-  Send,
   ShieldCheck,
   Sparkles,
   Trash2,
   TriangleAlert,
   UsersRound,
 } from 'lucide-react'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
 
+import {
+  JanChatComposer,
+  JanChatShell,
+} from '@/components/ai-elements/jan-chat-shell'
+import { Button } from '@/components/ui/button'
 import { route } from '@/constants/routes'
 import {
   setActiveStoryProjectId,
@@ -25,6 +36,10 @@ import {
 import { engineRequest } from './engine'
 
 type SubmissionPackage = components['schemas']['SubmissionPackage']
+type SubmissionDraft = components['schemas']['SubmissionDraft']
+type SubmissionConversationResponse =
+  components['schemas']['SubmissionConversationResponse']
+type SubmissionMessage = components['schemas']['Message']
 type ProjectSnapshot = components['schemas']['ProjectSnapshot']
 type TurnCandidate = components['schemas']['TurnCandidate']
 type CommitResult = components['schemas']['CommitResult']
@@ -177,37 +192,110 @@ export function WorkbenchView() {
   )
 }
 
-const initialPackage: SubmissionPackage = {
-  id: 'fog-harbor',
-  title: '雾港',
-  genre: '悬疑',
-  theme: '真相与亲情之间的选择',
-  tone: '克制、现实、缓慢积压',
-  world_rules: ['灯塔控制港口夜航', '暴风雨时港口必须依赖灯塔或备用航标'],
-  public_fact_ids: ['fact:lighthouse-controls-night-navigation', 'fact:storm-requires-navigation-light'],
-  characters: [
-    { id: 'chen-mo', display_name: '陈默', identity: '从外地返回雾港的机械工程师', core_desire: '找到父亲失踪的真相', current_goal: '查明灯塔熄灭原因', known_fact_ids: ['secret:chen-father-disappearance'], location: '灯塔入口', emotional_state: '紧张但专注', resources: ['铜钥匙'] },
-    { id: 'lin-lan', display_name: '林岚', identity: '雾港港务所值班员', core_desire: '保护进港船只和港务所声誉', current_goal: '让客船安全进入雾港', known_fact_ids: ['secret:lin-unfiled-duty-roster'], location: '港务所', emotional_state: '警觉', resources: ['港务电台'] },
-  ],
-  initial_time: '暴风雨前夜',
-  initial_location: '雾港',
-  initial_incident: '灯塔突然熄灭',
-  pressures: ['客船即将进入近港航道'],
+function newSubmissionDraft(): SubmissionDraft {
+  return {
+    id: `story-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    title: '',
+    genre: '',
+    theme: '',
+    tone: '',
+    world_rules: [],
+    public_fact_ids: [],
+    characters: [],
+    initial_time: '',
+    initial_location: '',
+    initial_incident: '',
+    pressures: [],
+  }
+}
+
+const welcomeMessage: SubmissionMessage = {
+  role: 'assistant',
+  content:
+    '告诉我你想建立怎样的故事世界。我们会一起明确创作方向、世界规则、初始角色和起始局面，不需要先写大纲。',
 }
 
 export function SubmissionView() {
-  const [submission, setSubmission] = useState(initialPackage)
+  const [draft, setDraft] = useState<SubmissionDraft>(newSubmissionDraft)
+  const [messages, setMessages] = useState<SubmissionMessage[]>([
+    welcomeMessage,
+  ])
+  const [composer, setComposer] = useState('')
+  const [missingRequirements, setMissingRequirements] = useState<string[]>([
+    '创作方向',
+    '世界规则与公共事实',
+    '初始角色 (2-4 个)',
+    '初始时间、地点和起始事件',
+    '世界压力或角色目标冲突',
+  ])
+  const [reviewSummary, setReviewSummary] = useState(
+    '通过讨论逐步形成可运行的初始设定包。'
+  )
+  const [runnable, setRunnable] = useState(false)
   const [project, setProject] = useState<ProjectSnapshot | null>(null)
+  const [discussing, setDiscussing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const janMessages = useMemo<UIMessage[]>(
+    () =>
+      messages.map((message, index) => ({
+        id: `submission-message-${index}`,
+        role: message.role,
+        parts: [{ type: 'text', text: message.content }],
+      })),
+    [messages]
+  )
+  const chatStatus: ChatStatus = discussing
+    ? 'submitted'
+    : error
+      ? 'error'
+      : 'ready'
+
+  async function discuss() {
+    const content = composer.trim()
+    if (!content || discussing || project) return
+    const nextMessages: SubmissionMessage[] = [
+      ...messages,
+      { role: 'user', content },
+    ]
+    setDiscussing(true)
+    setError(null)
+    setMessages(nextMessages)
+    setComposer('')
+    try {
+      const response = await engineRequest<SubmissionConversationResponse>(
+        `/projects/${draft.id}/submission/messages`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ draft, messages: nextMessages }),
+        }
+      )
+      setDraft(response.draft)
+      setMessages([
+        ...nextMessages,
+        { role: 'assistant', content: response.reply },
+      ])
+      setMissingRequirements(response.missing_requirements)
+      setReviewSummary(response.review.summary)
+      setRunnable(response.runnable)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '投稿讨论失败')
+    } finally {
+      setDiscussing(false)
+    }
+  }
 
   async function finalize() {
+    if (!runnable) return
     setSaving(true)
     setError(null)
     try {
       const createdProject = await engineRequest<ProjectSnapshot>(
         '/submissions/finalize',
-        { method: 'POST', body: JSON.stringify(submission) }
+        {
+          method: 'POST',
+          body: JSON.stringify(draft satisfies SubmissionPackage),
+        }
       )
       setActiveStoryProjectId(createdProject.project.id)
       setProject(createdProject)
@@ -220,18 +308,142 @@ export function SubmissionView() {
 
   return (
     <StoryPage>
-      <PageHeader eyebrow="初始设定包" title="投稿" action={<button className={primaryButton} disabled={saving || project !== null} onClick={() => void finalize()} type="button">{project ? <Check size={15} /> : <Send size={15} />}{project ? '项目已创建' : saving ? '正在创建' : '创建雾港项目'}</button>} />
-      <div className="grid min-h-[560px] border bg-background lg:grid-cols-[1.1fr_.9fr]">
-        <section className="border-b p-6 lg:border-b-0 lg:border-r">
-          <p className="mb-1 text-xs text-muted-foreground">创作讨论</p><h2 className="mb-5 font-medium">创作方向</h2>
-          <div className="grid gap-4">
-            {(['genre', 'theme'] as const).map((field) => <label className="grid gap-2 text-xs font-medium text-muted-foreground" key={field}>{field === 'genre' ? '类型' : '主题'}<input className={inputClass} value={submission[field]} onChange={(event) => setSubmission({ ...submission, [field]: event.target.value })} /></label>)}
-            <label className="grid gap-2 text-xs font-medium text-muted-foreground">叙事气质<textarea className={`${inputClass} min-h-24 resize-y`} value={submission.tone} onChange={(event) => setSubmission({ ...submission, tone: event.target.value })} /></label>
-            <label className="grid gap-2 text-xs font-medium text-muted-foreground">起始事件<textarea className={`${inputClass} min-h-24 resize-y`} value={submission.initial_incident} onChange={(event) => setSubmission({ ...submission, initial_incident: event.target.value })} /></label>
+      <PageHeader
+        eyebrow="投稿讨论 / 初始设定包"
+        title="投稿"
+        action={
+          <Button
+            disabled={saving || discussing || !runnable || project !== null}
+            onClick={() => void finalize()}
+            size="sm"
+            type="button"
+          >
+            {project ? <Check size={15} /> : <LockKeyhole size={15} />}
+            {project ? '项目已创建' : saving ? '正在创建' : '创建项目'}
+          </Button>
+        }
+      />
+      <div className="grid overflow-hidden border bg-background lg:grid-cols-[minmax(0,1.18fr)_minmax(360px,.82fr)]">
+        <JanChatShell
+          composer={
+            <>
+              <JanChatComposer
+                ariaLabel="投稿消息"
+                busy={discussing}
+                disabled={discussing || project !== null}
+                footer="Enter 发送 · Shift+Enter 换行"
+                onSubmit={() => void discuss()}
+                onValueChange={setComposer}
+                placeholder="描述类型、主题、世界规则、人物或起始事件…"
+                value={composer}
+              />
+              {error && (
+                <p
+                  className="mx-2 mt-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                  role="alert"
+                >
+                  {error}
+                </p>
+              )}
+            </>
+          }
+          messages={janMessages}
+          pendingLabel="正在整理设定包…"
+          status={chatStatus}
+          subtitle="从一个想法开始，不需要先写大纲"
+          title="Story Editor"
+        />
+        <aside className="overflow-y-auto bg-muted/25 p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs text-muted-foreground">Editor 整理结果</p>
+              <h2 className="mt-1 font-studio text-2xl">
+                {draft.title || '尚未命名'}
+              </h2>
+            </div>
+            <StatusPill tone={runnable ? 'success' : 'warning'}>
+              {runnable ? '设定包可运行' : '继续讨论'}
+            </StatusPill>
           </div>
-          {error && <p className="mt-4 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p>}
-        </section>
-        <aside className="bg-muted/30 p-6"><p className="mb-1 text-xs text-muted-foreground">Editor 整理结果</p><h2 className="mb-5 font-studio text-2xl">{submission.title}</h2><dl className="grid grid-cols-3 gap-px border bg-border text-xs">{[['时间', submission.initial_time], ['地点', submission.initial_location], ['压力', submission.pressures[0]]].map(([label, value]) => <div className="bg-background p-3" key={label}><dt className="text-muted-foreground">{label}</dt><dd className="mt-1 font-medium">{value}</dd></div>)}</dl><section className="mt-6 border-t pt-5"><h3 className="mb-3 text-xs font-medium text-muted-foreground">世界规则</h3><ul className="list-disc space-y-2 pl-5 text-sm">{submission.world_rules.map((rule) => <li key={rule}>{rule}</li>)}</ul></section><section className="mt-6 border-t pt-5"><h3 className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground"><UsersRound size={14} /> 初始角色</h3>{submission.characters.map((character) => <article className="border-b py-3 last:border-0" key={character.id}><strong className="text-sm">{character.display_name}</strong><p className="mt-1 text-sm text-muted-foreground">{character.identity}</p><small className="text-xs text-muted-foreground">{character.current_goal}</small></article>)}</section>{project && <div className="mt-5 flex flex-wrap items-center gap-3 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status"><span className="flex items-center gap-2"><Check size={15} /> 世界版本 {project.world.version}，可进入第一轮</span><Link className="font-medium underline underline-offset-4" to={route.evolve}>进入第一轮</Link></div>}</aside>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {reviewSummary}
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {[draft.genre, draft.theme, draft.tone]
+              .filter(Boolean)
+              .map((item) => (
+                <StatusPill key={item}>{item}</StatusPill>
+              ))}
+          </div>
+          <dl className="mt-5 grid grid-cols-1 gap-px border bg-border text-xs sm:grid-cols-3">
+            {[
+              ['时间', draft.initial_time || '待讨论'],
+              ['地点', draft.initial_location || '待讨论'],
+              ['压力', draft.pressures[0] || '待讨论'],
+            ].map(([label, value]) => (
+              <div className="bg-background p-3" key={label}>
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="mt-1 font-medium">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <section className="mt-6 border-t pt-5">
+            <h3 className="mb-3 text-xs font-medium text-muted-foreground">
+              世界规则
+            </h3>
+            {draft.world_rules.length > 0 ? (
+              <ul className="list-disc space-y-2 pl-5 text-sm">
+                {draft.world_rules.map((rule) => (
+                  <li key={rule}>{rule}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">尚未形成世界规则。</p>
+            )}
+          </section>
+          <section className="mt-6 border-t pt-5">
+            <h3 className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <UsersRound size={14} /> 初始角色
+            </h3>
+            {draft.characters.length > 0 ? (
+              draft.characters.map((character) => (
+                <article className="border-b py-3 last:border-0" key={character.id}>
+                  <strong className="text-sm">{character.display_name}</strong>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {character.identity}
+                  </p>
+                  <small className="text-xs text-muted-foreground">
+                    目标：{character.current_goal} · 私有事实 {character.known_fact_ids.length} 项
+                  </small>
+                </article>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">需要 2–4 个初始角色。</p>
+            )}
+          </section>
+          {!runnable && missingRequirements.length > 0 && (
+            <section className="mt-6 border-t pt-5">
+              <h3 className="mb-3 text-xs font-medium text-muted-foreground">
+                仍需明确
+              </h3>
+              <ul className="space-y-2 text-sm text-amber-700 dark:text-amber-300">
+                {missingRequirements.map((requirement) => (
+                  <li key={requirement}>{requirement}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {project && (
+            <div className="mt-5 flex flex-wrap items-center gap-3 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status">
+              <span className="flex items-center gap-2">
+                <Check size={15} /> 世界版本 {project.world.version}，可进入第一轮
+              </span>
+              <Link className="font-medium underline underline-offset-4" to={route.evolve}>
+                进入第一轮
+              </Link>
+            </div>
+          )}
+        </aside>
       </div>
     </StoryPage>
   )
