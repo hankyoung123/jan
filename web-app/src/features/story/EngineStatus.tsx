@@ -1,9 +1,20 @@
-import { CheckCircle2, LoaderCircle, RotateCcw, TriangleAlert } from 'lucide-react'
+import {
+  CheckCircle2,
+  LoaderCircle,
+  Play,
+  RotateCcw,
+  Square,
+  TriangleAlert,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
+
+import { Button } from '@/components/ui/button'
 
 import {
   resolveEngineRuntime,
   restartEngineRuntime,
+  startEngineRuntime,
+  stopEngineRuntime,
   subscribeEngineRuntime,
   type EngineRuntimeStatus,
 } from './engine'
@@ -18,6 +29,7 @@ const startingState: EngineRuntimeStatus = {
 
 export function EngineStatus() {
   const [runtime, setRuntime] = useState<EngineRuntimeStatus>(startingState)
+  const [working, setWorking] = useState(false)
 
   useEffect(() => {
     let disposed = false
@@ -51,21 +63,29 @@ export function EngineStatus() {
     }
   }, [])
 
-  async function restart() {
-    setRuntime((current) => ({
-      ...current,
-      phase: 'starting',
-      last_error: null,
-    }))
+  async function transition(
+    action: () => Promise<EngineRuntimeStatus>,
+    failureMessage: string,
+    starting = false
+  ) {
+    setWorking(true)
+    if (starting) {
+      setRuntime((current) => ({
+        ...current,
+        phase: 'starting',
+        last_error: null,
+      }))
+    }
     try {
-      setRuntime(await restartEngineRuntime())
+      setRuntime(await action())
     } catch (error) {
       setRuntime((current) => ({
         ...current,
         phase: 'crashed',
-        last_error:
-          error instanceof Error ? error.message : '故事引擎重新启动失败',
+        last_error: error instanceof Error ? error.message : failureMessage,
       }))
+    } finally {
+      setWorking(false)
     }
   }
 
@@ -94,15 +114,70 @@ export function EngineStatus() {
         <TriangleAlert size={14} />
       )}
       <span>{label}</span>
-      {unavailable && (
-        <button
-          className="ml-1 inline-flex items-center gap-1 rounded border px-2 py-1 font-medium hover:bg-accent"
-          onClick={() => void restart()}
-          type="button"
+      {runtime.phase === 'ready' && (
+        <>
+          <Button
+            aria-label="停止故事引擎"
+            disabled={working}
+            onClick={() =>
+              void transition(
+                stopEngineRuntime,
+                '故事引擎停止失败'
+              )
+            }
+            size="icon-xs"
+            title="停止故事引擎"
+            variant="ghost"
+          >
+            <Square />
+          </Button>
+          <Button
+            aria-label="重新启动故事引擎"
+            disabled={working}
+            onClick={() =>
+              void transition(
+                restartEngineRuntime,
+                '故事引擎重新启动失败',
+                true
+              )
+            }
+            size="icon-xs"
+            title="重新启动故事引擎"
+            variant="ghost"
+          >
+            <RotateCcw />
+          </Button>
+        </>
+      )}
+      {runtime.phase === 'stopped' && (
+        <Button
+          disabled={working}
+          onClick={() =>
+            void transition(startEngineRuntime, '故事引擎启动失败', true)
+          }
+          size="xs"
+          variant="outline"
         >
-          <RotateCcw size={12} />
+          <Play />
+          启动
+        </Button>
+      )}
+      {runtime.phase === 'crashed' && (
+        <Button
+          disabled={working}
+          onClick={() =>
+            void transition(
+              restartEngineRuntime,
+              '故事引擎重新启动失败',
+              true
+            )
+          }
+          size="xs"
+          variant="outline"
+        >
+          <RotateCcw />
           重新启动
-        </button>
+        </Button>
       )}
     </div>
   )

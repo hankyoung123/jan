@@ -16,6 +16,8 @@ import {
   engineRequest,
   resolveEngineRuntime,
   restartEngineRuntime,
+  startEngineRuntime,
+  stopEngineRuntime,
   subscribeEngineRuntime,
   subscribeProjectEvents,
 } from './engine'
@@ -94,6 +96,17 @@ describe('Story Engine client', () => {
     await restartEngineRuntime()
 
     expect(h.invoke).toHaveBeenCalledWith('restart_story_engine')
+  })
+
+  it('starts and stops the managed native Sidecar through dedicated commands', async () => {
+    h.isTauri.mockReturnValue(true)
+    h.invoke.mockResolvedValue({ phase: 'starting', restart_count: 0 })
+
+    await startEngineRuntime()
+    await stopEngineRuntime()
+
+    expect(h.invoke).toHaveBeenNthCalledWith(1, 'start_story_engine')
+    expect(h.invoke).toHaveBeenNthCalledWith(2, 'stop_story_engine')
   })
 
   it('forwards token-free native status events to the recovery UI', async () => {

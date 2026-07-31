@@ -288,6 +288,7 @@ pub fn run() {
         // Product-owned Python Sidecar commands
         core::story_engine_runtime::engine_runtime_state,
         core::story_engine_runtime::engine_runtime_logs,
+        core::story_engine_runtime::start_story_engine,
         core::story_engine_runtime::restart_story_engine,
         core::story_engine_runtime::stop_story_engine,
     ]);

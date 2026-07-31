@@ -437,6 +437,18 @@ pub fn engine_runtime_logs(runtime: State<'_, Arc<EngineRuntime>>) -> Result<Vec
 }
 
 #[tauri::command]
+pub async fn start_story_engine(
+    app: AppHandle,
+    runtime: State<'_, Arc<EngineRuntime>>,
+) -> Result<EngineConnection, String> {
+    let connection = runtime.connection()?;
+    if matches!(connection.phase, EnginePhase::Starting | EnginePhase::Ready) {
+        return Ok(connection);
+    }
+    start_with_bridge_cleanup(app, runtime.inner().clone(), false).await
+}
+
+#[tauri::command]
 pub async fn restart_story_engine(
     app: AppHandle,
     runtime: State<'_, Arc<EngineRuntime>>,

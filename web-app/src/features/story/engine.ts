@@ -41,6 +41,24 @@ export async function restartEngineRuntime(): Promise<EngineRuntimeState> {
   return invoke<EngineRuntimeState>('restart_story_engine')
 }
 
+export async function startEngineRuntime(): Promise<EngineRuntimeState> {
+  if (!isTauri()) return developmentRuntime
+  return invoke<EngineRuntimeState>('start_story_engine')
+}
+
+export async function stopEngineRuntime(): Promise<EngineRuntimeState> {
+  if (!isTauri()) {
+    return {
+      ...developmentRuntime,
+      phase: 'stopped',
+      base_url: null,
+      websocket_url: null,
+      session_token: null,
+    }
+  }
+  return invoke<EngineRuntimeState>('stop_story_engine')
+}
+
 export async function subscribeEngineRuntime(
   listener: (state: EngineRuntimeStatus) => void
 ): Promise<UnlistenFn> {

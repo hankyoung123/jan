@@ -137,9 +137,10 @@ persistent browser storage.
 
 The desktop runtime retains the last 200 redacted log lines, polls `/health`
 before declaring the engine ready, monitors the child process, and emits an
-immediate status event on startup, readiness, stop, or crash. The UI exposes a
-restart action for stopped or crashed states. Development uses `uv`; packaged
-builds resolve the onedir Sidecar from application resources.
+immediate status event on startup, readiness, stop, or crash. The UI exposes
+explicit start, stop, and restart controls; start is idempotent while the
+Sidecar is starting or ready. Development uses `uv`; packaged builds resolve
+the onedir Sidecar from application resources.
 
 ## Model boundary
 
