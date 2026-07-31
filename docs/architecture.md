@@ -1,0 +1,72 @@
+# Architecture
+
+## System boundary
+
+The product has three runtime boundaries:
+
+1. React renders views and collects user decisions. It never writes project
+   Markdown or commits domain state.
+2. Tauri owns the desktop lifecycle, starts the Python sidecar, protects its
+   session token, and exposes operating-system capabilities.
+3. The FastAPI story engine owns all story-domain behavior, model calls,
+   retrieval, validation, review, and persistence.
+
+React communicates with the story engine over loopback HTTP and WebSocket.
+Every request except the unauthenticated liveness probe must include the
+per-process session token. Production builds package Python as an onedir
+sidecar.
+
+## Source of truth
+
+Canonical project state is Markdown:
+
+```text
+project.md
+world.md
+characters/
+events/
+scenes/
+```
+
+Derived state lives below `.story-engine/` and must be rebuildable. Models,
+retrieval indexes, caches, UI stores, and Concordia objects are never canonical
+story state.
+
+## Write path
+
+All formal mutations flow through `EventCommitService`:
+
+```text
+candidate -> schema validation -> editor review -> user approval
+          -> optimistic version check -> atomic Markdown writes
+          -> event append -> index refresh
+```
+
+An unapproved turn may write only to `.story-engine/turns` and
+`.story-engine/reviews`.
+
+## Dependency direction
+
+```text
+api -> application services -> domain
+                            -> workspace ports
+                            -> model/retrieval ports
+infrastructure adapters ----^
+```
+
+The domain package has no FastAPI, filesystem, Concordia, or provider imports.
+Concordia remains behind `concordia_adapter` and only returns candidate intent
+or outcome values.
+
+## Failure handling
+
+- Invalid or missing tokens return `401` without leaking configuration.
+- Provider errors are normalized before crossing the API boundary.
+- Candidate edits invalidate existing review state.
+- Version conflicts return `409` and never partially write canonical files.
+- Atomic writes use a sibling temporary file, flush, `fsync`, and `os.replace`.
+- Sidecar startup is gated by `/health`; crashes surface a restart action.
+
+See [ADR-0001](adr/0001-platform-and-upstream-locks.md) and
+[ADR-0002](adr/0002-markdown-canonical-state.md).
+

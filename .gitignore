@@ -1,0 +1,30 @@
+.DS_Store
+.idea/
+.vscode/
+
+# JavaScript
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Rust / Tauri
+target/
+apps/desktop/src-tauri/gen/
+
+# Local engine state
+.story-engine/
+*.log
+.env
+.env.*
+!.env.example
+
