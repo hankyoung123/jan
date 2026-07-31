@@ -1,7 +1,4 @@
-const engineUrl =
-  import.meta.env.VITE_STORY_ENGINE_URL ?? "http://127.0.0.1:39281";
-const sessionToken =
-  import.meta.env.VITE_STORY_ENGINE_TOKEN ?? "development-token";
+import { resolveEngineRuntime } from "./runtime";
 
 interface ErrorPayload {
   detail?: string;
@@ -11,10 +8,14 @@ export async function engineRequest<Response>(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const response = await fetch(`${engineUrl}${path}`, {
+  const runtime = await resolveEngineRuntime();
+  if (!runtime.base_url || !runtime.session_token) {
+    throw new Error(runtime.last_error ?? "Story Engine is not running");
+  }
+  const response = await fetch(`${runtime.base_url}${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${sessionToken}`,
+      Authorization: `Bearer ${runtime.session_token}`,
       "Content-Type": "application/json",
       ...init.headers,
     },

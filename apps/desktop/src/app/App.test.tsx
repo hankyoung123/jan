@@ -68,4 +68,16 @@ describe("AppShell", () => {
       expect(screen.getByText("引擎已连接")).toBeInTheDocument();
     });
   });
+
+  it("shows an explicit restart action when the engine is offline", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("engine offline")),
+    );
+    renderApp();
+
+    expect(
+      await screen.findByRole("button", { name: "重启 Story Engine" }),
+    ).toBeInTheDocument();
+  });
 });

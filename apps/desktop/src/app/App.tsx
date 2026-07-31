@@ -6,6 +6,7 @@ import {
   Moon,
   PanelRightClose,
   PanelRightOpen,
+  RefreshCw,
   Settings,
   Sun,
   X,
@@ -30,6 +31,7 @@ function EngineStatus() {
     checking: "正在连接引擎",
     connected: "引擎已连接",
     offline: "引擎未连接",
+    restarting: "正在重启引擎",
   }[health.state];
 
   return (
@@ -39,6 +41,17 @@ function EngineStatus() {
         <strong>{copy}</strong>
         <small>{health.version ? `v${health.version}` : "Story Engine"}</small>
       </span>
+      {health.state === "offline" && (
+        <button
+          className="engine-restart"
+          onClick={() => void health.restart()}
+          title="重启 Story Engine"
+          type="button"
+        >
+          <RefreshCw size={14} />
+          <span className="sr-only">重启 Story Engine</span>
+        </button>
+      )}
     </div>
   );
 }

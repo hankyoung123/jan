@@ -49,6 +49,11 @@ the derived candidate lifecycle.
 
 ## Streaming event envelope
 
+Clients connect to `GET /ws/events?project_id={project_id}` with the WebSocket
+subprotocols `story-engine.v1` and `story-engine.token.{session-token}`. The
+token is never placed in the URL. Missing, duplicate, or invalid token
+protocols are rejected with close code `1008`.
+
 ```json
 {
   "event_id": "01J...",
@@ -62,6 +67,8 @@ the derived candidate lifecycle.
 
 The initial event type set is defined in `docs/product-plan.md` section 13.2.
 Unknown event types must be ignored by clients for forward compatibility.
+The bounded in-memory stream drops the oldest queued event for a slow client;
+canonical state remains available through HTTP and Markdown reload.
 
 ## Contract generation
 

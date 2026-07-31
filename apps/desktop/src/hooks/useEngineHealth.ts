@@ -1,59 +1,95 @@
 import { useEffect, useState } from "react";
 
-type EngineState = "checking" | "connected" | "offline";
+import {
+  resolveEngineRuntime,
+  restartEngineRuntime,
+  subscribeEngineRuntime,
+} from "../features/api/runtime";
 
-interface EngineHealth {
+type EngineState = "checking" | "connected" | "offline" | "restarting";
+
+interface EngineHealthState {
   state: EngineState;
   version: string | null;
 }
 
-const engineUrl =
-  import.meta.env.VITE_STORY_ENGINE_URL ?? "http://127.0.0.1:39281";
+interface EngineHealth extends EngineHealthState {
+  restart: () => Promise<void>;
+}
 
 export function useEngineHealth(): EngineHealth {
-  const [health, setHealth] = useState<EngineHealth>({
+  const [health, setHealth] = useState<EngineHealthState>({
     state: "checking",
     version: null,
   });
 
-  useEffect(() => {
-    let active = true;
-    const controller = new AbortController();
-
-    async function checkHealth() {
-      try {
-        const response = await fetch(`${engineUrl}/health`, {
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          throw new Error(`Health check failed with ${response.status}`);
-        }
-        const payload = (await response.json()) as {
-          status: string;
-          version: string;
-        };
-        if (active) {
-          setHealth({
-            state: payload.status === "ok" ? "connected" : "offline",
-            version: payload.version,
-          });
-        }
-      } catch {
-        if (active) {
-          setHealth({ state: "offline", version: null });
-        }
+  async function checkHealth(signal?: AbortSignal) {
+    try {
+      const runtime = await resolveEngineRuntime();
+      if (
+        !runtime.base_url ||
+        runtime.phase === "crashed" ||
+        runtime.phase === "stopped"
+      ) {
+        throw new Error(runtime.last_error ?? "Story Engine is offline");
+      }
+      const response = await fetch(`${runtime.base_url}/health`, { signal });
+      if (!response.ok) {
+        throw new Error(`Health check failed with ${response.status}`);
+      }
+      const payload = (await response.json()) as {
+        status: string;
+        version: string;
+      };
+      setHealth({
+        state: payload.status === "ok" ? "connected" : "offline",
+        version: payload.version,
+      });
+    } catch {
+      if (!signal?.aborted) {
+        setHealth({ state: "offline", version: null });
       }
     }
+  }
 
-    void checkHealth();
-    const interval = window.setInterval(checkHealth, 10_000);
+  async function restart() {
+    setHealth({ state: "restarting", version: null });
+    try {
+      await restartEngineRuntime();
+      await checkHealth();
+    } catch {
+      setHealth({ state: "offline", version: null });
+    }
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let disposed = false;
+    let unlisten: () => void = () => undefined;
+    void checkHealth(controller.signal);
+    void subscribeEngineRuntime((runtime) => {
+      if (runtime.phase === "ready") {
+        void checkHealth(controller.signal);
+      } else if (runtime.phase === "crashed" || runtime.phase === "stopped") {
+        setHealth({ state: "offline", version: null });
+      } else {
+        setHealth({ state: "checking", version: null });
+      }
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    const interval = window.setInterval(
+      () => void checkHealth(controller.signal),
+      10_000,
+    );
     return () => {
-      active = false;
+      disposed = true;
       controller.abort();
+      unlisten();
       window.clearInterval(interval);
     };
   }, []);
 
-  return health;
+  return { ...health, restart };
 }
-

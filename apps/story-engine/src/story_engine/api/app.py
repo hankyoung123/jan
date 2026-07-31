@@ -2,7 +2,7 @@ from collections.abc import Awaitable, Callable
 from secrets import compare_digest
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -10,6 +10,11 @@ from pydantic import BaseModel
 from story_engine import __version__
 from story_engine.api.routes.projects import create_projects_router
 from story_engine.config import EngineSettings
+from story_engine.events.stream import (
+    EngineEventBus,
+    stream_events,
+    websocket_token_is_valid,
+)
 
 
 class HealthResponse(BaseModel):
@@ -63,6 +68,8 @@ def create_app(settings: EngineSettings | None = None) -> FastAPI:
         description="Local story-domain sidecar API",
     )
     app.state.settings = runtime_settings
+    event_bus = EngineEventBus()
+    app.state.event_bus = event_bus
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(runtime_settings.allowed_origins),
@@ -88,8 +95,18 @@ def create_app(settings: EngineSettings | None = None) -> FastAPI:
     async def engine_status() -> StatusResponse:
         return StatusResponse(status="ready")
 
+    @app.websocket("/ws/events")
+    async def websocket_events(
+        websocket: WebSocket,
+        project_id: str | None = None,
+    ) -> None:
+        if not websocket_token_is_valid(websocket, runtime_settings.session_token):
+            await websocket.close(code=1008, reason="Invalid session token")
+            return
+        await stream_events(websocket, event_bus, project_id=project_id)
+
     app.include_router(
-        create_projects_router(runtime_settings),
+        create_projects_router(runtime_settings, event_bus),
         dependencies=[Depends(require_session_token)],
     )
 

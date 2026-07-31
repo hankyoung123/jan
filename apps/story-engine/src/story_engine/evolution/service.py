@@ -1,6 +1,7 @@
 from pathlib import Path
+from typing import cast
 
-from pydantic import Field
+from pydantic import Field, JsonValue
 
 from story_engine.domain.errors import InvalidTransitionError
 from story_engine.domain.models import (
@@ -15,6 +16,7 @@ from story_engine.domain.models import (
     WorldState,
 )
 from story_engine.events.commit import CommitResult, EventCommitService
+from story_engine.events.stream import EventSink
 from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.project_store import ProjectSnapshot, ProjectStore
 
@@ -67,6 +69,8 @@ class EvolutionService:
     def generate_turn(
         self,
         participant_ids: tuple[str, ...] | None = None,
+        *,
+        event_sink: EventSink | None = None,
     ) -> TurnCandidate:
         snapshot = self.project_store.load()
         contexts = self.context_assembler.assemble(snapshot)
@@ -79,12 +83,47 @@ class EvolutionService:
             raise ValueError("participants must be unique")
 
         round_number = self._round_number(snapshot.world)
-        intents = tuple(
-            self._generate_intent(contexts[character_id], round_number)
-            for character_id in selected
+        turn_id = self.candidate_store.next_identifier()
+        emit = event_sink or (lambda _event_type, _payload: None)
+        emit("turn.started", {"turn_id": turn_id})
+        intents_list: list[CharacterIntent] = []
+        for character_id in selected:
+            emit(
+                "character.intent.started",
+                {"turn_id": turn_id, "character_id": character_id},
+            )
+            intent = self._generate_intent(contexts[character_id], round_number)
+            intents_list.append(intent)
+            emit(
+                "character.intent.completed",
+                {
+                    "turn_id": turn_id,
+                    "character_id": character_id,
+                    "intent": cast(JsonValue, intent.model_dump(mode="json")),
+                },
+            )
+        intents = tuple(intents_list)
+        emit("resolver.started", {"turn_id": turn_id})
+        outcome = self._resolve(
+            snapshot.world,
+            intents,
+            round_number,
+            {
+                character_id: (
+                    contexts[character_id].character.display_name or character_id
+                )
+                for character_id in selected
+            },
+        )
+        emit(
+            "resolver.completed",
+            {
+                "turn_id": turn_id,
+                "outcome": cast(JsonValue, outcome.model_dump(mode="json")),
+            },
         )
         candidate = TurnCandidate(
-            id=self.candidate_store.next_identifier(),
+            id=turn_id,
             project_id=snapshot.project.id,
             base_world_version=snapshot.world.version,
             base_character_versions={
@@ -92,19 +131,22 @@ class EvolutionService:
                 for character_id in selected
             },
             intents=intents,
-            outcome=self._resolve(
-                snapshot.world,
-                intents,
-                round_number,
-                {
-                    character_id: (
-                        contexts[character_id].character.display_name or character_id
-                    )
-                    for character_id in selected
-                },
-            ),
+            outcome=outcome,
         )
+        emit("review.started", {"turn_id": turn_id})
         reviewed = self.review(candidate, snapshot=snapshot)
+        emit(
+            "review.completed",
+            {
+                "turn_id": turn_id,
+                "review": cast(
+                    JsonValue,
+                    reviewed.review.model_dump(mode="json")
+                    if reviewed.review
+                    else None,
+                ),
+            },
+        )
         self.candidate_store.save(reviewed, overwrite=False)
         return reviewed
 

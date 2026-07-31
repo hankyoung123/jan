@@ -9,6 +9,7 @@ import {
 import { useState } from "react";
 
 import { engineRequest } from "../api/client";
+import { useEngineEvents } from "./useEngineEvents";
 
 type TurnCandidate = components["schemas"]["TurnCandidate"];
 type CommitResult = components["schemas"]["CommitResult"];
@@ -20,6 +21,7 @@ const characterNames: Record<string, string> = {
 };
 
 export function EvolutionWorkspace() {
+  const stream = useEngineEvents("fog-harbor");
   const [candidate, setCandidate] = useState<TurnCandidate | null>(null);
   const [committed, setCommitted] = useState<CommitResult | null>(null);
   const [revision, setRevision] = useState("让结果更克制");
@@ -86,7 +88,20 @@ export function EvolutionWorkspace() {
     if (response) setCandidate(response);
   }
 
-  const currentStep = committed ? 5 : candidate ? 4 : 0;
+  const streamedStep = {
+    "turn.started": 1,
+    "character.intent.started": 1,
+    "character.intent.delta": 1,
+    "character.intent.completed": 1,
+    "resolver.started": 2,
+    "resolver.completed": 2,
+    "review.started": 3,
+    "review.completed": 4,
+    "engine.status": 0,
+    "turn.failed": 0,
+    "turn.cancelled": 0,
+  }[stream.latest?.type ?? "engine.status"];
+  const currentStep = committed ? 5 : candidate ? 4 : streamedStep;
   const disabled = state === "working";
 
   return (
@@ -114,6 +129,9 @@ export function EvolutionWorkspace() {
           <p className="section-kicker">当前局面</p>
           <h2>灯塔熄灭，客船正在接近雾港</h2>
           <p>陈默与林岚将依据各自的私有知识独立行动。</p>
+          <small className="stream-status" role="status">
+            {stream.connected ? "实时事件已连接" : "等待实时事件连接"}
+          </small>
         </section>
       ) : (
         <>

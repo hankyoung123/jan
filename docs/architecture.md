@@ -75,5 +75,19 @@ or outcome values.
 - Atomic writes use a sibling temporary file, flush, `fsync`, and `os.replace`.
 - Sidecar startup is gated by `/health`; crashes surface a restart action.
 
+## Desktop Sidecar lifecycle
+
+Tauri reserves a loopback port, generates a process-local 64-character token,
+and injects it into the Sidecar environment. The token is absent from command
+line arguments, project files, status events, and captured logs. React obtains
+the current base URL and token through a Tauri command and retains neither in
+persistent browser storage.
+
+The desktop runtime retains the last 200 redacted log lines, polls `/health`
+before declaring the engine ready, monitors the child process, and emits an
+immediate status event on startup, readiness, stop, or crash. The UI exposes a
+restart action for stopped or crashed states. Development uses `uv`; packaged
+builds resolve the onedir Sidecar from application resources.
+
 See [ADR-0001](adr/0001-platform-and-upstream-locks.md) and
 [ADR-0002](adr/0002-markdown-canonical-state.md).

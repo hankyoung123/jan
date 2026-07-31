@@ -2,11 +2,13 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import JsonValue
 
 from story_engine.config import EngineSettings
 from story_engine.domain.errors import DomainError, InvalidTransitionError
 from story_engine.domain.models import TurnCandidate
 from story_engine.events.commit import CommitResult
+from story_engine.events.stream import EngineEventBus, EngineEventType
 from story_engine.evolution.service import (
     EvolutionService,
     RevisionRequest,
@@ -33,7 +35,10 @@ def _require_project(settings: EngineSettings, project_id: str) -> Path:
     return root
 
 
-def create_projects_router(settings: EngineSettings) -> APIRouter:
+def create_projects_router(
+    settings: EngineSettings,
+    event_bus: EngineEventBus,
+) -> APIRouter:
     router = APIRouter(tags=["projects"])
 
     @router.post(
@@ -67,10 +72,35 @@ def create_projects_router(settings: EngineSettings) -> APIRouter:
         request: TurnGenerationRequest,
     ) -> TurnCandidate:
         root = _require_project(settings, project_id)
+        active_turn_id: str | None = None
         try:
             participants = request.participant_ids or None
-            return EvolutionService(root).generate_turn(participants)
+
+            def emit(
+                event_type: EngineEventType,
+                payload: dict[str, JsonValue],
+            ) -> None:
+                nonlocal active_turn_id
+                active_turn_id = str(payload["turn_id"])
+                event_bus.publish(
+                    project_id=project_id,
+                    turn_id=active_turn_id,
+                    event_type=event_type,
+                    payload=payload,
+                )
+
+            return EvolutionService(root).generate_turn(
+                participants,
+                event_sink=emit,
+            )
         except (DomainError, ValueError) as error:
+            if active_turn_id is not None:
+                event_bus.publish(
+                    project_id=project_id,
+                    turn_id=active_turn_id,
+                    event_type="turn.failed",
+                    payload={"turn_id": active_turn_id, "reason": str(error)},
+                )
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.get(
@@ -124,7 +154,14 @@ def create_projects_router(settings: EngineSettings) -> APIRouter:
     async def discard_turn(project_id: str, turn_id: str) -> TurnCandidate:
         root = _require_project(settings, project_id)
         try:
-            return EvolutionService(root).discard(turn_id)
+            candidate = EvolutionService(root).discard(turn_id)
+            event_bus.publish(
+                project_id=project_id,
+                turn_id=turn_id,
+                event_type="turn.cancelled",
+                payload={"turn_id": turn_id},
+            )
+            return candidate
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Turn not found") from error
         except InvalidTransitionError as error:

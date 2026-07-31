@@ -145,3 +145,27 @@ def test_ten_confirmed_rounds_remain_fully_traceable(tmp_path: Path) -> None:
     assert [event.id for event in events] == [
         f"event-{sequence:06d}" for sequence in range(1, 11)
     ]
+
+
+def test_generation_emits_ordered_pipeline_events(tmp_path: Path) -> None:
+    service = EvolutionService(_project(tmp_path))
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    candidate = service.generate_turn(
+        event_sink=lambda event_type, payload: emitted.append((event_type, payload))
+    )
+
+    assert [event_type for event_type, _ in emitted] == [
+        "turn.started",
+        "character.intent.started",
+        "character.intent.completed",
+        "character.intent.started",
+        "character.intent.completed",
+        "resolver.started",
+        "resolver.completed",
+        "review.started",
+        "review.completed",
+    ]
+    assert all(payload["turn_id"] == candidate.id for _, payload in emitted)
+    assert emitted[1][1]["character_id"] == "chen-mo"
+    assert emitted[3][1]["character_id"] == "lin-lan"

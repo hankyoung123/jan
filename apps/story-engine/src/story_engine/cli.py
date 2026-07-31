@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import uvicorn
 
@@ -12,7 +13,10 @@ def _parser() -> argparse.ArgumentParser:
     serve = subparsers.add_parser("serve", help="start the local story engine")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=39281)
-    serve.add_argument("--session-token")
+    serve.add_argument(
+        "--session-token",
+        default=os.environ.get("STORY_ENGINE_SESSION_TOKEN"),
+    )
     return parser
 
 
