@@ -2,7 +2,8 @@ from collections.abc import Awaitable, Callable
 from secrets import compare_digest
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from story_engine import __version__
@@ -20,17 +21,26 @@ class StatusResponse(BaseModel):
     status: str
 
 
-AuthDependency = Callable[[str | None], Awaitable[None]]
+AuthDependency = Callable[
+    [HTTPAuthorizationCredentials | None],
+    Awaitable[None],
+]
 
 
 def _auth_dependency(settings: EngineSettings) -> AuthDependency:
+    bearer = HTTPBearer(auto_error=False, scheme_name="SessionToken")
+
     async def require_session_token(
-        authorization: Annotated[str | None, Header()] = None,
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None,
+            Depends(bearer),
+        ] = None,
     ) -> None:
-        scheme, separator, credentials = (authorization or "").partition(" ")
-        valid_scheme = separator == " " and scheme == "Bearer"
-        valid_token = bool(credentials) and compare_digest(
-            credentials,
+        valid_scheme = (
+            credentials is not None and credentials.scheme.lower() == "bearer"
+        )
+        valid_token = credentials is not None and compare_digest(
+            credentials.credentials,
             settings.session_token,
         )
         if not valid_scheme or not valid_token:

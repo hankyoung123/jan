@@ -1,0 +1,19 @@
+{
+  "name": "ai-story-evolution-engine-next",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "contracts:generate": "node scripts/generate-contracts.mjs",
+    "contracts:check": "pnpm contracts:generate && git diff --exit-code -- packages/contracts",
+    "lint": "uv run --project apps/story-engine --extra dev ruff check apps/story-engine/src apps/story-engine/tests",
+    "typecheck": "uv run --project apps/story-engine --extra dev mypy --config-file apps/story-engine/pyproject.toml apps/story-engine/src/story_engine && pnpm --filter @story-engine/contracts typecheck",
+    "test": "uv run --project apps/story-engine --extra dev pytest -c apps/story-engine/pyproject.toml apps/story-engine/tests",
+    "build": "uv run --project apps/story-engine --extra dev python -m build apps/story-engine"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.10.1",
+    "typescript": "^5.9.2"
+  }
+}
