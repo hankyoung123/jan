@@ -13,6 +13,7 @@ import {
   Save,
   ShieldCheck,
   Sparkles,
+  Square,
   Trash2,
   TriangleAlert,
   UsersRound,
@@ -50,6 +51,7 @@ type SubmissionConversationResponse =
 type SubmissionMessage = components['schemas']['Message']
 type ProjectSnapshot = components['schemas']['ProjectSnapshot']
 type TurnCandidate = components['schemas']['TurnCandidate']
+type TurnCancellationResult = components['schemas']['TurnCancellationResult']
 type CommitResult = components['schemas']['CommitResult']
 type StoryEvent = components['schemas']['StoryEvent']
 type SceneDraft = components['schemas']['SceneDraft']
@@ -678,6 +680,8 @@ export function EvolutionView() {
     'generate' | 'revise' | 'discard' | 'confirm' | null
   >(null)
   const [error, setError] = useState<string | null>(null)
+  const [generationNotice, setGenerationNotice] = useState<string | null>(null)
+  const [retryAvailable, setRetryAvailable] = useState(false)
   const working = workingAction !== null
 
   const loadProject = useCallback(async () => {
@@ -726,17 +730,46 @@ export function EvolutionView() {
 
   async function generate() {
     if (!projectId || participants.length === 0 || candidatePending) return
-    const value = await act('generate', () =>
-      engineRequest<TurnCandidate>(`/projects/${projectId}/turns/generate`, {
-        method: 'POST',
-        body: JSON.stringify({
-          participant_ids: participants.map((character) => character.id),
-        }),
-      })
-    )
-    if (value) {
+    setWorkingAction('generate')
+    setError(null)
+    setGenerationNotice(null)
+    try {
+      const value = await engineRequest<TurnCandidate>(
+        `/projects/${projectId}/turns/generate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            participant_ids: participants.map((character) => character.id),
+          }),
+        }
+      )
       setCandidate(value)
       setCommitted(null)
+      setRetryAvailable(false)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : '本轮生成失败'
+      if (message.includes('cancelled') || message.includes('取消')) {
+        setGenerationNotice('本轮生成已取消，正式状态未改变。')
+      } else {
+        setError(message)
+      }
+      setRetryAvailable(true)
+    } finally {
+      setWorkingAction(null)
+    }
+  }
+  async function cancelGeneration() {
+    if (!projectId || workingAction !== 'generate') return
+    setError(null)
+    setGenerationNotice('正在取消本轮生成…')
+    try {
+      await engineRequest<TurnCancellationResult>(
+        `/projects/${projectId}/turns/active/cancel`,
+        { method: 'POST' }
+      )
+    } catch (cause) {
+      setGenerationNotice(null)
+      setError(cause instanceof Error ? cause.message : '取消本轮失败')
     }
   }
   async function revise() {
@@ -837,11 +870,12 @@ export function EvolutionView() {
 
   return (
     <StoryPage>
-      <PageHeader eyebrow={`${project.project.title} / 世界版本 ${project.world.version}`} title="推进故事" action={<button aria-busy={workingAction === 'generate'} className={secondaryButton} disabled={working || candidatePending || participants.length === 0} onClick={() => void generate()} type="button"><Sparkles size={15} /> {workingAction === 'generate' ? '正在生成' : candidatePending ? '本轮待确认' : '生成角色行动'}</button>} />
+      <PageHeader eyebrow={`${project.project.title} / 世界版本 ${project.world.version}`} title="推进故事" action={<div className="flex items-center gap-2"><Button aria-busy={workingAction === 'generate'} disabled={working || candidatePending || participants.length === 0} onClick={() => void generate()} size="sm" variant="outline"><Sparkles size={15} /> {workingAction === 'generate' ? '正在生成' : candidatePending ? '本轮待确认' : retryAvailable ? '重试本轮' : '生成角色行动'}</Button>{workingAction === 'generate' && <Button onClick={() => void cancelGeneration()} size="sm" variant="destructive"><Square size={14} /> 取消生成</Button>}</div>} />
       <ol aria-label="故事推进步骤" className="mb-5 grid grid-cols-2 gap-px overflow-hidden border bg-border text-xs sm:grid-cols-3 lg:grid-cols-6">
         {progress.map(([label, complete], index) => <li className="flex items-center gap-2 bg-background px-3 py-3" key={label}><span className={`grid size-5 shrink-0 place-items-center rounded-full ${complete ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>{complete ? <Check size={12} /> : index + 1}</span><span className={complete ? 'font-medium' : 'text-muted-foreground'}>{label}</span></li>)}
       </ol>
       {!candidate ? <section className="border bg-background p-8"><p className="text-xs text-muted-foreground">当前局面</p><h2 className="my-3 font-studio text-xl">{incident}</h2><dl className="mb-4 grid max-w-2xl grid-cols-1 gap-px border bg-border text-sm sm:grid-cols-3">{[['时间', project.world.current_time], ['地点', project.world.current_location || '未指定'], ['压力', project.world.active_pressures.join('；') || '暂无']].map(([label, value]) => <div className="bg-background p-3" key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1">{value}</dd></div>)}</dl><p className="text-muted-foreground">{participants.map((character) => character.display_name || character.id).join('、')} 将依据各自的私有知识独立行动。</p></section> : <><section className="border bg-background"><div className="flex items-center justify-between border-b px-5 py-4"><div><p className="text-xs text-muted-foreground">私有上下文已隔离</p><h2 className="font-medium">角色行动</h2></div><StatusPill tone="success">{candidate.intents.length} / {candidate.intents.length} 完成</StatusPill></div>{candidate.intents.map((intent) => <div className="grid gap-3 border-b px-5 py-4 md:grid-cols-[22px_160px_1fr_auto] md:items-center" key={intent.character_id}><CheckCircle2 className="text-emerald-600" size={17} /><div><strong className="text-sm">{characterNames.get(intent.character_id) || intent.character_id}</strong><p className="text-xs text-muted-foreground">{intent.goal}</p></div><p className="text-sm text-muted-foreground">{intent.action}</p><StatusPill tone="success">已完成</StatusPill></div>)}</section><section className="mt-5 grid gap-5 border bg-background p-5 md:grid-cols-[1fr_280px]"><div><p className="text-xs text-muted-foreground">统一结算</p><h2 className="my-2 font-studio text-lg">{candidate.outcome.summary}</h2><p className="text-sm text-muted-foreground">{candidate.outcome.public_results.join(' · ')}</p></div><div className="border-t pt-5 md:border-l md:border-t-0 md:pl-5 md:pt-0"><p className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className={candidate.review?.passed ? 'text-emerald-600' : 'text-destructive'} size={17} /> Editor {candidate.review?.passed ? '检查通过' : '要求修订'}</p><p className="mt-2 text-xs text-muted-foreground">{candidate.review?.summary}</p></div></section>{!committed && candidate.status !== 'discarded' && <section aria-busy={working} className="mt-5 grid gap-3 border bg-background p-4 md:grid-cols-[1fr_auto_auto_auto]"><input aria-label="修改要求" className={inputClass} value={revision} onChange={(event) => setRevision(event.target.value)} /><button className={secondaryButton} disabled={working || !revision.trim()} onClick={() => void revise()} type="button"><RotateCcw size={15} /> {workingAction === 'revise' ? '正在修改' : '要求修改'}</button><button aria-label={workingAction === 'discard' ? '正在放弃本轮' : '放弃本轮'} className={secondaryButton} disabled={working} onClick={() => void discard()} title="放弃本轮" type="button"><Trash2 size={15} /></button><button className={primaryButton} disabled={working || !candidate.review?.passed} onClick={() => void confirm()} type="button"><Check size={15} /> {workingAction === 'confirm' ? '正在提交' : '确认本轮'}</button></section>}{committed && <p className="mt-5 flex items-center gap-2 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status"><CheckCircle2 size={16} /> {committed.event.id} 已写入正式 Markdown</p>}{candidate.status === 'discarded' && <p className="mt-5 bg-muted p-3 text-sm text-muted-foreground" role="status">本轮已放弃，正式状态未改变。</p>}</>}
+      {generationNotice && <p className="mt-4 bg-muted p-3 text-sm text-muted-foreground" role="status">{generationNotice}</p>}
       {error && <p className="mt-4 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p>}
     </StoryPage>
   )

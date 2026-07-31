@@ -92,6 +92,15 @@ to React. Other characters' private facts and current-turn intents are absent
 from every character context. Character entities are invoked concurrently;
 the Concordia Game Master runs only after all selected intents complete.
 
+One process-local `TurnExecutionRegistry` owns the single active generation
+for each project. A cancellation request sets a thread-safe signal shared by
+the parallel Concordia calls; the synchronous language-model bridge converts
+that signal into asyncio task cancellation so the in-flight Jan HTTP request
+is closed. Completion and cancellation race through one registry lock: a
+successful cancellation can never leave a candidate file, while a generation
+that has already claimed completion rejects the late cancellation. Retrying
+uses the same generation boundary after the previous execution has finished.
+
 ## Dependency direction
 
 ```text
@@ -123,6 +132,7 @@ byte-identical.
 - Invalid or missing tokens return `401` without leaking configuration.
 - Provider errors are normalized before crossing the API boundary.
 - Candidate edits invalidate existing review state.
+- Cancelled or failed turn generation never writes a candidate or Canonical Markdown.
 - Version conflicts return `409` and never partially write canonical files.
 - Atomic writes use a sibling temporary file, flush, `fsync`, and `os.replace`.
 - Sidecar startup is gated by `/health`; crashes surface a restart action.

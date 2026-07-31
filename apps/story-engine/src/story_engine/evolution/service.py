@@ -1,5 +1,7 @@
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from typing import Protocol, cast
 
 from pydantic import Field, JsonValue
@@ -16,6 +18,7 @@ from story_engine.domain.models import (
 from story_engine.events.commit import CommitResult, EventCommitService
 from story_engine.events.stream import EventSink
 from story_engine.evolution.context import CharacterContext, CharacterContextAssembler
+from story_engine.evolution.execution import TurnCancelledError
 from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.project_store import ProjectSnapshot, ProjectStore
 
@@ -61,7 +64,11 @@ class EvolutionService:
         participant_ids: tuple[str, ...] | None = None,
         *,
         event_sink: EventSink | None = None,
+        cancellation: Event | None = None,
+        completion_gate: Callable[[], bool] | None = None,
     ) -> TurnCandidate:
+        cancellation = cancellation or Event()
+        self._raise_if_cancelled(cancellation)
         snapshot = self.project_store.load()
         contexts = self.context_assembler.assemble(snapshot)
         selected = participant_ids or tuple(sorted(contexts))
@@ -75,6 +82,7 @@ class EvolutionService:
         turn_id = self.candidate_store.next_identifier()
         emit = event_sink or (lambda _event_type, _payload: None)
         emit("turn.started", {"turn_id": turn_id})
+        self._raise_if_cancelled(cancellation)
         for character_id in selected:
             emit(
                 "character.intent.started",
@@ -94,6 +102,7 @@ class EvolutionService:
             intents_list: list[CharacterIntent] = []
             for character_id in selected:
                 intent = intent_futures[character_id].result()
+                self._raise_if_cancelled(cancellation)
                 if intent.character_id != character_id:
                     raise ValueError(
                         "generator returned an intent for another character"
@@ -108,8 +117,10 @@ class EvolutionService:
                     },
                 )
         intents = tuple(intents_list)
+        self._raise_if_cancelled(cancellation)
         emit("resolver.started", {"turn_id": turn_id})
         outcome = self.generator.resolve(snapshot.world, intents)
+        self._raise_if_cancelled(cancellation)
         emit(
             "resolver.completed",
             {
@@ -130,6 +141,7 @@ class EvolutionService:
         )
         emit("review.started", {"turn_id": turn_id})
         reviewed = self.review(candidate, snapshot=snapshot)
+        self._raise_if_cancelled(cancellation)
         emit(
             "review.completed",
             {
@@ -142,8 +154,15 @@ class EvolutionService:
                 ),
             },
         )
+        if completion_gate is not None and not completion_gate():
+            raise TurnCancelledError("turn generation was cancelled")
         self.candidate_store.save(reviewed, overwrite=False)
         return reviewed
+
+    @staticmethod
+    def _raise_if_cancelled(cancellation: Event) -> None:
+        if cancellation.is_set():
+            raise TurnCancelledError("turn generation was cancelled")
 
     def review(
         self,

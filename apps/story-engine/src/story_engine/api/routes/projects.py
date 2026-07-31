@@ -12,6 +12,13 @@ from story_engine.domain.errors import DomainError, InvalidTransitionError
 from story_engine.domain.models import TurnCandidate
 from story_engine.events.commit import CommitResult
 from story_engine.events.stream import EngineEventBus, EngineEventType
+from story_engine.evolution.execution import (
+    TurnAlreadyRunningError,
+    TurnCancellationResult,
+    TurnCancelledError,
+    TurnExecutionRegistry,
+    TurnNotRunningError,
+)
 from story_engine.evolution.service import (
     EvolutionService,
     RevisionRequest,
@@ -58,6 +65,7 @@ def create_projects_router(
     event_bus: EngineEventBus,
     model_gateway: ModelGateway,
     workspace_manager: WorkspaceSessionManager,
+    turn_executions: TurnExecutionRegistry,
 ) -> APIRouter:
     router = APIRouter(tags=["projects"])
 
@@ -154,6 +162,10 @@ def create_projects_router(
         workspace_manager.open(project_id)
         active_turn_id: str | None = None
         try:
+            execution = turn_executions.begin(project_id)
+        except TurnAlreadyRunningError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        try:
             participants = request.participant_ids or None
 
             def emit(
@@ -162,6 +174,7 @@ def create_projects_router(
             ) -> None:
                 nonlocal active_turn_id
                 active_turn_id = str(payload["turn_id"])
+                turn_executions.identify(project_id, execution, active_turn_id)
                 event_bus.publish(
                     project_id=project_id,
                     turn_id=active_turn_id,
@@ -171,13 +184,30 @@ def create_projects_router(
 
             service = EvolutionService(
                 root,
-                generator=ConcordiaStoryAdapter(model_gateway),
+                generator=ConcordiaStoryAdapter(
+                    model_gateway,
+                    cancellation=execution.cancellation,
+                ),
             )
             return await asyncio.to_thread(
                 service.generate_turn,
                 participants,
                 event_sink=emit,
+                cancellation=execution.cancellation,
+                completion_gate=lambda: turn_executions.claim_completion(
+                    project_id,
+                    execution,
+                ),
             )
+        except TurnCancelledError as error:
+            if active_turn_id is not None:
+                event_bus.publish(
+                    project_id=project_id,
+                    turn_id=active_turn_id,
+                    event_type="turn.cancelled",
+                    payload={"turn_id": active_turn_id},
+                )
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except (ModelGatewayError, DomainError, ValueError) as error:
             if active_turn_id is not None:
                 event_bus.publish(
@@ -188,6 +218,19 @@ def create_projects_router(
                 )
             if isinstance(error, ModelGatewayError):
                 raise model_http_error(error) from error
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        finally:
+            turn_executions.finish(project_id, execution)
+
+    @router.post(
+        "/projects/{project_id}/turns/active/cancel",
+        response_model=TurnCancellationResult,
+    )
+    async def cancel_active_turn(project_id: str) -> TurnCancellationResult:
+        _require_project(settings, project_id)
+        try:
+            return turn_executions.cancel(project_id)
+        except TurnNotRunningError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.get(

@@ -1,4 +1,5 @@
 import json
+from threading import Event
 
 from concordia.agents import entity_agent_with_logging  # type: ignore[import-untyped]
 from concordia.components import (  # type: ignore[import-untyped]
@@ -30,8 +31,14 @@ def _json(value: BaseModel | tuple[BaseModel, ...]) -> str:
 class ConcordiaStoryAdapter:
     """Convert Story Engine contracts to Concordia entities and back."""
 
-    def __init__(self, gateway: ModelGateway) -> None:
+    def __init__(
+        self,
+        gateway: ModelGateway,
+        *,
+        cancellation: Event | None = None,
+    ) -> None:
         self._gateway = gateway
+        self._cancellation = cancellation
 
     def generate_intent(self, context: CharacterContext) -> CharacterIntent:
         model = JanGatewayLanguageModel(
@@ -39,6 +46,7 @@ class ConcordiaStoryAdapter:
             profile_id="character",
             task_type="character",
             output_schema=_schema(CharacterIntent),
+            cancellation=self._cancellation,
         )
         components = {
             "instructions": agent_components.constant.Constant(
@@ -91,6 +99,7 @@ class ConcordiaStoryAdapter:
             profile_id="resolver",
             task_type="resolver",
             output_schema=_schema(WorldOutcome),
+            cancellation=self._cancellation,
         )
         components = {
             "instructions": agent_components.constant.Constant(

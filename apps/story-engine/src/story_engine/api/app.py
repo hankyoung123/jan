@@ -18,6 +18,7 @@ from story_engine.events.stream import (
     stream_events,
     websocket_token_is_valid,
 )
+from story_engine.evolution.execution import TurnExecutionRegistry
 from story_engine.models.gateway import (
     ModelGateway,
     ModelTransport,
@@ -92,10 +93,12 @@ def create_app(
         runtime_settings.projects_root,
         on_change=publish_workspace_change,
     )
+    turn_executions = TurnExecutionRegistry()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
+        turn_executions.cancel_all()
         workspace_manager.close_all()
 
     app = FastAPI(
@@ -119,6 +122,7 @@ def create_app(
     app.state.model_gateway = gateway
     app.state.event_bus = event_bus
     app.state.workspace_manager = workspace_manager
+    app.state.turn_executions = turn_executions
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(runtime_settings.allowed_origins),
@@ -160,6 +164,7 @@ def create_app(
             event_bus,
             gateway,
             workspace_manager,
+            turn_executions,
         ),
         dependencies=[Depends(require_session_token)],
     )

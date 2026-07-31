@@ -2,11 +2,19 @@ import asyncio
 import json
 import math
 from collections.abc import Collection, Mapping, Sequence
+from contextlib import suppress
+from threading import Event
 from typing import Any
 
 from concordia.language_model import language_model  # type: ignore[import-untyped]
 
-from story_engine.models.contracts import Message, ModelRequest, ModelTask
+from story_engine.evolution.execution import TurnCancelledError
+from story_engine.models.contracts import (
+    Message,
+    ModelRequest,
+    ModelResponse,
+    ModelTask,
+)
 from story_engine.models.gateway import ModelGateway
 
 
@@ -20,11 +28,32 @@ class JanGatewayLanguageModel(language_model.LanguageModel):  # type: ignore[mis
         profile_id: str,
         task_type: ModelTask,
         output_schema: str | None = None,
+        cancellation: Event | None = None,
     ) -> None:
         self._gateway = gateway
         self._profile_id = profile_id
         self._task_type = task_type
         self._output_schema = output_schema
+        self._cancellation = cancellation
+
+    async def _complete_with_cancellation(
+        self,
+        request: ModelRequest,
+    ) -> ModelResponse:
+        if self._cancellation is None:
+            return await self._gateway.complete(request)
+        if self._cancellation.is_set():
+            raise TurnCancelledError("turn generation was cancelled")
+
+        completion = asyncio.create_task(self._gateway.complete(request))
+        while not completion.done():
+            if self._cancellation.is_set():
+                completion.cancel()
+                with suppress(asyncio.CancelledError):
+                    await completion
+                raise TurnCancelledError("turn generation was cancelled")
+            await asyncio.wait({completion}, timeout=0.05)
+        return completion.result()
 
     def _complete(
         self,
@@ -53,7 +82,7 @@ class JanGatewayLanguageModel(language_model.LanguageModel):  # type: ignore[mis
             timeout_seconds=min(max(math.ceil(timeout), 1), 120),
             temperature=temperature,
         )
-        response = asyncio.run(self._gateway.complete(request))
+        response = asyncio.run(self._complete_with_cancellation(request))
         return response.content, response.parsed_output
 
     def sample_text(

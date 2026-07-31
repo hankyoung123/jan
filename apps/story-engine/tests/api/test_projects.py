@@ -1,7 +1,9 @@
+import asyncio
 import json
 from collections.abc import AsyncIterator, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -99,6 +101,29 @@ class StoryTurnTransport:
         if False:
             yield ModelStreamChunk()
         raise AssertionError("turn generation does not use streaming yet")
+
+
+class CancellableStoryTurnTransport(StoryTurnTransport):
+    def __init__(self) -> None:
+        super().__init__()
+        self.block = True
+        self.started = Event()
+        self.cancelled = Event()
+
+    async def complete(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: int,
+    ) -> Mapping[str, Any]:
+        if self.block:
+            self.started.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                self.cancelled.set()
+                raise
+        return await super().complete(payload, timeout_seconds=timeout_seconds)
 
 
 class SubmissionTransport:
@@ -281,7 +306,63 @@ def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
     assert all(character["version"] == 1 for character in project.json()["characters"])
 
 
-def test_turn_api_exposes_only_revision_confirmation_and_discard_actions(
+def test_running_turn_can_be_cancelled_and_retried_without_writing_candidate(
+    tmp_path: Path,
+) -> None:
+    transport = CancellableStoryTurnTransport()
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        model_transport=transport,
+    )
+    generation_client = TestClient(app)
+    control_client = TestClient(app)
+    created = control_client.post(
+        "/submissions/finalize",
+        headers=AUTH,
+        json=fog_harbor_submission().model_dump(mode="json"),
+    )
+    assert created.status_code == 201
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        generation = executor.submit(
+            generation_client.post,
+            "/projects/fog-harbor/turns/generate",
+            headers=AUTH,
+            json={},
+        )
+        assert transport.started.wait(timeout=2)
+
+        cancellation = control_client.post(
+            "/projects/fog-harbor/turns/active/cancel",
+            headers=AUTH,
+        )
+        cancelled_generation = generation.result(timeout=2)
+
+    assert cancellation.status_code == 200
+    assert cancellation.json() == {
+        "project_id": "fog-harbor",
+        "turn_id": "turn-000001",
+        "cancel_requested": True,
+    }
+    assert cancelled_generation.status_code == 409
+    assert cancelled_generation.json()["detail"] == "turn generation was cancelled"
+    assert transport.cancelled.wait(timeout=2)
+    root = tmp_path / "fog-harbor"
+    assert not (root / ".story-engine/turns/turn-000001.json").exists()
+
+    transport.block = False
+    retried = control_client.post(
+        "/projects/fog-harbor/turns/generate",
+        headers=AUTH,
+        json={},
+    )
+
+    assert retried.status_code == 201
+    assert retried.json()["id"] == "turn-000001"
+    assert retried.json()["status"] == "reviewed"
+
+
+def test_turn_api_separates_generation_cancellation_from_candidate_decisions(
     tmp_path: Path,
 ) -> None:
     app = create_app(
@@ -292,6 +373,7 @@ def test_turn_api_exposes_only_revision_confirmation_and_discard_actions(
     assert "/projects/{project_id}/turns/{turn_id}/request-revision" in paths
     assert "/projects/{project_id}/turns/{turn_id}/confirm" in paths
     assert "/projects/{project_id}/turns/{turn_id}/discard" in paths
+    assert "/projects/{project_id}/turns/active/cancel" in paths
     assert "/projects/{project_id}/turns/{turn_id}/review" not in paths
     assert "/projects/{project_id}/turns/{turn_id}/approve" not in paths
     assert "/projects/{project_id}/turns" not in paths

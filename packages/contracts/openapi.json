@@ -1638,6 +1638,37 @@
         "title": "SubmissionPackage",
         "type": "object"
       },
+      "TurnCancellationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "cancel_requested": {
+            "default": true,
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
+          "project_id": {
+            "minLength": 1,
+            "title": "Project Id",
+            "type": "string"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "TurnCancellationResult",
+        "type": "object"
+      },
       "TurnCandidate": {
         "additionalProperties": false,
         "properties": {
@@ -3007,6 +3038,53 @@
           }
         ],
         "summary": "Discuss Submission",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/projects/{project_id}/turns/active/cancel": {
+      "post": {
+        "operationId": "cancel_active_turn_projects__project_id__turns_active_cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnCancellationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Cancel Active Turn",
         "tags": [
           "projects"
         ]

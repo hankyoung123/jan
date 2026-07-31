@@ -527,6 +527,50 @@ describe('Story evolution', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('cancels an in-flight turn and retries it through the same generation boundary', async () => {
+    setActiveStoryProjectId('north-star')
+    let rejectGeneration: ((reason: Error) => void) | null = null
+    let generationAttempts = 0
+    h.engineRequest.mockImplementation((path: string) => {
+      if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
+      if (path.endsWith('/turns/generate')) {
+        generationAttempts += 1
+        if (generationAttempts === 1) {
+          return new Promise((_resolve, reject) => {
+            rejectGeneration = reject
+          })
+        }
+        return Promise.resolve(candidate)
+      }
+      if (path.endsWith('/turns/active/cancel')) {
+        rejectGeneration?.(new Error('turn generation was cancelled'))
+        return Promise.resolve({
+          project_id: 'north-star',
+          turn_id: 'turn-04',
+          cancel_requested: true,
+        })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    render(<EvolutionView />)
+    await screen.findByText('主天线在极光中失效')
+
+    fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
+    fireEvent.click(await screen.findByRole('button', { name: '取消生成' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '本轮生成已取消，正式状态未改变'
+    )
+    expect(h.engineRequest).toHaveBeenCalledWith(
+      '/projects/north-star/turns/active/cancel',
+      { method: 'POST' }
+    )
+    fireEvent.click(screen.getByRole('button', { name: '重试本轮' }))
+
+    expect(await screen.findByText(candidate.outcome.summary)).toBeInTheDocument()
+    expect(generationAttempts).toBe(2)
+  })
+
   it('uses only revision, discard, and confirm as active-candidate decisions', async () => {
     setActiveStoryProjectId('north-star')
     const revised = {

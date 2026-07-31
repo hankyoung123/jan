@@ -325,6 +325,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/turns/active/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Active Turn */
+        post: operations["cancel_active_turn_projects__project_id__turns_active_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/turns/generate": {
         parameters: {
             query?: never;
@@ -1057,6 +1074,18 @@ export interface components {
             tone: string;
             /** World Rules */
             world_rules: string[];
+        };
+        /** TurnCancellationResult */
+        TurnCancellationResult: {
+            /**
+             * Cancel Requested
+             * @default true
+             */
+            cancel_requested: boolean;
+            /** Project Id */
+            project_id: string;
+            /** Turn Id */
+            turn_id?: string | null;
         };
         /** TurnCandidate */
         TurnCandidate: {
@@ -1824,6 +1853,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubmissionConversationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_active_turn_projects__project_id__turns_active_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnCancellationResult"];
                 };
             };
             /** @description Validation Error */

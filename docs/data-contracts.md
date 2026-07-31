@@ -64,6 +64,18 @@ private context per participant, generate isolated character intents, resolve
 one world outcome, and run the Editor review. The resulting candidate is
 derived state below `.story-engine/turns`.
 
+Only one generation may run per project. While it is running, React may call:
+
+```text
+POST /projects/{project_id}/turns/active/cancel
+```
+
+The returned `TurnCancellationResult` identifies the active Turn. Cancellation
+propagates through Concordia into the Jan model request and produces
+`turn.cancelled`; it does not write a candidate or canonical file. A late
+request after generation has claimed completion returns `409`. Failed or
+cancelled work is retried by invoking the same `turns/generate` boundary again.
+
 The client cannot submit its own intents, outcomes, or review verdicts. After
 generation it can invoke only these decision endpoints:
 
