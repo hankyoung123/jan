@@ -14,6 +14,7 @@ from story_engine.domain.models import (
     StoryEvent,
     WorldState,
 )
+from story_engine.manuscript.models import Scene
 
 
 class ProjectDocument(DomainModel):
@@ -111,6 +112,30 @@ class EventDocument(DomainModel):
     def to_domain(self) -> StoryEvent:
         return StoryEvent.model_validate(
             self.model_dump(exclude={"schema_name"}),
+        )
+
+
+class SceneDocument(DomainModel):
+    schema_name: Literal["scene/v1"] = Field(
+        default="scene/v1",
+        serialization_alias="schema",
+        validation_alias="schema",
+    )
+    id: str = Field(pattern=r"^scene-[0-9]{6}$")
+    project_id: str = Field(min_length=1)
+    sequence: int = Field(ge=1)
+    chapter_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    source_event_ids: tuple[str, ...] = Field(min_length=1)
+    version: int = Field(ge=1)
+
+    @classmethod
+    def from_domain(cls, scene: Scene) -> "SceneDocument":
+        return cls.model_validate(scene.model_dump(exclude={"body"}))
+
+    def to_domain(self, body: str) -> Scene:
+        return Scene.model_validate(
+            {**self.model_dump(exclude={"schema_name"}), "body": body}
         )
 
 
@@ -236,3 +261,8 @@ def render_event(event: StoryEvent) -> str:
 {hidden}
 """
     return dump_document(document, body)
+
+
+def render_scene(scene: Scene) -> str:
+    document = SceneDocument.from_domain(scene)
+    return dump_document(document, f"# {scene.title}\n\n{scene.body}")

@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  Download,
   FileText,
   LockKeyhole,
   RotateCcw,
@@ -30,8 +31,10 @@ import {
   JanChatShell,
 } from '@/components/ai-elements/jan-chat-shell'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { route } from '@/constants/routes'
-import type { JSONContent } from '@/editor/NovelManuscriptEditor'
+import type { NovelManuscriptValue } from '@/editor/NovelManuscriptEditor'
+import { novelDocumentFromMarkdown } from '@/editor/manuscriptMarkdown'
 import {
   setActiveStoryProjectId,
   useActiveStoryProjectId,
@@ -46,6 +49,11 @@ type SubmissionMessage = components['schemas']['Message']
 type ProjectSnapshot = components['schemas']['ProjectSnapshot']
 type TurnCandidate = components['schemas']['TurnCandidate']
 type CommitResult = components['schemas']['CommitResult']
+type StoryEvent = components['schemas']['StoryEvent']
+type SceneDraft = components['schemas']['SceneDraft']
+type SceneMutationResult = components['schemas']['SceneMutationResult']
+type AmendmentCommitResult = components['schemas']['AmendmentCommitResult']
+type ManuscriptExport = components['schemas']['ManuscriptExport']
 
 const NovelManuscriptEditor = lazy(() =>
   import('@/editor/NovelManuscriptEditor').then((module) => ({
@@ -659,145 +667,498 @@ export function EventsView() {
 }
 
 export function ManuscriptView() {
-  const initialContent = useMemo<JSONContent>(
-    () => ({
-      type: 'doc',
-      content: [
-        {
-          type: 'paragraph',
-          content: [
-            {
-              type: 'text',
-              text: '风把雨水从门缝里推了进来。陈默蹲在熄灭的灯座旁，铜钥匙硌着掌心，像一小块没有温度的骨头。',
-            },
-          ],
-        },
-        {
-          type: 'paragraph',
-          content: [
-            {
-              type: 'text',
-              text: '他卸下底板。螺丝很紧，但金属边缘有一道不属于旧锈的亮色。刮痕从灯芯槽一直延伸到暗格，末端还沾着细小的黑色纤维。',
-            },
-          ],
-        },
-        {
-          type: 'paragraph',
-          content: [
-            {
-              type: 'text',
-              text: '楼下传来门轴转动的声音。陈默没有出声，只把底板轻轻放回原位。',
-            },
-          ],
-        },
-      ],
-    }),
-    []
-  )
-  const [title, setTitle] = useState('灯芯槽的刮痕')
+  const projectId = useActiveStoryProjectId()
+  const [events, setEvents] = useState<StoryEvent[]>([])
+  const [scenes, setScenes] = useState<SceneDraft[]>([])
+  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null)
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
   const [dirty, setDirty] = useState(false)
-  const [draftRetained, setDraftRetained] = useState(false)
+  const [loading, setLoading] = useState(projectId !== null)
+  const [workingAction, setWorkingAction] = useState<
+    'generate' | 'save' | 'confirm' | 'export' | null
+  >(null)
+  const [mutation, setMutation] = useState<SceneMutationResult | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const selectedScene = useMemo(
+    () => scenes.find((scene) => scene.id === selectedSceneId) ?? null,
+    [scenes, selectedSceneId]
+  )
+  const approvedEvents = useMemo(
+    () =>
+      events
+        .filter((event) => event.approved_by_user)
+        .sort((left, right) => left.sequence - right.sequence),
+    [events]
+  )
+  const generationEvent = useMemo(() => {
+    const represented = new Set(
+      scenes.flatMap((scene) => scene.source_event_ids)
+    )
+    return (
+      approvedEvents.filter((event) => !represented.has(event.id)).at(-1) ??
+      null
+    )
+  }, [approvedEvents, scenes])
+  const sourceEvents = useMemo(() => {
+    if (!selectedScene) return []
+    const ids = new Set(selectedScene.source_event_ids)
+    return approvedEvents.filter((event) => ids.has(event.id))
+  }, [approvedEvents, selectedScene])
+  const review = mutation?.review ?? selectedScene?.review ?? null
+  const pendingAmendmentId =
+    mutation?.amendment?.id ?? selectedScene?.amendment_id ?? null
+  const initialContent = useMemo(
+    () => novelDocumentFromMarkdown(body),
+    [body]
+  )
+
+  function openScene(scene: SceneDraft) {
+    setSelectedSceneId(scene.id)
+    setTitle(scene.title)
+    setBody(scene.body)
+    setDirty(false)
+    setMutation(null)
+    setNotice(null)
+    setError(null)
+  }
+
+  const loadWorkspace = useCallback(async () => {
+    if (!projectId) {
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const [loadedEvents, loadedScenes] = await Promise.all([
+        engineRequest<StoryEvent[]>(`/projects/${projectId}/events`),
+        engineRequest<SceneDraft[]>(`/projects/${projectId}/scenes`),
+      ])
+      const orderedScenes = [...loadedScenes].sort(
+        (left, right) => left.sequence - right.sequence
+      )
+      setEvents(loadedEvents)
+      setScenes(orderedScenes)
+      const latestScene = orderedScenes.at(-1)
+      if (latestScene) {
+        setSelectedSceneId(latestScene.id)
+        setTitle(latestScene.title)
+        setBody(latestScene.body)
+      } else {
+        setSelectedSceneId(null)
+        setTitle('')
+        setBody('')
+      }
+      setDirty(false)
+      setMutation(null)
+      setNotice(null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '正文工作区加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    void loadWorkspace()
+  }, [loadWorkspace])
+
+  function replaceScene(nextScene: SceneDraft) {
+    setScenes((current) =>
+      [...current.filter((scene) => scene.id !== nextScene.id), nextScene].sort(
+        (left, right) => left.sequence - right.sequence
+      )
+    )
+  }
+
+  async function generateScene() {
+    if (!projectId || !generationEvent || workingAction) return
+    setWorkingAction('generate')
+    setError(null)
+    setNotice(null)
+    try {
+      const scene = await engineRequest<SceneDraft>(
+        `/projects/${projectId}/scenes/generate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            event_ids: [generationEvent.id],
+            chapter_id: selectedScene?.chapter_id ?? 'chapter-001',
+          }),
+        }
+      )
+      replaceScene(scene)
+      openScene(scene)
+      setNotice(`${scene.id} 已生成，请检查后保存`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '场景生成失败')
+    } finally {
+      setWorkingAction(null)
+    }
+  }
+
+  async function saveScene() {
+    if (
+      !projectId ||
+      !selectedScene ||
+      !dirty ||
+      !title.trim() ||
+      !body.trim() ||
+      workingAction
+    ) {
+      return
+    }
+    setWorkingAction('save')
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await engineRequest<SceneMutationResult>(
+        `/projects/${projectId}/scenes/${selectedScene.id}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            title: title.trim(),
+            body,
+            expected_revision: selectedScene.revision,
+            expected_scene_version: selectedScene.base_scene_version,
+          }),
+        }
+      )
+      replaceScene(result.draft)
+      setTitle(result.draft.title)
+      setBody(result.draft.body)
+      setDirty(false)
+      setMutation(result)
+      if (result.status === 'saved') {
+        setNotice('事实检查通过，正式 Markdown 已保存')
+      } else if (result.status === 'amendment_required') {
+        setNotice('检测到新事实，确认 Amendment 前正式正文不会改变')
+      } else {
+        setNotice('事实检查未通过，请根据审核结果修改正文')
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '正文保存失败')
+    } finally {
+      setWorkingAction(null)
+    }
+  }
+
+  async function confirmAmendment() {
+    if (
+      !projectId ||
+      !selectedScene ||
+      !pendingAmendmentId ||
+      workingAction
+    ) {
+      return
+    }
+    setWorkingAction('confirm')
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await engineRequest<AmendmentCommitResult>(
+        `/projects/${projectId}/scenes/${selectedScene.id}/amendments/${pendingAmendmentId}/confirm`,
+        { method: 'POST' }
+      )
+      const refreshed = await engineRequest<SceneDraft>(
+        `/projects/${projectId}/scenes/${selectedScene.id}`
+      )
+      replaceScene(refreshed)
+      setEvents((current) =>
+        current.some((event) => event.id === result.event.id)
+          ? current
+          : [...current, result.event]
+      )
+      setTitle(refreshed.title)
+      setBody(refreshed.body)
+      setDirty(false)
+      setMutation(null)
+      setNotice(
+        `${result.event.id} 已确认，世界、事件与正式正文已原子写入`
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Amendment 确认失败')
+    } finally {
+      setWorkingAction(null)
+    }
+  }
+
+  async function exportManuscript() {
+    if (!projectId || workingAction) return
+    setWorkingAction('export')
+    setError(null)
+    try {
+      const manuscript = await engineRequest<ManuscriptExport>(
+        `/projects/${projectId}/manuscript/export`
+      )
+      const anchor = document.createElement('a')
+      const createObjectUrl = URL.createObjectURL
+      const objectUrl = createObjectUrl
+        ? createObjectUrl(new Blob([manuscript.markdown], { type: 'text/markdown' }))
+        : null
+      anchor.href =
+        objectUrl ??
+        `data:text/markdown;charset=utf-8,${encodeURIComponent(manuscript.markdown)}`
+      anchor.download = manuscript.filename
+      anchor.hidden = true
+      document.body.append(anchor)
+      anchor.click()
+      anchor.remove()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      setNotice(`已导出 ${manuscript.filename}`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '正文导出失败')
+    } finally {
+      setWorkingAction(null)
+    }
+  }
+
+  if (!projectId) {
+    return (
+      <StoryPage>
+        <PageHeader eyebrow="正文工作区" title="章节正文" />
+        <section className="grid min-h-80 place-items-center border bg-background p-8 text-center">
+          <div>
+            <h2 className="font-studio text-xl">尚未选择故事项目</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              先通过投稿讨论创建项目，再从确认事件生成正文。
+            </p>
+            <Button asChild className="mt-5">
+              <Link to={route.submission}>前往投稿</Link>
+            </Button>
+          </div>
+        </section>
+      </StoryPage>
+    )
+  }
+
+  if (loading) {
+    return (
+      <StoryPage>
+        <PageHeader eyebrow="正在读取事件与场景" title="章节正文" />
+        <div className="grid min-h-80 place-items-center border bg-background text-sm text-muted-foreground">
+          正在加载正文工作区…
+        </div>
+      </StoryPage>
+    )
+  }
 
   return (
     <StoryPage>
       <PageHeader
         action={
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline">
-              <Sparkles /> 从事件生成
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              disabled={workingAction !== null}
+              onClick={() => void exportManuscript()}
+              type="button"
+              variant="outline"
+            >
+              <Download />
+              {workingAction === 'export' ? '正在导出' : '导出 Markdown'}
             </Button>
             <Button
-              aria-label="保留编辑草稿"
-              disabled={!dirty}
-              onClick={() => {
-                setDirty(false)
-                setDraftRetained(true)
-              }}
-              title="仅保留在当前编辑会话；正式保存需经 Story Engine 事实检查"
+              disabled={!generationEvent || workingAction !== null}
+              onClick={() => void generateScene()}
+              type="button"
+              variant="outline"
+            >
+              <Sparkles />
+              {workingAction === 'generate' ? '正在生成' : '从事件生成'}
+            </Button>
+            <Button
+              disabled={
+                !dirty ||
+                !title.trim() ||
+                !body.trim() ||
+                workingAction !== null
+              }
+              onClick={() => void saveScene()}
               type="button"
             >
-              <Save /> 保留草稿
+              <Save />
+              {workingAction === 'save' ? '正在检查' : '保存并检查事实'}
             </Button>
           </div>
         }
         eyebrow={
           dirty
             ? '存在未保存更改'
-            : draftRetained
-              ? '草稿仅保留在当前编辑会话'
-              : '第 3 章 / 场景 012'
+            : selectedScene
+              ? `${selectedScene.chapter_id} / 场景 ${String(selectedScene.sequence).padStart(3, '0')}`
+              : `${approvedEvents.length} 个已确认事件`
         }
         title="章节正文"
       />
-      <div className="grid min-h-[620px] overflow-hidden border bg-background lg:grid-cols-[190px_minmax(0,1fr)_230px]">
-        <aside className="hidden border-r p-3 lg:block">
+      <div className="grid min-h-[620px] overflow-hidden border bg-background lg:grid-cols-[210px_minmax(0,1fr)_280px]">
+        <aside className="border-b p-3 lg:border-b-0 lg:border-r">
           <strong className="px-2 text-sm">章节与场景</strong>
-          <p className="mb-2 mt-5 px-2 text-xs text-muted-foreground">
-            第三章 · 风暴线
+          <p className="mb-2 mt-3 px-2 text-xs text-muted-foreground">
+            {scenes.length > 0
+              ? `${scenes.length} 个派生场景`
+              : '尚未生成正文'}
           </p>
-          {[
-            ['010', '海燕号进入航道'],
-            ['011', '备用航标'],
-            ['012', '灯芯槽的刮痕'],
-          ].map(([id, sceneTitle], index) => (
-            <Button
-              className={`mb-1 grid h-auto w-full grid-cols-[26px_1fr] justify-start whitespace-normal rounded-md px-2 py-2 text-left ${index === 2 ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}
-              key={id}
-              type="button"
-              variant="ghost"
-            >
-              <span className="font-studio">{id}</span>
-              {sceneTitle}
-            </Button>
-          ))}
-        </aside>
-        <article className="min-w-0">
-          <input
-            aria-label="场景标题"
-            className="w-full border-b bg-transparent px-8 py-6 font-studio text-2xl outline-none md:px-12"
-            onChange={(event) => {
-              setTitle(event.target.value)
-              setDirty(true)
-              setDraftRetained(false)
-            }}
-            value={title}
-          />
-          <Suspense
-            fallback={
-              <div className="grid min-h-[500px] place-items-center text-sm text-muted-foreground">
-                正在加载 Novel 正文编辑器…
-              </div>
-            }
-          >
-            <NovelManuscriptEditor
-              initialContent={initialContent}
-              onChange={() => {
-                setDirty(true)
-                setDraftRetained(false)
-              }}
-            />
-          </Suspense>
-        </article>
-        <aside className="hidden border-l p-5 lg:block">
-          <p className="text-xs text-muted-foreground">事实来源</p>
-          <h2 className="mt-1 font-medium">Event 000012</h2>
-          <p className="my-4 flex items-center gap-2 bg-emerald-500/10 p-3 text-xs text-emerald-700">
-            <ShieldCheck size={15} /> 未发现事实差异
-          </p>
-          <dl className="text-sm">
-            {[
-              ['参与者', '陈默'],
-              ['地点', '灯塔一层'],
-              ['确认事实', '灯芯槽有新鲜刮痕'],
-            ].map(([label, value]) => (
-              <div className="border-b py-3" key={label}>
-                <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="mt-1">{value}</dd>
-              </div>
+          <div className="flex gap-1 overflow-x-auto lg:block">
+            {scenes.map((scene) => (
+              <Button
+                aria-current={selectedSceneId === scene.id ? 'page' : undefined}
+                className={`mb-1 grid h-auto min-w-44 grid-cols-[32px_1fr] justify-start whitespace-normal rounded-md px-2 py-2 text-left lg:w-full lg:min-w-0 ${selectedSceneId === scene.id ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}
+                disabled={dirty && selectedSceneId !== scene.id}
+                key={scene.id}
+                onClick={() => openScene(scene)}
+                type="button"
+                variant="ghost"
+              >
+                <span className="font-studio">
+                  {String(scene.sequence).padStart(3, '0')}
+                </span>
+                <span>{scene.title}</span>
+              </Button>
             ))}
-          </dl>
+          </div>
+        </aside>
+        <article className="min-w-0 border-b lg:border-b-0">
+          {selectedScene ? (
+            <>
+              <Input
+                aria-label="场景标题"
+                className="h-auto rounded-none border-x-0 border-t-0 bg-transparent px-8 py-6 font-studio text-2xl shadow-none focus-visible:ring-0 md:px-12 md:text-2xl"
+                onChange={(event) => {
+                  setTitle(event.target.value)
+                  setDirty(true)
+                  setMutation(null)
+                  setNotice(null)
+                }}
+                value={title}
+              />
+              <Suspense
+                fallback={
+                  <div className="grid min-h-[500px] place-items-center text-sm text-muted-foreground">
+                    正在加载 Novel 正文编辑器…
+                  </div>
+                }
+              >
+                <NovelManuscriptEditor
+                  initialContent={initialContent}
+                  key={selectedScene.id}
+                  onChange={(value: NovelManuscriptValue) => {
+                    setBody(value.markdown)
+                    setDirty(true)
+                    setMutation(null)
+                    setNotice(null)
+                  }}
+                />
+              </Suspense>
+            </>
+          ) : (
+            <div className="grid min-h-[560px] place-items-center p-8 text-center">
+              <div className="max-w-sm">
+                <FileText className="mx-auto text-muted-foreground" />
+                <h2 className="mt-4 font-studio text-xl">从确认事件生成第一幕</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Writer 只读取已由用户确认的 Event，生成结果先进入派生场景，不会直接修改正式 Markdown。
+                </p>
+                {generationEvent && (
+                  <p className="mt-4 text-sm">
+                    下一来源：{generationEvent.id} · {generationEvent.summary}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </article>
+        <aside className="p-5 lg:border-l">
+          <p className="text-xs text-muted-foreground">事实来源</p>
+          {sourceEvents.length > 0 ? (
+            sourceEvents.map((event) => (
+              <article className="border-b py-3" key={event.id}>
+                <h2 className="text-sm font-medium">{event.id}</h2>
+                <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                  {event.summary}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {event.participants.join('、') || '无指定参与者'}
+                </p>
+              </article>
+            ))
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              {selectedScene ? '来源事件尚未载入。' : '选择场景后显示来源。'}
+            </p>
+          )}
+          {selectedScene && (
+            <section className="mt-5 border-t pt-5">
+              <p className="text-xs text-muted-foreground">Manuscript Review</p>
+              <div
+                className={`my-3 flex items-start gap-2 p-3 text-xs ${
+                  review?.review.passed
+                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                    : review
+                      ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                      : 'bg-muted text-muted-foreground'
+                }`}
+              >
+                {review?.review.passed ? (
+                  <ShieldCheck className="mt-0.5 shrink-0" size={15} />
+                ) : (
+                  <TriangleAlert className="mt-0.5 shrink-0" size={15} />
+                )}
+                <span>
+                  {review?.review.summary ?? '保存时由 Editor 检查事实差异。'}
+                </span>
+              </div>
+              {(review?.new_facts.length ?? 0) > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium">检测到的新事实</h3>
+                  <ul className="mt-2 list-disc space-y-2 pl-4 text-sm text-muted-foreground">
+                    {review?.new_facts.map((fact) => (
+                      <li key={fact}>{fact}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {pendingAmendmentId && (
+                <div className="mt-5 border-t pt-4">
+                  <p className="break-all text-xs text-muted-foreground">
+                    {pendingAmendmentId}
+                  </p>
+                  <Button
+                    className="mt-3 w-full"
+                    disabled={workingAction !== null}
+                    onClick={() => void confirmAmendment()}
+                    type="button"
+                    variant="outline"
+                  >
+                    <Check />
+                    {workingAction === 'confirm'
+                      ? '正在确认'
+                      : '确认 Amendment'}
+                  </Button>
+                </div>
+              )}
+            </section>
+          )}
         </aside>
       </div>
+      {notice && (
+        <p
+          className="mt-4 flex items-center gap-2 bg-primary/10 p-3 text-sm text-primary"
+          role="status"
+        >
+          <CheckCircle2 size={16} /> {notice}
+        </p>
+      )}
+      {error && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+          <span>{error}</span>
+          <Button onClick={() => void loadWorkspace()} size="sm" type="button" variant="outline">
+            重试加载
+          </Button>
+        </div>
+      )}
     </StoryPage>
   )
 }

@@ -57,6 +57,8 @@ class ProjectStore:
             "sources",
             ".story-engine/turns",
             ".story-engine/reviews",
+            ".story-engine/scenes",
+            ".story-engine/amendments",
             ".story-engine/cache",
             ".story-engine/index",
             ".story-engine/recovery",
@@ -125,4 +127,3 @@ class ProjectStore:
             f"{json.dumps(data, ensure_ascii=False, indent=2)}\n",
         )
         return path
-

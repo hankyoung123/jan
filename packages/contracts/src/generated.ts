@@ -171,6 +171,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/manuscript/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Manuscript */
+        get: operations["export_manuscript_projects__project_id__manuscript_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/scenes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Scenes */
+        get: operations["list_scenes_projects__project_id__scenes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/scenes/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Scene */
+        post: operations["generate_scene_projects__project_id__scenes_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/scenes/{scene_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Scene */
+        get: operations["get_scene_projects__project_id__scenes__scene_id__get"];
+        /** Update Scene */
+        put: operations["update_scene_projects__project_id__scenes__scene_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/scenes/{scene_id}/amendments/{amendment_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Amendment */
+        post: operations["confirm_amendment_projects__project_id__scenes__scene_id__amendments__amendment_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/submission/messages": {
         parameters: {
             query?: never;
@@ -294,6 +380,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AmendmentCommitResult */
+        AmendmentCommitResult: {
+            amendment: components["schemas"]["EventAmendmentCandidate"];
+            event: components["schemas"]["StoryEvent"];
+            scene: components["schemas"]["Scene"];
+        };
         /** Character */
         Character: {
             /** Core Desire */
@@ -358,6 +450,31 @@ export interface components {
             candidate: components["schemas"]["TurnCandidate"];
             event: components["schemas"]["StoryEvent"];
         };
+        /** EventAmendmentCandidate */
+        EventAmendmentCandidate: {
+            /** Base World Version */
+            base_world_version: number;
+            /** Draft Revision */
+            draft_revision: number;
+            /** Fact Ids */
+            fact_ids: string[];
+            /** Id */
+            id: string;
+            /** Project Id */
+            project_id: string;
+            /** Proposed Facts */
+            proposed_facts: string[];
+            /** Scene Id */
+            scene_id: string;
+            /** Source Event Ids */
+            source_event_ids: string[];
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "committed";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -373,6 +490,22 @@ export interface components {
             version: string;
         };
         JsonValue: unknown;
+        /** ManuscriptExport */
+        ManuscriptExport: {
+            /** Filename */
+            filename: string;
+            /** Markdown */
+            markdown: string;
+        };
+        /** ManuscriptReviewOutput */
+        ManuscriptReviewOutput: {
+            /**
+             * New Facts
+             * @default []
+             */
+            new_facts: string[];
+            review: components["schemas"]["ReviewResult"];
+        };
         /** Message */
         Message: {
             /** Content */
@@ -561,6 +694,93 @@ export interface components {
         RevisionRequest: {
             /** Instruction */
             instruction: string;
+        };
+        /** Scene */
+        Scene: {
+            /** Body */
+            body: string;
+            /** Chapter Id */
+            chapter_id: string;
+            /** Id */
+            id: string;
+            /** Project Id */
+            project_id: string;
+            /** Sequence */
+            sequence: number;
+            /** Source Event Ids */
+            source_event_ids: string[];
+            /** Title */
+            title: string;
+            /** Version */
+            version: number;
+        };
+        /** SceneDraft */
+        SceneDraft: {
+            /** Amendment Id */
+            amendment_id?: string | null;
+            /**
+             * Base Scene Version
+             * @default 0
+             */
+            base_scene_version: number;
+            /** Base World Version */
+            base_world_version: number;
+            /** Body */
+            body: string;
+            /** Chapter Id */
+            chapter_id: string;
+            /** Id */
+            id: string;
+            /** Project Id */
+            project_id: string;
+            review?: components["schemas"]["ManuscriptReviewOutput"] | null;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /** Sequence */
+            sequence: number;
+            /** Source Event Ids */
+            source_event_ids: string[];
+            /**
+             * Status
+             * @default draft
+             * @enum {string}
+             */
+            status: "draft" | "reviewed" | "needs_revision" | "amendment_required" | "saved";
+            /** Title */
+            title: string;
+        };
+        /** SceneGenerationRequest */
+        SceneGenerationRequest: {
+            /** Chapter Id */
+            chapter_id: string;
+            /** Event Ids */
+            event_ids: string[];
+        };
+        /** SceneMutationResult */
+        SceneMutationResult: {
+            amendment?: components["schemas"]["EventAmendmentCandidate"] | null;
+            draft: components["schemas"]["SceneDraft"];
+            review: components["schemas"]["ManuscriptReviewOutput"];
+            scene?: components["schemas"]["Scene"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "saved" | "amendment_required" | "rejected";
+        };
+        /** SceneUpdateRequest */
+        SceneUpdateRequest: {
+            /** Body */
+            body: string;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Expected Scene Version */
+            expected_scene_version: number;
+            /** Title */
+            title: string;
         };
         /** StateChange */
         StateChange: {
@@ -1147,6 +1367,204 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_manuscript_projects__project_id__manuscript_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManuscriptExport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_scenes_projects__project_id__scenes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDraft"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_scene_projects__project_id__scenes_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SceneGenerationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDraft"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_scene_projects__project_id__scenes__scene_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDraft"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_scene_projects__project_id__scenes__scene_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SceneUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneMutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_amendment_projects__project_id__scenes__scene_id__amendments__amendment_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                scene_id: string;
+                amendment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AmendmentCommitResult"];
                 };
             };
             /** @description Validation Error */

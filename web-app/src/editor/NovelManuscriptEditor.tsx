@@ -22,9 +22,11 @@ import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+import { novelDocumentToMarkdown } from './manuscriptMarkdown'
 
 export interface NovelManuscriptValue {
   content: JSONContent
+  markdown: string
   text: string
 }
 
@@ -166,6 +168,7 @@ export function NovelManuscriptEditor({
           onUpdate={({ editor }) =>
             onChange({
               content: editor.getJSON(),
+              markdown: novelDocumentToMarkdown(editor.getJSON()),
               text: editor.getText({ blockSeparator: '\n\n' }),
             })
           }

@@ -136,6 +136,75 @@ const candidate = {
   status: 'reviewed',
 }
 
+const manuscriptReview = {
+  review: {
+    mode: 'manuscript_review',
+    passed: true,
+    summary: '正文仅使用了已确认事实。',
+    issues: [],
+  },
+  new_facts: [],
+}
+
+const storyEvents = [
+  {
+    id: 'event-000004',
+    sequence: 4,
+    source_turn_id: 'turn-04',
+    occurred_at: '2026-07-31T12:00:00Z',
+    summary: '阿岚在主天线里找到烧蚀的校验模块。',
+    participants: ['ara'],
+    public_results: ['主天线校验模块已经烧毁'],
+    hidden_results: [],
+    character_changes: [],
+    world_changes: [],
+    approved_by_user: true,
+  },
+  {
+    id: 'event-000005',
+    sequence: 5,
+    source_turn_id: 'turn-05',
+    occurred_at: '2026-07-31T12:05:00Z',
+    summary: '柏舟启用了最后一套备用氧气循环。',
+    participants: ['bo'],
+    public_results: ['备用氧气循环已经启动'],
+    hidden_results: [],
+    character_changes: [],
+    world_changes: [],
+    approved_by_user: true,
+  },
+]
+
+const sceneDraft = {
+  id: 'scene-000004',
+  project_id: 'north-star',
+  sequence: 4,
+  chapter_id: 'chapter-001',
+  title: '极光下的校验模块',
+  body: '阿岚拆开主天线的防护壳。\n\n烧蚀的校验模块仍有余温。',
+  source_event_ids: ['event-000004'],
+  base_world_version: 4,
+  base_scene_version: 2,
+  revision: 2,
+  review: manuscriptReview,
+  amendment_id: null,
+  status: 'saved',
+} as const
+
+function mockManuscriptWorkspace(
+  scenes: ReadonlyArray<typeof sceneDraft> = [sceneDraft]
+) {
+  h.engineRequest.mockImplementation((path: string) => {
+    if (path === '/projects/north-star/events') {
+      return Promise.resolve(storyEvents)
+    }
+    if (path === '/projects/north-star/scenes') {
+      return Promise.resolve(scenes)
+    }
+    throw new Error(`Unexpected request: ${path}`)
+  })
+}
+
 function mockLoadedProject() {
   h.engineRequest.mockImplementation((path: string) => {
     if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
@@ -430,38 +499,291 @@ describe('Manuscript workspace', () => {
     clearActiveStoryProject()
   })
 
-  it('uses the Novel editor boundary with shadcn manuscript controls', async () => {
+  it('requires an active project and does not load fixture data', () => {
     render(<ManuscriptView />)
 
-    expect(await screen.findByTestId('novel-manuscript-editor')).toBeInTheDocument()
-    expect(screen.getByRole('toolbar', { name: '正文格式工具栏' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '粗体' })).toBeEnabled()
-    expect(
-      screen.getByRole('button', { name: '保留编辑草稿' })
-    ).toBeDisabled()
-    expect(screen.getByRole('button', { name: '从事件生成' })).toBeEnabled()
-    expect(screen.getByText('章节与场景')).toBeInTheDocument()
-    expect(screen.getByText('事实来源')).toBeInTheDocument()
+    expect(screen.getByText('尚未选择故事项目')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '前往投稿' })).toHaveAttribute(
+      'href',
+      '/submission'
+    )
+    expect(h.engineRequest).not.toHaveBeenCalled()
   })
 
-  it('marks title edits as a local unsaved draft', async () => {
+  it('loads canonical events and scenes into the Novel and shadcn workspace', async () => {
+    setActiveStoryProjectId('north-star')
+    mockManuscriptWorkspace()
     render(<ManuscriptView />)
-    await screen.findByTestId('novel-manuscript-editor')
+
+    expect(await screen.findByDisplayValue(sceneDraft.title)).toBeInTheDocument()
+    expect(
+      await screen.findByTestId(
+        'novel-manuscript-editor',
+        {},
+        { timeout: 5000 }
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('toolbar', { name: '正文格式工具栏' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '粗体' })).toBeEnabled()
+    expect(screen.getByText(storyEvents[0].summary)).toBeInTheDocument()
+    expect(screen.getByText('章节与场景')).toBeInTheDocument()
+    expect(screen.getByText('事实来源')).toBeInTheDocument()
+    expect(h.engineRequest).toHaveBeenCalledWith('/projects/north-star/events')
+    expect(h.engineRequest).toHaveBeenCalledWith('/projects/north-star/scenes')
+  })
+
+  it('generates only from the latest unrepresented confirmed event', async () => {
+    setActiveStoryProjectId('north-star')
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/projects/north-star/events') {
+        return Promise.resolve(storyEvents)
+      }
+      if (path === '/projects/north-star/scenes') return Promise.resolve([])
+      if (path === '/projects/north-star/scenes/generate') {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          event_ids: ['event-000005'],
+          chapter_id: 'chapter-001',
+        })
+        return Promise.resolve({
+          ...sceneDraft,
+          id: 'scene-000001',
+          sequence: 1,
+          source_event_ids: ['event-000005'],
+          title: '最后的氧气循环',
+          status: 'reviewed',
+        })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    render(<ManuscriptView />)
+
+    expect(await screen.findByText('从确认事件生成第一幕')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '从事件生成' }))
+
+    expect(await screen.findByDisplayValue('最后的氧气循环')).toBeInTheDocument()
+    expect(h.engineRequest).toHaveBeenCalledWith(
+      '/projects/north-star/scenes/generate',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+
+  it('saves edited Markdown with draft and canonical scene versions', async () => {
+    setActiveStoryProjectId('north-star')
+    const savedDraft = {
+      ...sceneDraft,
+      title: '极光中的校验模块',
+      revision: 3,
+    }
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/projects/north-star/events') return Promise.resolve(storyEvents)
+      if (path === '/projects/north-star/scenes') return Promise.resolve([sceneDraft])
+      if (path === '/projects/north-star/scenes/scene-000004') {
+        const request = JSON.parse(String(init?.body))
+        expect(request).toEqual({
+          title: savedDraft.title,
+          body: sceneDraft.body,
+          expected_revision: 2,
+          expected_scene_version: 2,
+        })
+        return Promise.resolve({
+          status: 'saved',
+          draft: savedDraft,
+          review: manuscriptReview,
+          scene: {
+            id: sceneDraft.id,
+            project_id: sceneDraft.project_id,
+            sequence: sceneDraft.sequence,
+            chapter_id: sceneDraft.chapter_id,
+            title: savedDraft.title,
+            body: sceneDraft.body,
+            source_event_ids: sceneDraft.source_event_ids,
+            version: 3,
+          },
+          amendment: null,
+        })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    render(<ManuscriptView />)
+    await screen.findByDisplayValue(sceneDraft.title)
 
     fireEvent.change(screen.getByRole('textbox', { name: '场景标题' }), {
-      target: { value: '风暴中的灯芯槽' },
+      target: { value: savedDraft.title },
     })
 
     expect(screen.getByText('存在未保存更改')).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: '保留编辑草稿' })
-    ).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '保存并检查事实' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '保留编辑草稿' }))
-
-    expect(screen.getByText('草稿仅保留在当前编辑会话')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: '保留编辑草稿' })
-    ).toBeDisabled()
+      await screen.findByText('事实检查通过，正式 Markdown 已保存')
+    ).toBeInTheDocument()
+    expect(h.engineRequest).toHaveBeenCalledWith(
+      '/projects/north-star/scenes/scene-000004',
+      expect.objectContaining({ method: 'PUT' })
+    )
+  })
+
+  it('keeps new facts out of Canon until the user confirms the Amendment', async () => {
+    setActiveStoryProjectId('north-star')
+    const amendmentReview = {
+      review: {
+        mode: 'manuscript_review',
+        passed: false,
+        summary: '正文包含尚未进入 Canon 的新事实。',
+        issues: [
+          {
+            code: 'new_fact_requires_amendment',
+            message: '新增事实必须先确认。',
+            severity: 'blocking',
+          },
+        ],
+      },
+      new_facts: ['校验模块内藏着一枚旧徽章'],
+    }
+    const amendmentId = 'amendment-scene-000004-000003'
+    const amendmentDraft = {
+      ...sceneDraft,
+      title: '极光中的旧徽章',
+      revision: 3,
+      review: amendmentReview,
+      amendment_id: amendmentId,
+      status: 'amendment_required',
+    }
+    const committedEvent = {
+      ...storyEvents[1],
+      id: 'event-000006',
+      sequence: 6,
+      summary: '校验模块内藏着一枚旧徽章。',
+    }
+    const refreshedDraft = {
+      ...amendmentDraft,
+      base_scene_version: 3,
+      review: manuscriptReview,
+      amendment_id: null,
+      status: 'saved',
+    }
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/projects/north-star/events') return Promise.resolve(storyEvents)
+      if (path === '/projects/north-star/scenes') return Promise.resolve([sceneDraft])
+      if (
+        path === '/projects/north-star/scenes/scene-000004' &&
+        init?.method === 'PUT'
+      ) {
+        return Promise.resolve({
+          status: 'amendment_required',
+          draft: amendmentDraft,
+          review: amendmentReview,
+          scene: null,
+          amendment: {
+            id: amendmentId,
+            project_id: 'north-star',
+            scene_id: sceneDraft.id,
+            source_event_ids: sceneDraft.source_event_ids,
+            proposed_facts: amendmentReview.new_facts,
+            fact_ids: ['fact:old-badge'],
+            base_world_version: 4,
+            draft_revision: 3,
+            status: 'pending',
+          },
+        })
+      }
+      if (path.endsWith(`/${amendmentId}/confirm`)) {
+        return Promise.resolve({
+          scene: {
+            id: sceneDraft.id,
+            project_id: sceneDraft.project_id,
+            sequence: sceneDraft.sequence,
+            chapter_id: sceneDraft.chapter_id,
+            title: amendmentDraft.title,
+            body: amendmentDraft.body,
+            source_event_ids: sceneDraft.source_event_ids,
+            version: 3,
+          },
+          amendment: {
+            id: amendmentId,
+            project_id: 'north-star',
+            scene_id: sceneDraft.id,
+            source_event_ids: sceneDraft.source_event_ids,
+            proposed_facts: amendmentReview.new_facts,
+            fact_ids: ['fact:old-badge'],
+            base_world_version: 4,
+            draft_revision: 3,
+            status: 'committed',
+          },
+          event: committedEvent,
+        })
+      }
+      if (path === '/projects/north-star/scenes/scene-000004') {
+        return Promise.resolve(refreshedDraft)
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    render(<ManuscriptView />)
+    await screen.findByDisplayValue(sceneDraft.title)
+
+    fireEvent.change(screen.getByRole('textbox', { name: '场景标题' }), {
+      target: { value: amendmentDraft.title },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存并检查事实' }))
+
+    expect(await screen.findByText(amendmentReview.new_facts[0])).toBeInTheDocument()
+    expect(
+      screen.getByText('检测到新事实，确认 Amendment 前正式正文不会改变')
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/正式 Markdown 已保存/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认 Amendment' }))
+
+    expect(
+      await screen.findByText(
+        `${committedEvent.id} 已确认，世界、事件与正式正文已原子写入`
+      )
+    ).toBeInTheDocument()
+    expect(h.engineRequest).toHaveBeenCalledWith(
+      `/projects/north-star/scenes/scene-000004/amendments/${amendmentId}/confirm`,
+      { method: 'POST' }
+    )
+  })
+
+  it('exports canonical scenes as a Markdown download', async () => {
+    setActiveStoryProjectId('north-star')
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined)
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:manuscript'),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    })
+    h.engineRequest.mockImplementation((path: string) => {
+      if (path === '/projects/north-star/events') return Promise.resolve(storyEvents)
+      if (path === '/projects/north-star/scenes') return Promise.resolve([sceneDraft])
+      if (path === '/projects/north-star/manuscript/export') {
+        return Promise.resolve({
+          filename: 'north-star-manuscript.md',
+          markdown: `# 北辰\n\n${sceneDraft.body}`,
+        })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    render(<ManuscriptView />)
+    await screen.findByDisplayValue(sceneDraft.title)
+
+    fireEvent.click(screen.getByRole('button', { name: '导出 Markdown' }))
+
+    expect(
+      await screen.findByText('已导出 north-star-manuscript.md')
+    ).toBeInTheDocument()
+    expect(h.engineRequest).toHaveBeenCalledWith(
+      '/projects/north-star/manuscript/export'
+    )
+    expect(click).toHaveBeenCalledOnce()
+
+    click.mockRestore()
   })
 })

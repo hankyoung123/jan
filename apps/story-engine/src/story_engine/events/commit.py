@@ -14,13 +14,20 @@ from story_engine.domain.models import (
     TurnCandidate,
     WorldState,
 )
+from story_engine.manuscript.models import (
+    AmendmentCommitResult,
+    EventAmendmentCandidate,
+    Scene,
+)
 from story_engine.workspace.documents import (
     render_character,
     render_event,
+    render_scene,
     render_world,
 )
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectStore
+from story_engine.workspace.scene_store import SceneStore
 from story_engine.workspace.transaction import AtomicBatch
 
 
@@ -144,6 +151,114 @@ class EventCommitService:
         )
         batch.commit()
         return CommitResult(event=event, candidate=candidate.mark_committed())
+
+    def commit_scene(self, scene: Scene, *, expected_version: int) -> Scene:
+        self._validate_scene(scene, expected_version=expected_version)
+        batch = AtomicBatch(self.root)
+        batch.add(
+            SceneStore.relative_path(scene),
+            render_scene(scene),
+            overwrite=expected_version > 0,
+        )
+        batch.commit()
+        return scene
+
+    def commit_scene_amendment(
+        self,
+        scene: Scene,
+        amendment: EventAmendmentCandidate,
+    ) -> AmendmentCommitResult:
+        if amendment.status != "pending":
+            raise InvalidTransitionError("only a pending amendment can be committed")
+        if amendment.project_id != scene.project_id or amendment.scene_id != scene.id:
+            raise VersionConflictError("amendment does not match scene")
+        snapshot = self.project_store.load()
+        if snapshot.project.id != amendment.project_id:
+            raise VersionConflictError("amendment project does not match workspace")
+        if snapshot.world.version != amendment.base_world_version:
+            raise VersionConflictError("world version changed since manuscript review")
+        self._validate_scene(scene, expected_version=scene.version - 1)
+
+        source_events = {
+            event.id: event for event in self.event_store.list_events()
+        }
+        selected = [
+            source_events.get(event_id) for event_id in amendment.source_event_ids
+        ]
+        if any(event is None or not event.approved_by_user for event in selected):
+            raise VersionConflictError("amendment source event is no longer confirmed")
+
+        previous_fact_ids = snapshot.world.public_fact_ids
+        next_fact_ids = (*previous_fact_ids, *amendment.fact_ids)
+        world_change = StateChange(
+            target_type="world",
+            target_id="world",
+            field="public_fact_ids",
+            old_value=list(previous_fact_ids),
+            new_value=list(next_fact_ids),
+            reason="用户确认正文新增事实的 Event Amendment",
+        )
+        updated_world = snapshot.world.model_copy(
+            update={
+                "public_fact_ids": next_fact_ids,
+                "version": snapshot.world.version + 1,
+            }
+        )
+        sequence = self.event_store.next_sequence()
+        event = StoryEvent(
+            id=f"event-{sequence:06d}",
+            sequence=sequence,
+            occurred_at=self.clock(),
+            summary="正文补充事实: " + "; ".join(amendment.proposed_facts),
+            participants=tuple(
+                sorted(
+                    {
+                        participant
+                        for event in selected
+                        if event is not None
+                        for participant in event.participants
+                    }
+                )
+            ),
+            public_results=amendment.proposed_facts,
+            world_changes=(world_change,),
+            source_turn_id=amendment.id,
+            approved_by_user=True,
+        )
+        committed = amendment.mark_committed()
+        batch = AtomicBatch(self.root)
+        batch.add("world.md", render_world(updated_world))
+        batch.add(
+            f"events/{sequence:06d}.md",
+            render_event(event),
+            overwrite=False,
+        )
+        batch.add(
+            SceneStore.relative_path(scene),
+            render_scene(scene),
+            overwrite=scene.version > 1,
+        )
+        batch.commit()
+        return AmendmentCommitResult(
+            scene=scene,
+            amendment=committed,
+            event=event,
+        )
+
+    def _validate_scene(self, scene: Scene, *, expected_version: int) -> None:
+        snapshot = self.project_store.load()
+        if snapshot.project.id != scene.project_id:
+            raise VersionConflictError("scene project does not match workspace")
+        try:
+            current = SceneStore(self.root).load(scene.id)
+        except FileNotFoundError:
+            current = None
+        if expected_version == 0 and current is not None:
+            raise VersionConflictError("scene already exists")
+        if expected_version > 0 and (
+            current is None or current.version != expected_version
+        ):
+            raise VersionConflictError("scene version changed")
 
     def _apply_world_changes(
         self,

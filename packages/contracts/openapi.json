@@ -1,6 +1,27 @@
 {
   "components": {
     "schemas": {
+      "AmendmentCommitResult": {
+        "additionalProperties": false,
+        "properties": {
+          "amendment": {
+            "$ref": "#/components/schemas/EventAmendmentCandidate"
+          },
+          "event": {
+            "$ref": "#/components/schemas/StoryEvent"
+          },
+          "scene": {
+            "$ref": "#/components/schemas/Scene"
+          }
+        },
+        "required": [
+          "scene",
+          "amendment",
+          "event"
+        ],
+        "title": "AmendmentCommitResult",
+        "type": "object"
+      },
       "Character": {
         "additionalProperties": false,
         "properties": {
@@ -198,6 +219,81 @@
         "title": "CommitResult",
         "type": "object"
       },
+      "EventAmendmentCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "base_world_version": {
+            "minimum": 0.0,
+            "title": "Base World Version",
+            "type": "integer"
+          },
+          "draft_revision": {
+            "minimum": 1.0,
+            "title": "Draft Revision",
+            "type": "integer"
+          },
+          "fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Fact Ids",
+            "type": "array"
+          },
+          "id": {
+            "pattern": "^amendment-scene-[0-9]{6}-[0-9]{6}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "minLength": 1,
+            "title": "Project Id",
+            "type": "string"
+          },
+          "proposed_facts": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Proposed Facts",
+            "type": "array"
+          },
+          "scene_id": {
+            "pattern": "^scene-[0-9]{6}$",
+            "title": "Scene Id",
+            "type": "string"
+          },
+          "source_event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Source Event Ids",
+            "type": "array"
+          },
+          "status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "committed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "scene_id",
+          "source_event_ids",
+          "proposed_facts",
+          "fact_ids",
+          "base_world_version",
+          "draft_revision"
+        ],
+        "title": "EventAmendmentCandidate",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -235,6 +331,47 @@
         "type": "object"
       },
       "JsonValue": {},
+      "ManuscriptExport": {
+        "additionalProperties": false,
+        "properties": {
+          "filename": {
+            "minLength": 1,
+            "title": "Filename",
+            "type": "string"
+          },
+          "markdown": {
+            "title": "Markdown",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "markdown"
+        ],
+        "title": "ManuscriptExport",
+        "type": "object"
+      },
+      "ManuscriptReviewOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "new_facts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "New Facts",
+            "type": "array"
+          },
+          "review": {
+            "$ref": "#/components/schemas/ReviewResult"
+          }
+        },
+        "required": [
+          "review"
+        ],
+        "title": "ManuscriptReviewOutput",
+        "type": "object"
+      },
       "Message": {
         "additionalProperties": false,
         "properties": {
@@ -732,6 +869,284 @@
           "instruction"
         ],
         "title": "RevisionRequest",
+        "type": "object"
+      },
+      "Scene": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "chapter_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Chapter Id",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^scene-[0-9]{6}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "minLength": 1,
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sequence": {
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "source_event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Source Event Ids",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "sequence",
+          "chapter_id",
+          "title",
+          "body",
+          "source_event_ids",
+          "version"
+        ],
+        "title": "Scene",
+        "type": "object"
+      },
+      "SceneDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "amendment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amendment Id"
+          },
+          "base_scene_version": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Base Scene Version",
+            "type": "integer"
+          },
+          "base_world_version": {
+            "minimum": 0.0,
+            "title": "Base World Version",
+            "type": "integer"
+          },
+          "body": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "chapter_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Chapter Id",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^scene-[0-9]{6}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "minLength": 1,
+            "title": "Project Id",
+            "type": "string"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManuscriptReviewOutput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "sequence": {
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "source_event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Source Event Ids",
+            "type": "array"
+          },
+          "status": {
+            "default": "draft",
+            "enum": [
+              "draft",
+              "reviewed",
+              "needs_revision",
+              "amendment_required",
+              "saved"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "sequence",
+          "chapter_id",
+          "title",
+          "body",
+          "source_event_ids",
+          "base_world_version"
+        ],
+        "title": "SceneDraft",
+        "type": "object"
+      },
+      "SceneGenerationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "chapter_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Chapter Id",
+            "type": "string"
+          },
+          "event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Event Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "event_ids",
+          "chapter_id"
+        ],
+        "title": "SceneGenerationRequest",
+        "type": "object"
+      },
+      "SceneMutationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "amendment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventAmendmentCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft": {
+            "$ref": "#/components/schemas/SceneDraft"
+          },
+          "review": {
+            "$ref": "#/components/schemas/ManuscriptReviewOutput"
+          },
+          "scene": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Scene"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "saved",
+              "amendment_required",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "draft",
+          "review"
+        ],
+        "title": "SceneMutationResult",
+        "type": "object"
+      },
+      "SceneUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "expected_scene_version": {
+            "minimum": 0.0,
+            "title": "Expected Scene Version",
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "body",
+          "expected_revision",
+          "expected_scene_version"
+        ],
+        "title": "SceneUpdateRequest",
         "type": "object"
       },
       "StateChange": {
@@ -1863,6 +2278,346 @@
         "summary": "List Events",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/projects/{project_id}/manuscript/export": {
+      "get": {
+        "operationId": "export_manuscript_projects__project_id__manuscript_export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManuscriptExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Export Manuscript",
+        "tags": [
+          "manuscript"
+        ]
+      }
+    },
+    "/projects/{project_id}/scenes": {
+      "get": {
+        "operationId": "list_scenes_projects__project_id__scenes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SceneDraft"
+                  },
+                  "title": "Response List Scenes Projects  Project Id  Scenes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Scenes",
+        "tags": [
+          "manuscript"
+        ]
+      }
+    },
+    "/projects/{project_id}/scenes/generate": {
+      "post": {
+        "operationId": "generate_scene_projects__project_id__scenes_generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SceneGenerationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SceneDraft"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Generate Scene",
+        "tags": [
+          "manuscript"
+        ]
+      }
+    },
+    "/projects/{project_id}/scenes/{scene_id}": {
+      "get": {
+        "operationId": "get_scene_projects__project_id__scenes__scene_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scene_id",
+            "required": true,
+            "schema": {
+              "title": "Scene Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SceneDraft"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Scene",
+        "tags": [
+          "manuscript"
+        ]
+      },
+      "put": {
+        "operationId": "update_scene_projects__project_id__scenes__scene_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scene_id",
+            "required": true,
+            "schema": {
+              "title": "Scene Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SceneUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SceneMutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Update Scene",
+        "tags": [
+          "manuscript"
+        ]
+      }
+    },
+    "/projects/{project_id}/scenes/{scene_id}/amendments/{amendment_id}/confirm": {
+      "post": {
+        "operationId": "confirm_amendment_projects__project_id__scenes__scene_id__amendments__amendment_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scene_id",
+            "required": true,
+            "schema": {
+              "title": "Scene Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "amendment_id",
+            "required": true,
+            "schema": {
+              "title": "Amendment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmendmentCommitResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Confirm Amendment",
+        "tags": [
+          "manuscript"
         ]
       }
     },
