@@ -29,3 +29,17 @@ their source code or binaries.
 
 Full license text and per-directory migration records belong in `licenses/`.
 
+## Desktop runtime and UI dependencies
+
+The desktop product currently links or bundles the following package families:
+
+- Tauri 2.x and its Rust dependencies: Apache-2.0 / MIT
+- React 19 and React DOM: MIT
+- React Router: MIT
+- Lucide React: ISC
+- Source Sans 3 variable font: SIL Open Font License 1.1
+- Newsreader variable font: SIL Open Font License 1.1
+
+These are consumed as package dependencies; their source files and trademarks
+have not been copied or modified. Exact resolved versions are recorded in
+`pnpm-lock.yaml` and `apps/desktop/src-tauri/Cargo.lock`.

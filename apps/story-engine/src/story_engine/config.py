@@ -11,6 +11,12 @@ class EngineSettings:
     host: str = "127.0.0.1"
     port: int = 0
     projects_root: Path = field(default_factory=lambda: Path.cwd() / "projects")
+    allowed_origins: tuple[str, ...] = (
+        "http://127.0.0.1:1420",
+        "http://localhost:1420",
+        "http://tauri.localhost",
+        "tauri://localhost",
+    )
 
     def __post_init__(self) -> None:
         if not self.session_token:

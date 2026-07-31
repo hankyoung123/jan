@@ -3,6 +3,7 @@ from secrets import compare_digest
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -62,6 +63,13 @@ def create_app(settings: EngineSettings | None = None) -> FastAPI:
         description="Local story-domain sidecar API",
     )
     app.state.settings = runtime_settings
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(runtime_settings.allowed_origins),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
     @app.get("/health", response_model=HealthResponse, tags=["system"])
     async def health() -> HealthResponse:

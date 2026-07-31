@@ -34,6 +34,40 @@ packages/editor    Tiptap-based manuscript editor
 - uv
 - Python 3.12
 
-Development and verification commands will be added with the first runnable
-vertical slice.
+## Development
 
+Install workspace dependencies and start the Story Engine:
+
+```bash
+pnpm install
+uv run --project apps/story-engine story-engine serve \
+  --port 39281 --session-token development-token
+```
+
+In another terminal, start the desktop web surface:
+
+```bash
+pnpm desktop:dev
+```
+
+Open `http://127.0.0.1:1420`. To run the native shell, use:
+
+```bash
+pnpm --filter @story-engine/desktop tauri:dev
+```
+
+## Quality gates
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm contracts:check
+pnpm --filter @story-engine/desktop tauri:build
+```
+
+The current shell, navigation, and brand assets are original product code. Jan
+remains the locked upstream reference for lifecycle, model-center, settings,
+and desktop interaction patterns; no Jan source file or trademark asset has
+been copied into this baseline.
