@@ -425,6 +425,10 @@ mod tests {
             Some("com.storyengine.desktop")
         );
         assert!(json
+            .pointer("/build/beforeDevCommand")
+            .and_then(Value::as_str)
+            .is_some_and(|command| command.contains("AUTO_UPDATER_DISABLED=true")));
+        assert!(!json
             .pointer("/build/beforeBuildCommand")
             .and_then(Value::as_str)
             .is_some_and(|command| command.contains("AUTO_UPDATER_DISABLED=true")));

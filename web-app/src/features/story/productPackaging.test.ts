@@ -83,6 +83,22 @@ describe('Story Engine packaged Sidecar boundary', () => {
     )
   })
 
+  it('keeps updater controls disabled only for development builds', () => {
+    const config = readJson('src-tauri/tauri.conf.json') as {
+      build: {
+        beforeDevCommand: string
+        beforeBuildCommand: string
+      }
+    }
+
+    expect(config.build.beforeDevCommand).toContain(
+      'AUTO_UPDATER_DISABLED=true'
+    )
+    expect(config.build.beforeBuildCommand).not.toContain(
+      'AUTO_UPDATER_DISABLED=true'
+    )
+  })
+
   it('keeps generated Sidecar binaries out of source control', () => {
     const tracked = execFileSync(
       'git',

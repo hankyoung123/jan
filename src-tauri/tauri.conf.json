@@ -7,7 +7,7 @@
     "frontendDist": "../web-app/dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "cross-env IS_TAURI=true IS_DEV=true AUTO_UPDATER_DISABLED=true yarn dev:web",
-    "beforeBuildCommand": "cross-env IS_TAURI=true AUTO_UPDATER_DISABLED=true yarn build:web"
+    "beforeBuildCommand": "cross-env IS_TAURI=true yarn build:web"
   },
   "app": {
     "macOSPrivateApi": true,
