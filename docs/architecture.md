@@ -45,6 +45,14 @@ candidate -> schema validation -> editor review -> user approval
 An unapproved turn may write only to `.story-engine/turns` and
 `.story-engine/reviews`.
 
+`SubmissionService` validates the runnable initial package before creating a
+project directory. During evolution, `CharacterContextAssembler` combines
+public world facts with only the selected character's private fact IDs.
+`EvolutionService` generates each intent from one such context, performs one
+unified resolution, and obtains an Editor review before exposing a candidate
+to React. Other characters' private facts and current-turn intents are absent
+from every character context.
+
 ## Dependency direction
 
 ```text
@@ -69,4 +77,3 @@ or outcome values.
 
 See [ADR-0001](adr/0001-platform-and-upstream-locks.md) and
 [ADR-0002](adr/0002-markdown-canonical-state.md).
-

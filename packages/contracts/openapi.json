@@ -20,6 +20,17 @@
             ],
             "title": "Current Goal"
           },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
           "emotional_state": {
             "anyOf": [
               {
@@ -313,60 +324,6 @@
         "title": "ProjectDocument",
         "type": "object"
       },
-      "ProjectSeed": {
-        "additionalProperties": false,
-        "properties": {
-          "characters": {
-            "items": {
-              "$ref": "#/components/schemas/Character"
-            },
-            "maxItems": 4,
-            "minItems": 1,
-            "title": "Characters",
-            "type": "array"
-          },
-          "genre": {
-            "minLength": 1,
-            "title": "Genre",
-            "type": "string"
-          },
-          "id": {
-            "minLength": 1,
-            "pattern": "^[a-z0-9][a-z0-9-]*$",
-            "title": "Id",
-            "type": "string"
-          },
-          "theme": {
-            "minLength": 1,
-            "title": "Theme",
-            "type": "string"
-          },
-          "title": {
-            "minLength": 1,
-            "title": "Title",
-            "type": "string"
-          },
-          "tone": {
-            "minLength": 1,
-            "title": "Tone",
-            "type": "string"
-          },
-          "world": {
-            "$ref": "#/components/schemas/WorldState"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "genre",
-          "theme",
-          "tone",
-          "world",
-          "characters"
-        ],
-        "title": "ProjectSeed",
-        "type": "object"
-      },
       "ProjectSnapshot": {
         "additionalProperties": false,
         "properties": {
@@ -490,6 +447,22 @@
           "summary"
         ],
         "title": "ReviewResult",
+        "type": "object"
+      },
+      "RevisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "instruction": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instruction"
+        ],
+        "title": "RevisionRequest",
         "type": "object"
       },
       "StateChange": {
@@ -632,6 +605,174 @@
         "title": "StoryEvent",
         "type": "object"
       },
+      "SubmissionCharacter": {
+        "additionalProperties": false,
+        "properties": {
+          "core_desire": {
+            "minLength": 1,
+            "title": "Core Desire",
+            "type": "string"
+          },
+          "current_goal": {
+            "minLength": 1,
+            "title": "Current Goal",
+            "type": "string"
+          },
+          "display_name": {
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "emotional_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotional State"
+          },
+          "id": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "identity": {
+            "minLength": 1,
+            "title": "Identity",
+            "type": "string"
+          },
+          "known_fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Known Fact Ids",
+            "type": "array"
+          },
+          "location": {
+            "minLength": 1,
+            "title": "Location",
+            "type": "string"
+          },
+          "resources": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Resources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "identity",
+          "core_desire",
+          "current_goal",
+          "known_fact_ids",
+          "location"
+        ],
+        "title": "SubmissionCharacter",
+        "type": "object"
+      },
+      "SubmissionPackage": {
+        "additionalProperties": false,
+        "properties": {
+          "characters": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionCharacter"
+            },
+            "maxItems": 4,
+            "minItems": 2,
+            "title": "Characters",
+            "type": "array"
+          },
+          "genre": {
+            "minLength": 1,
+            "title": "Genre",
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "initial_incident": {
+            "minLength": 1,
+            "title": "Initial Incident",
+            "type": "string"
+          },
+          "initial_location": {
+            "minLength": 1,
+            "title": "Initial Location",
+            "type": "string"
+          },
+          "initial_time": {
+            "minLength": 1,
+            "title": "Initial Time",
+            "type": "string"
+          },
+          "pressures": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Pressures",
+            "type": "array"
+          },
+          "public_fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Public Fact Ids",
+            "type": "array"
+          },
+          "theme": {
+            "minLength": 1,
+            "title": "Theme",
+            "type": "string"
+          },
+          "title": {
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "tone": {
+            "minLength": 1,
+            "title": "Tone",
+            "type": "string"
+          },
+          "world_rules": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "World Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "genre",
+          "theme",
+          "tone",
+          "world_rules",
+          "public_fact_ids",
+          "characters",
+          "initial_time",
+          "initial_location",
+          "initial_incident"
+        ],
+        "title": "SubmissionPackage",
+        "type": "object"
+      },
       "TurnCandidate": {
         "additionalProperties": false,
         "properties": {
@@ -701,6 +842,21 @@
           "outcome"
         ],
         "title": "TurnCandidate",
+        "type": "object"
+      },
+      "TurnGenerationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "participant_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Participant Ids",
+            "type": "array"
+          }
+        },
+        "title": "TurnGenerationRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -841,6 +997,14 @@
             "title": "Public Fact Ids",
             "type": "array"
           },
+          "rules": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
           "version": {
             "default": 0,
             "minimum": 0.0,
@@ -936,52 +1100,6 @@
         "summary": "Health",
         "tags": [
           "system"
-        ]
-      }
-    },
-    "/projects": {
-      "post": {
-        "operationId": "create_project_projects_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProjectSeed"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectSnapshot"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Create Project",
-        "tags": [
-          "projects"
         ]
       }
     },
@@ -1081,9 +1199,9 @@
         ]
       }
     },
-    "/projects/{project_id}/turns": {
+    "/projects/{project_id}/turns/generate": {
       "post": {
-        "operationId": "create_turn_projects__project_id__turns_post",
+        "operationId": "generate_turn_projects__project_id__turns_generate_post",
         "parameters": [
           {
             "in": "path",
@@ -1099,7 +1217,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TurnCandidate"
+                "$ref": "#/components/schemas/TurnGenerationRequest"
               }
             }
           },
@@ -1132,7 +1250,7 @@
             "SessionToken": []
           }
         ],
-        "summary": "Create Turn",
+        "summary": "Generate Turn",
         "tags": [
           "projects"
         ]
@@ -1194,9 +1312,9 @@
         ]
       }
     },
-    "/projects/{project_id}/turns/{turn_id}/approve": {
+    "/projects/{project_id}/turns/{turn_id}/confirm": {
       "post": {
-        "operationId": "approve_turn_projects__project_id__turns__turn_id__approve_post",
+        "operationId": "confirm_turn_projects__project_id__turns__turn_id__confirm_post",
         "parameters": [
           {
             "in": "path",
@@ -1244,7 +1362,7 @@
             "SessionToken": []
           }
         ],
-        "summary": "Approve Turn",
+        "summary": "Confirm Turn",
         "tags": [
           "projects"
         ]
@@ -1306,9 +1424,9 @@
         ]
       }
     },
-    "/projects/{project_id}/turns/{turn_id}/review": {
+    "/projects/{project_id}/turns/{turn_id}/request-revision": {
       "post": {
-        "operationId": "review_turn_projects__project_id__turns__turn_id__review_post",
+        "operationId": "request_turn_revision_projects__project_id__turns__turn_id__request_revision_post",
         "parameters": [
           {
             "in": "path",
@@ -1333,7 +1451,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReviewResult"
+                "$ref": "#/components/schemas/RevisionRequest"
               }
             }
           },
@@ -1366,7 +1484,53 @@
             "SessionToken": []
           }
         ],
-        "summary": "Review Turn",
+        "summary": "Request Turn Revision",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/submissions/finalize": {
+      "post": {
+        "operationId": "finalize_submission_submissions_finalize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionPackage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Finalize Submission",
         "tags": [
           "projects"
         ]

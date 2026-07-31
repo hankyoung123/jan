@@ -4,6 +4,7 @@ import {
   CalendarClock,
   Clapperboard,
   LayoutDashboard,
+  MessageSquarePlus,
   Settings2,
   Sparkles,
   UsersRound,
@@ -20,6 +21,7 @@ import {
   WorkbenchView,
   WorldView,
 } from "../views";
+import { SubmissionView } from "../features/submission/SubmissionView";
 
 export interface ProductRoute {
   path: string;
@@ -29,6 +31,12 @@ export interface ProductRoute {
 }
 
 export const productRoutes: ProductRoute[] = [
+  {
+    path: "/submission",
+    label: "投稿",
+    icon: MessageSquarePlus,
+    element: <SubmissionView />,
+  },
   {
     path: "/",
     label: "工作台",
@@ -78,4 +86,3 @@ export const productRoutes: ProductRoute[] = [
     element: <SettingsView />,
   },
 ];
-

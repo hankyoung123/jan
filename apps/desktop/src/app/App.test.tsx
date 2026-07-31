@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "./App";
 
 const navigation = [
+  "投稿",
   "工作台",
   "推进故事",
   "角色",
@@ -68,4 +69,3 @@ describe("AppShell", () => {
     });
   });
 });
-

@@ -1,16 +1,12 @@
 import {
   ArrowRight,
   Check,
-  CheckCircle2,
   ChevronDown,
   FileText,
   Filter,
   LockKeyhole,
   MoreHorizontal,
-  Pause,
-  Play,
   Plus,
-  RefreshCw,
   Save,
   Search,
   ShieldCheck,
@@ -20,6 +16,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+
+import { EvolutionWorkspace } from "./features/evolution/EvolutionView";
 
 function PageHeader({
   title,
@@ -183,92 +181,8 @@ export function WorkbenchView() {
   );
 }
 
-const turnSteps = [
-  "当前局面",
-  "角色行动",
-  "世界结算",
-  "编辑检查",
-  "用户确认",
-  "正文",
-];
-
 export function EvolutionView() {
-  const [running, setRunning] = useState(false);
-  return (
-    <div className="page evolution-page">
-      <PageHeader
-        eyebrow="第 13 回合"
-        title="推进故事"
-        action={
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => setRunning((value) => !value)}
-          >
-            {running ? <Pause size={16} /> : <Play size={16} />}
-            {running ? "暂停生成" : "生成角色行动"}
-          </button>
-        }
-      />
-
-      <ol className="turn-steps" aria-label="回合进度">
-        {turnSteps.map((step, index) => (
-          <li
-            className={index === 1 ? "current" : index < 1 ? "done" : ""}
-            key={step}
-          >
-            <span>{index < 1 ? <Check size={14} /> : index + 1}</span>
-            {step}
-          </li>
-        ))}
-      </ol>
-
-      <section className="turn-context">
-        <div>
-          <p className="section-kicker">当前局面</p>
-          <h2>暴雨增大，海燕号进入近港航道</h2>
-        </div>
-        <StatusBadge tone="pending">世界版本 12</StatusBadge>
-      </section>
-
-      <section className="agent-work">
-        <div className="panel-heading">
-          <div>
-            <p className="section-kicker">私有上下文已隔离</p>
-            <h2>角色行动</h2>
-          </div>
-          <span className="quiet-meta">2 / 3 完成</span>
-        </div>
-        <div className="agent-row complete">
-          <CheckCircle2 size={18} />
-          <div className="agent-name">
-            <strong>陈默</strong>
-            <span>灯塔一层</span>
-          </div>
-          <p>拆开灯芯槽底板，寻找刮痕延伸方向</p>
-          <StatusBadge tone="confirmed">已完成</StatusBadge>
-        </div>
-        <div className="agent-row complete">
-          <CheckCircle2 size={18} />
-          <div className="agent-name">
-            <strong>林岚</strong>
-            <span>港务所</span>
-          </div>
-          <p>联系海燕号船长，要求降低航速并报告能见度</p>
-          <StatusBadge tone="confirmed">已完成</StatusBadge>
-        </div>
-        <div className={`agent-row ${running ? "running" : ""}`}>
-          <RefreshCw size={18} />
-          <div className="agent-name">
-            <strong>周放</strong>
-            <span>旧码头</span>
-          </div>
-          <p>{running ? "正在依据私有知识生成行动…" : "等待生成"}</p>
-          <StatusBadge tone="pending">{running ? "生成中" : "待开始"}</StatusBadge>
-        </div>
-      </section>
-    </div>
-  );
+  return <EvolutionWorkspace />;
 }
 
 export function CharactersView() {

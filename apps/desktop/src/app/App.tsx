@@ -43,7 +43,16 @@ function EngineStatus() {
   );
 }
 
-function Inspector() {
+function Inspector({ path }: { path: string }) {
+  const isSubmission = path === "/submission";
+  const isEvolution = path === "/evolve";
+  const version = isSubmission ? "未创建" : isEvolution ? "待确认" : "12";
+  const versionDetail = isSubmission
+    ? "确认投稿后创建世界版本 0"
+    : isEvolution
+      ? "候选不会改变正式版本"
+      : "最后提交 event-000012";
+  const contextCount = isSubmission || isEvolution ? 2 : 3;
   return (
     <aside className="inspector" aria-label="当前上下文">
       <header>
@@ -55,8 +64,8 @@ function Inspector() {
       </header>
       <section>
         <h3>世界版本</h3>
-        <p className="inspector-value">12</p>
-        <small>最后提交 event-000012</small>
+        <p className={`inspector-value ${isSubmission || isEvolution ? "inspector-text-value" : ""}`}>{version}</p>
+        <small>{versionDetail}</small>
       </section>
       <section>
         <h3>当前压力</h3>
@@ -80,7 +89,7 @@ function Inspector() {
         <div className="privacy-check">
           <BookOpen size={15} />
           <span>
-            <strong>3 个私有上下文</strong>
+            <strong>{contextCount} 个私有上下文</strong>
             <small>未检测到跨角色泄漏</small>
           </span>
         </div>
@@ -224,7 +233,7 @@ export function AppShell() {
         </main>
       </div>
 
-      {inspectorOpen && <Inspector />}
+      {inspectorOpen && <Inspector path={location.pathname} />}
     </div>
   );
 }
@@ -236,4 +245,3 @@ export function App() {
     </HashRouter>
   );
 }
-

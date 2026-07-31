@@ -4,65 +4,9 @@ from fastapi.testclient import TestClient
 
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
+from story_engine.submission.service import fog_harbor_submission
 
 AUTH = {"Authorization": "Bearer test-token"}
-
-
-def _project_payload() -> dict[str, object]:
-    return {
-        "id": "fog-harbor",
-        "title": "雾港",
-        "genre": "悬疑",
-        "theme": "真相与亲情之间的选择",
-        "tone": "克制",
-        "world": {
-            "current_time": "暴风雨前夜",
-            "current_location": "雾港",
-            "version": 0,
-        },
-        "characters": [
-            {
-                "id": "chen-mo",
-                "type": "active",
-                "identity": "机械工程师",
-                "core_desire": "查明真相",
-                "current_goal": "检查灯塔",
-                "location": "港务所",
-                "version": 0,
-            }
-        ],
-    }
-
-
-def _turn_payload() -> dict[str, object]:
-    return {
-        "id": "turn-000001",
-        "project_id": "fog-harbor",
-        "base_world_version": 0,
-        "base_character_versions": {"chen-mo": 0},
-        "intents": [
-            {
-                "character_id": "chen-mo",
-                "action": "前往灯塔",
-                "target": "灯塔",
-                "goal": "检查灯芯槽",
-                "knowledge_basis": ["fact:lighthouse-never-off"],
-            }
-        ],
-        "outcome": {
-            "summary": "陈默抵达灯塔。",
-            "character_changes": [
-                {
-                    "target_type": "character",
-                    "target_id": "chen-mo",
-                    "field": "location",
-                    "old_value": "港务所",
-                    "new_value": "灯塔一层",
-                    "reason": "角色移动",
-                }
-            ],
-        },
-    }
 
 
 def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
@@ -75,32 +19,25 @@ def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
         )
     )
 
-    created = client.post("/projects", headers=AUTH, json=_project_payload())
+    created = client.post(
+        "/submissions/finalize",
+        headers=AUTH,
+        json=fog_harbor_submission().model_dump(mode="json"),
+    )
     assert created.status_code == 201
     assert created.json()["project"]["id"] == "fog-harbor"
 
     turn = client.post(
-        "/projects/fog-harbor/turns",
+        "/projects/fog-harbor/turns/generate",
         headers=AUTH,
-        json=_turn_payload(),
+        json={},
     )
     assert turn.status_code == 201
-    assert turn.json()["status"] == "draft"
-
-    reviewed = client.post(
-        "/projects/fog-harbor/turns/turn-000001/review",
-        headers=AUTH,
-        json={
-            "mode": "turn_review",
-            "passed": True,
-            "summary": "检查通过。",
-        },
-    )
-    assert reviewed.status_code == 200
-    assert reviewed.json()["status"] == "reviewed"
+    assert turn.json()["status"] == "reviewed"
+    assert len(turn.json()["intents"]) == 2
 
     approved = client.post(
-        "/projects/fog-harbor/turns/turn-000001/approve",
+        "/projects/fog-harbor/turns/turn-000001/confirm",
         headers=AUTH,
     )
     assert approved.status_code == 200
@@ -109,7 +46,41 @@ def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
 
     project = client.get("/projects/fog-harbor", headers=AUTH)
     assert project.status_code == 200
-    assert project.json()["characters"][0]["location"] == "灯塔一层"
+    assert project.json()["world"]["version"] == 1
+    assert all(character["version"] == 1 for character in project.json()["characters"])
+
+
+def test_turn_api_exposes_only_revision_confirmation_and_discard_actions(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path)
+    )
+    paths = app.openapi()["paths"]
+
+    assert "/projects/{project_id}/turns/{turn_id}/request-revision" in paths
+    assert "/projects/{project_id}/turns/{turn_id}/confirm" in paths
+    assert "/projects/{project_id}/turns/{turn_id}/discard" in paths
+    assert "/projects/{project_id}/turns/{turn_id}/review" not in paths
+    assert "/projects/{project_id}/turns/{turn_id}/approve" not in paths
+    assert "/projects/{project_id}/turns" not in paths
+
+
+def test_unrunnable_submission_returns_conflict_without_project(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            EngineSettings(session_token="test-token", projects_root=tmp_path)
+        )
+    )
+    payload = fog_harbor_submission().model_dump(mode="json")
+    payload["pressures"] = []
+    for character in payload["characters"]:
+        character["current_goal"] = "等待天亮"
+
+    response = client.post("/submissions/finalize", headers=AUTH, json=payload)
+
+    assert response.status_code == 409
+    assert not (tmp_path / "fog-harbor").exists()
 
 
 def test_project_routes_require_session_token(tmp_path: Path) -> None:
@@ -122,8 +93,10 @@ def test_project_routes_require_session_token(tmp_path: Path) -> None:
         )
     )
 
-    response = client.post("/projects", json=_project_payload())
+    response = client.post(
+        "/submissions/finalize",
+        json=fog_harbor_submission().model_dump(mode="json"),
+    )
 
     assert response.status_code == 401
     assert not (tmp_path / "fog-harbor").exists()
-

@@ -35,23 +35,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Project */
-        post: operations["create_project_projects_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -86,7 +69,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/turns": {
+    "/projects/{project_id}/turns/generate": {
         parameters: {
             query?: never;
             header?: never;
@@ -95,8 +78,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Turn */
-        post: operations["create_turn_projects__project_id__turns_post"];
+        /** Generate Turn */
+        post: operations["generate_turn_projects__project_id__turns_generate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -120,7 +103,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/turns/{turn_id}/approve": {
+    "/projects/{project_id}/turns/{turn_id}/confirm": {
         parameters: {
             query?: never;
             header?: never;
@@ -129,8 +112,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approve Turn */
-        post: operations["approve_turn_projects__project_id__turns__turn_id__approve_post"];
+        /** Confirm Turn */
+        post: operations["confirm_turn_projects__project_id__turns__turn_id__confirm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -154,7 +137,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/turns/{turn_id}/review": {
+    "/projects/{project_id}/turns/{turn_id}/request-revision": {
         parameters: {
             query?: never;
             header?: never;
@@ -163,8 +146,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Review Turn */
-        post: operations["review_turn_projects__project_id__turns__turn_id__review_post"];
+        /** Request Turn Revision */
+        post: operations["request_turn_revision_projects__project_id__turns__turn_id__request_revision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/submissions/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finalize Submission */
+        post: operations["finalize_submission_submissions_finalize_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -181,6 +181,8 @@ export interface components {
             core_desire: string;
             /** Current Goal */
             current_goal?: string | null;
+            /** Display Name */
+            display_name?: string | null;
             /** Emotional State */
             emotional_state?: string | null;
             /** Id */
@@ -287,22 +289,6 @@ export interface components {
              */
             version: number;
         };
-        /** ProjectSeed */
-        ProjectSeed: {
-            /** Characters */
-            characters: components["schemas"]["Character"][];
-            /** Genre */
-            genre: string;
-            /** Id */
-            id: string;
-            /** Theme */
-            theme: string;
-            /** Title */
-            title: string;
-            /** Tone */
-            tone: string;
-            world: components["schemas"]["WorldState"];
-        };
         /** ProjectSnapshot */
         ProjectSnapshot: {
             /** Characters */
@@ -350,6 +336,11 @@ export interface components {
             passed: boolean;
             /** Summary */
             summary: string;
+        };
+        /** RevisionRequest */
+        RevisionRequest: {
+            /** Instruction */
+            instruction: string;
         };
         /** StateChange */
         StateChange: {
@@ -412,6 +403,60 @@ export interface components {
              */
             world_changes: components["schemas"]["StateChange"][];
         };
+        /** SubmissionCharacter */
+        SubmissionCharacter: {
+            /** Core Desire */
+            core_desire: string;
+            /** Current Goal */
+            current_goal: string;
+            /** Display Name */
+            display_name: string;
+            /** Emotional State */
+            emotional_state?: string | null;
+            /** Id */
+            id: string;
+            /** Identity */
+            identity: string;
+            /** Known Fact Ids */
+            known_fact_ids: string[];
+            /** Location */
+            location: string;
+            /**
+             * Resources
+             * @default []
+             */
+            resources: string[];
+        };
+        /** SubmissionPackage */
+        SubmissionPackage: {
+            /** Characters */
+            characters: components["schemas"]["SubmissionCharacter"][];
+            /** Genre */
+            genre: string;
+            /** Id */
+            id: string;
+            /** Initial Incident */
+            initial_incident: string;
+            /** Initial Location */
+            initial_location: string;
+            /** Initial Time */
+            initial_time: string;
+            /**
+             * Pressures
+             * @default []
+             */
+            pressures: string[];
+            /** Public Fact Ids */
+            public_fact_ids: string[];
+            /** Theme */
+            theme: string;
+            /** Title */
+            title: string;
+            /** Tone */
+            tone: string;
+            /** World Rules */
+            world_rules: string[];
+        };
         /** TurnCandidate */
         TurnCandidate: {
             /** Base Character Versions */
@@ -434,6 +479,14 @@ export interface components {
              * @enum {string}
              */
             status: "draft" | "reviewed" | "needs_revision" | "approved" | "discarded" | "committed";
+        };
+        /** TurnGenerationRequest */
+        TurnGenerationRequest: {
+            /**
+             * Participant Ids
+             * @default []
+             */
+            participant_ids: string[];
         };
         /** ValidationError */
         ValidationError: {
@@ -500,6 +553,11 @@ export interface components {
              */
             public_fact_ids: string[];
             /**
+             * Rules
+             * @default []
+             */
+            rules: string[];
+            /**
              * Version
              * @default 0
              */
@@ -554,39 +612,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
-                };
-            };
-        };
-    };
-    create_project_projects_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProjectSeed"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectSnapshot"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -653,7 +678,7 @@ export interface operations {
             };
         };
     };
-    create_turn_projects__project_id__turns_post: {
+    generate_turn_projects__project_id__turns_generate_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -664,7 +689,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TurnCandidate"];
+                "application/json": components["schemas"]["TurnGenerationRequest"];
             };
         };
         responses: {
@@ -720,7 +745,7 @@ export interface operations {
             };
         };
     };
-    approve_turn_projects__project_id__turns__turn_id__approve_post: {
+    confirm_turn_projects__project_id__turns__turn_id__confirm_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -784,7 +809,7 @@ export interface operations {
             };
         };
     };
-    review_turn_projects__project_id__turns__turn_id__review_post: {
+    request_turn_revision_projects__project_id__turns__turn_id__request_revision_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -796,7 +821,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReviewResult"];
+                "application/json": components["schemas"]["RevisionRequest"];
             };
         };
         responses: {
@@ -807,6 +832,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TurnCandidate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finalize_submission_submissions_finalize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmissionPackage"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSnapshot"];
                 };
             };
             /** @description Validation Error */

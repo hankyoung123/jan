@@ -21,6 +21,32 @@
 }
 ```
 
+## Submission and evolution
+
+`POST /submissions/finalize` validates a complete initial setting package and
+creates the canonical Markdown project. The package contains creative
+direction, world rules, a concrete incident and pressure, and two to four
+active characters with explicit private fact identifiers. It has no outline
+or future plot contract.
+
+`POST /projects/{project_id}/turns/generate` asks the engine to assemble one
+private context per participant, generate isolated character intents, resolve
+one world outcome, and run the Editor review. The resulting candidate is
+derived state below `.story-engine/turns`.
+
+The client cannot submit its own intents, outcomes, or review verdicts. After
+generation it can invoke only these decision endpoints:
+
+```text
+POST /projects/{project_id}/turns/{turn_id}/request-revision
+POST /projects/{project_id}/turns/{turn_id}/confirm
+POST /projects/{project_id}/turns/{turn_id}/discard
+```
+
+Only `confirm` can reach `EventCommitService` and mutate canonical Markdown.
+Revision replaces the derived outcome and reruns review; discard changes only
+the derived candidate lifecycle.
+
 ## Streaming event envelope
 
 ```json
@@ -43,4 +69,3 @@ The engine exports OpenAPI deterministically. The root verification command
 fails when generated OpenAPI or TypeScript types differ from committed files.
 Secrets, provider keys, and sidecar tokens are never represented in response
 schemas.
-

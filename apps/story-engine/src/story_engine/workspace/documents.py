@@ -38,6 +38,7 @@ class WorldDocument(DomainModel):
     )
     current_time: str = Field(min_length=1)
     current_location: str | None = None
+    rules: tuple[str, ...] = ()
     active_pressures: tuple[str, ...] = ()
     public_fact_ids: tuple[str, ...] = ()
     world_variables: dict[str, str | int | float | bool | None] = Field(
@@ -62,6 +63,7 @@ class CharacterDocument(DomainModel):
         validation_alias="schema",
     )
     id: str = Field(min_length=1)
+    display_name: str | None = None
     type: CharacterType
     identity: str = Field(min_length=1)
     core_desire: str = Field(min_length=1)
@@ -141,6 +143,7 @@ def render_project(document: ProjectDocument) -> str:
 
 def render_world(world: WorldState) -> str:
     document = WorldDocument.from_domain(world)
+    rules = "\n".join(f"- {item}" for item in world.rules) or "- None"
     pressures = "\n".join(f"- {item}" for item in world.active_pressures) or "- None"
     facts = "\n".join(f"- {item}" for item in world.public_fact_ids) or "- None"
     variables = (
@@ -153,6 +156,10 @@ def render_world(world: WorldState) -> str:
 
 - Time: {world.current_time}
 - Location: {world.current_location or "Unknown"}
+
+## Rules
+
+{rules}
 
 ## Active Pressures
 
@@ -180,7 +187,7 @@ def render_character(character: Character) -> str:
         or "- None"
     )
     resources = "\n".join(f"- {item}" for item in character.resources) or "- None"
-    body = f"""# {character.id}
+    body = f"""# {character.display_name or character.id}
 
 ## Identity
 

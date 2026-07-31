@@ -49,6 +49,7 @@ class StateChange(DomainModel):
 
 class Character(DomainModel):
     id: str = Field(min_length=1)
+    display_name: str | None = None
     type: CharacterType
     identity: str = Field(min_length=1)
     core_desire: str = Field(min_length=1)
@@ -71,6 +72,7 @@ class Character(DomainModel):
 class WorldState(DomainModel):
     current_time: str = Field(min_length=1)
     current_location: str | None = None
+    rules: tuple[str, ...] = ()
     active_pressures: tuple[str, ...] = ()
     public_fact_ids: tuple[str, ...] = ()
     world_variables: dict[str, JsonScalar] = Field(default_factory=dict)

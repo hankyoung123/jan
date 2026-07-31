@@ -174,6 +174,7 @@ main { min-width: 0; overflow: auto; }
 .inspector section { padding: 18px 2px; border-top: 1px solid var(--line); }
 .inspector h3 { margin-bottom: 8px; color: var(--ink-soft); font-size: 12px; }
 .inspector-value { margin-bottom: 2px; font-family: var(--font-editorial); font-size: 34px; line-height: 1; }
+.inspector-text-value { font-family: var(--font-body); font-size: 20px; font-weight: 650; }
 .inspector small { color: var(--ink-soft); }
 .inspector-list { display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
 .inspector-list li { display: grid; grid-template-columns: 8px minmax(0, 1fr); align-items: start; gap: 8px; font-size: 13px; line-height: 1.35; }
@@ -204,6 +205,44 @@ main { min-width: 0; overflow: auto; }
 .agent-row p { margin: 0; color: var(--ink-soft); line-height: 1.4; }
 .agent-name { display: flex; min-width: 0; flex-direction: column; }
 .agent-name span { color: var(--ink-soft); font-size: 11px; }
+
+.submission-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr); min-height: 620px; background: var(--surface); border: 1px solid var(--line); }
+.submission-dialogue { min-width: 0; border-right: 1px solid var(--line); }
+.submission-dialogue > label { display: grid; gap: 6px; padding: 14px 20px 0; color: var(--ink-soft); font-size: 12px; font-weight: 650; }
+.submission-dialogue input, .submission-dialogue textarea, .turn-actions input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); background: var(--surface-raised); }
+.submission-dialogue textarea { min-height: 76px; resize: vertical; line-height: 1.5; }
+.submission-package { min-width: 0; padding: 24px; background: var(--surface-muted); }
+.submission-package > h2 { margin-bottom: 18px; font-family: var(--font-editorial); font-size: 27px; font-weight: 560; }
+.submission-package dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 0 0 24px; background: var(--line); }
+.submission-package dl div { min-width: 0; padding: 10px; background: var(--surface); }
+.submission-package dt { color: var(--ink-soft); font-size: 11px; }
+.submission-package dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 13px; }
+.submission-package section { padding: 18px 0; border-top: 1px solid var(--line-strong); }
+.submission-package h3 { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; color: var(--ink-soft); font-size: 12px; }
+.submission-package ul { padding-left: 18px; margin: 0; color: var(--ink-soft); font-size: 13px; line-height: 1.7; }
+.submission-character { display: grid; gap: 2px; padding: 10px 0; border-top: 1px solid var(--line); }
+.submission-character:first-of-type { border-top: 0; }
+.submission-character span, .submission-character small { color: var(--ink-soft); }
+.submission-ready, .commit-notice, .discard-notice { display: flex; align-items: center; gap: 8px; padding: 11px 12px; margin: 16px 0 0; color: var(--green); background: var(--green-soft); font-weight: 650; }
+.form-error { padding: 10px 12px; margin: 14px 20px; color: var(--red); background: var(--red-soft); }
+.button:disabled, .icon-button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.evolution-empty { min-height: 260px; padding: 34px; background: var(--surface); border: 1px solid var(--line); }
+.evolution-empty h2 { font-family: var(--font-editorial); font-size: 24px; font-weight: 560; }
+.evolution-empty p:last-child { color: var(--ink-soft); }
+.outcome-review { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, 0.42fr); gap: 24px; padding: 20px; margin-top: 16px; background: var(--surface); border: 1px solid var(--line); }
+.outcome-review h2 { margin-bottom: 5px; font-family: var(--font-editorial); font-size: 20px; font-weight: 560; }
+.outcome-review p:last-child { margin: 0; color: var(--ink-soft); }
+.review-pass, .review-blocked { display: flex; align-items: center; gap: 10px; padding-left: 20px; border-left: 1px solid var(--line); }
+.review-pass { color: var(--green); }
+.review-blocked { color: var(--red); }
+.review-pass > span, .review-blocked > span { display: flex; flex-direction: column; }
+.review-pass strong, .review-blocked strong { color: var(--ink); }
+.review-pass small, .review-blocked small { margin-top: 3px; color: var(--ink-soft); }
+.turn-actions { display: grid; grid-template-columns: minmax(180px, 1fr) auto 38px auto; align-items: end; gap: 8px; padding: 14px 16px; margin-top: 16px; background: var(--surface); border: 1px solid var(--line); }
+.turn-actions label { display: grid; gap: 5px; color: var(--ink-soft); font-size: 11px; font-weight: 650; }
+.danger-button { color: var(--red); }
+.discard-notice { color: var(--ink-soft); background: var(--surface-muted); }
 
 .segmented { display: inline-flex; gap: 2px; padding: 3px; margin-bottom: 16px; background: var(--surface-muted); border-radius: 6px; }
 .segmented button { min-height: 32px; padding: 5px 11px; border-radius: 4px; color: var(--ink-soft); background: transparent; cursor: pointer; }
@@ -318,6 +357,8 @@ main { min-width: 0; overflow: auto; }
   .situation-band { grid-template-columns: 1fr; gap: 20px; }
   .situation-facts { justify-self: stretch; }
   .manuscript-layout { grid-template-columns: 170px minmax(340px, 1fr); }
+  .submission-layout { grid-template-columns: 1fr; }
+  .submission-dialogue { border-right: 0; border-bottom: 1px solid var(--line); }
 }
 
 @media (max-width: 700px) {
@@ -331,7 +372,15 @@ main { min-width: 0; overflow: auto; }
   .event-strip { grid-template-columns: 48px minmax(0, 1fr); }
   .event-strip .status-badge { grid-column: 2; justify-self: start; }
   .agent-row { grid-template-columns: 22px minmax(0, 1fr) auto; }
-  .agent-row > p { grid-column: 2 / -1; }
+  .agent-row > p { grid-row: 2; grid-column: 2 / -1; }
+  .agent-row .status-badge { grid-row: 1; grid-column: 3; }
+  .outcome-review { grid-template-columns: 1fr; }
+  .review-pass, .review-blocked { padding: 14px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+  .turn-actions { grid-template-columns: minmax(0, 1fr) 38px; }
+  .turn-actions label { grid-column: 1 / -1; }
+  .turn-actions .button-secondary { grid-column: 1; }
+  .turn-actions .button-primary { grid-column: 1 / -1; width: 100%; }
+  .submission-package dl { grid-template-columns: 1fr; }
   .character-detail-layout, .document-layout, .settings-layout { grid-template-columns: 1fr; }
   .character-list, .document-outline, .settings-layout > nav { overflow-x: auto; flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); }
   .character-list { display: flex; }

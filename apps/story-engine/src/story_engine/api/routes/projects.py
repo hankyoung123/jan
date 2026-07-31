@@ -5,15 +5,17 @@ from fastapi import APIRouter, HTTPException, status
 
 from story_engine.config import EngineSettings
 from story_engine.domain.errors import DomainError, InvalidTransitionError
-from story_engine.domain.models import ReviewResult, TurnCandidate
-from story_engine.events.commit import CommitResult, EventCommitService
+from story_engine.domain.models import TurnCandidate
+from story_engine.events.commit import CommitResult
+from story_engine.evolution.service import (
+    EvolutionService,
+    RevisionRequest,
+    TurnGenerationRequest,
+)
+from story_engine.submission.service import SubmissionPackage, SubmissionService
 from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.event_store import EventStore
-from story_engine.workspace.project_store import (
-    ProjectSeed,
-    ProjectSnapshot,
-    ProjectStore,
-)
+from story_engine.workspace.project_store import ProjectSnapshot, ProjectStore
 
 _PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
@@ -35,44 +37,41 @@ def create_projects_router(settings: EngineSettings) -> APIRouter:
     router = APIRouter(tags=["projects"])
 
     @router.post(
-        "/projects",
+        "/submissions/finalize",
         response_model=ProjectSnapshot,
         status_code=status.HTTP_201_CREATED,
     )
-    async def create_project(seed: ProjectSeed) -> ProjectSnapshot:
+    async def finalize_submission(package: SubmissionPackage) -> ProjectSnapshot:
         settings.projects_root.mkdir(parents=True, exist_ok=True)
         try:
-            return ProjectStore(_project_root(settings, seed.id)).create(seed)
+            return SubmissionService(settings.projects_root).finalize(package)
         except FileExistsError as error:
             raise HTTPException(
                 status_code=409,
                 detail="Project already exists",
             ) from error
+        except DomainError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.get("/projects/{project_id}", response_model=ProjectSnapshot)
     async def get_project(project_id: str) -> ProjectSnapshot:
         return ProjectStore(_require_project(settings, project_id)).load()
 
     @router.post(
-        "/projects/{project_id}/turns",
+        "/projects/{project_id}/turns/generate",
         response_model=TurnCandidate,
         status_code=status.HTTP_201_CREATED,
     )
-    async def create_turn(
+    async def generate_turn(
         project_id: str,
-        candidate: TurnCandidate,
+        request: TurnGenerationRequest,
     ) -> TurnCandidate:
         root = _require_project(settings, project_id)
-        if candidate.project_id != project_id:
-            raise HTTPException(status_code=409, detail="Turn project mismatch")
         try:
-            CandidateStore(root).save(candidate, overwrite=False)
-        except FileExistsError as error:
-            raise HTTPException(
-                status_code=409,
-                detail="Turn already exists",
-            ) from error
-        return candidate
+            participants = request.participant_ids or None
+            return EvolutionService(root).generate_turn(participants)
+        except (DomainError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.get(
         "/projects/{project_id}/turns/{turn_id}",
@@ -86,37 +85,33 @@ def create_projects_router(settings: EngineSettings) -> APIRouter:
             raise HTTPException(status_code=404, detail="Turn not found") from error
 
     @router.post(
-        "/projects/{project_id}/turns/{turn_id}/review",
-        response_model=TurnCandidate,
+        "/projects/{project_id}/turns/{turn_id}/confirm",
+        response_model=CommitResult,
     )
-    async def review_turn(
-        project_id: str,
-        turn_id: str,
-        review: ReviewResult,
-    ) -> TurnCandidate:
+    async def confirm_turn(project_id: str, turn_id: str) -> CommitResult:
         root = _require_project(settings, project_id)
-        store = CandidateStore(root)
         try:
-            candidate = store.load(turn_id).with_review(review)
-            store.save(candidate)
-            return candidate
+            return EvolutionService(root).confirm(turn_id)
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Turn not found") from error
-        except InvalidTransitionError as error:
+        except (DomainError, InvalidTransitionError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
-        "/projects/{project_id}/turns/{turn_id}/approve",
-        response_model=CommitResult,
+        "/projects/{project_id}/turns/{turn_id}/request-revision",
+        response_model=TurnCandidate,
     )
-    async def approve_turn(project_id: str, turn_id: str) -> CommitResult:
+    async def request_turn_revision(
+        project_id: str,
+        turn_id: str,
+        request: RevisionRequest,
+    ) -> TurnCandidate:
         root = _require_project(settings, project_id)
-        store = CandidateStore(root)
         try:
-            approved = store.load(turn_id).approve()
-            result = EventCommitService(root).commit(approved)
-            store.save(result.candidate)
-            return result
+            return EvolutionService(root).request_revision(
+                turn_id,
+                request.instruction,
+            )
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Turn not found") from error
         except (DomainError, InvalidTransitionError) as error:
@@ -128,11 +123,8 @@ def create_projects_router(settings: EngineSettings) -> APIRouter:
     )
     async def discard_turn(project_id: str, turn_id: str) -> TurnCandidate:
         root = _require_project(settings, project_id)
-        store = CandidateStore(root)
         try:
-            candidate = store.load(turn_id).discard()
-            store.save(candidate)
-            return candidate
+            return EvolutionService(root).discard(turn_id)
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Turn not found") from error
         except InvalidTransitionError as error:
