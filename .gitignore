@@ -7,6 +7,9 @@ node_modules/
 dist/
 coverage/
 .vite/
+*.tsbuildinfo
+apps/desktop/vite.config.js
+apps/desktop/vite.config.d.ts
 
 # Python
 .venv/
@@ -27,4 +30,3 @@ apps/desktop/src-tauri/gen/
 .env
 .env.*
 !.env.example
-
