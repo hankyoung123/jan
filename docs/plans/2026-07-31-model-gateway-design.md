@@ -53,6 +53,11 @@ runtime console. Story Engine adds a task-profile surface for the five domain
 routes. Provider CRUD is not exposed by the Python API. Secrets never appear in
 project files, browser persistence, Sidecar arguments, status events, or logs.
 
+The task-profile surface is implemented as a collapsible operational band in
+the retained Model Center. It reads Provider and model options from Jan state,
+edits the five generated `ModelProfile` contracts, exposes aggregate usage, and
+links to Jan Provider settings. The form never accepts or renders credentials.
+
 ## Evolution integration
 
 The FastAPI app constructs one `ModelGateway` and injects it into both model
@@ -69,8 +74,9 @@ there is still only one Jan Provider/runtime authority.
 
 ## Verification
 
-Unit tests cover atomic profile persistence and v1 migration, all five profile
-types, the absence of Python Provider endpoints, bridge authentication,
+Unit tests cover the React profile load/edit/retry flow, secret-free request
+bodies, atomic profile persistence and v1 migration, all five profile types,
+the absence of Python Provider endpoints, bridge authentication,
 remote/local profile interchange, retries, response limits, structured-output
 parse and schema failures, streaming, and usage accounting. Rust tests cover
 random-port binding, environment-only bridge credentials, and lifecycle

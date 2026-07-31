@@ -59,6 +59,15 @@ domain state and delegates candidate generation to original Concordia through
 that bridge. The UI does not add another provider, model runtime, or desktop
 shell.
 
+Model Center keeps Jan's catalog, download, Provider, and local-runtime
+workflows. A collapsible task-model band above the catalog exposes Character,
+Resolver, Editor, Writer, and Embedding routes. Each route selects an enabled
+Jan Provider and one of its known models, can accept an explicit model ID, and
+owns enablement plus advanced temperature, output-token, and timeout limits.
+Saving updates the Python application-level profile registry; the form contains
+no credential field and links back to Jan's Provider settings for configuration.
+Local and remote Providers use the same profile controls.
+
 Workbench is a compact operational view: current world state, pending work,
 latest event, active characters, and one primary "Advance next turn" action.
 The right inspector is collapsible. Green means confirmed, amber means pending

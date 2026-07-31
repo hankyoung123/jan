@@ -205,6 +205,13 @@ The desktop passes only a random loopback proxy URL and process-local bearer
 token to the Sidecar through environment variables; neither appears in status
 events or command-line arguments.
 
+The React task-profile surface is mounted at the top of Jan's existing Model
+Center. It reads the five profiles and aggregate usage from Python, but obtains
+its selectable Provider and model IDs from Jan's hydrated Provider store. The
+form submits only task routing, enablement, temperature, output-token, and
+timeout values. Provider creation, activation, model discovery, credentials,
+and local model lifecycle continue to use Jan's existing settings and services.
+
 The gateway enforces request and response byte ceilings, timeout and output
 token limits, transient retries, stable provider errors, per-call and aggregate
 usage accounting, and final JSON Schema validation for structured responses.

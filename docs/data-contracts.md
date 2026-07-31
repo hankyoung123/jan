@@ -160,9 +160,14 @@ never in its URL.
 
 `GET /models/profiles` returns the five application-level task routes.
 `PUT /models/profiles/{profile_id}` updates only non-sensitive routing and limit
-data. Provider writes may contain a write-only `api_key`; Provider reads return
-`has_api_key` and never return the credential. Story projects reference profile
-IDs and task overrides only.
+data. The Model Center uses Jan's in-memory Provider/model catalog for selectors
+and sends only the `ModelProfile` contract to Python. Provider settings and API
+keys are neither accepted nor returned by these endpoints. Story projects
+reference profile IDs and task overrides only.
+
+`GET /models/usage` returns process-lifetime request, prompt-token,
+completion-token, and total-token counters. These totals are operational data,
+not canonical project state.
 
 `POST /models/complete` and `POST /models/stream` share the `ModelRequest`
 contract. Structured calls include a JSON Schema string and fail with the

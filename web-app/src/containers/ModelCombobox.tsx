@@ -244,6 +244,7 @@ function useKeyboardNavigation(
 }
 
 type ModelComboboxProps = {
+  inputId?: string
   value: string
   onChange: (value: string) => void
   models: string[]
@@ -257,6 +258,7 @@ type ModelComboboxProps = {
 }
 
 export function ModelCombobox({
+  inputId,
   value,
   onChange,
   models,
@@ -398,6 +400,7 @@ export function ModelCombobox({
     <div className={cn('relative', className)} ref={containerRef}>
       <div className="relative">
         <Input
+          id={inputId}
           ref={inputRef}
           value={inputValue}
           onChange={(e) => handleInputChange(e.target.value)}
