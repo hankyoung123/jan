@@ -1,73 +1,76 @@
 .env
+.env.*
+!.env.example
 error.log
-node_modules
-*.tgz
-dist
-build
-.DS_Store
-package-lock.json
-coverage
 *.log
-core/lib/**
-.yarn
-.yarnrc
+*.tgz
+.DS_Store
+.idea/
+.vscode/
+
+# JavaScript
+node_modules/
+**/node_modules/
+dist/
+build/
+coverage/
+.vite/
 *.tsbuildinfo
+package-lock.json
+apps/desktop/vite.config.js
+apps/desktop/vite.config.d.ts
+core/lib/**
+.yarn/
+.yarnrc
 test_results.html
 pre-install
-.build
 
-# docs
-docs/yarn.lock
-src-tauri/resources/lib
-src-tauri/icons
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Rust / Tauri
+target/
+Cargo.lock
+apps/desktop/src-tauri/gen/
+src-tauri/resources/
+src-tauri/gen/apple/
+src-tauri/gen/android/
 !src-tauri/icons/icon.png
-src-tauri/gen/apple
-src-tauri/gen/android
-src-tauri/resources/bin
 
-# Helper tools
-.opencode
-OpenCode.md
-Claude.md
-archive/
-.cache/
+# Local engine state
+.story-engine/
 
-# auto qa
-autoqa/trajectories
-autoqa/recordings
-autoqa/__pycache__
-
-# Astro / Starlight specific
+# Documentation builds
+docs/yarn.lock
+docs/out/
+docs/.next/
 website/dist/
 website/.astro/
 website/src/content/config.ts.timestamp-*
 
-# Nextra specific
-docs/out/
-docs/.next/
+# Tooling
+.opencode/
+.cache/
+OpenCode.md
+Claude.md
+CLAUDE.md
+.claude/
+archive/
+test-data/
+llm-docs/
 
-# General Node.js
-**/node_modules
-**/.env
-**/.env.*
-**/npm-debug.log*
-**/yarn-debug.log*
-**/yarn-error.log*
-**/pnpm-debug.log*
+# Auto QA
+autoqa/trajectories/
+autoqa/recordings/
+autoqa/__pycache__/
 
-## Swift Package Manager (Foundation Models server)
+# Swift Package Manager
 src-tauri/plugins/tauri-plugin-foundation-models/swift-server/.build/
 src-tauri/plugins/tauri-plugin-foundation-models/swift-server/.swiftpm/
 src-tauri/plugins/tauri-plugin-foundation-models/swift-server/Package.resolved
-
-## cargo
-target
-Cargo.lock
-src-tauri/resources/
-
-## test
-test-data
-llm-docs
-.claude/agents
-.claude
-CLAUDE.md

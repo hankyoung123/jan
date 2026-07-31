@@ -1,182 +1,81 @@
-# Jan - Open-source ChatGPT replacement
+# AI Story Evolution Engine Next
 
-<img width="2048" height="280" alt="github jan banner" src="https://github.com/user-attachments/assets/f3f87889-c133-433b-b250-236218150d3f" />
+AI Story Evolution Engine Next is a local-first desktop system for evolving
+long-form stories from character-limited knowledge, independent intent, world
+resolution, editorial review, and explicit user approval.
 
-<p align="center">
-  <strong>English</strong> ·
-  <a href="README.zh.md">中文</a> ·
-  <a href="README.ja.md">日本語</a>
-</p>
+The canonical requirements are in [docs/product-plan.md](docs/product-plan.md).
 
-<p align="center">
-  <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-  <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/janhq/jan"/>
-  <img alt="Github Last Commit" src="https://img.shields.io/github/last-commit/janhq/jan"/>
-  <img alt="Github Contributors" src="https://img.shields.io/github/contributors/janhq/jan"/>
-  <img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed/janhq/jan"/>
-  <img alt="Discord" src="https://img.shields.io/discord/1107178041848909847?label=discord"/>
-</p>
+## Upstream foundation
 
-<p align="center">
-  <a href="https://jan.ai/docs/desktop">Getting Started</a>
-  - <a href="https://discord.gg/Exe46xPMbK">Community</a>
-  - <a href="https://jan.ai/changelog">Changelog</a>
-  - <a href="https://github.com/janhq/jan/issues">Bug reports</a>
-</p>
+This branch descends directly from Jan `v0.8.4` at
+`5f30aee467f08941964a83f946e2663e7ae0e01f`. Jan supplies the Tauri shell,
+React infrastructure, settings, Provider management, model acquisition, and
+local llama.cpp/MLX runtimes. Product branding and the general chat domain are
+being replaced while the reusable local-model infrastructure remains intact.
 
-Jan is bringing the best of open-source AI in an easy-to-use product. Download and run LLMs with **full control** and **privacy**.
+Concordia is locked to `v2.4.0` at
+`702998f57da71f87bf4e607abc1325ee51cca21f` and will be consumed as an
+unmodified Python dependency behind `concordia_adapter`.
 
-## Installation
+## Workspace
 
-<p align="center">
-  <table>
-    <tr>
-      <!-- Microsoft Store Badge -->
-      <td align="center" valign="middle">
-        <a href="https://apps.microsoft.com/detail/xpdcnfn5cpzlqb">
-          <img height="60"
-            width="200"
-               alt="Get it from Microsoft Store"
-               src="https://get.microsoft.com/images/en-us%20dark.svg"/>
-        </a>
-      </td>
-      <!-- Spacer -->
-      <td width="20"></td>
-      <!-- Flathub Official Badge -->
-      <td align="center" valign="middle">
-        <a href="https://flathub.org/apps/ai.jan.Jan">
-          <img height="60"
-            width="200"
-               alt="Get it on Flathub"
-               src="https://flathub.org/assets/badges/flathub-badge-en.svg"/>
-        </a>
-      </td>
-    </tr>
-  </table>
-</p>
-
-The easiest way to get started is by downloading one of the following versions for your respective operating system:
-
-<table>
-  <tr>
-    <td><b>Platform</b></td>
-    <td><b>Download</b></td>
-  </tr>
-  <tr>
-    <td><b>Windows</b></td>
-    <td><a href='https://app.jan.ai/download/latest/win-x64'>jan.exe</a></td>
-  </tr>
-  <tr>
-    <td><b>macOS</b></td>
-    <td><a href='https://app.jan.ai/download/latest/mac-universal'>jan.dmg</a></td>
-  </tr>
-  <tr>
-    <td><b>Linux (deb)</b></td>
-    <td><a href='https://app.jan.ai/download/latest/linux-amd64-deb'>jan.deb</a></td>
-  </tr>
-  <tr>
-    <td><b>Linux (AppImage)</b></td>
-    <td><a href='https://app.jan.ai/download/latest/linux-amd64-appimage'>jan.AppImage</a></td>
-  </tr>
-  <tr>
-    <td><b>Linux (Arm64)</b></td>
-    <td><a href='https://github.com/janhq/jan/issues/4543#issuecomment-4142429792'>How-to</a></td>
-  </tr>
-</table>
-
-
-Download from [jan.ai](https://jan.ai/) or [GitHub Releases](https://github.com/janhq/jan/releases).
-
-## Features
-
-- **Local AI Models**: Download and run LLMs (Llama, Gemma, Qwen, GPT-oss etc.) from HuggingFace
-- **Cloud Integration**: Connect to GPT models via OpenAI, Claude models via Anthropic, Mistral, Groq, MiniMax, and others
-- **Custom Assistants**: Create specialized AI assistants for your tasks
-- **OpenAI-Compatible API**: Local server at `localhost:1337` for other applications
-- **Model Context Protocol**: MCP integration for agentic capabilities
-- **Privacy First**: Everything runs locally when you want it to
-
-## Build from Source
-
-For those who enjoy the scenic route:
-
-### Prerequisites
-
-- Node.js ≥ 20.0.0
-- Yarn ≥ 4.5.3
-- Make ≥ 3.81
-- Rust (for Tauri)
-- (macOS Apple Silicon only) MetalToolchain `xcodebuild -downloadComponent MetalToolchain`
-
-### Run with Make
-
-```bash
-git clone https://github.com/janhq/jan
-cd jan
-make dev
+```text
+web-app/             Jan-based authoritative React application
+src-tauri/            Jan-based authoritative Tauri runtime and plugins
+core/                 Jan model and extension contracts
+extensions/           Jan model download and local inference extensions
+apps/story-engine/    Python story-domain Sidecar
+packages/contracts/   Generated Story Engine OpenAPI/TypeScript contracts
 ```
 
-This handles everything: installs dependencies, builds core components, and launches the app.
+`apps/desktop` is a temporary pre-integration story-view snapshot. Its story
+routes are being ported into `web-app`; it is not the authoritative desktop
+runtime on this branch.
 
-**Available make targets:**
-- `make dev` - Full development setup and launch
-- `make build` - Production build
-- `make test` - Run tests and linting
-- `make clean` - Delete everything and start fresh
+## Prerequisites
 
-### Manual Commands
+- Node.js 20 or newer
+- Yarn 4.5.3 through Corepack
+- Rust 1.80 or newer
+- Make 3.81 or newer
+- uv and Python 3.12
+- macOS Apple Silicon builds: Metal Toolchain
+
+## Development
+
+Install the Jan workspace and Python environment:
 
 ```bash
+corepack enable
 yarn install
-yarn build
-yarn dev
+yarn bootstrap:jan
+uv sync --project apps/story-engine --extra dev
 ```
 
-## System Requirements
+Start the Story Engine and Jan-based web application in separate terminals:
 
-**Minimum specs for a decent experience:**
+```bash
+yarn story-engine:dev
+yarn dev:web
+```
 
-- **macOS**: 13.6+ (8GB RAM for 3B models, 16GB for 7B, 32GB for 13B)
-- **Windows**: 10+ with GPU support for NVIDIA/AMD/Intel Arc
-- **Linux**: Most distributions work, GPU acceleration available
+For the native application, use `yarn dev:tauri` after the platform-specific
+Jan prerequisites and local inference binaries are available.
 
-For detailed compatibility, check our [installation guides](https://jan.ai/docs/desktop/mac).
+## Quality gates
 
-## Troubleshooting
+```bash
+yarn lint
+yarn typecheck
+yarn test
+yarn contracts:check
+yarn build
+```
 
-If things go sideways:
+## Attribution
 
-1. Check our [troubleshooting docs](https://jan.ai/docs/desktop/troubleshooting)
-2. Copy your error logs and system specs
-3. Ask for help in our [Discord](https://discord.gg/FTk2MvZwJH) `#🆘|jan-help` channel
-
-
-## Contributing
-
-Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full spiel.
-
-## Links
-
-- [Documentation](https://jan.ai/docs) - The manual you should read
-- [API Reference](https://jan.ai/api-reference) - For the technically inclined
-- [Changelog](https://jan.ai/changelog) - What we broke and fixed
-- [Discord](https://discord.gg/FTk2MvZwJH) - Where the community lives
-
-## Contact
-
-- **Bugs**: [GitHub Issues](https://github.com/janhq/jan/issues)
-- **Business**: hello@jan.ai
-- **Jobs**: hr@jan.ai
-- **General Discussion**: [Discord](https://discord.gg/FTk2MvZwJH)
-
-## License
-
-Apache 2.0 - Because sharing is caring.
-
-## Acknowledgements
-
-Built on the shoulders of giants:
-
-- [Llama.cpp](https://github.com/ggerganov/llama.cpp)
-- [Tauri](https://tauri.app/)
-- [Scalar](https://github.com/scalar/scalar)
+Jan-derived source remains under the Apache License 2.0 with upstream notices
+preserved. Jan names, logos, screenshots, and other trademark assets are not
+part of the product identity. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+and [the migration map](docs/upstream/jan-v0.8.4-migration-map.md).

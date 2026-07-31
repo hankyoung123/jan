@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-story-engine"
+version = "0.1.0"
+description = "Local story-domain sidecar for AI Story Evolution Engine Next"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+  "fastapi>=0.116.0,<1",
+  "httpx>=0.28.1,<1",
+  "jsonschema>=4.25.0,<5",
+  "keyring>=25.6.0,<26",
+  "pydantic>=2.11.0,<3",
+  "python-frontmatter>=1.1.0,<2",
+  "uvicorn[standard]>=0.35.0,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2.2,<2",
+  "httpx>=0.28.1,<1",
+  "mypy>=1.17.0,<2",
+  "pytest>=8.4.0,<9",
+  "pytest-cov>=6.2.0,<7",
+  "ruff>=0.12.0,<1",
+  "types-jsonschema>=4.25.0.20250822,<5",
+]
+
+[project.scripts]
+story-engine = "story_engine.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/story_engine"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["story_engine"]
