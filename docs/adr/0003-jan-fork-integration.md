@@ -36,10 +36,11 @@ duplicate Tauri runtime were then removed.
 ## Boundaries
 
 Jan continues to own model acquisition, loading, Provider configuration UI,
-and local inference processes. Python owns story-domain orchestration,
-Markdown, ModelGateway task profiles, Concordia adaptation, review, Writer, and
-retrieval authorization. The AGPL RAG implementation is not imported into the
-closed product.
+Provider protocol handling, secrets, and local inference processes. Python
+owns story-domain orchestration, Markdown, ModelGateway task profiles,
+Concordia adaptation, review, Writer, and retrieval authorization. Model calls
+cross the private runtime bridge defined by ADR-0004. The AGPL RAG
+implementation is not imported into the closed product.
 
 ## Consequences
 

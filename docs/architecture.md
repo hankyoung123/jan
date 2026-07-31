@@ -94,17 +94,20 @@ builds resolve the onedir Sidecar from application resources.
 Jan owns model discovery, download, loading, Provider configuration UI, and the
 local llama.cpp process. Domain calls cross into Python through `ModelGateway`,
 which resolves Character, Resolver, Editor, Writer, and Embedding profiles from
-one application-level registry. Both remote and Jan-local endpoints use the
-same OpenAI-compatible contract.
+one application-level registry. Every profile invokes a private Jan
+OpenAI-compatible proxy, which routes the selected model to a remote Provider,
+llama.cpp, or MLX. Python does not implement a second Provider stack.
 
-Non-sensitive registry data is written atomically under application data, not
-inside story projects. Provider credentials are stored by provider ID in the
-operating-system keychain; model APIs expose only whether a credential exists.
-Remote endpoints require HTTPS and local endpoints require loopback addresses.
+Task profile data is written atomically under application data, not inside
+story projects. Jan owns Provider URLs and operating-system keychain entries.
+The desktop passes only a random loopback proxy URL and process-local bearer
+token to the Sidecar through environment variables; neither appears in status
+events or command-line arguments.
 
 The gateway enforces request and response byte ceilings, timeout and output
 token limits, transient retries, stable provider errors, per-call and aggregate
 usage accounting, and final JSON Schema validation for structured responses.
 
-See [ADR-0001](adr/0001-platform-and-upstream-locks.md) and
-[ADR-0002](adr/0002-markdown-canonical-state.md).
+See [ADR-0001](adr/0001-platform-and-upstream-locks.md),
+[ADR-0002](adr/0002-markdown-canonical-state.md), and
+[ADR-0004](adr/0004-jan-model-runtime-bridge.md).

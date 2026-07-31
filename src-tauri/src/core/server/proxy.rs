@@ -3061,7 +3061,8 @@ async fn start_server_internal(
             return Err(Box::new(e));
         }
     };
-    log::info!("Jan API server started on http://{addr}");
+    let actual_addr = listener.local_addr()?;
+    log::info!("Jan API server started on http://{actual_addr}");
 
     let server_task = tokio::spawn(async move {
         loop {
@@ -3110,7 +3111,7 @@ async fn start_server_internal(
     });
 
     *handle_guard = Some(server_task);
-    let actual_port = addr.port();
+    let actual_port = actual_addr.port();
     log::info!("Jan API server started successfully on port {actual_port}");
     Ok(actual_port)
 }

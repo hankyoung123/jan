@@ -1,39 +1,11 @@
-from typing import Literal, Self
-from urllib.parse import urlparse
+from typing import Literal
 
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, JsonValue
 
 from story_engine.domain.models import DomainModel
 
 ModelTask = Literal["character", "resolver", "editor", "writer", "embedding"]
-ProviderKind = Literal["remote", "local"]
 MessageRole = Literal["system", "user", "assistant"]
-
-
-class ProviderConfig(DomainModel):
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
-    name: str = Field(min_length=1, max_length=80)
-    kind: ProviderKind
-    base_url: str = Field(min_length=1, max_length=2048)
-    requires_api_key: bool = False
-
-    @model_validator(mode="after")
-    def endpoint_matches_provider_kind(self) -> Self:
-        parsed = urlparse(self.base_url)
-        if not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError(
-                "provider base_url must be an absolute URL without credentials"
-            )
-        if parsed.query or parsed.fragment:
-            raise ValueError("provider base_url must not contain a query or fragment")
-        if self.kind == "remote" and parsed.scheme != "https":
-            raise ValueError("remote provider base_url must use HTTPS")
-        if self.kind == "local" and (
-            parsed.scheme not in {"http", "https"}
-            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
-        ):
-            raise ValueError("local provider base_url must use a loopback endpoint")
-        return self
 
 
 class ModelProfile(DomainModel):
@@ -92,15 +64,5 @@ class UsageTotals(DomainModel):
     total_tokens: int = Field(default=0, ge=0)
 
 
-class ProviderView(DomainModel):
-    id: str
-    name: str
-    kind: ProviderKind
-    base_url: str
-    requires_api_key: bool
-    has_api_key: bool
-
-
 class ModelCatalog(DomainModel):
-    providers: tuple[ProviderView, ...]
     profiles: tuple[ModelProfile, ...]

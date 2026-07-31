@@ -270,17 +270,9 @@
             },
             "title": "Profiles",
             "type": "array"
-          },
-          "providers": {
-            "items": {
-              "$ref": "#/components/schemas/ProviderView"
-            },
-            "title": "Providers",
-            "type": "array"
           }
         },
         "required": [
-          "providers",
           "profiles"
         ],
         "title": "ModelCatalog",
@@ -624,104 +616,6 @@
           "characters"
         ],
         "title": "ProjectSnapshot",
-        "type": "object"
-      },
-      "ProviderView": {
-        "additionalProperties": false,
-        "properties": {
-          "base_url": {
-            "title": "Base Url",
-            "type": "string"
-          },
-          "has_api_key": {
-            "title": "Has Api Key",
-            "type": "boolean"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "remote",
-              "local"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "requires_api_key": {
-            "title": "Requires Api Key",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "kind",
-          "base_url",
-          "requires_api_key",
-          "has_api_key"
-        ],
-        "title": "ProviderView",
-        "type": "object"
-      },
-      "ProviderWrite": {
-        "additionalProperties": false,
-        "properties": {
-          "api_key": {
-            "anyOf": [
-              {
-                "format": "password",
-                "type": "string",
-                "writeOnly": true
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Api Key"
-          },
-          "base_url": {
-            "maxLength": 2048,
-            "minLength": 1,
-            "title": "Base Url",
-            "type": "string"
-          },
-          "clear_api_key": {
-            "default": false,
-            "title": "Clear Api Key",
-            "type": "boolean"
-          },
-          "kind": {
-            "enum": [
-              "remote",
-              "local"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "name": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "requires_api_key": {
-            "default": false,
-            "title": "Requires Api Key",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "name",
-          "kind",
-          "base_url"
-        ],
-        "title": "ProviderWrite",
         "type": "object"
       },
       "Relationship": {
@@ -1663,93 +1557,6 @@
           }
         ],
         "summary": "Put Model Profile",
-        "tags": [
-          "models"
-        ]
-      }
-    },
-    "/models/providers": {
-      "get": {
-        "operationId": "get_model_providers_models_providers_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ProviderView"
-                  },
-                  "title": "Response Get Model Providers Models Providers Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Get Model Providers",
-        "tags": [
-          "models"
-        ]
-      }
-    },
-    "/models/providers/{provider_id}": {
-      "put": {
-        "operationId": "put_model_provider_models_providers__provider_id__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "provider_id",
-            "required": true,
-            "schema": {
-              "title": "Provider Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProviderWrite"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProviderView"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Put Model Provider",
         "tags": [
           "models"
         ]

@@ -469,8 +469,11 @@ pub fn run() {
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             {
                 let runtime = app_handle.state::<Arc<EngineRuntime>>();
-                if let Err(error) = runtime.stop() {
-                    log::warn!("Failed to stop Story Engine Sidecar: {error}");
+                let shutdown_result = tokio::task::block_in_place(|| {
+                    tauri::async_runtime::block_on(runtime.shutdown())
+                });
+                if let Err(error) = shutdown_result {
+                    log::warn!("Failed to stop Story Engine runtime: {error}");
                 }
             }
 

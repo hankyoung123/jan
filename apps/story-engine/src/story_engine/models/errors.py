@@ -10,14 +10,6 @@ class ProfileMismatchError(ModelGatewayError):
     code = "profile_task_mismatch"
 
 
-class ProviderNotFoundError(ModelGatewayError):
-    code = "provider_not_found"
-
-
-class MissingCredentialError(ModelGatewayError):
-    code = "missing_credential"
-
-
 class ModelTimeoutError(ModelGatewayError):
     code = "model_timeout"
 

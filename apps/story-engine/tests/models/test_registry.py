@@ -1,11 +1,7 @@
 import json
 from pathlib import Path
 
-import pytest
-from pydantic import ValidationError
-
-from story_engine.models.contracts import ModelProfile, ProviderConfig
-from story_engine.models.errors import ProviderNotFoundError
+from story_engine.models.contracts import ModelProfile
 from story_engine.models.registry import ProfileRegistry
 
 
@@ -21,69 +17,69 @@ def test_default_registry_has_each_required_task_profile(tmp_path: Path) -> None
         "writer",
         "embedding",
     }
+    assert {profile.provider_id for profile in state.profiles} <= {
+        "llamacpp",
+        "openai",
+    }
     assert not registry.path.exists()
 
 
-def test_registry_persists_non_secret_configuration_atomically(tmp_path: Path) -> None:
+def test_registry_persists_only_task_profiles_atomically(tmp_path: Path) -> None:
     path = tmp_path / "config" / "model-registry.json"
     registry = ProfileRegistry(path)
-    provider = ProviderConfig(
-        id="test-remote",
-        name="Test Remote",
-        kind="remote",
-        base_url="https://models.example/v1",
-        requires_api_key=True,
-    )
-    registry.upsert_provider(provider)
     profile = ModelProfile(
         id="test-writer",
         name="Test Writer",
         task_type="writer",
-        provider_id=provider.id,
+        provider_id="custom-provider",
         model="test-model",
     )
 
     registry.upsert_profile(profile)
 
-    reloaded = ProfileRegistry(path).load()
-    assert registry.get_profile(profile.id) == profile
-    assert provider in reloaded.providers
+    assert ProfileRegistry(path).get_profile(profile.id) == profile
     serialized = path.read_text(encoding="utf-8")
-    assert '"api_key":' not in serialized
+    payload = json.loads(serialized)
+    assert payload["schema_version"] == 2
+    assert "providers" not in payload
+    assert "base_url" not in serialized
+    assert "api_key" not in serialized
     assert not list(path.parent.glob("*.tmp"))
-    assert json.loads(serialized)["schema_version"] == 1
 
 
-def test_profile_cannot_reference_unknown_provider(tmp_path: Path) -> None:
-    registry = ProfileRegistry(tmp_path / "models.json")
-    profile = ModelProfile(
-        id="unknown-provider-profile",
-        name="Unknown",
-        task_type="editor",
-        provider_id="missing",
-        model="model",
+def test_v1_registry_migration_drops_parallel_provider_configuration(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "model-registry.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "providers": [
+                    {
+                        "id": "remote-openai",
+                        "name": "Duplicate Provider",
+                        "kind": "remote",
+                        "base_url": "https://models.example/v1",
+                        "requires_api_key": True,
+                    }
+                ],
+                "profiles": [
+                    {
+                        "id": "writer",
+                        "name": "Writer",
+                        "task_type": "writer",
+                        "provider_id": "openai",
+                        "model": "gpt-test",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
     )
 
-    with pytest.raises(ProviderNotFoundError):
-        registry.upsert_profile(profile)
+    migrated = ProfileRegistry(path).load()
 
-
-@pytest.mark.parametrize(
-    ("kind", "base_url"),
-    [
-        ("remote", "http://models.example/v1"),
-        ("local", "http://192.168.1.2:8080/v1"),
-        ("remote", "https://user:password@models.example/v1"),
-    ],
-)
-def test_provider_endpoint_security_rules(
-    kind: str,
-    base_url: str,
-) -> None:
-    with pytest.raises(ValidationError):
-        ProviderConfig(
-            id="unsafe",
-            name="Unsafe",
-            kind=kind,  # type: ignore[arg-type]
-            base_url=base_url,
-        )
+    assert migrated.schema_version == 2
+    assert migrated.profiles[0].provider_id == "openai"
+    assert not hasattr(migrated, "providers")

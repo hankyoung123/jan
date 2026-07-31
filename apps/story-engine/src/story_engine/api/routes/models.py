@@ -3,67 +3,34 @@ from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import Field, SecretStr
 
-from story_engine.domain.models import DomainModel
 from story_engine.models.contracts import (
     ModelCatalog,
     ModelProfile,
     ModelRequest,
     ModelResponse,
-    ProviderConfig,
-    ProviderKind,
-    ProviderView,
     UsageTotals,
 )
 from story_engine.models.errors import (
-    MissingCredentialError,
     ModelConfigurationError,
     ModelGatewayError,
     ModelTimeoutError,
     ProfileMismatchError,
     ProfileNotFoundError,
-    ProviderNotFoundError,
     ProviderResponseError,
     ResponseLimitError,
     StructuredOutputError,
 )
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.registry import ProfileRegistry
-from story_engine.models.secrets import SecretStore
 
 
-class ProviderWrite(DomainModel):
-    name: str = Field(min_length=1, max_length=80)
-    kind: ProviderKind
-    base_url: str = Field(min_length=1, max_length=2048)
-    requires_api_key: bool = False
-    api_key: SecretStr | None = None
-    clear_api_key: bool = False
-
-
-def _provider_view(
-    provider: ProviderConfig,
-    secrets: SecretStore,
-) -> ProviderView:
-    return ProviderView(
-        **provider.model_dump(mode="json"),
-        has_api_key=secrets.get(provider.id) is not None,
-    )
-
-
-def _catalog(registry: ProfileRegistry, secrets: SecretStore) -> ModelCatalog:
-    state = registry.load()
-    return ModelCatalog(
-        providers=tuple(
-            _provider_view(provider, secrets) for provider in state.providers
-        ),
-        profiles=state.profiles,
-    )
+def _catalog(registry: ProfileRegistry) -> ModelCatalog:
+    return ModelCatalog(profiles=registry.load().profiles)
 
 
 def _http_error(error: ModelGatewayError) -> HTTPException:
-    if isinstance(error, (ProfileNotFoundError, ProviderNotFoundError)):
+    if isinstance(error, ProfileNotFoundError):
         code = status.HTTP_404_NOT_FOUND
     elif isinstance(error, ModelTimeoutError):
         code = status.HTTP_504_GATEWAY_TIMEOUT
@@ -72,7 +39,6 @@ def _http_error(error: ModelGatewayError) -> HTTPException:
     elif isinstance(
         error,
         (
-            MissingCredentialError,
             ModelConfigurationError,
             ProfileMismatchError,
             ResponseLimitError,
@@ -90,7 +56,6 @@ def _http_error(error: ModelGatewayError) -> HTTPException:
 
 def create_models_router(
     registry: ProfileRegistry,
-    secrets: SecretStore,
     gateway: ModelGateway,
 ) -> APIRouter:
     router = APIRouter(tags=["models"])
@@ -98,17 +63,7 @@ def create_models_router(
     @router.get("/models/catalog", response_model=ModelCatalog)
     async def get_model_catalog() -> ModelCatalog:
         try:
-            return _catalog(registry, secrets)
-        except ModelGatewayError as error:
-            raise _http_error(error) from error
-
-    @router.get("/models/providers", response_model=list[ProviderView])
-    async def get_model_providers() -> list[ProviderView]:
-        try:
-            return [
-                _provider_view(provider, secrets)
-                for provider in registry.load().providers
-            ]
+            return _catalog(registry)
         except ModelGatewayError as error:
             raise _http_error(error) from error
 
@@ -118,33 +73,6 @@ def create_models_router(
             return list(registry.load().profiles)
         except ModelGatewayError as error:
             raise _http_error(error) from error
-
-    @router.put(
-        "/models/providers/{provider_id}",
-        response_model=ProviderView,
-    )
-    async def put_model_provider(
-        provider_id: str,
-        request: ProviderWrite,
-    ) -> ProviderView:
-        try:
-            provider = ProviderConfig(
-                id=provider_id,
-                name=request.name,
-                kind=request.kind,
-                base_url=request.base_url,
-                requires_api_key=request.requires_api_key,
-            )
-            registry.upsert_provider(provider)
-            if request.clear_api_key:
-                secrets.delete(provider.id)
-            elif request.api_key is not None:
-                secrets.set(provider.id, request.api_key.get_secret_value())
-            return _provider_view(provider, secrets)
-        except ModelGatewayError as error:
-            raise _http_error(error) from error
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @router.put(
         "/models/profiles/{profile_id}",

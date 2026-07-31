@@ -41,9 +41,10 @@ baseline:
 ## Credential boundary
 
 Jan Provider screens remain the user-facing configuration surface. Provider
-secrets must be bridged to the Python gateway through an operating-system
-secret store or a token-scoped runtime handoff. They must never be copied into
-story projects, query strings, browser storage, status events, or logs.
+secrets remain in Jan's Rust runtime and operating-system secret store. Python
+calls a token-scoped private Jan proxy and never receives Provider keys. Secrets
+must never be copied into story projects, query strings, browser storage,
+status events, command-line arguments, or logs.
 
 ## Attribution
 

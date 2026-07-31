@@ -103,40 +103,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/models/providers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Model Providers */
-        get: operations["get_model_providers_models_providers_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/models/providers/{provider_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Put Model Provider */
-        put: operations["put_model_provider_models_providers__provider_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/models/stream": {
         parameters: {
             query?: never;
@@ -404,8 +370,6 @@ export interface components {
         ModelCatalog: {
             /** Profiles */
             profiles: components["schemas"]["ModelProfile"][];
-            /** Providers */
-            providers: components["schemas"]["ProviderView"][];
         };
         /** ModelProfile */
         ModelProfile: {
@@ -534,48 +498,6 @@ export interface components {
             characters: components["schemas"]["Character"][];
             project: components["schemas"]["ProjectDocument"];
             world: components["schemas"]["WorldState"];
-        };
-        /** ProviderView */
-        ProviderView: {
-            /** Base Url */
-            base_url: string;
-            /** Has Api Key */
-            has_api_key: boolean;
-            /** Id */
-            id: string;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "remote" | "local";
-            /** Name */
-            name: string;
-            /** Requires Api Key */
-            requires_api_key: boolean;
-        };
-        /** ProviderWrite */
-        ProviderWrite: {
-            /** Api Key */
-            api_key?: string | null;
-            /** Base Url */
-            base_url: string;
-            /**
-             * Clear Api Key
-             * @default false
-             */
-            clear_api_key: boolean;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "remote" | "local";
-            /** Name */
-            name: string;
-            /**
-             * Requires Api Key
-             * @default false
-             */
-            requires_api_key: boolean;
         };
         /** Relationship */
         Relationship: {
@@ -1015,61 +937,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelProfile"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_model_providers_models_providers_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProviderView"][];
-                };
-            };
-        };
-    };
-    put_model_provider_models_providers__provider_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProviderWrite"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProviderView"];
                 };
             };
             /** @description Validation Error */

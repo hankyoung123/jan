@@ -16,9 +16,13 @@ from story_engine.events.stream import (
     stream_events,
     websocket_token_is_valid,
 )
-from story_engine.models.gateway import ModelGateway, ModelTransport
+from story_engine.models.gateway import (
+    ModelGateway,
+    ModelTransport,
+    OpenAICompatibleTransport,
+    UnavailableModelTransport,
+)
 from story_engine.models.registry import ProfileRegistry
-from story_engine.models.secrets import KeyringSecretStore, SecretStore
 
 
 class HealthResponse(BaseModel):
@@ -67,7 +71,6 @@ def create_app(
     settings: EngineSettings | None = None,
     *,
     model_registry: ProfileRegistry | None = None,
-    secret_store: SecretStore | None = None,
     model_transport: ModelTransport | None = None,
 ) -> FastAPI:
     runtime_settings = settings or EngineSettings()
@@ -79,8 +82,15 @@ def create_app(
     )
     app.state.settings = runtime_settings
     registry = model_registry or ProfileRegistry(runtime_settings.model_registry_path)
-    secrets = secret_store or KeyringSecretStore()
-    gateway = ModelGateway(registry, secrets, model_transport)
+    transport = model_transport
+    if transport is None and runtime_settings.model_bridge_configured:
+        assert runtime_settings.model_base_url is not None
+        assert runtime_settings.model_api_key is not None
+        transport = OpenAICompatibleTransport(
+            runtime_settings.model_base_url,
+            runtime_settings.model_api_key,
+        )
+    gateway = ModelGateway(registry, transport or UnavailableModelTransport())
     app.state.model_registry = registry
     app.state.model_gateway = gateway
     event_bus = EngineEventBus()
@@ -125,7 +135,7 @@ def create_app(
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(
-        create_models_router(registry, secrets, gateway),
+        create_models_router(registry, gateway),
         dependencies=[Depends(require_session_token)],
     )
 

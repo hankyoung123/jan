@@ -14,6 +14,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
+use crate::core::story_model_bridge::{ModelBridge, ModelBridgeConnection};
+
 const MAX_LOG_LINES: usize = 200;
 const HEALTH_ATTEMPTS: usize = 50;
 const HEALTH_INTERVAL: Duration = Duration::from_millis(100);
@@ -69,9 +71,18 @@ struct RuntimeInner {
     logs: VecDeque<String>,
 }
 
-#[derive(Default)]
 pub struct EngineRuntime {
     inner: Mutex<RuntimeInner>,
+    model_bridge: Arc<ModelBridge>,
+}
+
+impl Default for EngineRuntime {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(RuntimeInner::default()),
+            model_bridge: Arc::new(ModelBridge::default()),
+        }
+    }
 }
 
 impl EngineRuntime {
@@ -105,6 +116,12 @@ impl EngineRuntime {
         terminate_process(process);
         Ok(connection)
     }
+
+    pub async fn shutdown(&self) -> Result<EngineConnection, String> {
+        let connection = self.stop()?;
+        self.model_bridge.shutdown().await?;
+        Ok(connection)
+    }
 }
 
 fn terminate_process(process: Option<Child>) {
@@ -134,7 +151,27 @@ fn development_project_path(manifest_dir: &Path) -> PathBuf {
         .join("apps/story-engine")
 }
 
-fn sidecar_command(app: &AppHandle, port: u16, token: &str) -> Result<Command, String> {
+fn configure_model_bridge(command: &mut Command, bridge: &ModelBridgeConnection) {
+    command
+        .env("STORY_ENGINE_MODEL_BASE_URL", &bridge.base_url)
+        .env("STORY_ENGINE_MODEL_API_KEY", &bridge.api_key);
+}
+
+fn redact_secrets(line: &str, secrets: &[String]) -> String {
+    secrets
+        .iter()
+        .filter(|secret| !secret.is_empty())
+        .fold(line.to_owned(), |safe_line, secret| {
+            safe_line.replace(secret, "[redacted]")
+        })
+}
+
+fn sidecar_command(
+    app: &AppHandle,
+    port: u16,
+    token: &str,
+    model_bridge: &ModelBridgeConnection,
+) -> Result<Command, String> {
     let mut command = if let Some(binary) = env::var_os("STORY_ENGINE_SIDECAR_BIN") {
         Command::new(binary)
     } else if cfg!(debug_assertions) {
@@ -173,6 +210,7 @@ fn sidecar_command(app: &AppHandle, port: u16, token: &str) -> Result<Command, S
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    configure_model_bridge(&mut command, model_bridge);
     Ok(command)
 }
 
@@ -180,11 +218,11 @@ fn capture_logs<R: Read + Send + 'static>(
     reader: R,
     runtime: Arc<EngineRuntime>,
     generation: u64,
-    token: String,
+    secrets: Vec<String>,
 ) {
     thread::spawn(move || {
         for line in BufReader::new(reader).lines().map_while(Result::ok) {
-            let safe_line = line.replace(&token, "[redacted]");
+            let safe_line = redact_secrets(&line, &secrets);
             let Ok(mut inner) = runtime.inner.lock() else {
                 return;
             };
@@ -221,17 +259,18 @@ fn set_crashed(app: &AppHandle, runtime: &EngineRuntime, generation: u64, messag
     emit_status(app, &connection);
 }
 
-fn start(
+async fn start(
     app: AppHandle,
     runtime: Arc<EngineRuntime>,
     is_restart: bool,
 ) -> Result<EngineConnection, String> {
     let _ = runtime.stop()?;
+    let model_bridge = runtime.model_bridge.ensure_started(&app).await?;
     let port = reserve_port()?;
     let token = session_token();
     let base_url = format!("http://127.0.0.1:{port}");
     let websocket_url = format!("ws://127.0.0.1:{port}/ws/events");
-    let mut command = sidecar_command(&app, port, &token)?;
+    let mut command = sidecar_command(&app, port, &token, &model_bridge)?;
     let mut process = command
         .spawn()
         .map_err(|error| format!("failed to start Story Engine Sidecar: {error}"))?;
@@ -256,16 +295,33 @@ fn start(
         (inner.generation, inner.connection.clone())
     };
 
+    let log_secrets = vec![token, model_bridge.api_key];
     if let Some(stdout) = stdout {
-        capture_logs(stdout, runtime.clone(), generation, token.clone());
+        capture_logs(stdout, runtime.clone(), generation, log_secrets.clone());
     }
     if let Some(stderr) = stderr {
-        capture_logs(stderr, runtime.clone(), generation, token);
+        capture_logs(stderr, runtime.clone(), generation, log_secrets);
     }
     emit_status(&app, &connection);
 
     tauri::async_runtime::spawn(monitor(app, runtime, generation, base_url));
     Ok(connection)
+}
+
+async fn start_with_bridge_cleanup(
+    app: AppHandle,
+    runtime: Arc<EngineRuntime>,
+    is_restart: bool,
+) -> Result<EngineConnection, String> {
+    match start(app, runtime.clone(), is_restart).await {
+        Ok(connection) => Ok(connection),
+        Err(start_error) => match runtime.model_bridge.shutdown().await {
+            Ok(()) => Err(start_error),
+            Err(shutdown_error) => Err(format!(
+                "{start_error}; failed to clean up model bridge: {shutdown_error}"
+            )),
+        },
+    }
 }
 
 async fn monitor(app: AppHandle, runtime: Arc<EngineRuntime>, generation: u64, base_url: String) {
@@ -381,36 +437,38 @@ pub fn engine_runtime_logs(runtime: State<'_, Arc<EngineRuntime>>) -> Result<Vec
 }
 
 #[tauri::command]
-pub fn restart_story_engine(
+pub async fn restart_story_engine(
     app: AppHandle,
     runtime: State<'_, Arc<EngineRuntime>>,
 ) -> Result<EngineConnection, String> {
-    start(app, runtime.inner().clone(), true)
+    start_with_bridge_cleanup(app, runtime.inner().clone(), true).await
 }
 
 #[tauri::command]
-pub fn stop_story_engine(
+pub async fn stop_story_engine(
     app: AppHandle,
     runtime: State<'_, Arc<EngineRuntime>>,
 ) -> Result<EngineConnection, String> {
-    let connection = runtime.stop()?;
+    let connection = runtime.shutdown().await?;
     emit_status(&app, &connection);
     Ok(connection)
 }
 
 pub fn start_managed_sidecar(app: AppHandle, runtime: Arc<EngineRuntime>) {
-    if let Err(error) = start(app.clone(), runtime.clone(), false) {
-        let connection = {
-            let Ok(mut inner) = runtime.inner.lock() else {
-                return;
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = start_with_bridge_cleanup(app.clone(), runtime.clone(), false).await {
+            let connection = {
+                let Ok(mut inner) = runtime.inner.lock() else {
+                    return;
+                };
+                inner.connection.phase = EnginePhase::Crashed;
+                inner.connection.session_token = None;
+                inner.connection.last_error = Some(error);
+                inner.connection.clone()
             };
-            inner.connection.phase = EnginePhase::Crashed;
-            inner.connection.session_token = None;
-            inner.connection.last_error = Some(error);
-            inner.connection.clone()
-        };
-        emit_status(&app, &connection);
-    }
+            emit_status(&app, &connection);
+        }
+    });
 }
 
 #[cfg(test)]
@@ -422,6 +480,54 @@ mod tests {
         assert_eq!(
             development_project_path(Path::new("/workspace/src-tauri")),
             PathBuf::from("/workspace/apps/story-engine")
+        );
+    }
+
+    #[test]
+    fn model_bridge_credentials_are_passed_only_through_the_environment() {
+        let connection = ModelBridgeConnection {
+            base_url: "http://127.0.0.1:49152/v1".to_owned(),
+            api_key: "private-bridge-token".to_owned(),
+        };
+        let mut command = Command::new("story-engine");
+
+        configure_model_bridge(&mut command, &connection);
+
+        let environment = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.map(|item| item.to_string_lossy().into_owned()),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            environment.get("STORY_ENGINE_MODEL_BASE_URL"),
+            Some(&Some(connection.base_url))
+        );
+        assert_eq!(
+            environment.get("STORY_ENGINE_MODEL_API_KEY"),
+            Some(&Some(connection.api_key))
+        );
+        assert!(command.get_args().next().is_none());
+    }
+
+    #[test]
+    fn captured_logs_redact_session_and_model_bridge_tokens() {
+        let secrets = vec![
+            "session-secret".to_owned(),
+            "private-bridge-token".to_owned(),
+        ];
+
+        let safe_line = redact_secrets(
+            "session-secret called private-bridge-token; harmless context remains",
+            &secrets,
+        );
+
+        assert_eq!(
+            safe_line,
+            "[redacted] called [redacted]; harmless context remains"
         );
     }
 

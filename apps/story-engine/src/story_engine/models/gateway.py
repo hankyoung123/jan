@@ -15,11 +15,9 @@ from story_engine.models.contracts import (
     ModelResponse,
     ModelStreamChunk,
     ModelUsage,
-    ProviderConfig,
     UsageTotals,
 )
 from story_engine.models.errors import (
-    MissingCredentialError,
     ModelConfigurationError,
     ModelTimeoutError,
     ProfileMismatchError,
@@ -28,7 +26,6 @@ from story_engine.models.errors import (
     StructuredOutputError,
 )
 from story_engine.models.registry import ProfileRegistry
-from story_engine.models.secrets import SecretStore
 
 MAX_REQUEST_BYTES = 1_048_576
 MAX_RESPONSE_BYTES = 1_048_576
@@ -38,19 +35,15 @@ MAX_ATTEMPTS = 3
 class ModelTransport(Protocol):
     async def complete(
         self,
-        provider: ProviderConfig,
         payload: Mapping[str, Any],
         *,
-        credential: str | None,
         timeout_seconds: int,
     ) -> Mapping[str, Any]: ...
 
     def stream(
         self,
-        provider: ProviderConfig,
         payload: Mapping[str, Any],
         *,
-        credential: str | None,
         timeout_seconds: int,
     ) -> AsyncIterator[ModelStreamChunk]: ...
 
@@ -59,15 +52,15 @@ class _TransientProviderError(Exception):
     pass
 
 
-def _headers(credential: str | None) -> dict[str, str]:
+def _headers(api_key: str | None) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
-    if credential:
-        headers["Authorization"] = f"Bearer {credential}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     return headers
 
 
-def _endpoint(provider: ProviderConfig, resource: str) -> str:
-    return f"{provider.base_url.rstrip('/')}/{resource.lstrip('/')}"
+def _endpoint(base_url: str, resource: str) -> str:
+    return f"{base_url.rstrip('/')}/{resource.lstrip('/')}"
 
 
 async def _read_limited(response: httpx.Response) -> bytes:
@@ -89,7 +82,14 @@ def _raise_for_status(response: httpx.Response) -> None:
 
 
 class OpenAICompatibleTransport:
-    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._base_url = base_url
+        self._api_key = api_key
         self._transport = transport
 
     def _client(self, timeout_seconds: int) -> httpx.AsyncClient:
@@ -101,10 +101,8 @@ class OpenAICompatibleTransport:
 
     async def complete(
         self,
-        provider: ProviderConfig,
         payload: Mapping[str, Any],
         *,
-        credential: str | None,
         timeout_seconds: int,
     ) -> Mapping[str, Any]:
         for attempt in range(MAX_ATTEMPTS):
@@ -113,8 +111,8 @@ class OpenAICompatibleTransport:
                     self._client(timeout_seconds) as client,
                     client.stream(
                         "POST",
-                        _endpoint(provider, "chat/completions"),
-                        headers=_headers(credential),
+                        _endpoint(self._base_url, "chat/completions"),
+                        headers=_headers(self._api_key),
                         json=payload,
                     ) as response,
                 ):
@@ -139,10 +137,8 @@ class OpenAICompatibleTransport:
 
     async def stream(
         self,
-        provider: ProviderConfig,
         payload: Mapping[str, Any],
         *,
-        credential: str | None,
         timeout_seconds: int,
     ) -> AsyncIterator[ModelStreamChunk]:
         streamed_payload = {
@@ -155,8 +151,8 @@ class OpenAICompatibleTransport:
                 self._client(timeout_seconds) as client,
                 client.stream(
                     "POST",
-                    _endpoint(provider, "chat/completions"),
-                    headers=_headers(credential),
+                    _endpoint(self._base_url, "chat/completions"),
+                    headers=_headers(self._api_key),
                     json=streamed_payload,
                 ) as response,
             ):
@@ -196,6 +192,26 @@ class OpenAICompatibleTransport:
             raise ProviderResponseError("provider stream was unavailable") from error
         except _TransientProviderError as error:
             raise ProviderResponseError("provider stream was unavailable") from error
+
+
+class UnavailableModelTransport:
+    async def complete(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: int,
+    ) -> Mapping[str, Any]:
+        raise ModelConfigurationError("Jan model runtime bridge is unavailable")
+
+    async def stream(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: int,
+    ) -> AsyncIterator[ModelStreamChunk]:
+        if False:
+            yield ModelStreamChunk()
+        raise ModelConfigurationError("Jan model runtime bridge is unavailable")
 
 
 def _stream_delta(event: Mapping[str, Any]) -> str:
@@ -247,18 +263,14 @@ class ModelGateway:
     def __init__(
         self,
         registry: ProfileRegistry,
-        secrets: SecretStore,
-        transport: ModelTransport | None = None,
+        transport: ModelTransport,
         usage: UsageTracker | None = None,
     ) -> None:
         self.registry = registry
-        self.secrets = secrets
-        self.transport = transport or OpenAICompatibleTransport()
+        self.transport = transport
         self.usage = usage or UsageTracker()
 
-    def _resolve(
-        self, request: ModelRequest
-    ) -> tuple[ModelProfile, ProviderConfig, str | None]:
+    def _resolve(self, request: ModelRequest) -> ModelProfile:
         profile = self.registry.get_profile(request.profile_id)
         if not profile.enabled:
             raise ModelConfigurationError(f"profile {profile.id!r} is disabled")
@@ -267,13 +279,7 @@ class ModelGateway:
                 f"profile {profile.id!r} is for {profile.task_type}, "
                 f"not {request.task_type}"
             )
-        provider = self.registry.get_provider(profile.provider_id)
-        credential = self.secrets.get(provider.id)
-        if provider.requires_api_key and not credential:
-            raise MissingCredentialError(
-                f"provider {provider.id!r} requires an API key"
-            )
-        return profile, provider, credential
+        return profile
 
     @staticmethod
     def _schema(request: ModelRequest) -> Mapping[str, Any] | None:
@@ -376,13 +382,11 @@ class ModelGateway:
         return parsed
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
-        profile, provider, credential = self._resolve(request)
+        profile = self._resolve(request)
         schema = self._schema(request)
         payload = self._payload(request, profile, schema)
         raw = await self.transport.complete(
-            provider,
             payload,
-            credential=credential,
             timeout_seconds=request.timeout_seconds,
         )
         content, finish_reason, usage = self._parse_content(raw)
@@ -390,7 +394,7 @@ class ModelGateway:
         self.usage.record(usage)
         return ModelResponse(
             profile_id=profile.id,
-            provider_id=provider.id,
+            provider_id=profile.provider_id,
             model=profile.model,
             content=content,
             parsed_output=parsed_output,
@@ -399,16 +403,14 @@ class ModelGateway:
         )
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamChunk]:
-        profile, provider, credential = self._resolve(request)
+        profile = self._resolve(request)
         schema = self._schema(request)
         payload = self._payload(request, profile, schema)
         content: list[str] = []
         usage = ModelUsage()
         size = 0
         async for chunk in self.transport.stream(
-            provider,
             payload,
-            credential=credential,
             timeout_seconds=request.timeout_seconds,
         ):
             if chunk.delta:
