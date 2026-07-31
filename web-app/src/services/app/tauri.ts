@@ -62,7 +62,7 @@ export class TauriAppService extends DefaultAppService {
 
       return appConfiguration?.data_folder
     } catch (error) {
-      console.error('Failed to get Jan data folder:', error)
+      console.error('Failed to get application data folder:', error)
       return undefined
     }
   }

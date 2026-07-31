@@ -16,7 +16,7 @@
   "refresh": "更新",
   "import": "インポート",
   "imported": "インポート済み",
-  "importedTooltip": "ローカルファイルからインポートされています。Janから削除しても、ディスク上のファイルは削除されません。",
+  "importedTooltip": "ローカルファイルからインポートされています。Story Engineから削除しても、ディスク上のファイルは削除されません。",
   "importModelSuccess": "モデル{{provider}}は正常にインポートされました。",
   "importModelError": "モデルのインポートに失敗しました:",
   "stop": "停止",
@@ -40,8 +40,8 @@
   "deleteModel": {
     "title": "モデルを削除: {{modelId}}",
     "description": "本当にこのモデルを削除しますか？この操作は元に戻せません。",
-    "importedDescription": "このインポート済みモデルをJanから削除しますか？ディスク上のローカルファイルは削除されません。",
-    "removeFromJan": "Janから削除",
+    "importedDescription": "このインポート済みモデルをStory Engineから削除しますか？ディスク上のローカルファイルは削除されません。",
+    "removeFromJan": "Story Engineから削除",
     "success": "モデル {{modelId}} は完全に削除されました。",
     "cancel": "キャンセル",
     "delete": "削除"
@@ -53,7 +53,7 @@
     "sizeLabel": "解放されるディスク容量:",
     "calculating": "計算中…",
     "warning": "この操作は元に戻せません。",
-    "importedExcluded": "{{count}}個のインポート済みモデルは保持されます（これらのファイルはJanによってダウンロードされたものではありません）。",
+    "importedExcluded": "{{count}}個のインポート済みモデルは保持されます（これらのファイルはStory Engineによってダウンロードされたものではありません）。",
     "confirm": "{{count}}個のモデルを削除",
     "deleting": "削除中…",
     "success": "{{count}}個のモデルを削除しました。",
@@ -93,7 +93,7 @@
   },
   "apiKeys": {
     "title": "APIキー",
-    "description": "APIキーを入力してください。詳細設定で追加のキーを登録でき、キーが失敗した場合はJanが自動的に次のキーを試します。",
+    "description": "APIキーを入力してください。詳細設定で追加のキーを登録でき、キーが失敗した場合はStory Engineが自動的に次のキーを試します。",
     "placeholder": "sk-…\nsk-…",
     "primaryPlaceholder": "メインのAPIキーを入力",
     "keyPlaceholder": "APIキーを入力",

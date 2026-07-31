@@ -144,7 +144,7 @@ describe('SetupScreen', () => {
 
   it('renders welcome header when no download is active', () => {
     render(<SetupScreen />)
-    expect(screen.getByText('Hey, welcome to Jan!')).toBeInTheDocument()
+    expect(screen.getByText('Welcome to Story Engine')).toBeInTheDocument()
     expect(screen.getByText('Download')).toBeInTheDocument()
   })
 
@@ -196,7 +196,9 @@ describe('SetupScreen', () => {
       },
     }
     render(<SetupScreen />)
-    expect(screen.getByText('Sit tight, Jan is getting ready...')).toBeInTheDocument()
+    expect(
+      screen.getByText('Sit tight, Story Engine is getting ready...')
+    ).toBeInTheDocument()
     expect(screen.getByText('Downloading')).toBeInTheDocument()
   })
 
