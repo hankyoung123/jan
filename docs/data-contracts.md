@@ -58,6 +58,10 @@ opens the new project automatically.
 paths and their content hashes. Its document entries cover only `project.md`,
 `world.md`, `characters/**/*.md`, `events/*.md`, and `scenes/*.md`. The JSON
 copy below `.story-engine/index/project.json` is derived and rebuildable.
+Turn, manuscript, amendment, and promotion candidates copy this revision into
+`base_workspace_revision`. Formal confirmation rejects a missing or changed
+revision with `409`, including an external edit that kept a document's
+semantic version unchanged.
 
 `POST /projects/{project_id}/turns/generate` asks the engine to assemble one
 private context per participant, generate isolated character intents, resolve

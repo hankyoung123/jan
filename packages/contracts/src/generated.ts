@@ -639,6 +639,8 @@ export interface components {
         };
         /** EventAmendmentCandidate */
         EventAmendmentCandidate: {
+            /** Base Workspace Revision */
+            base_workspace_revision?: string | null;
             /** Base World Version */
             base_world_version: number;
             /** Draft Revision */
@@ -862,6 +864,8 @@ export interface components {
         PromotionCandidate: {
             /** Base Character Version */
             base_character_version: number;
+            /** Base Workspace Revision */
+            base_workspace_revision?: string | null;
             /** Character Id */
             character_id: string;
             /** Id */
@@ -1072,6 +1076,8 @@ export interface components {
              * @default 0
              */
             base_scene_version: number;
+            /** Base Workspace Revision */
+            base_workspace_revision?: string | null;
             /** Base World Version */
             base_world_version: number;
             /** Body */
@@ -1349,6 +1355,8 @@ export interface components {
             base_character_versions: {
                 [key: string]: number;
             };
+            /** Base Workspace Revision */
+            base_workspace_revision?: string | null;
             /** Base World Version */
             base_world_version: number;
             /** Id */

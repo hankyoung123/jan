@@ -16,6 +16,8 @@ from story_engine.submission.service import (
     SubmissionDraft,
     fog_harbor_submission,
 )
+from story_engine.workspace.event_store import EventStore
+from story_engine.workspace.project_store import ProjectStore
 
 AUTH = {"Authorization": "Bearer test-token"}
 
@@ -350,6 +352,48 @@ def test_project_and_turn_approval_flow(tmp_path: Path) -> None:
     assert project.status_code == 200
     assert project.json()["world"]["version"] == 1
     assert all(character["version"] == 1 for character in project.json()["characters"])
+
+
+def test_turn_confirmation_rejects_external_markdown_change(
+    tmp_path: Path,
+) -> None:
+    transport = StoryTurnTransport()
+    client = TestClient(
+        create_app(
+            EngineSettings(session_token="test-token", projects_root=tmp_path),
+            model_transport=transport,
+        )
+    )
+    client.post(
+        "/submissions/finalize",
+        headers=AUTH,
+        json=fog_harbor_submission().model_dump(mode="json"),
+    )
+    generated = client.post(
+        "/projects/fog-harbor/turns/generate",
+        headers=AUTH,
+        json={},
+    )
+    assert generated.status_code == 201
+
+    root = tmp_path / "fog-harbor"
+    store = ProjectStore(root)
+    store.save_world(
+        store.load().world.model_copy(
+            update={"current_location": "外部编辑器改写的码头", "version": 0}
+        )
+    )
+    after_external_edit = _formal_bytes(root)
+
+    confirmed = client.post(
+        "/projects/fog-harbor/turns/turn-000001/confirm",
+        headers=AUTH,
+    )
+
+    assert confirmed.status_code == 409
+    assert "canonical workspace changed" in confirmed.json()["detail"]
+    assert _formal_bytes(root) == after_external_edit
+    assert EventStore(root).list_events() == ()
 
 
 def test_revision_maps_editor_gateway_error_without_changing_candidate(

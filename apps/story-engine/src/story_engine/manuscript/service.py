@@ -32,6 +32,7 @@ from story_engine.workspace.scene_store import (
     SceneDraftStore,
     SceneStore,
 )
+from story_engine.workspace.session import canonical_revision
 
 
 class ManuscriptAgent(Protocol):
@@ -283,6 +284,7 @@ class ManuscriptService:
     ) -> SceneDraft:
         events = self._confirmed_events(event_ids)
         snapshot = self.projects.load()
+        base_workspace_revision = canonical_revision(self.root)
         writer_evidence = self._writer_evidence(
             events,
             project_title=snapshot.project.title,
@@ -316,6 +318,7 @@ class ManuscriptService:
             body=output.body,
             source_event_ids=event_ids,
             base_world_version=snapshot.world.version,
+            base_workspace_revision=base_workspace_revision,
             review=review,
             retrieval_evidence=writer_evidence + editor_evidence,
             status="reviewed" if writer_is_grounded else "needs_revision",
@@ -343,6 +346,7 @@ class ManuscriptService:
             source_event_ids=scene.source_event_ids,
             base_world_version=snapshot.world.version,
             base_scene_version=scene.version,
+            base_workspace_revision=canonical_revision(self.root),
             review=derived.review if derived else None,
             retrieval_evidence=derived.retrieval_evidence if derived else (),
             status="draft",
@@ -351,6 +355,7 @@ class ManuscriptService:
     def list_scenes(self) -> tuple[SceneDraft, ...]:
         drafts = {draft.id: draft for draft in self.drafts.list_drafts()}
         snapshot = self.projects.load()
+        base_workspace_revision = canonical_revision(self.root)
         for scene in self.scenes.list_scenes():
             if scene.id in drafts and drafts[scene.id].status != "saved":
                 continue
@@ -365,6 +370,7 @@ class ManuscriptService:
                 source_event_ids=scene.source_event_ids,
                 base_world_version=snapshot.world.version,
                 base_scene_version=scene.version,
+                base_workspace_revision=base_workspace_revision,
                 review=derived.review if derived else None,
                 retrieval_evidence=derived.retrieval_evidence if derived else (),
             )
@@ -380,6 +386,9 @@ class ManuscriptService:
             raise VersionConflictError("scene draft revision changed")
         if draft.base_scene_version != request.expected_scene_version:
             raise VersionConflictError("scene version changed")
+        current_workspace_revision = canonical_revision(self.root)
+        if draft.base_workspace_revision != current_workspace_revision:
+            raise VersionConflictError("canonical workspace changed since scene load")
         updated = draft.with_content(title=request.title, body=request.body)
         events = self._confirmed_events(updated.source_event_ids)
         snapshot = self.projects.load()
@@ -410,6 +419,7 @@ class ManuscriptService:
                     for index, _fact in enumerate(review.new_facts, start=1)
                 ),
                 base_world_version=snapshot.world.version,
+                base_workspace_revision=current_workspace_revision,
                 draft_revision=updated.revision,
             )
             candidate_draft = updated.model_copy(
@@ -454,10 +464,13 @@ class ManuscriptService:
         EventCommitService(self.root).commit_scene(
             scene,
             expected_version=reviewed.base_scene_version,
+            expected_workspace_revision=reviewed.base_workspace_revision,
         )
+        saved_workspace_revision = canonical_revision(self.root)
         saved = reviewed.model_copy(
             update={
                 "base_scene_version": scene.version,
+                "base_workspace_revision": saved_workspace_revision,
                 "status": "saved",
             }
         )
@@ -490,7 +503,12 @@ class ManuscriptService:
             scene,
             amendment,
         )
-        saved = draft.model_copy(update={"status": "saved"})
+        saved = draft.model_copy(
+            update={
+                "base_workspace_revision": canonical_revision(self.root),
+                "status": "saved",
+            }
+        )
         self.drafts.save(saved)
         self.amendments.save(result.amendment)
         return result

@@ -222,6 +222,18 @@
       "EventAmendmentCandidate": {
         "additionalProperties": false,
         "properties": {
+          "base_workspace_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Workspace Revision"
+          },
           "base_world_version": {
             "minimum": 0.0,
             "title": "Base World Version",
@@ -835,6 +847,18 @@
             "title": "Base Character Version",
             "type": "integer"
           },
+          "base_workspace_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Workspace Revision"
+          },
           "character_id": {
             "pattern": "^[a-z0-9][a-z0-9-]*$",
             "title": "Character Id",
@@ -1416,6 +1440,18 @@
             "minimum": 0.0,
             "title": "Base Scene Version",
             "type": "integer"
+          },
+          "base_workspace_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Workspace Revision"
           },
           "base_world_version": {
             "minimum": 0.0,
@@ -2111,6 +2147,18 @@
             },
             "title": "Base Character Versions",
             "type": "object"
+          },
+          "base_workspace_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Workspace Revision"
           },
           "base_world_version": {
             "minimum": 0.0,

@@ -228,6 +228,13 @@ def build_workspace_index(root: Path) -> tuple[ProjectSnapshot, WorkspaceIndex]:
     )
 
 
+def canonical_revision(root: Path) -> str:
+    """Return the validated revision of all canonical Markdown documents."""
+
+    _snapshot, index = build_workspace_index(root)
+    return index.revision
+
+
 class WorkspaceSessionManager:
     """Own open project sessions, disposable indexes, and file watchers."""
 

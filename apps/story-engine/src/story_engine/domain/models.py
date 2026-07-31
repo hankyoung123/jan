@@ -138,6 +138,10 @@ class PromotionCandidate(DomainModel):
     project_id: str = Field(min_length=1)
     character_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
     base_character_version: int = Field(ge=0)
+    base_workspace_revision: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     proposed_goal: str = Field(min_length=1)
     review: ReviewResult
     status: PromotionStatus = "pending"
@@ -181,6 +185,10 @@ class TurnCandidate(DomainModel):
     project_id: str = Field(min_length=1)
     base_world_version: int = Field(ge=0)
     base_character_versions: dict[str, int]
+    base_workspace_revision: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     intents: tuple[CharacterIntent, ...] = Field(min_length=1)
     outcome: WorldOutcome
     review: ReviewResult | None = None

@@ -8,6 +8,7 @@ from story_engine.review.promotion import PromotionAssessment
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectSnapshot, ProjectStore
 from story_engine.workspace.promotion_store import PromotionCandidateStore
+from story_engine.workspace.session import canonical_revision
 
 
 class PromotionReviewer(Protocol):
@@ -29,6 +30,7 @@ class CharacterPromotionService:
 
     def review(self, character_id: str) -> PromotionAssessment:
         snapshot = self.project_store.load()
+        base_workspace_revision = canonical_revision(self.root)
         character = self._character(snapshot, character_id)
         assessment = self.reviewer.review(
             character,
@@ -38,7 +40,11 @@ class CharacterPromotionService:
         if assessment.candidate is None:
             self.candidate_store.delete(character_id)
         else:
-            self.candidate_store.save(assessment.candidate)
+            candidate = assessment.candidate.model_copy(
+                update={"base_workspace_revision": base_workspace_revision}
+            )
+            self.candidate_store.save(candidate)
+            assessment = assessment.model_copy(update={"candidate": candidate})
         return assessment
 
     def confirm(

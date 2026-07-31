@@ -56,8 +56,10 @@ Opening a project validates every canonical Markdown document, rolls back any
 prepared multi-file transaction left below `.story-engine/recovery`, recreates
 missing derived directories, and builds one process-local `WorkspaceIndex`.
 The index records canonical file hashes, world and character versions, Event
-IDs, and Scene IDs; its JSON copy below `.story-engine/index` is diagnostic and
-may be deleted at any time.
+IDs, and Scene IDs. Its SHA-256 `revision` covers the ordered canonical paths
+and file hashes; the revision is the optimistic boundary for every derived
+candidate. Its JSON copy below `.story-engine/index` is diagnostic and may be
+deleted at any time.
 
 An open workspace owns a cross-platform polling watcher. A valid external
 Markdown change rebuilds the in-memory index and emits `workspace.changed` over
@@ -72,7 +74,8 @@ All formal mutations flow through `EventCommitService`:
 
 ```text
 candidate -> schema validation -> editor review -> user approval
-          -> optimistic version check -> atomic Markdown writes
+          -> optimistic version and workspace-revision checks
+          -> atomic Markdown writes
           -> event append -> index refresh
 ```
 
@@ -81,7 +84,10 @@ An unapproved turn may write only to `.story-engine/turns` and
 
 API-owned canonical writes refresh the open workspace immediately after the
 atomic commit. The watcher is the fallback for edits made by an external text
-editor and for changes originating outside the active API process.
+editor and for changes originating outside the active API process. Turn,
+manuscript, amendment, and promotion candidates retain the canonical revision
+seen at review time; a later external edit is rejected even when it preserves
+the document's semantic version number.
 
 `SubmissionService` validates the runnable initial package before creating a
 project directory. During evolution, `CharacterContextAssembler` combines

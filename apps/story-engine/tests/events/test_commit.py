@@ -22,6 +22,7 @@ from story_engine.events.commit import (
 from story_engine.evolution.context import CharacterContextAssembler
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectSeed, ProjectStore
+from story_engine.workspace.session import canonical_revision
 
 
 def _seed() -> ProjectSeed:
@@ -71,12 +72,17 @@ def _seed() -> ProjectSeed:
     )
 
 
-def _candidate(*, world_version: int = 0) -> TurnCandidate:
+def _candidate(
+    *,
+    world_version: int = 0,
+    base_workspace_revision: str | None = None,
+) -> TurnCandidate:
     return TurnCandidate(
         id="turn-000001",
         project_id="fog-harbor",
         base_world_version=world_version,
         base_character_versions={"chen-mo": 0},
+        base_workspace_revision=base_workspace_revision,
         intents=(
             CharacterIntent(
                 character_id="chen-mo",
@@ -113,9 +119,16 @@ def _candidate(*, world_version: int = 0) -> TurnCandidate:
     )
 
 
-def _approved_candidate(*, world_version: int = 0) -> TurnCandidate:
+def _approved_candidate(
+    *,
+    world_version: int = 0,
+    base_workspace_revision: str | None = None,
+) -> TurnCandidate:
     return (
-        _candidate(world_version=world_version)
+        _candidate(
+            world_version=world_version,
+            base_workspace_revision=base_workspace_revision,
+        )
         .with_review(
             ReviewResult(
                 mode="turn_review",
@@ -127,12 +140,17 @@ def _approved_candidate(*, world_version: int = 0) -> TurnCandidate:
     )
 
 
-def _promotion_candidate(*, version: int = 2) -> PromotionCandidate:
+def _promotion_candidate(
+    *,
+    version: int = 2,
+    base_workspace_revision: str | None = None,
+) -> PromotionCandidate:
     return PromotionCandidate(
         id=f"promotion-temporary-pilot-v{version}",
         project_id="fog-harbor",
         character_id="temporary-pilot",
         base_character_version=version,
+        base_workspace_revision=base_workspace_revision,
         proposed_goal="主动引导客船避开近港暗礁",
         review=ReviewResult(
             mode="promotion_review",
@@ -167,9 +185,40 @@ def test_stale_world_version_rejects_commit_without_writes(tmp_path: Path) -> No
     before = _formal_bytes(root)
 
     with pytest.raises(VersionConflictError, match="world version"):
-        EventCommitService(root).commit(_approved_candidate(world_version=9))
+        EventCommitService(root).commit(
+            _approved_candidate(
+                world_version=9,
+                base_workspace_revision=canonical_revision(root),
+            )
+        )
 
     assert _formal_bytes(root) == before
+
+
+def test_external_markdown_change_with_same_version_rejects_commit(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "fog-harbor"
+    store = ProjectStore(root)
+    store.create(_seed())
+    candidate = _approved_candidate(
+        base_workspace_revision=canonical_revision(root)
+    )
+
+    external_world = store.load().world.model_copy(
+        update={"current_location": "外部编辑器改写的码头", "version": 0}
+    )
+    store.save_world(external_world)
+    after_external_edit = _formal_bytes(root)
+
+    with pytest.raises(
+        VersionConflictError,
+        match="canonical workspace changed since review",
+    ):
+        EventCommitService(root).commit(candidate)
+
+    assert _formal_bytes(root) == after_external_edit
+    assert EventStore(root).list_events() == ()
 
 
 def test_stale_character_version_rejects_commit_without_writes(
@@ -178,7 +227,9 @@ def test_stale_character_version_rejects_commit_without_writes(
     root = tmp_path / "fog-harbor"
     ProjectStore(root).create(_seed())
     before = _formal_bytes(root)
-    candidate = _approved_candidate().model_copy(
+    candidate = _approved_candidate(
+        base_workspace_revision=canonical_revision(root)
+    ).model_copy(
         update={"base_character_versions": {"chen-mo": 7}}
     )
 
@@ -194,7 +245,9 @@ def test_changed_nonparticipant_requires_base_version_without_writes(
     root = tmp_path / "fog-harbor"
     ProjectStore(root).create(_seed())
     before = _formal_bytes(root)
-    outcome = _candidate().outcome.model_copy(
+    outcome = _candidate(
+        base_workspace_revision=canonical_revision(root)
+    ).outcome.model_copy(
         update={
             "character_changes": (
                 StateChange(
@@ -208,7 +261,9 @@ def test_changed_nonparticipant_requires_base_version_without_writes(
             )
         }
     )
-    candidate = _approved_candidate().with_outcome(outcome)
+    candidate = _approved_candidate(
+        base_workspace_revision=canonical_revision(root)
+    ).with_outcome(outcome)
     candidate = candidate.with_review(
         ReviewResult(
             mode="turn_review",
@@ -233,7 +288,9 @@ def test_successful_commit_updates_all_formal_state_consistently(
     store = ProjectStore(root)
     store.create(_seed())
 
-    result = EventCommitService(root).commit(_approved_candidate())
+    result = EventCommitService(root).commit(
+        _approved_candidate(base_workspace_revision=canonical_revision(root))
+    )
     snapshot = store.load()
     events = EventStore(root).list_events()
 
@@ -254,7 +311,9 @@ def test_participant_version_advances_without_explicit_character_change(
     root = tmp_path / "fog-harbor"
     store = ProjectStore(root)
     store.create(_seed())
-    candidate = _approved_candidate().with_outcome(
+    candidate = _approved_candidate(
+        base_workspace_revision=canonical_revision(root)
+    ).with_outcome(
         WorldOutcome(summary="陈默留在原地观察灯塔。")
     )
     candidate = candidate.with_review(
@@ -276,8 +335,12 @@ def test_npc_id_collision_rejects_commit_without_formal_writes(tmp_path: Path) -
     root = tmp_path / "fog-harbor"
     ProjectStore(root).create(_seed())
     before = _formal_bytes(root)
-    candidate = _approved_candidate().with_outcome(
-        _approved_candidate().outcome.model_copy(
+    candidate = _approved_candidate(
+        base_workspace_revision=canonical_revision(root)
+    ).with_outcome(
+        _approved_candidate(
+            base_workspace_revision=canonical_revision(root)
+        ).outcome.model_copy(
             update={
                 "new_npcs": (
                     NpcCandidate(
@@ -310,7 +373,9 @@ def test_user_confirmed_promotion_moves_npc_and_appends_event_atomically(
     store = ProjectStore(root)
     store.create(_seed())
 
-    result = EventCommitService(root).promote_npc(_promotion_candidate())
+    result = EventCommitService(root).promote_npc(
+        _promotion_candidate(base_workspace_revision=canonical_revision(root))
+    )
     snapshot = store.load()
     promoted = next(
         character
@@ -337,9 +402,40 @@ def test_stale_promotion_rejects_without_formal_writes(tmp_path: Path) -> None:
     before = _formal_bytes(root)
 
     with pytest.raises(VersionConflictError, match="version changed"):
-        EventCommitService(root).promote_npc(_promotion_candidate(version=1))
+        EventCommitService(root).promote_npc(
+            _promotion_candidate(
+                version=1,
+                base_workspace_revision=canonical_revision(root),
+            )
+        )
 
     assert _formal_bytes(root) == before
+    assert EventStore(root).list_events() == ()
+
+
+def test_external_markdown_change_with_same_version_rejects_promotion(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "fog-harbor"
+    store = ProjectStore(root)
+    store.create(_seed())
+    candidate = _promotion_candidate(
+        base_workspace_revision=canonical_revision(root)
+    )
+    store.save_world(
+        store.load().world.model_copy(
+            update={"current_location": "外部编辑器改写的码头", "version": 0}
+        )
+    )
+    after_external_edit = _formal_bytes(root)
+
+    with pytest.raises(
+        VersionConflictError,
+        match="canonical workspace changed since review",
+    ):
+        EventCommitService(root).promote_npc(candidate)
+
+    assert _formal_bytes(root) == after_external_edit
     assert EventStore(root).list_events() == ()
 
 
@@ -366,7 +462,9 @@ def test_batch_failure_rolls_back_every_formal_file(
     monkeypatch.setattr(transaction, "_replace", fail_once)
 
     with pytest.raises(OSError, match="simulated filesystem failure"):
-        EventCommitService(root).commit(_approved_candidate())
+        EventCommitService(root).commit(
+            _approved_candidate(base_workspace_revision=canonical_revision(root))
+        )
 
     assert _formal_bytes(root) == before
     assert EventStore(root).list_events() == ()

@@ -90,6 +90,10 @@ class SceneDraft(DomainModel):
     source_event_ids: tuple[str, ...] = Field(min_length=1)
     base_world_version: int = Field(ge=0)
     base_scene_version: int = Field(default=0, ge=0)
+    base_workspace_revision: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     revision: int = Field(default=0, ge=0)
     review: ManuscriptReviewOutput | None = None
     retrieval_evidence: tuple[RetrievalEvidence, ...] = ()
@@ -136,6 +140,10 @@ class EventAmendmentCandidate(DomainModel):
     proposed_facts: tuple[str, ...] = Field(min_length=1)
     fact_ids: tuple[str, ...] = Field(min_length=1)
     base_world_version: int = Field(ge=0)
+    base_workspace_revision: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     draft_revision: int = Field(ge=1)
     status: AmendmentStatus = "pending"
 

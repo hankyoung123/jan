@@ -21,6 +21,7 @@ from story_engine.evolution.execution import TurnCancelledError
 from story_engine.review.service import RuleBasedTurnReviewer, TurnReviewer
 from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.project_store import ProjectSnapshot, ProjectStore
+from story_engine.workspace.session import canonical_revision
 
 
 class RevisionRequest(DomainModel):
@@ -77,6 +78,7 @@ class EvolutionService:
         cancellation = cancellation or Event()
         self._raise_if_cancelled(cancellation)
         snapshot = self.project_store.load()
+        base_workspace_revision = canonical_revision(self.root)
         contexts = self.context_assembler.assemble(snapshot)
         selected = participant_ids or tuple(sorted(contexts))
         if not selected or any(
@@ -146,6 +148,7 @@ class EvolutionService:
             base_character_versions={
                 character.id: character.version for character in snapshot.characters
             },
+            base_workspace_revision=base_workspace_revision,
             intents=intents,
             outcome=outcome,
         )

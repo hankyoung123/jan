@@ -297,6 +297,43 @@ def test_stale_canonical_scene_version_cannot_overwrite_saved_prose(
     assert _formal_bytes(root) == before
 
 
+def test_external_markdown_change_with_same_version_rejects_scene_save(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path)
+    service = ManuscriptService(root, agent=DeterministicManuscriptAgent())
+    draft = asyncio.run(
+        service.generate_scene(("event-000001",), chapter_id="chapter-03")
+    )
+
+    store = ProjectStore(root)
+    store.save_world(
+        store.load().world.model_copy(
+            update={"current_location": "外部编辑器改写的码头", "version": 0}
+        )
+    )
+    after_external_edit = _formal_bytes(root)
+
+    with pytest.raises(
+        VersionConflictError,
+        match="canonical workspace changed since scene load",
+    ):
+        asyncio.run(
+            service.update_scene(
+                draft.id,
+                SceneUpdateRequest(
+                    title=draft.title,
+                    body=draft.body,
+                    expected_revision=draft.revision,
+                    expected_scene_version=draft.base_scene_version,
+                ),
+            )
+        )
+
+    assert _formal_bytes(root) == after_external_edit
+    assert not any((root / "scenes").glob("*.md"))
+
+
 def test_markdown_export_contains_saved_scenes_in_sequence(
     tmp_path: Path,
 ) -> None:

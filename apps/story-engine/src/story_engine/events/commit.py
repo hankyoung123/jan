@@ -30,6 +30,7 @@ from story_engine.workspace.documents import (
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.scene_store import SceneStore
+from story_engine.workspace.session import canonical_revision
 from story_engine.workspace.transaction import AtomicBatch
 
 
@@ -93,6 +94,7 @@ class EventCommitService:
                 "only an approved candidate can change formal state"
             )
 
+        self._assert_workspace_revision(candidate.base_workspace_revision)
         snapshot = self.project_store.load()
         if snapshot.project.id != candidate.project_id:
             raise VersionConflictError("candidate project does not match workspace")
@@ -179,6 +181,7 @@ class EventCommitService:
             render_event(event),
             overwrite=False,
         )
+        self._assert_workspace_revision(candidate.base_workspace_revision)
         batch.commit()
         return CommitResult(event=event, candidate=candidate.mark_committed())
 
@@ -186,6 +189,7 @@ class EventCommitService:
         if candidate.status != "pending":
             raise InvalidTransitionError("only a pending promotion can be committed")
 
+        self._assert_workspace_revision(candidate.base_workspace_revision)
         snapshot = self.project_store.load()
         if snapshot.project.id != candidate.project_id:
             raise VersionConflictError("promotion project does not match workspace")
@@ -263,6 +267,7 @@ class EventCommitService:
             render_event(event),
             overwrite=False,
         )
+        self._assert_workspace_revision(candidate.base_workspace_revision)
         batch.commit()
         return PromotionCommitResult(
             event=event,
@@ -293,14 +298,25 @@ class EventCommitService:
             )
         return created
 
-    def commit_scene(self, scene: Scene, *, expected_version: int) -> Scene:
-        self._validate_scene(scene, expected_version=expected_version)
+    def commit_scene(
+        self,
+        scene: Scene,
+        *,
+        expected_version: int,
+        expected_workspace_revision: str | None,
+    ) -> Scene:
+        self._validate_scene(
+            scene,
+            expected_version=expected_version,
+            expected_workspace_revision=expected_workspace_revision,
+        )
         batch = AtomicBatch(self.root)
         batch.add(
             SceneStore.relative_path(scene),
             render_scene(scene),
             overwrite=expected_version > 0,
         )
+        self._assert_workspace_revision(expected_workspace_revision)
         batch.commit()
         return scene
 
@@ -313,12 +329,17 @@ class EventCommitService:
             raise InvalidTransitionError("only a pending amendment can be committed")
         if amendment.project_id != scene.project_id or amendment.scene_id != scene.id:
             raise VersionConflictError("amendment does not match scene")
+        self._assert_workspace_revision(amendment.base_workspace_revision)
         snapshot = self.project_store.load()
         if snapshot.project.id != amendment.project_id:
             raise VersionConflictError("amendment project does not match workspace")
         if snapshot.world.version != amendment.base_world_version:
             raise VersionConflictError("world version changed since manuscript review")
-        self._validate_scene(scene, expected_version=scene.version - 1)
+        self._validate_scene(
+            scene,
+            expected_version=scene.version - 1,
+            expected_workspace_revision=amendment.base_workspace_revision,
+        )
 
         source_events = {event.id: event for event in self.event_store.list_events()}
         selected = [
@@ -377,6 +398,7 @@ class EventCommitService:
             render_scene(scene),
             overwrite=scene.version > 1,
         )
+        self._assert_workspace_revision(amendment.base_workspace_revision)
         batch.commit()
         return AmendmentCommitResult(
             scene=scene,
@@ -384,7 +406,14 @@ class EventCommitService:
             event=event,
         )
 
-    def _validate_scene(self, scene: Scene, *, expected_version: int) -> None:
+    def _validate_scene(
+        self,
+        scene: Scene,
+        *,
+        expected_version: int,
+        expected_workspace_revision: str | None,
+    ) -> None:
+        self._assert_workspace_revision(expected_workspace_revision)
         snapshot = self.project_store.load()
         if snapshot.project.id != scene.project_id:
             raise VersionConflictError("scene project does not match workspace")
@@ -398,6 +427,20 @@ class EventCommitService:
             current is None or current.version != expected_version
         ):
             raise VersionConflictError("scene version changed")
+
+    def _assert_workspace_revision(self, expected: str | None) -> None:
+        if expected is None:
+            raise VersionConflictError(
+                "candidate is missing its canonical workspace revision"
+            )
+        try:
+            current = canonical_revision(self.root)
+        except (OSError, ValueError) as error:
+            raise VersionConflictError(
+                "canonical workspace is invalid or changed"
+            ) from error
+        if current != expected:
+            raise VersionConflictError("canonical workspace changed since review")
 
     def _apply_world_changes(
         self,
