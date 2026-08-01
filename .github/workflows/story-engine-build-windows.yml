@@ -1,0 +1,79 @@
+name: Story Engine Windows Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version label for the artifact
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: Version label for the artifact
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build and smoke-test unsigned Story Engine installer
+    runs-on: windows-2022
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495c4e3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install locked dependencies
+        shell: pwsh
+        run: |
+          corepack enable
+          yarn install --immutable
+          python -m pip install uv==0.11.6
+          uv sync --frozen --project apps/story-engine --extra packaging
+
+      - name: Build the Story Engine Windows bundles
+        shell: pwsh
+        run: yarn build:tauri
+
+      - name: Smoke-test NSIS install and uninstall in the runner profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Story Engine NSIS installer was not produced' }
+          $installRoot = Join-Path $env:LOCALAPPDATA 'Programs/Story Engine'
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -NoNewWindow
+          $mainBinary = Get-ChildItem $installRoot -Filter 'story-engine-desktop.exe' -Recurse | Select-Object -First 1
+          if ($null -eq $mainBinary) { throw "Story Engine was not installed under $installRoot" }
+          $sidecar = Get-ChildItem $installRoot -Filter 'story-engine.exe' -Recurse | Select-Object -First 1
+          if ($null -eq $sidecar) { throw 'Story Engine sidecar was not installed' }
+          $notices = Join-Path $mainBinary.DirectoryName 'THIRD_PARTY_NOTICES.md'
+          $agplLicense = Join-Path $mainBinary.DirectoryName 'licenses/AGPL-3.0.txt'
+          $concordiaLicense = Join-Path $mainBinary.DirectoryName 'licenses/Concordia-2.4.0-APACHE-2.0.txt'
+          if (-not (Test-Path $notices)) { throw 'Third-party notices were not installed' }
+          if (-not (Test-Path $agplLicense)) { throw 'AGPL license text was not installed' }
+          if (-not (Test-Path $concordiaLicense)) { throw 'Concordia license text was not installed' }
+          $uninstaller = Join-Path $mainBinary.DirectoryName 'uninstall.exe'
+          if (-not (Test-Path $uninstaller)) { throw 'Story Engine uninstaller was not installed' }
+          Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -NoNewWindow
+          if (Test-Path $mainBinary.FullName) { throw 'Story Engine main binary remained after uninstall' }
+
+      - name: Upload unsigned Windows installers
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: story-engine-windows-${{ inputs.version }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi

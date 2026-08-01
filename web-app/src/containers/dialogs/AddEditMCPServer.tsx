@@ -136,7 +136,7 @@ export default function AddEditMCPServer({
   // Reset form when modal opens/closes or editing key changes
   useEffect(() => {
     if (open && editingKey && initialData) {
-      setServerName(editingKey)
+      setServerName(initialData.displayName || editingKey)
       setCommand(initialData.command || '')
       setUrl(initialData.url || '')
       setTimeout(initialData.timeout ? initialData.timeout.toString() : '')
@@ -352,6 +352,9 @@ export default function AddEditMCPServer({
 
     const config: MCPServerConfig = {
       ...(initialData || {}),
+      ...(editingKey && initialData?.displayName
+        ? { displayName: serverName.trim() }
+        : {}),
       command: transportType === 'stdio' ? command.trim() : '',
       args: transportType === 'stdio' ? filteredArgs : [],
       env: transportType === 'stdio' ? envObj : {},
@@ -364,7 +367,10 @@ export default function AddEditMCPServer({
     }
 
     if (serverName.trim() !== '') {
-      onSave(serverName.trim(), config)
+      onSave(
+        editingKey && initialData?.displayName ? editingKey : serverName.trim(),
+        config
+      )
       onOpenChange(false)
       resetForm()
     }

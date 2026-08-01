@@ -165,7 +165,7 @@ class FailingRevisionTransport(StoryTurnTransport):
     ) -> Mapping[str, Any]:
         prompt = payload["messages"][0]["content"]
         if self.fail_editor and "turn_review mode" in str(prompt):
-            raise ModelConfigurationError("Jan model runtime bridge is unavailable")
+            raise ModelConfigurationError("Story Engine model runtime is unavailable")
         return await super().complete(payload, timeout_seconds=timeout_seconds)
 
 
@@ -295,7 +295,7 @@ def test_submission_message_without_jan_bridge_fails_without_project(
 
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "model_configuration_error"
-    assert "Jan model runtime bridge" in response.json()["detail"]["message"]
+    assert "Story Engine model runtime" in response.json()["detail"]["message"]
     assert not any(tmp_path.iterdir())
 
 
@@ -567,6 +567,6 @@ def test_turn_generation_without_the_tauri_model_bridge_fails_explicitly(
 
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "model_configuration_error"
-    assert "Jan model runtime bridge" in response.json()["detail"]["message"]
+    assert "Story Engine model runtime" in response.json()["detail"]["message"]
     assert _formal_bytes(root) == before
     assert not (root / ".story-engine/turns/turn-000001.json").exists()

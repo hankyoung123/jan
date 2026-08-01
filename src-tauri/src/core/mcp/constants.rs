@@ -11,6 +11,7 @@ pub const DEFAULT_MCP_BACKOFF_MULTIPLIER: f64 = 2.0; // Double the delay each ti
 pub const DEFAULT_MCP_CONFIG: &str = r#"{
   "mcpServers": {
     "Jan Browser MCP": {
+      "displayName": "Browser MCP",
       "command": "npx",
       "args": ["-y", "search-mcp-server@latest"],
       "env": {

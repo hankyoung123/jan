@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.storyengine.desktop</id>
+  <name>Story Engine</name>
+  <summary>Local-first story evolution workspace</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>Apache-2.0 AND AGPL-3.0-only</project_license>
+  <launchable type="desktop-id">com.storyengine.desktop.desktop</launchable>
+  <content_rating type="oars-1.1" />
+</component>

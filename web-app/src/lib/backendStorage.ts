@@ -6,7 +6,7 @@ import { getServiceHub } from '@/hooks/useServiceHub'
  * Async Zustand `StateStorage` backed by the Rust settings store
  * (`settings_get`/`settings_set`/`settings_remove`), which persists to
  * `<jan_data>/settings.json`. This keeps user settings off webview
- * localStorage so out-of-process consumers (jan-cli) can read them.
+ * localStorage so out-of-process consumers (Story Engine CLI) can read them.
  *
  * On web (`dev:web`, no Tauri shell) there is no backend, so it degrades to
  * localStorage. The async boundary is honest: stores using this must set

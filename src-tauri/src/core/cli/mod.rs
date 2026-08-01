@@ -18,9 +18,9 @@ use tauri_plugin_llamacpp::state::LlamacppState;
 use tauri_plugin_mlx::state::MlxState;
 
 #[cfg(target_os = "macos")]
-pub use tauri_plugin_mlx::{load_mlx_model_impl, MlxConfig};
-#[cfg(target_os = "macos")]
 pub use tauri_plugin_mlx::state::SessionInfo;
+#[cfg(target_os = "macos")]
+pub use tauri_plugin_mlx::{load_mlx_model_impl, MlxConfig};
 
 // ── State constructors ─────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ pub fn init_mlx_state() -> MlxState {
 
 // ── Thread operations ──────────────────────────────────────────────────────
 
-/// List all threads from the Jan data folder.
+/// List all threads from the Story Engine data folder.
 pub async fn cli_list_threads() -> Result<Vec<serde_json::Value>, String> {
     use std::fs;
 
@@ -176,9 +176,7 @@ pub fn list_models(engine: &str) -> Vec<ModelEntry> {
 /// Detect which engine owns `model_id` by probing the data folder, and
 /// resolve its paths.  Tries `llamacpp` first, then `mlx`.
 /// Returns `(engine, model_path, mmproj_path)`.
-pub fn resolve_model_engine(
-    model_id: &str,
-) -> Result<(String, PathBuf, Option<PathBuf>), String> {
+pub fn resolve_model_engine(model_id: &str) -> Result<(String, PathBuf, Option<PathBuf>), String> {
     let data_folder = resolve_jan_data_folder();
     for engine in &["llamacpp", "mlx"] {
         let yml_path = data_folder
@@ -193,7 +191,7 @@ pub fn resolve_model_engine(
     }
     Err(format!(
         "Model '{}' not found for any engine. \
-        Run `jan models list` to see available models.",
+        Run `story-engine models list` to see available models.",
         model_id
     ))
 }
@@ -203,7 +201,7 @@ pub fn resolve_model_engine(
 ///
 /// `model_path` in the YAML can be:
 ///   - absolute (`/…` or `C:\…`) — used verbatim
-///   - relative — joined with the Jan data folder
+///   - relative — joined with the Story Engine data folder
 pub fn resolve_model_by_id(
     model_id: &str,
     engine: &str,
@@ -218,7 +216,7 @@ pub fn resolve_model_by_id(
     if !yml_path.exists() {
         return Err(format!(
             "Model '{}' not found for engine '{}'. \
-            Run `jan models list` to see available models.",
+            Run `story-engine models list` to see available models.",
             model_id, engine
         ));
     }
@@ -243,7 +241,7 @@ pub fn resolve_model_by_id(
 
 // ── Binary auto-discovery ──────────────────────────────────────────────────
 
-/// Find the llama-server binary inside the Jan data folder.
+/// Find the llama-server binary inside the Story Engine data folder.
 ///
 /// Walks `<data_folder>/llamacpp/backends/<version>/<backend>/` and checks
 /// two locations per backend (same logic as the llamacpp-extension):
@@ -261,7 +259,11 @@ pub fn discover_llamacpp_binary() -> Option<PathBuf> {
         return None;
     }
 
-    let exe = if cfg!(windows) { "llama-server.exe" } else { "llama-server" };
+    let exe = if cfg!(windows) {
+        "llama-server.exe"
+    } else {
+        "llama-server"
+    };
 
     // Collect version directories, sorted descending so we prefer the latest.
     let mut version_entries: Vec<_> = fs::read_dir(&backends_dir)
@@ -303,12 +305,14 @@ pub fn discover_llamacpp_binary() -> Option<PathBuf> {
 /// Find the mlx-server binary.
 ///
 /// Checks standard locations in order:
-///   1. `/Applications/Jan.app/Contents/Resources/bin/mlx-server` (installed app)
+///   1. `/Applications/Story Engine.app/Contents/Resources/bin/mlx-server` (installed app)
 ///   2. Next to the running binary (for dev/custom installs)
 #[cfg(target_os = "macos")]
 pub fn discover_mlx_binary() -> Option<PathBuf> {
     // 1. Standard macOS app bundle locations (try both path variants)
     for candidate in &[
+        "/Applications/Story Engine.app/Contents/Resources/resources/bin/mlx-server",
+        "/Applications/Story Engine.app/Contents/Resources/bin/mlx-server",
         "/Applications/Jan.app/Contents/Resources/resources/bin/mlx-server",
         "/Applications/Jan.app/Contents/Resources/bin/mlx-server",
     ] {
@@ -319,7 +323,9 @@ pub fn discover_mlx_binary() -> Option<PathBuf> {
     }
 
     // 2. Next to the current executable (useful for dev builds / custom installs)
-    if let Ok(exe_dir) = std::env::current_exe().map(|p| p.parent().map(|d| d.to_path_buf()).unwrap_or_default()) {
+    if let Ok(exe_dir) =
+        std::env::current_exe().map(|p| p.parent().map(|d| d.to_path_buf()).unwrap_or_default())
+    {
         let next_to_bin = exe_dir.join("mlx-server");
         if next_to_bin.exists() {
             return Some(next_to_bin);
@@ -392,7 +398,7 @@ pub async fn fetch_hf_gguf_files(
             ),
             404 => format!(
                 "HuggingFace repo '{repo_id}' not found. \
-                Check the repo ID or run `jan models list` to see local models."
+                Check the repo ID or run `story-engine models list` to see local models."
             ),
             _ => format!("HuggingFace API error {status} for '{repo_id}'."),
         });
@@ -417,10 +423,7 @@ pub async fn fetch_hf_gguf_files(
                 .or_else(|| s["size"].as_u64())
                 .unwrap_or(0);
             let sha256 = s["lfs"]["sha256"].as_str().map(str::to_owned);
-            let download_url = format!(
-                "https://huggingface.co/{}/resolve/main/{}",
-                repo_id, name
-            );
+            let download_url = format!("https://huggingface.co/{}/resolve/main/{}", repo_id, name);
             Some(HfFileInfo {
                 filename: name.to_owned(),
                 size,
@@ -433,7 +436,7 @@ pub async fn fetch_hf_gguf_files(
     if files.is_empty() {
         return Err(format!(
             "No GGUF files found in HuggingFace repo '{repo_id}'. \
-            For MLX/safetensors repos use `jan models load-mlx`."
+            For MLX/safetensors repos use `story-engine models load-mlx`."
         ));
     }
 
@@ -459,10 +462,7 @@ pub async fn download_hf_model(
     use tokio::io::AsyncWriteExt;
 
     let data_folder = resolve_jan_data_folder();
-    let model_dir = data_folder
-        .join("llamacpp")
-        .join("models")
-        .join(repo_id);
+    let model_dir = data_folder.join("llamacpp").join("models").join(repo_id);
     tokio::fs::create_dir_all(&model_dir)
         .await
         .map_err(|e| e.to_string())?;
@@ -499,11 +499,8 @@ pub async fn download_hf_model(
     dest.flush().await.map_err(|e| e.to_string())?;
 
     // ── Write model.yml ───────────────────────────────────────────────────
-    // model_path is relative to the Jan data folder
-    let rel_path = format!(
-        "llamacpp/models/{}/{}",
-        repo_id, file.filename
-    );
+    // model_path is relative to the Story Engine data folder
+    let rel_path = format!("llamacpp/models/{}/{}", repo_id, file.filename);
     let display_name = repo_id.split('/').next_back().unwrap_or(repo_id);
 
     let mut yml = format!(
@@ -544,7 +541,7 @@ mod tests {
 
     #[test]
     fn hf_repo_valid_basic() {
-        assert!(looks_like_hf_repo("janhq/Jan-code-4b-gguf"));
+        assert!(looks_like_hf_repo("Qwen/Qwen3-4B-GGUF"));
         assert!(looks_like_hf_repo("openai/whisper"));
         assert!(looks_like_hf_repo("a/b"));
     }

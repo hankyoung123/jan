@@ -70,7 +70,7 @@ export class DefaultModelsService implements ModelsService {
 
       if (!response.ok) {
         console.error(
-          `Failed to fetch latest Jan model: ${response.status} ${response.statusText}`
+          `Failed to fetch latest local model: ${response.status} ${response.statusText}`
         )
         return null
       }
@@ -80,7 +80,7 @@ export class DefaultModelsService implements ModelsService {
       const model: CatalogModel = Array.isArray(data) ? data[0] : data
       return model ?? null
     } catch (error) {
-      console.error('Error fetching latest Jan model:', error)
+      console.error('Error fetching latest local model:', error)
       return null
     }
   }

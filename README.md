@@ -59,6 +59,28 @@ yarn dev:web
 For the native application, use `yarn dev:tauri` after the platform-specific
 Jan prerequisites and local inference binaries are available.
 
+To prepare a release-only updater configuration, provide the product endpoint
+and Tauri public key through the release environment. The command writes an
+ignored `.build/tauri.release.conf.json` and leaves the development config
+unchanged. Then use the release build entrypoint, which consumes that generated
+configuration and enables updater artifacts:
+
+```bash
+STORY_ENGINE_VERSION=0.2.0 \
+STORY_ENGINE_UPDATER_ENDPOINT=https://updates.example.com/latest.json \
+TAURI_UPDATER_PUBLIC_KEY='...' \
+yarn build:tauri:release
+```
+
+The private signing key is consumed by the Tauri build environment and is not
+written by this command.
+
+The optional custom HMAC update check reads
+`STORY_ENGINE_UPDATE_SIGNING_KEY` at compile time. Do not commit this value or
+use a development fallback. When it is absent, the custom signed check fails
+closed and the standard Tauri updater path remains available for a configured
+release endpoint.
+
 ## Quality gates
 
 ```bash

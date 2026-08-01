@@ -120,4 +120,11 @@ describe('ThreadList — long-URL overflow guard (#7959)', () => {
     expect(titleEl).toHaveClass('block', 'truncate')
     expect(titleEl).toHaveAttribute('title', 'common:newThread')
   })
+
+  it('hides the inherited onboarding thread from the product thread list', async () => {
+    render(<ThreadList threads={[makeThread({ title: 'What is Jan?' })]} />)
+    await flushEffects()
+
+    expect(screen.queryByText('What is Jan?')).not.toBeInTheDocument()
+  })
 })

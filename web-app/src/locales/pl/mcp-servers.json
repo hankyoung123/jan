@@ -7,7 +7,7 @@
     },
     "notInstalled": {
       "title": "Story Engine wykonuje zadania w Twojej przeglądarce",
-      "description": "Zainstaluj rozszerzenie, aby dać Janowi dostęp do przeglądarki",
+      "description": "Zainstaluj rozszerzenie, aby dać Story Engine dostęp do przeglądarki",
       "getExtension": "Pobierz rozszerzenie"
     }
   },

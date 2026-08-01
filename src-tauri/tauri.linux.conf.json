@@ -22,7 +22,9 @@
     "targets": ["deb", "appimage"],
     "resources": {
       "resources/LICENSE": "LICENSE",
-      "resources/bin/jan-cli": "resources/bin/jan-cli",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../licenses/": "licenses/",
+      "resources/bin/story-engine-cli": "resources/bin/story-engine-cli",
       "resources/story-engine/": "story-engine/"
     },
     "externalBin": ["resources/bin/uv"],

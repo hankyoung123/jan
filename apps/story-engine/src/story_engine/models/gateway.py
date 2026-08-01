@@ -201,7 +201,7 @@ class UnavailableModelTransport:
         *,
         timeout_seconds: int,
     ) -> Mapping[str, Any]:
-        raise ModelConfigurationError("Jan model runtime bridge is unavailable")
+        raise ModelConfigurationError("Story Engine model runtime is unavailable")
 
     async def stream(
         self,
@@ -211,7 +211,7 @@ class UnavailableModelTransport:
     ) -> AsyncIterator[ModelStreamChunk]:
         if False:
             yield ModelStreamChunk()
-        raise ModelConfigurationError("Jan model runtime bridge is unavailable")
+        raise ModelConfigurationError("Story Engine model runtime is unavailable")
 
 
 def _stream_delta(event: Mapping[str, Any]) -> str:

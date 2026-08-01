@@ -68,8 +68,8 @@ These rules are covered by
 
 Focused verification on 2026-08-01:
 
-- Web manuscript workspace and Novel editor: 22 tests passed.
-- Python manuscript service and API: 10 tests passed.
+- Web manuscript workspace and Novel editor: 23 tests passed.
+- Python manuscript service and API: 11 tests passed.
 - Web lint passed.
 - The running `/manuscript` route rendered at `1024x740` without document,
   body, or main overflow; data-state interaction remains covered by component

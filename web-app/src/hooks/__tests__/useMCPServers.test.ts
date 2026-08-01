@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useMCPServers, DEFAULT_MCP_SETTINGS } from '../useMCPServers'
+import {
+  useMCPServers,
+  DEFAULT_MCP_SETTINGS,
+  DEFAULT_BROWSER_MCP_DISPLAY_NAME,
+  getMCPServerDisplayName,
+  INTERNAL_BROWSER_MCP_SERVER_KEY,
+} from '../useMCPServers'
 import type { MCPServerConfig } from '../useMCPServers'
 
 const mockUpdateMCPConfig = vi.fn().mockResolvedValue(undefined)
@@ -29,6 +35,21 @@ describe('useMCPServers', () => {
       open: true, mcpServers: {}, settings: { ...DEFAULT_MCP_SETTINGS },
       loading: false, deletedServerKeys: [],
     })
+  })
+
+  it('keeps runtime keys separate from user-facing MCP names', () => {
+    expect(
+      getMCPServerDisplayName(INTERNAL_BROWSER_MCP_SERVER_KEY, {
+        ...makeConfig(),
+      })
+    ).toBe(DEFAULT_BROWSER_MCP_DISPLAY_NAME)
+    expect(
+      getMCPServerDisplayName('custom-key', {
+        ...makeConfig(),
+        displayName: 'Custom Browser',
+      })
+    ).toBe('Custom Browser')
+    expect(getMCPServerDisplayName('custom-key', makeConfig())).toBe('custom-key')
   })
 
   it('should initialize with default values and all functions', () => {

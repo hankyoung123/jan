@@ -31,6 +31,8 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { ThreadMessage } from '@janhq/core'
 
+const LEGACY_ONBOARDING_THREAD_TITLE = 'What is Jan?'
+
 const ThreadItem = memo(
   ({
     thread,
@@ -252,12 +254,7 @@ const ThreadItem = memo(
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              disabled={thread.title === 'What is Jan?' && !localStorage.getItem('setup-completed')}
-              onSelect={() => {
-                if (thread.title !== 'What is Jan?' || localStorage.getItem('setup-completed')) {
-                  setDeleteConfirmOpen(true)
-                }
-              }}
+              onSelect={() => setDeleteConfirmOpen(true)}
             >
               <Trash2 className="size-4" />
               <span>{t('common:delete')}</span>
@@ -300,9 +297,14 @@ function ThreadList({ threads, currentProjectId }: ThreadListProps) {
     })
   }, [threads])
 
+  const visibleThreads = useMemo(
+    () => sortedThreads.filter((thread) => thread.title !== LEGACY_ONBOARDING_THREAD_TITLE),
+    [sortedThreads]
+  )
+
   return (
     <>
-      {sortedThreads.map((thread) => (
+      {visibleThreads.map((thread) => (
         <ThreadItem
           key={thread.id}
           thread={thread}

@@ -1,10 +1,4 @@
-# Makefile for Jan Electron App - Build, Lint, Test, and Clean
-
-REPORT_PORTAL_URL ?= ""
-REPORT_PORTAL_API_KEY ?= ""
-REPORT_PORTAL_PROJECT_NAME ?= ""
-REPORT_PORTAL_LAUNCH_NAME ?= "Jan App"
-REPORT_PORTAL_DESCRIPTION ?= "Jan App report"
+# Makefile for Story Engine - Build, Lint, Test, and Clean
 
 # Detect OS
 ifeq ($(OS),Windows_NT)
@@ -95,7 +89,7 @@ dev-android: install-and-build install-android-rust-targets
 		yarn tauri android init; \
 	fi
 	@echo "Sourcing Android environment setup..."
-	@bash autoqa/scripts/setup-android-env.sh echo "Android environment ready"
+	@bash scripts/setup-android-env.sh echo "Android environment ready"
 	@echo "Starting Android development server..."
 	yarn dev:android
 
@@ -195,47 +189,47 @@ else
 	@echo "Skipping MLX server build (macOS only)"
 endif
 
-# Build jan CLI (release, platform-aware) → src-tauri/resources/bin/jan[.exe]
+# Build Story Engine CLI (release, platform-aware) → src-tauri/resources/bin/story-engine[.exe]
 build-cli:
 ifeq ($(DETECTED_OS),Darwin)
-	cd src-tauri && cargo build --release --features cli --bin jan-cli --target aarch64-apple-darwin
-	cd src-tauri && cargo build --release --features cli --bin jan-cli --target x86_64-apple-darwin
+	cd src-tauri && cargo build --release --features cli --bin story-engine-cli --target aarch64-apple-darwin
+	cd src-tauri && cargo build --release --features cli --bin story-engine-cli --target x86_64-apple-darwin
 	lipo -create \
-		src-tauri/target/aarch64-apple-darwin/release/jan-cli \
-		src-tauri/target/x86_64-apple-darwin/release/jan-cli \
-		-output src-tauri/resources/bin/jan-cli
-	chmod +x src-tauri/resources/bin/jan-cli
+		src-tauri/target/aarch64-apple-darwin/release/story-engine-cli \
+		src-tauri/target/x86_64-apple-darwin/release/story-engine-cli \
+		-output src-tauri/resources/bin/story-engine-cli
+	chmod +x src-tauri/resources/bin/story-engine-cli
 	$(call MKDIR,'src-tauri/target/universal-apple-darwin/release')
 	$(call MKDIR,'src-tauri/target/release')
 
 	echo "Checking for code signing identity..."; \
 	SIGNING_IDENTITY=$$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/'); \
 	if [ -n "$$SIGNING_IDENTITY" ]; then \
-		echo "Signing jan-cli with identity: $$SIGNING_IDENTITY"; \
-		codesign --force --options runtime --timestamp --sign "$$SIGNING_IDENTITY" src-tauri/resources/bin/jan-cli; \
+		echo "Signing story-engine-cli with identity: $$SIGNING_IDENTITY"; \
+		codesign --force --options runtime --timestamp --sign "$$SIGNING_IDENTITY" src-tauri/resources/bin/story-engine-cli; \
 		echo "Code signing completed successfully"; \
 	else \
 		echo "Warning: No Developer ID Application identity found. Skipping code signing (notarization will fail)."; \
 	fi
 
-	cp src-tauri/resources/bin/jan-cli src-tauri/target/universal-apple-darwin/release/jan-cli
-	cp src-tauri/resources/bin/jan-cli src-tauri/target/release/jan-cli
+	cp src-tauri/resources/bin/story-engine-cli src-tauri/target/universal-apple-darwin/release/story-engine-cli
+	cp src-tauri/resources/bin/story-engine-cli src-tauri/target/release/story-engine-cli
 else ifeq ($(DETECTED_OS),Windows)
-	cd src-tauri && cargo build --release --features cli --bin jan-cli
-	cp src-tauri/target/release/jan-cli.exe src-tauri/resources/bin/jan-cli.exe
+	cd src-tauri && cargo build --release --features cli --bin story-engine-cli
+	cp src-tauri/target/release/story-engine-cli.exe src-tauri/resources/bin/story-engine-cli.exe
 else
-	cd src-tauri && cargo build --release --features cli --bin jan-cli
-	cp src-tauri/target/release/jan-cli src-tauri/resources/bin/jan-cli
+	cd src-tauri && cargo build --release --features cli --bin story-engine-cli
+	cp src-tauri/target/release/story-engine-cli src-tauri/resources/bin/story-engine-cli
 endif
 
 # Debug build for local dev (faster, native arch only)
 build-cli-dev:
 	$(call MKDIR,'src-tauri/resources/bin')	
-	cd src-tauri && cargo build --features cli --bin jan-cli
+	cd src-tauri && cargo build --features cli --bin story-engine-cli
 ifeq ($(DETECTED_OS),Windows)
-	copy src-tauri\target\debug\jan-cli.exe src-tauri\resources\bin\jan-cli.exe
+	copy src-tauri\target\debug\story-engine-cli.exe src-tauri\resources\bin\story-engine-cli.exe
 else
-	install -m755 src-tauri/target/debug/jan-cli src-tauri/resources/bin/jan-cli
+	install -m755 src-tauri/target/debug/story-engine-cli src-tauri/resources/bin/story-engine-cli
 endif
 
 # Build
@@ -249,9 +243,9 @@ ifeq ($(DETECTED_OS),Windows)
 	-powershell -Command "Remove-Item -Recurse -Force ./pre-install/*.tgz"
 	-powershell -Command "Remove-Item -Recurse -Force ./extensions/*/*.tgz"
 	-powershell -Command "Remove-Item -Recurse -Force ./electron/pre-install/*.tgz"
+	-powershell -Command "Remove-Item -Recurse -Force ./.build -ErrorAction SilentlyContinue"
 	-powershell -Command "Remove-Item -Recurse -Force ./src-tauri/resources"
 	-powershell -Command "Remove-Item -Recurse -Force ./src-tauri/target"
-	-powershell -Command "if (Test-Path \"$($env:USERPROFILE)\jan\extensions\") { Remove-Item -Path \"$($env:USERPROFILE)\jan\extensions\" -Recurse -Force }"
 else ifeq ($(DETECTED_OS),Linux)
 	find . -name "node_modules" -type d -prune -exec rm -rf '{}' +
 	find . -name ".next" -type d -exec rm -rf '{}' +
@@ -265,10 +259,9 @@ else ifeq ($(DETECTED_OS),Linux)
 	rm -rf ./pre-install/*.tgz
 	rm -rf ./extensions/*/*.tgz
 	rm -rf ./electron/pre-install/*.tgz
+	rm -rf ./.build
 	rm -rf ./src-tauri/resources
 	rm -rf ./src-tauri/target
-	rm -rf "~/jan/extensions"
-	rm -rf "~/.cache/jan*"
 	rm -rf "./.cache"
 else
 	find . -name "node_modules" -type d -prune -exec rm -rfv '{}' +
@@ -282,8 +275,7 @@ else
 	rm -rfv ./pre-install/*.tgz
 	rm -rfv ./extensions/*/*.tgz
 	rm -rfv ./electron/pre-install/*.tgz
+	rm -rfv ./.build
 	rm -rfv ./src-tauri/resources
 	rm -rfv ./src-tauri/target
-	rm -rfv ~/jan/extensions
-	rm -rfv ~/Library/Caches/jan*
 endif

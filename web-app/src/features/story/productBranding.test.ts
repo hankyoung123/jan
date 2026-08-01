@@ -117,7 +117,7 @@ describe('Story Engine product branding', () => {
           for (const value of stringValues(
             JSON.parse(readFileSync(path, 'utf8'))
           )) {
-            if (/\bJan\b|\bMenlo(?: Research)?\b/.test(value)) {
+            if (/\bJan\b|Janowi|\bJana\b|\bMenlo(?: Research)?\b/.test(value)) {
               violations.push(`${path}: ${value}`)
             }
           }
@@ -138,5 +138,73 @@ describe('Story Engine product branding', () => {
     expect(script).toContain('rm -f -- "${APP_IMAGE}"')
     expect(script).not.toContain('$(ls ')
     expect(script).not.toContain('/Jan')
+  })
+
+  it('does not leave an inherited Jan Flatpak manifest in the product packaging directory', () => {
+    const flatpakReadme = readFileSync(
+      join(workspaceRoot, 'flatpak/README.md'),
+      'utf8'
+    )
+    expect(flatpakReadme).toContain('com.storyengine.desktop')
+    expect(flatpakReadme).toMatch(/upstream\s+reference/)
+    expect(existsSync(join(workspaceRoot, 'flatpak/ai.jan.Jan.yml'))).toBe(false)
+    expect(existsSync(join(workspaceRoot, 'flatpak/ai.jan.Jan.metainfo.xml'))).toBe(
+      false
+    )
+    expect(existsSync(join(workspaceRoot, 'flatpak/flathub.json'))).toBe(false)
+  })
+
+  it('keeps the shipped CLI help and provider examples product-branded', () => {
+    const cli = readFileSync(
+      join(workspaceRoot, 'src-tauri/src/bin/story-engine-cli.rs'),
+      'utf8'
+    )
+
+    expect(cli).toContain('Story Engine')
+    for (const marker of [
+      'janhq/Jan-',
+      'Jan data folder',
+      "Jan's settings",
+      'Jan.app',
+      'jan provider',
+      'jan/{model_id}',
+      '"JAN" in ANSI Shadow',
+    ]) {
+      expect(cli, marker).not.toContain(marker)
+    }
+
+    expect(cli).toContain('story-engine/{model_id}')
+  })
+
+  it('does not expose inherited Jan names in active product copy', () => {
+    const claudeCodeSettings = readFileSync(
+      join(workspaceRoot, 'web-app/src/routes/settings/claude-code.tsx'),
+      'utf8'
+    )
+    const browserExtensionHook = readFileSync(
+      join(workspaceRoot, 'web-app/src/hooks/useJanBrowserExtension.ts'),
+      'utf8'
+    )
+    const modelService = readFileSync(
+      join(workspaceRoot, 'web-app/src/services/models/default.ts'),
+      'utf8'
+    )
+    const mcpSettingsRoute = readFileSync(
+      join(workspaceRoot, 'web-app/src/routes/settings/mcp-servers.tsx'),
+      'utf8'
+    )
+    const mcpDefaults = readFileSync(
+      join(workspaceRoot, 'src-tauri/src/core/mcp/constants.rs'),
+      'utf8'
+    )
+
+    expect(claudeCodeSettings).not.toContain('Use Jan-Code')
+    expect(browserExtensionHook).not.toContain("toast.success('Jan Browser MCP")
+    expect(browserExtensionHook).not.toContain("toast.error('Jan Browser MCP")
+    expect(browserExtensionHook).not.toContain("toast.warning('Jan Browser MCP")
+    expect(modelService).not.toContain('latest Jan model')
+    expect(mcpSettingsRoute).toContain('getMCPServerDisplayName')
+    expect(mcpSettingsRoute).not.toContain('{key}</h1>')
+    expect(mcpDefaults).toContain('"displayName": "Browser MCP"')
   })
 })

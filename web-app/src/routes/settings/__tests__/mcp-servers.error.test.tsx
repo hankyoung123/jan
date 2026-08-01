@@ -115,6 +115,8 @@ vi.mock('@/hooks/useModelProvider', () => ({
 }))
 
 vi.mock('@/hooks/useMCPServers', () => ({
+  getMCPServerDisplayName: (serverKey: string, config?: { displayName?: string }) =>
+    config?.displayName || (serverKey === 'Jan Browser MCP' ? 'Browser MCP' : serverKey),
   DEFAULT_MCP_SETTINGS: {
     toolCallTimeoutSeconds: 60,
     enableSmartToolRouting: false,
@@ -124,6 +126,14 @@ vi.mock('@/hooks/useMCPServers', () => ({
   },
   useMCPServers: () => ({
     mcpServers: {
+      'Jan Browser MCP': {
+        command: 'npx',
+        args: ['-y', 'search-mcp-server@latest'],
+        env: {},
+        type: 'stdio',
+        active: false,
+        official: true,
+      },
       NotesMCP: {
         command: 'npx',
         args: ['notes'],
@@ -200,6 +210,16 @@ describe('MCP servers route error handling', () => {
       errorMessage: undefined,
     })
     getConnectedServers.mockResolvedValue([])
+  })
+
+  it('renders the Browser MCP display name without changing its runtime key', async () => {
+    const Component = McpServersRoute.component as React.ComponentType
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Browser MCP')).toBeInTheDocument()
+      expect(screen.queryByText('Jan Browser MCP')).not.toBeInTheDocument()
+    })
   })
 
   it('stores a normalized activation error when activation rejects with an Error', async () => {

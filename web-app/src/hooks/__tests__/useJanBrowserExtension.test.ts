@@ -15,6 +15,7 @@ const mockSyncServers = vi.fn().mockResolvedValue(undefined)
 let mockMcpServers: Record<string, any> = {}
 
 vi.mock('@/hooks/useMCPServers', () => ({
+  INTERNAL_BROWSER_MCP_SERVER_KEY: 'Jan Browser MCP',
   useMCPServers: () => ({
     mcpServers: mockMcpServers,
     editServer: mockEditServer,
@@ -77,7 +78,7 @@ describe('useJanBrowserExtension', () => {
       await result.current.toggleBrowser()
     })
 
-    expect(toast.error).toHaveBeenCalledWith('Jan Browser MCP not found', expect.any(Object))
+    expect(toast.error).toHaveBeenCalledWith('Browser MCP not found', expect.any(Object))
   })
 
   it('should handle cancel', async () => {
@@ -88,8 +89,9 @@ describe('useJanBrowserExtension', () => {
     const { useJanBrowserExtension } = await import('../useJanBrowserExtension')
     const { result } = renderHook(() => useJanBrowserExtension())
 
-    act(() => {
+    await act(async () => {
       result.current.handleCancel()
+      await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
     expect(result.current.dialogOpen).toBe(false)

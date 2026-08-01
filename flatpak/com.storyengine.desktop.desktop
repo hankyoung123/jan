@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Story Engine
+Comment=Evolve long-form stories with user-approved canon
+Exec=story-engine-desktop
+Icon=com.storyengine.desktop
+Terminal=false
+Type=Application
+Categories=Office;Writing;
+StartupWMClass=Story Engine

@@ -32,7 +32,9 @@
     "targets": ["nsis", "msi"],
     "resources": {
       "resources/LICENSE": "LICENSE",
-      "resources/bin/jan-cli.exe": "resources/bin/jan-cli.exe",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../licenses/": "licenses/",
+      "resources/bin/story-engine-cli.exe": "resources/bin/story-engine-cli.exe",
       "resources/story-engine/": "story-engine/"
     },
     "externalBin": ["resources/bin/bun", "resources/bin/uv"],

@@ -87,9 +87,9 @@ class ConcordiaStoryAdapter:
         )
         intent = CharacterIntent.model_validate_json(raw)
         if intent.character_id != context.character.id:
-            raise ValueError("Concordia returned an intent for another character")
+            raise ValueError("Story Engine returned an intent for another character")
         if not set(intent.knowledge_basis).issubset(context.visible_fact_ids):
-            raise ValueError("Concordia intent used facts outside its private context")
+            raise ValueError("Character intent used facts outside its private context")
         return intent
 
     def resolve(
@@ -109,7 +109,7 @@ class ConcordiaStoryAdapter:
         instruction: str,
     ) -> WorldOutcome:
         if not instruction.strip():
-            raise ValueError("Concordia revision requires an instruction")
+            raise ValueError("World outcome revision requires an instruction")
         return self._resolve(
             world,
             intents,
@@ -128,7 +128,7 @@ class ConcordiaStoryAdapter:
         revision_instruction: str | None = None,
     ) -> WorldOutcome:
         if not intents:
-            raise ValueError("Concordia resolver requires at least one intent")
+            raise ValueError("World resolver requires at least one character intent")
         model = JanGatewayLanguageModel(
             self._gateway,
             profile_id="resolver",

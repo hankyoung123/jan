@@ -9,19 +9,11 @@
  * Convention: The first endpoint in the list should be the signed endpoint
  * Product update endpoints are supplied only by signed release builds.
  */
-use super::hmac_client::SignedRequestHeaders;
+use super::hmac_client::{configured_signing_key, SignedRequestHeaders};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
-
-/// Secret key for HMAC signature
-/// - In CI: Set JAN_SIGNING_KEY environment variable at build time
-/// - In local dev: Falls back to a test key
-const SECRET_KEY: &str = match option_env!("JAN_SIGNING_KEY") {
-    Some(key) => key,
-    None => "local-dev-test-key-not-for-production",
-};
 
 /// Timeout for HTTP requests
 const REQUEST_TIMEOUT_SECS: u64 = 30;
@@ -42,6 +34,9 @@ pub enum UpdateError {
 
     #[error("No endpoints configured")]
     NoEndpointsConfigured,
+
+    #[error("Update signing key is not configured for this build")]
+    SigningKeyUnavailable,
 }
 
 /// Update information returned by the update check endpoint
@@ -66,7 +61,7 @@ pub struct UpdateInfo {
 /// Custom updater client
 pub struct CustomUpdater {
     client: Client,
-    secret_key: String,
+    secret_key: Option<&'static str>,
 }
 
 impl CustomUpdater {
@@ -78,7 +73,7 @@ impl CustomUpdater {
 
         Ok(Self {
             client,
-            secret_key: SECRET_KEY.to_string(),
+            secret_key: configured_signing_key(),
         })
     }
 
@@ -152,8 +147,10 @@ impl CustomUpdater {
         nonce_seed: &str,
         app_version: &str,
     ) -> Result<UpdateInfo, UpdateError> {
+        let secret_key = self.secret_key.ok_or(UpdateError::SigningKeyUnavailable)?;
+
         // Generate signed request headers
-        let headers = SignedRequestHeaders::new(&self.secret_key, nonce_seed, app_version);
+        let headers = SignedRequestHeaders::new(secret_key, nonce_seed, app_version);
 
         // Build request with security headers
         let mut request = self.client.get(endpoint);
@@ -270,5 +267,14 @@ mod tests {
 
         assert!(user_agent.starts_with("StoryEngine/0.1.0 ("));
         assert!(!user_agent.contains("Jan/"));
+    }
+
+    #[test]
+    fn signing_key_configuration_has_no_development_fallback() {
+        let updater = CustomUpdater::new().unwrap();
+
+        if configured_signing_key().is_none() {
+            assert!(updater.secret_key.is_none());
+        }
     }
 }

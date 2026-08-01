@@ -14,7 +14,21 @@
 | Source Sans 3 | 5.2.x package | OFL-1.1 | Bundled font files |
 | Newsreader | 5.2.x package | OFL-1.1 | Bundled font files |
 
+## Exact license texts
+
+- `AGPL-3.0.txt` is the GNU Affero General Public License version 3 text for
+  the retained Jan packages that declare `AGPL-3.0`.
+- The presence of this text records the applicable license; it does not make
+  the current combination safe to distribute as closed source. Before a
+  release, choose a compliant AGPL distribution model, replace the affected
+  packages, or obtain another license from the relevant copyright holders.
+
 The root `LICENSE` is Jan's exact Apache-2.0 license from the locked baseline;
 it does not override more specific package manifests. Before another upstream
 source or binary is distributed, add its exact license text and update
 `THIRD_PARTY_NOTICES.md` with paths and modification details.
+
+Every desktop Tauri configuration bundles `THIRD_PARTY_NOTICES.md` and this
+directory beside the application resources. The macOS, Windows, and Linux
+packaging smoke checks fail when either the notices, the AGPL text, or the
+Concordia license text is missing from the produced artifact.

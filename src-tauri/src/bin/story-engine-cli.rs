@@ -1,7 +1,7 @@
-//! jan — headless CLI for Jan.
+//! story-engine — headless CLI for Story Engine's retained local-model runtime.
 //!
-//! Shares all core logic with the Jan desktop app.
-//! Build with: cargo build --features cli --bin jan
+//! Shares the retained local model-management core with the Story Engine desktop app.
+//! Build with: cargo build --features cli --bin story-engine-cli
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,9 +13,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 // Import the library crate so we can access core modules.
 // The lib target is named "app_lib" (see [lib] section in Cargo.toml).
 use app_lib::core::cli::{
-    cli_delete_thread, cli_get_data_folder, cli_get_thread,
-    cli_list_messages, cli_list_threads, discover_llamacpp_binary,
-    download_hf_model, fetch_hf_gguf_files, init_llamacpp_state,
+    cli_delete_thread, cli_get_data_folder, cli_get_thread, cli_list_messages, cli_list_threads,
+    discover_llamacpp_binary, download_hf_model, fetch_hf_gguf_files, init_llamacpp_state,
     list_models, looks_like_hf_repo, resolve_model_engine, HfFileInfo,
 };
 // MLX is macOS-only; these CLI symbols don't exist on other platforms.
@@ -23,28 +22,28 @@ use app_lib::core::cli::{
 use app_lib::core::cli::{
     discover_mlx_binary, init_mlx_state, load_mlx_model_impl, resolve_model_by_id, MlxConfig,
 };
+use std::path::PathBuf;
 use tauri_plugin_llamacpp::router as llamacpp_router;
 use tauri_plugin_llamacpp::state::LlamacppState;
-use std::path::PathBuf;
 
 // ── Top-level CLI ──────────────────────────────────────────────────────────
 
 #[derive(Parser)]
 #[command(
-    name = "jan",
-    about = "Serve local AI models and wire them to agents — no cloud required",
-    long_about = "Jan runs local AI models (LlamaCPP / MLX) and exposes them via an\n\
+    name = "story-engine",
+    about = "Serve Story Engine local AI models for compatible clients",
+    long_about = "Story Engine uses its retained local model runtime (LlamaCPP / MLX) and exposes it via an\n\
 OpenAI-compatible API, then wires AI coding agent like Claude Code\n\
 directly to your own hardware — no cloud account, no usage fees, full privacy.\n\n\
-Models downloaded in the Jan desktop app are automatically available here.",
+Models downloaded in the Story Engine desktop app are automatically available here.",
     after_help = "Examples:\n  \
-  jan launch claude                                      # pick a model, then run Claude Code against it\n  \
-  jan launch claude --model janhq/Jan-code-4b-gguf       # use a specific model\n  \
-  jan launch openclaw --model janhq/Jan-code-4b-gguf     # wire openclaw to a local model\n  \
-  jan serve janhq/Jan-code-4b-gguf                       # expose a model at localhost:6767/v1\n  \
-  jan serve janhq/Jan-code-4b-gguf --fit                 # auto-fit context to available VRAM\n  \
-  jan serve janhq/Jan-code-4b-gguf --detach              # run in the background\n  \
-  jan models list                                        # show all installed models",
+  story-engine launch claude                                      # pick a model, then run Claude Code against it\n  \
+  story-engine launch claude --model Qwen/Qwen3-4B-GGUF           # use a specific model\n  \
+  story-engine launch openclaw --model Qwen/Qwen3-4B-GGUF         # wire openclaw to a local model\n  \
+  story-engine serve Qwen/Qwen3-4B-GGUF                           # expose a model at localhost:6767/v1\n  \
+  story-engine serve Qwen/Qwen3-4B-GGUF --fit                     # auto-fit context to available VRAM\n  \
+  story-engine serve Qwen/Qwen3-4B-GGUF --detach                  # run in the background\n  \
+  story-engine models list                                        # show all installed models",
     version
 )]
 struct Cli {
@@ -72,14 +71,14 @@ enum Commands {
         /// Model ID to load (omit to pick interactively)
         #[arg(long)]
         model: Option<String>,
-        /// Path to the inference binary (auto-discovered from Jan data folder when omitted)
+        /// Path to the inference binary (auto-discovered from the Story Engine data folder when omitted)
         #[arg(long)]
         bin: Option<String>,
         /// Port the model server listens on
         #[arg(long, default_value_t = 6767)]
         port: u16,
         /// API key for the model server (exported as OPENAI_API_KEY and ANTHROPIC_AUTH_TOKEN)
-        #[arg(long, default_value = "jan")]
+        #[arg(long, default_value = "story-engine")]
         api_key: String,
         /// GPU layers to offload (-1 = all layers, 0 = CPU only)
         #[arg(long, default_value_t = -1)]
@@ -97,20 +96,19 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         select: bool,
     },
-    /// List and inspect conversation threads saved by the Jan app
+    /// List and inspect conversation threads saved by Story Engine
     #[command(display_order = 10)]
     Threads {
         #[command(subcommand)]
         cmd: ThreadsCommands,
     },
-    /// List and load models installed in the Jan data folder
+    /// List and load models installed in the Story Engine data folder
     #[command(display_order = 11)]
     Models {
         #[command(subcommand)]
         cmd: ModelsCommands,
     },
 }
-
 
 // ── Threads subcommands ────────────────────────────────────────────────────
 
@@ -144,7 +142,7 @@ struct ServeArgs {
     /// Path to the GGUF file (auto-resolved from model.yml when omitted)
     #[arg(long)]
     model_path: Option<String>,
-    /// Path to the inference binary (auto-discovered from Jan data folder when omitted)
+    /// Path to the inference binary (auto-discovered from the Story Engine data folder when omitted)
     #[arg(long)]
     bin: Option<String>,
     /// Port the model server listens on (0 = pick a random free port)
@@ -192,7 +190,7 @@ struct ServeArgs {
 
 #[derive(Subcommand)]
 enum ModelsCommands {
-    /// Print all installed models as JSON (from the Jan data folder)
+    /// Print all installed models as JSON (from the Story Engine data folder)
     List {
         /// Filter by engine: llamacpp, mlx, or all
         #[arg(long, default_value = "all")]
@@ -206,13 +204,13 @@ enum ModelsCommands {
     /// Load an MLX model directly (macOS / Apple Silicon only)
     #[cfg(target_os = "macos")]
     LoadMlx {
-        /// Model ID as shown by `jan models list --engine mlx`
+        /// Model ID as shown by `story-engine models list --engine mlx`
         #[arg(long)]
         model_id: String,
         /// Path to the MLX model directory (auto-resolved from model.yml when omitted)
         #[arg(long)]
         model_path: Option<String>,
-        /// Path to the mlx-server binary (auto-discovered from Jan.app when omitted)
+        /// Path to the mlx-server binary (auto-discovered from the Story Engine app when omitted)
         #[arg(long)]
         bin: Option<String>,
         /// Port the model server listens on (0 = pick a random free port)
@@ -235,35 +233,10 @@ enum ModelsCommands {
 
 // ── ASCII logo ─────────────────────────────────────────────────────────────
 
-/// Build a left-aligned, bright-yellow ASCII logo for the help header.
+/// Build a compact, product-branded help header.
 fn make_logo() -> String {
-    // "JAN" in ANSI Shadow block letters
-    let lines = [
-        r"     ██╗ █████╗ ███╗  ██╗",
-        r"     ██║██╔══██╗████╗ ██║",
-        r"     ██║███████║██╔██╗██║",
-        r"██   ██║██╔══██║██║╚████║",
-        r"╚█████╔╝██║  ██║██║ ╚███║",
-        r" ╚════╝ ╚═╝  ╚═╝╚═╝  ╚══╝",
-    ];
-
-    // Fixed left-aligned indent (2 spaces)
-    let indent = "  ";
-
-    let yellow = Style::new().yellow().bold();
-
-    let mut out: Vec<String> = Vec::new();
-
-    // Add padding at top
-    out.push(String::new());
-    out.push(String::new());
-
-    // Logo lines
-    for l in &lines {
-        out.push(format!("{}{}", indent, yellow.apply_to(l)));
-    }
-
-    out.join("\n")
+    let title = Style::new().yellow().bold().apply_to("Story Engine");
+    format!("\n\n  {title}\n")
 }
 
 // ── Entry point ────────────────────────────────────────────────────────────
@@ -273,9 +246,11 @@ async fn main() {
     // Pre-scan raw args for --verbose / -v before full parse so we can set
     // the log level before any logging happens.
     let verbose = std::env::args().any(|a| a == "--verbose" || a == "-v");
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(if verbose { "info" } else { "warn" }),
-    )
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(if verbose {
+        "info"
+    } else {
+        "warn"
+    }))
     .init();
 
     // Inject the logo at runtime so we can use ANSI styling.
@@ -290,14 +265,39 @@ async fn main() {
         Commands::Threads { cmd } => handle_threads(cmd).await,
         Commands::Models { cmd } => handle_models(cmd).await,
         Commands::Serve { args } => handle_serve(args).await,
-        Commands::Launch { program, program_args, model, bin, port, api_key, n_gpu_layers, ctx_size, fit, verbose, select } => {
+        Commands::Launch {
+            program,
+            program_args,
+            model,
+            bin,
+            port,
+            api_key,
+            n_gpu_layers,
+            ctx_size,
+            fit,
+            verbose,
+            select,
+        } => {
             let program = program.unwrap_or_else(select_program_interactively);
             let ctx_size_val = ctx_size.unwrap_or(32768);
-            handle_launch(program, program_args, model, bin, port, api_key, n_gpu_layers, ctx_size_val, fit, ctx_size.is_none(), verbose, select).await
+            handle_launch(
+                program,
+                program_args,
+                model,
+                bin,
+                port,
+                api_key,
+                n_gpu_layers,
+                ctx_size_val,
+                fit,
+                ctx_size.is_none(),
+                verbose,
+                select,
+            )
+            .await
         }
     }
 }
-
 
 // ── Threads handlers ───────────────────────────────────────────────────────
 
@@ -401,7 +401,7 @@ async fn handle_models(cmd: ModelsCommands) {
                     None => {
                         eprintln!(
                             "Error: mlx-server binary not found. \
-                            Install Jan from https://jan.ai or pass --bin <path>."
+                            Install Story Engine or pass --bin <path>."
                         );
                         std::process::exit(1);
                     }
@@ -431,8 +431,7 @@ async fn handle_models(cmd: ModelsCommands) {
                 Err(e) => {
                     eprintln!(
                         "Error loading MLX model:\n{}",
-                        serde_json::to_string_pretty(&e)
-                            .unwrap_or_else(|_| format!("{e:?}"))
+                        serde_json::to_string_pretty(&e).unwrap_or_else(|_| format!("{e:?}"))
                     );
                     std::process::exit(1);
                 }
@@ -532,7 +531,9 @@ async fn auto_download_hf_model(repo_id: &str, select_quantization: bool) -> Str
 
     // Fetch available GGUF files from the HF API
     eprintln!();
-    let fetch_pb = make_spinner(format!("Fetching file list for '{repo_id}' from HuggingFace…"));
+    let fetch_pb = make_spinner(format!(
+        "Fetching file list for '{repo_id}' from HuggingFace…"
+    ));
     let files = fetch_hf_gguf_files(repo_id, tok_ref)
         .await
         .unwrap_or_else(|e| {
@@ -548,9 +549,7 @@ async fn auto_download_hf_model(repo_id: &str, select_quantization: bool) -> Str
         files
             .iter()
             .find(|f| f.filename.contains("Q4_K_XL"))
-            .unwrap_or_else(|| {
-                files.iter().max_by_key(|f| f.size).unwrap()
-            })
+            .unwrap_or_else(|| files.iter().max_by_key(|f| f.size).unwrap())
     };
     eprintln!("  Downloading  {}", chosen.filename);
     eprintln!("  Size         {}", fmt_bytes(chosen.size));
@@ -560,9 +559,7 @@ async fn auto_download_hf_model(repo_id: &str, select_quantization: bool) -> Str
     let dl_pb = ProgressBar::new(chosen.size);
     dl_pb.set_style(
         ProgressStyle::default_bar()
-            .template(
-                "  {bar:45.yellow/dim}  {bytes:>9}/{total_bytes}  {bytes_per_sec}  eta {eta}",
-            )
+            .template("  {bar:45.yellow/dim}  {bytes:>9}/{total_bytes}  {bytes_per_sec}  eta {eta}")
             .unwrap()
             .progress_chars("█▉▊▋▌▍▎▏  "),
     );
@@ -578,7 +575,7 @@ async fn auto_download_hf_model(repo_id: &str, select_quantization: bool) -> Str
     });
 
     dl_pb.finish_and_clear();
-    eprintln!("  ✓ Saved to Jan data folder\n");
+    eprintln!("  ✓ Saved to Story Engine data folder\n");
 
     model_id
 }
@@ -588,7 +585,7 @@ async fn auto_download_hf_model(repo_id: &str, select_quantization: bool) -> Str
 /// Present an interactive menu for the supported AI agents.
 fn select_program_interactively() -> String {
     const CHOICES: &[(&str, &str)] = &[
-        ("claude",   "Claude Code  — Anthropic's AI coding agent"),
+        ("claude", "Claude Code  — Anthropic's AI coding agent"),
         ("openclaw", "OpenClaw     — Open-source autonomous AI agent"),
     ];
 
@@ -618,7 +615,11 @@ fn select_program_interactively() -> String {
             if ok {
                 desc.to_string()
             } else {
-                format!("{} {}", Style::new().dim().apply_to(desc), Style::new().dim().apply_to("[not installed]"))
+                format!(
+                    "{} {}",
+                    Style::new().dim().apply_to(desc),
+                    Style::new().dim().apply_to("[not installed]")
+                )
             }
         })
         .collect();
@@ -636,7 +637,10 @@ fn select_program_interactively() -> String {
             return CHOICES[idx].0.to_string();
         }
 
-        eprintln!("  {} is not installed. Please choose an installed agent.", CHOICES[idx].1);
+        eprintln!(
+            "  {} is not installed. Please choose an installed agent.",
+            CHOICES[idx].1
+        );
     }
 }
 
@@ -649,14 +653,18 @@ async fn select_model_interactively(select_quantization: bool) -> String {
     }
 
     if all.is_empty() {
-        let default_model = "janhq/Jan-v3-4B-base-instruct-gguf";
+        let default_model = "Qwen/Qwen3-4B-GGUF";
         println!();
-        let msg = Style::new().yellow().apply_to(
-            "No models found. Downloading default model..."
-        );
+        let msg = Style::new()
+            .yellow()
+            .apply_to("No models found. Downloading default model...");
         println!("{}", msg);
         println!();
-        println!("  {} {}", Style::new().dim().apply_to("Model:"), default_model);
+        println!(
+            "  {} {}",
+            Style::new().dim().apply_to("Model:"),
+            default_model
+        );
         println!();
 
         // Auto-download the default model
@@ -702,7 +710,10 @@ async fn select_model_interactively(select_quantization: bool) -> String {
         return all[selection_items[0].0].0.clone();
     }
 
-    let labels: Vec<String> = selection_items.iter().map(|(_, label)| label.clone()).collect();
+    let labels: Vec<String> = selection_items
+        .iter()
+        .map(|(_, label)| label.clone())
+        .collect();
 
     let selection = dialoguer::Select::new()
         .with_prompt("Choose a model")
@@ -724,21 +735,37 @@ fn spawn_detached(model_id: &str, args: &ServeArgs) {
     // Use --flag=value format throughout to avoid negative numbers being
     // misinterpreted as short flags (e.g. --n-gpu-layers -1 → -1 looks like a flag).
     let mut argv: Vec<String> = vec!["serve".into(), model_id.to_string()];
-    if let Some(p) = &args.model_path { argv.push(format!("--model-path={p}")); }
-    if let Some(b) = &args.bin        { argv.push(format!("--bin={b}")); }
+    if let Some(p) = &args.model_path {
+        argv.push(format!("--model-path={p}"));
+    }
+    if let Some(b) = &args.bin {
+        argv.push(format!("--bin={b}"));
+    }
     argv.push(format!("--port={}", args.port));
-    if let Some(m) = &args.mmproj     { argv.push(format!("--mmproj={m}")); }
-    if args.embedding                  { argv.push("--embedding".into()); }
-    argv.push(format!("--timeout={}",      args.timeout));
+    if let Some(m) = &args.mmproj {
+        argv.push(format!("--mmproj={m}"));
+    }
+    if args.embedding {
+        argv.push("--embedding".into());
+    }
+    argv.push(format!("--timeout={}", args.timeout));
     argv.push(format!("--n-gpu-layers={}", args.n_gpu_layers));
-    argv.push(format!("--ctx-size={}",     args.ctx_size));
-    argv.push(format!("--threads={}",      args.threads));
-    if !args.api_key.is_empty()        { argv.push(format!("--api-key={}", args.api_key)); }
-    if args.fit                        { argv.push("--fit".into()); }
-    if args.verbose                    { argv.push("--verbose".into()); }
+    argv.push(format!("--ctx-size={}", args.ctx_size));
+    argv.push(format!("--threads={}", args.threads));
+    if !args.api_key.is_empty() {
+        argv.push(format!("--api-key={}", args.api_key));
+    }
+    if args.fit {
+        argv.push("--fit".into());
+    }
+    if args.verbose {
+        argv.push("--verbose".into());
+    }
 
     // Resolve log file path
-    let log_path: PathBuf = args.log.as_deref()
+    let log_path: PathBuf = args
+        .log
+        .as_deref()
         .map(PathBuf::from)
         .unwrap_or_else(|| cli_get_data_folder().join("logs").join("serve.log"));
 
@@ -747,8 +774,13 @@ fn spawn_detached(model_id: &str, args: &ServeArgs) {
     }
 
     let log_file = std::fs::OpenOptions::new()
-        .create(true).append(true).open(&log_path)
-        .unwrap_or_else(|e| { eprintln!("Cannot open log file {}: {e}", log_path.display()); std::process::exit(1); });
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .unwrap_or_else(|e| {
+            eprintln!("Cannot open log file {}: {e}", log_path.display());
+            std::process::exit(1);
+        });
     let log_out = log_file.try_clone().expect("clone log file");
 
     let mut cmd = std::process::Command::new(&exe);
@@ -777,11 +809,15 @@ fn spawn_detached(model_id: &str, args: &ServeArgs) {
         std::process::exit(1);
     });
 
-    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-        "pid":      child.id(),
-        "model_id": model_id,
-        "log":      log_path.display().to_string(),
-    })).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "pid":      child.id(),
+            "model_id": model_id,
+            "log":      log_path.display().to_string(),
+        }))
+        .unwrap()
+    );
 }
 
 // ── Serve handler (shared by `models load` and top-level `serve`) ──────────
@@ -837,37 +873,36 @@ async fn handle_serve(args: ServeArgs) {
     // Auto-detect engine from data folder.
     // If the model isn't found locally and the ID looks like a HuggingFace repo,
     // offer to download it automatically before proceeding.
-    let (engine, resolved_model_path, resolved_mmproj) =
-        match resolve_model_engine(&model_id) {
-            Ok((eng, mp, mmp)) => (
-                eng,
-                model_path.unwrap_or_else(|| mp.to_string_lossy().into_owned()),
-                mmproj.or_else(|| mmp.map(|p| p.to_string_lossy().into_owned())),
-            ),
-            Err(_) if model_path.is_some() => {
-                // Explicit --model-path provided: skip engine detection entirely.
-                ("llamacpp".to_string(), model_path.unwrap(), mmproj)
-            }
-            Err(_) if looks_like_hf_repo(&model_id) => {
-                // Looks like a HuggingFace repo ID — download then resolve.
-                auto_download_hf_model(&model_id, args.select).await;
-                match resolve_model_engine(&model_id) {
-                    Ok((eng, mp, mmp)) => (
-                        eng,
-                        mp.to_string_lossy().into_owned(),
-                        mmp.map(|p| p.to_string_lossy().into_owned()),
-                    ),
-                    Err(e) => {
-                        eprintln!("Error after download: {e}");
-                        std::process::exit(1);
-                    }
+    let (engine, resolved_model_path, resolved_mmproj) = match resolve_model_engine(&model_id) {
+        Ok((eng, mp, mmp)) => (
+            eng,
+            model_path.unwrap_or_else(|| mp.to_string_lossy().into_owned()),
+            mmproj.or_else(|| mmp.map(|p| p.to_string_lossy().into_owned())),
+        ),
+        Err(_) if model_path.is_some() => {
+            // Explicit --model-path provided: skip engine detection entirely.
+            ("llamacpp".to_string(), model_path.unwrap(), mmproj)
+        }
+        Err(_) if looks_like_hf_repo(&model_id) => {
+            // Looks like a HuggingFace repo ID — download then resolve.
+            auto_download_hf_model(&model_id, args.select).await;
+            match resolve_model_engine(&model_id) {
+                Ok((eng, mp, mmp)) => (
+                    eng,
+                    mp.to_string_lossy().into_owned(),
+                    mmp.map(|p| p.to_string_lossy().into_owned()),
+                ),
+                Err(e) => {
+                    eprintln!("Error after download: {e}");
+                    std::process::exit(1);
                 }
             }
-            Err(e) => {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
-            }
-        };
+        }
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
 
     let pb = start_progress(verbose, format!("Loading {} ({engine})…", model_id));
 
@@ -875,62 +910,64 @@ async fn handle_serve(args: ServeArgs) {
         #[cfg(not(target_os = "macos"))]
         {
             finish_progress(pb, "✗ MLX is only supported on macOS");
-            eprintln!("MLX models require macOS / Apple Silicon. Use a llama.cpp (GGUF) model instead.");
+            eprintln!(
+                "MLX models require macOS / Apple Silicon. Use a llama.cpp (GGUF) model instead."
+            );
             std::process::exit(1);
         }
         #[cfg(target_os = "macos")]
         {
-        use std::path::Path;
+            use std::path::Path;
 
-        let bin_path = match bin {
-            Some(b) => b,
-            None => match discover_mlx_binary() {
-                Some(p) => p.to_string_lossy().into_owned(),
-                None => {
-                    finish_progress(pb, "✗ mlx-server binary not found");
-                    eprintln!("Install Jan from https://jan.ai or pass --bin <path>.");
+            let bin_path = match bin {
+                Some(b) => b,
+                None => match discover_mlx_binary() {
+                    Some(p) => p.to_string_lossy().into_owned(),
+                    None => {
+                        finish_progress(pb, "✗ mlx-server binary not found");
+                        eprintln!("Install Story Engine or pass --bin <path>.");
+                        std::process::exit(1);
+                    }
+                },
+            };
+
+            let mlx_state = Arc::new(init_mlx_state());
+            let mut envs: HashMap<String, String> = HashMap::new();
+            if !api_key.is_empty() {
+                envs.insert("MLX_API_KEY".to_string(), api_key);
+            }
+
+            match load_mlx_model_impl(
+                mlx_state.mlx_server_process.clone(),
+                Path::new(&bin_path),
+                model_id.clone(),
+                resolved_model_path,
+                port,
+                MlxConfig { ctx_size },
+                envs,
+                embedding,
+                timeout,
+            )
+            .await
+            {
+                Ok(info) => {
+                    let url = format!("http://127.0.0.1:{}", info.port);
+                    finish_progress(pb, format!("✓ {model_id} ready · {url}"));
+                    eprintln!();
+                    eprintln!("  Endpoint  {url}/v1");
+                    eprintln!();
+                    eprintln!("  Press Ctrl+C to stop.");
+                    wait_for_shutdown(info.pid).await;
+                }
+                Err(e) => {
+                    finish_progress(pb, format!("✗ Failed to load {model_id}"));
+                    eprintln!(
+                        "\n{}",
+                        serde_json::to_string_pretty(&e).unwrap_or_else(|_| format!("{e:?}"))
+                    );
                     std::process::exit(1);
                 }
-            },
-        };
-
-        let mlx_state = Arc::new(init_mlx_state());
-        let mut envs: HashMap<String, String> = HashMap::new();
-        if !api_key.is_empty() {
-            envs.insert("MLX_API_KEY".to_string(), api_key);
-        }
-
-        match load_mlx_model_impl(
-            mlx_state.mlx_server_process.clone(),
-            Path::new(&bin_path),
-            model_id.clone(),
-            resolved_model_path,
-            port,
-            MlxConfig { ctx_size },
-            envs,
-            embedding,
-            timeout,
-        )
-        .await
-        {
-            Ok(info) => {
-                let url = format!("http://127.0.0.1:{}", info.port);
-                finish_progress(pb, format!("✓ {model_id} ready · {url}"));
-                eprintln!();
-                eprintln!("  Endpoint  {url}/v1");
-                eprintln!();
-                eprintln!("  Press Ctrl+C to stop.");
-                wait_for_shutdown(info.pid).await;
             }
-            Err(e) => {
-                finish_progress(pb, format!("✗ Failed to load {model_id}"));
-                eprintln!(
-                    "\n{}",
-                    serde_json::to_string_pretty(&e).unwrap_or_else(|_| format!("{e:?}"))
-                );
-                std::process::exit(1);
-            }
-        }
         }
     } else {
         // LlamaCPP path
@@ -940,13 +977,20 @@ async fn handle_serve(args: ServeArgs) {
                 Some(p) => p.to_string_lossy().into_owned(),
                 None => {
                     finish_progress(pb, "✗ llama-server binary not found");
-                    eprintln!("Install a backend from Jan's settings or pass --bin <path>.");
+                    eprintln!("Install a backend from Story Engine settings or pass --bin <path>.");
                     std::process::exit(1);
                 }
             },
         };
 
-        let _ = (n_gpu_layers, ctx_size, fit, threads, resolved_model_path, resolved_mmproj);
+        let _ = (
+            n_gpu_layers,
+            ctx_size,
+            fit,
+            threads,
+            resolved_model_path,
+            resolved_mmproj,
+        );
         let llama_state = Arc::new(init_llamacpp_state());
         let mut envs: HashMap<String, String> = HashMap::new();
         if !api_key.is_empty() {
@@ -1137,7 +1181,7 @@ async fn handle_launch(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(&program);
-    let is_claude   = prog_name.contains("claude");
+    let is_claude = prog_name.contains("claude");
     let is_openclaw = prog_name.contains("openclaw");
 
     // --fit defaults to true when launching claude, but only if --ctx-size was
@@ -1146,7 +1190,17 @@ async fn handle_launch(
     let effective_fit = fit.unwrap_or(is_claude && ctx_size_is_default);
 
     // Start the model server inline (same process, no detach).
-    let (pid, actual_port) = start_model_server(&model_id, bin, port, api_key.clone(), n_gpu_layers, ctx_size, effective_fit, verbose).await;
+    let (pid, actual_port) = start_model_server(
+        &model_id,
+        bin,
+        port,
+        api_key.clone(),
+        n_gpu_layers,
+        ctx_size,
+        effective_fit,
+        verbose,
+    )
+    .await;
 
     // Model is ready — silence server request/response logs so they don't
     // flood the launched program's terminal (e.g. Claude Code's shell).
@@ -1155,10 +1209,10 @@ async fn handle_launch(
     }
 
     let base_url = format!("http://127.0.0.1:{actual_port}");
-    let v1_url   = format!("{base_url}/v1");
+    let v1_url = format!("{base_url}/v1");
 
     // openclaw is configured via ~/.openclaw/openclaw.json, not env vars.
-    // Write the jan provider entry and set the default model, then launch `openclaw tui`.
+    // Write the Story Engine provider entry and set the default model, then launch `openclaw tui`.
     let mut program_args = program_args;
     if is_openclaw {
         configure_openclaw(&v1_url, &api_key, &model_id);
@@ -1167,10 +1221,14 @@ async fn handle_launch(
             program_args.insert(0, "tui".to_string());
         }
         eprintln!();
-        eprintln!("  ~/.openclaw/openclaw.json → jan provider configured");
-        eprintln!("  agents.defaults.model.primary = jan/{model_id}");
+        eprintln!("  ~/.openclaw/openclaw.json → Story Engine provider configured");
+        eprintln!("  agents.defaults.model.primary = story-engine/{model_id}");
     } else {
-        let anthropic_key_var = if is_claude { "ANTHROPIC_AUTH_TOKEN" } else { "ANTHROPIC_API_KEY" };
+        let anthropic_key_var = if is_claude {
+            "ANTHROPIC_AUTH_TOKEN"
+        } else {
+            "ANTHROPIC_API_KEY"
+        };
         eprintln!();
         eprintln!("  OPENAI_BASE_URL={v1_url}");
         eprintln!("  OPENAI_API_KEY={api_key}");
@@ -1208,23 +1266,33 @@ async fn handle_launch(
     if is_openclaw {
         // Clear any provider API keys that could override openclaw's config
         for var in &[
-            "OPENAI_API_KEY", "OPENAI_BASE_URL",
-            "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN",
-            "GEMINI_API_KEY", "MISTRAL_API_KEY", "GROQ_API_KEY",
-            "XAI_API_KEY", "OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_OAUTH_TOKEN",
+            "GEMINI_API_KEY",
+            "MISTRAL_API_KEY",
+            "GROQ_API_KEY",
+            "XAI_API_KEY",
+            "OPENROUTER_API_KEY",
         ] {
             cmd.env_remove(var);
         }
     } else {
-        let anthropic_key_var = if is_claude { "ANTHROPIC_AUTH_TOKEN" } else { "ANTHROPIC_API_KEY" };
+        let anthropic_key_var = if is_claude {
+            "ANTHROPIC_AUTH_TOKEN"
+        } else {
+            "ANTHROPIC_API_KEY"
+        };
         cmd.env("OPENAI_BASE_URL", &v1_url)
-            .env("OPENAI_API_KEY",  &api_key)
-            .env("OPENAI_MODEL",    &model_id)
+            .env("OPENAI_API_KEY", &api_key)
+            .env("OPENAI_MODEL", &model_id)
             .env("ANTHROPIC_BASE_URL", &base_url)
-            .env(anthropic_key_var,    &api_key)
-            .env("ANTHROPIC_DEFAULT_OPUS_MODEL",   &model_id)
+            .env(anthropic_key_var, &api_key)
+            .env("ANTHROPIC_DEFAULT_OPUS_MODEL", &model_id)
             .env("ANTHROPIC_DEFAULT_SONNET_MODEL", &model_id)
-            .env("ANTHROPIC_DEFAULT_HAIKU_MODEL",  &model_id);
+            .env("ANTHROPIC_DEFAULT_HAIKU_MODEL", &model_id);
     }
     let status = cmd.status();
 
@@ -1243,9 +1311,9 @@ async fn handle_launch(
 // ── openclaw config writer ─────────────────────────────────────────────────
 
 /// Write (or merge into) `~/.openclaw/openclaw.json` so that openclaw uses
-/// the local Jan server as its provider and selects `model_id` by default.
+/// the local Story Engine server as its provider and selects `model_id` by default.
 ///
-/// The "jan" provider entry is always overwritten with the current server
+/// The "story-engine" provider entry is always overwritten with the current server
 /// address and key. All other config values are preserved.
 /// Also clears the session model override so the new default takes effect.
 fn configure_openclaw(v1_url: &str, api_key: &str, model_id: &str) {
@@ -1260,8 +1328,8 @@ fn configure_openclaw(v1_url: &str, api_key: &str, model_id: &str) {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or(serde_json::json!({}));
 
-    // Inject (or overwrite) the jan provider.
-    config["models"]["providers"]["jan"] = serde_json::json!({
+    // Inject (or overwrite) the Story Engine provider.
+    config["models"]["providers"]["story-engine"] = serde_json::json!({
         "baseUrl": v1_url,
         "apiKey":  api_key,
         "api":     "openai-completions",
@@ -1276,9 +1344,9 @@ fn configure_openclaw(v1_url: &str, api_key: &str, model_id: &str) {
         }]
     });
 
-    // Set jan/<model_id> as the primary default model.
+    // Set story-engine/<model_id> as the primary default model.
     config["agents"]["defaults"]["model"]["primary"] =
-        serde_json::json!(format!("jan/{model_id}"));
+        serde_json::json!(format!("story-engine/{model_id}"));
 
     if let Some(parent) = config_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -1318,10 +1386,16 @@ async fn start_model_server(
             auto_download_hf_model(model_id, false).await;
             match resolve_model_engine(model_id) {
                 Ok(r) => r,
-                Err(e) => { eprintln!("Error after download: {e}"); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error after download: {e}");
+                    std::process::exit(1);
+                }
             }
         }
-        Err(e) => { eprintln!("Error: {e}"); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
     };
     let model_path = model_path.to_string_lossy().into_owned();
 
@@ -1331,59 +1405,76 @@ async fn start_model_server(
         #[cfg(not(target_os = "macos"))]
         {
             finish_progress(pb, "✗ MLX is only supported on macOS");
-            eprintln!("MLX models require macOS / Apple Silicon. Use a llama.cpp (GGUF) model instead.");
+            eprintln!(
+                "MLX models require macOS / Apple Silicon. Use a llama.cpp (GGUF) model instead."
+            );
             std::process::exit(1)
         }
         #[cfg(target_os = "macos")]
         {
-        use std::path::Path;
-        let bin_path = match bin.or_else(|| discover_mlx_binary().map(|p| p.to_string_lossy().into_owned())) {
-            Some(p) => p,
-            None => {
-                finish_progress(pb, "✗ mlx-server binary not found");
-                eprintln!("Install Jan from https://jan.ai or pass --bin <path>.");
-                std::process::exit(1);
+            use std::path::Path;
+            let bin_path = match bin
+                .or_else(|| discover_mlx_binary().map(|p| p.to_string_lossy().into_owned()))
+            {
+                Some(p) => p,
+                None => {
+                    finish_progress(pb, "✗ mlx-server binary not found");
+                    eprintln!("Install Story Engine or pass --bin <path>.");
+                    std::process::exit(1);
+                }
+            };
+            let mlx_state = Arc::new(init_mlx_state());
+            let mut envs: HashMap<String, String> = HashMap::new();
+            if !api_key.is_empty() {
+                envs.insert("MLX_API_KEY".to_string(), api_key.clone());
             }
-        };
-        let mlx_state = Arc::new(init_mlx_state());
-        let mut envs: HashMap<String, String> = HashMap::new();
-        if !api_key.is_empty() { envs.insert("MLX_API_KEY".to_string(), api_key.clone()); }
-        let effective_ctx_size = if fit { 0 } else { ctx_size };
-        let info = match load_mlx_model_impl(
-            mlx_state.mlx_server_process.clone(),
-            Path::new(&bin_path),
-            model_id.to_string(),
-            model_path,
-            port,
-            MlxConfig { ctx_size: effective_ctx_size },
-            envs,
-            false,
-            120,
-        ).await {
-            Ok(info) => info,
-            Err(e) => {
-                finish_progress(pb, format!("✗ Failed to load {model_id}"));
-                eprintln!("{}", serde_json::to_string_pretty(&e).unwrap_or_else(|_| format!("{e:?}")));
-                std::process::exit(1);
-            }
-        };
-        let url = format!("http://127.0.0.1:{}", info.port);
-        finish_progress(pb, format!("✓ {model_id} ready · {url}"));
-        (info.pid, info.port as u16)
+            let effective_ctx_size = if fit { 0 } else { ctx_size };
+            let info = match load_mlx_model_impl(
+                mlx_state.mlx_server_process.clone(),
+                Path::new(&bin_path),
+                model_id.to_string(),
+                model_path,
+                port,
+                MlxConfig {
+                    ctx_size: effective_ctx_size,
+                },
+                envs,
+                false,
+                120,
+            )
+            .await
+            {
+                Ok(info) => info,
+                Err(e) => {
+                    finish_progress(pb, format!("✗ Failed to load {model_id}"));
+                    eprintln!(
+                        "{}",
+                        serde_json::to_string_pretty(&e).unwrap_or_else(|_| format!("{e:?}"))
+                    );
+                    std::process::exit(1);
+                }
+            };
+            let url = format!("http://127.0.0.1:{}", info.port);
+            finish_progress(pb, format!("✓ {model_id} ready · {url}"));
+            (info.pid, info.port as u16)
         }
     } else {
-        let bin_path = match bin.or_else(|| discover_llamacpp_binary().map(|p| p.to_string_lossy().into_owned())) {
+        let bin_path = match bin
+            .or_else(|| discover_llamacpp_binary().map(|p| p.to_string_lossy().into_owned()))
+        {
             Some(p) => p,
             None => {
                 finish_progress(pb, "✗ llama-server binary not found");
-                eprintln!("Install a backend from Jan's settings or pass --bin <path>.");
+                eprintln!("Install a backend from Story Engine settings or pass --bin <path>.");
                 std::process::exit(1);
             }
         };
         let _ = (n_gpu_layers, ctx_size, fit, model_path, mmproj);
         let llama_state = Arc::new(init_llamacpp_state());
         let mut envs: HashMap<String, String> = HashMap::new();
-        if !api_key.is_empty() { envs.insert("LLAMA_API_KEY".to_string(), api_key.clone()); }
+        if !api_key.is_empty() {
+            envs.insert("LLAMA_API_KEY".to_string(), api_key.clone());
+        }
         let info = match ensure_router_and_load(
             &llama_state,
             &bin_path,
@@ -1393,7 +1484,9 @@ async fn start_model_server(
             false,
             envs,
             120,
-        ).await {
+        )
+        .await
+        {
             Ok(info) => info,
             Err(e) => {
                 finish_progress(pb, format!("✗ Failed to load {model_id}: {e}"));
@@ -1405,4 +1498,3 @@ async fn start_model_server(
         (info.pid, info.port)
     }
 }
-

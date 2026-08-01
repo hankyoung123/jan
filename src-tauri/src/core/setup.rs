@@ -48,6 +48,7 @@ pub fn migrate_mcp_servers(
             app_handle.clone(),
             "Jan Browser MCP".to_string(),
             serde_json::json!({
+                "displayName": "Browser MCP",
                 "command": "npx",
                 "args": ["-y", "search-mcp-server@latest"],
                 "env": {
@@ -156,7 +157,7 @@ fn remove_exa_server(app_handle: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Install/update the bundled `jan` CLI binary.
+/// Install/update the bundled `story-engine` CLI binary.
 ///
 /// - `version_changed`: pass `true` whenever the app version has changed (i.e. after an update).
 ///   When `true` the binary is always overwritten so the CLI stays in sync with the new app.
@@ -164,13 +165,16 @@ fn remove_exa_server(app_handle: tauri::AppHandle) -> Result<(), String> {
 ///
 /// Runs in a background task — never blocks startup.
 /// Errors are logged as warnings and never prevent the app from starting.
-pub fn setup_jan_cli<R: Runtime>(app_handle: tauri::AppHandle<R>, version_changed: bool) {
+pub fn setup_story_engine_cli<R: Runtime>(
+    app_handle: tauri::AppHandle<R>,
+    version_changed: bool,
+) {
     tauri::async_runtime::spawn(async move {
         // On a normal launch where the version hasn't changed, skip reinstall if already on PATH.
         if !version_changed {
             let which_cmd = if cfg!(windows) { "where" } else { "which" };
             let mut cmd = std::process::Command::new(which_cmd);
-            cmd.arg("jan");
+            cmd.arg("story-engine");
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
@@ -181,21 +185,21 @@ pub fn setup_jan_cli<R: Runtime>(app_handle: tauri::AppHandle<R>, version_change
                 .map(|o| o.status.success())
                 .unwrap_or(false)
             {
-                log::debug!("jan CLI already on PATH — skipping reinstall");
+                log::debug!("Story Engine CLI already on PATH — skipping reinstall");
                 return;
             }
         }
 
-        match crate::core::system::commands::install_jan_cli_sync(&app_handle) {
+        match crate::core::system::commands::install_story_engine_cli_sync(&app_handle) {
             Ok(status) => {
                 log::info!(
-                    "jan CLI {} to {}",
+                    "Story Engine CLI {} to {}",
                     if version_changed { "updated" } else { "installed" },
                     status.path.as_deref().unwrap_or("<unknown>")
                 );
             }
             Err(e) => {
-                log::warn!("jan CLI auto-install skipped: {e}");
+                log::warn!("Story Engine CLI auto-install skipped: {e}");
             }
         }
     });

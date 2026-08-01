@@ -9,6 +9,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// Build-time environment variable used for the optional product update
+/// request signature. The value must never have a source-code fallback.
+pub const SIGNING_KEY_ENV_VAR: &str = "STORY_ENGINE_UPDATE_SIGNING_KEY";
+
+/// Return the product update signing key compiled into a release build.
+///
+/// Development builds intentionally return `None`. Callers must handle that
+/// case by using their configured unsigned/standard updater fallback.
+pub fn configured_signing_key() -> Option<&'static str> {
+    option_env!("STORY_ENGINE_UPDATE_SIGNING_KEY")
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+}
+
 /// Header names for request signing
 pub struct HeaderNames;
 

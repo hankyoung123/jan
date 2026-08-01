@@ -64,6 +64,8 @@
     ],
     "resources": {
       "resources/LICENSE": "LICENSE",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../licenses/": "licenses/",
       "resources/story-engine/": "story-engine/"
     }
   }

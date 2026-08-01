@@ -83,7 +83,7 @@ impl ModelBridge {
             false,
         )
         .await
-        .map_err(|error| format!("failed to start private Jan model bridge: {error}"))?;
+        .map_err(|error| format!("failed to start the private model bridge: {error}"))?;
 
         let connection = ModelBridgeConnection {
             base_url: format!("http://127.0.0.1:{port}/v1"),
@@ -99,7 +99,7 @@ impl ModelBridge {
     pub async fn shutdown(&self) -> Result<(), String> {
         proxy::stop_server(self.server_handle.clone())
             .await
-            .map_err(|error| format!("failed to stop private Jan model bridge: {error}"))?;
+            .map_err(|error| format!("failed to stop the private model bridge: {error}"))?;
         self.connection
             .lock()
             .map_err(|_| "model bridge connection lock is poisoned".to_owned())?

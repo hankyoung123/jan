@@ -14,6 +14,7 @@ import {
   MCPServerConfig,
   MCPSettings,
   DEFAULT_MCP_SETTINGS,
+  getMCPServerDisplayName,
 } from '@/hooks/useMCPServers'
 import { Fragment, useEffect, useState } from 'react'
 import AddEditMCPServer from '@/containers/dialogs/AddEditMCPServer'
@@ -244,9 +245,13 @@ function MCPServersDesktop() {
         console.error('Error stopping server before deletion:', error)
       }
 
+      const displayName = getMCPServerDisplayName(
+        serverToDelete,
+        mcpServers[serverToDelete]
+      )
       deleteServer(serverToDelete)
       toast.success(
-        t('mcp-servers:deleteServer.success', { serverName: serverToDelete })
+        t('mcp-servers:deleteServer.success', { serverName: displayName })
       )
       setServerToDelete(null)
       syncServersAndRestart()
@@ -348,8 +353,18 @@ function MCPServersDesktop() {
             syncServers()
             toast.success(
               active
-                ? t('mcp-servers:serverStatusActive', { serverKey })
-                : t('mcp-servers:serverStatusInactive', { serverKey })
+                ? t('mcp-servers:serverStatusActive', {
+                    serverKey: getMCPServerDisplayName(
+                      serverKey,
+                      config ?? mcpServers[serverKey]
+                    ),
+                  })
+                : t('mcp-servers:serverStatusInactive', {
+                    serverKey: getMCPServerDisplayName(
+                      serverKey,
+                      config ?? mcpServers[serverKey]
+                    ),
+                  })
             )
             serviceHub
               .mcp()
@@ -608,7 +623,9 @@ function MCPServersDesktop() {
                   {t('mcp-servers:noServers')}
                 </div>
               ) : (
-                Object.entries(mcpServers).map(([key, config], index) => (
+                Object.entries(mcpServers).map(([key, config], index) => {
+                  const displayName = getMCPServerDisplayName(key, config)
+                  return (
                   <Card key={`${key}-${index}`}>
                     <CardItem
                       align="start"
@@ -623,7 +640,7 @@ function MCPServersDesktop() {
                             )}
                           />
                           <h1 className="text-foreground text-base capitalize font-studio">
-                            {key}
+                            {displayName}
                           </h1>
                           {config.official && (
                             <div className="flex items-center gap-1.5 px-2 py-0.5 text-xs bg-secondary border rounded-sm">
@@ -709,7 +726,7 @@ function MCPServersDesktop() {
                             variant="ghost"
                             onClick={() => handleOpenJsonEditor(key)}
                             title={t('mcp-servers:editJson.title', {
-                              serverName: key,
+                              serverName: displayName,
                             })}
                           >
                             <IconCodeCircle
@@ -752,7 +769,8 @@ function MCPServersDesktop() {
                       }
                     />
                   </Card>
-                ))
+                  )
+                })
               )}
             </div>
           </div>
@@ -772,7 +790,11 @@ function MCPServersDesktop() {
       <DeleteMCPServerConfirm
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
-        serverName={serverToDelete || ''}
+        serverName={
+          serverToDelete
+            ? getMCPServerDisplayName(serverToDelete, mcpServers[serverToDelete])
+            : ''
+        }
         onConfirm={handleConfirmDelete}
       />
 
@@ -780,7 +802,11 @@ function MCPServersDesktop() {
       <EditJsonMCPserver
         open={jsonEditorOpen}
         onOpenChange={setJsonEditorOpen}
-        serverName={jsonServerName}
+        serverName={
+          jsonServerName
+            ? getMCPServerDisplayName(jsonServerName, mcpServers[jsonServerName])
+            : null
+        }
         initialData={
           jsonEditorData ?? {
             mcpServers,

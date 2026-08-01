@@ -79,6 +79,18 @@ The retained `assistant-extension`, `download-extension`,
 `AGPL-3.0`, despite the Jan repository root carrying Apache-2.0. That
 package-level conflict must be resolved through upstream clarification,
 license-compliant distribution, or replacement before a closed-source release.
+The exact license text is included at `licenses/AGPL-3.0.txt`.
+
+The affected retained package paths are:
+
+- `core/package.json`
+- `extensions/assistant-extension/package.json`
+- `extensions/download-extension/package.json`
+- `extensions/llamacpp-extension/package.json`
+- `extensions/mlx-extension/package.json`
+
+Including the text is an attribution and notice requirement, not a license
+decision. The product must not relabel these packages as MIT or Apache-2.0.
 
 ## Python runtime dependencies
 

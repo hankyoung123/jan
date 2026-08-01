@@ -6,6 +6,8 @@ export type MCPServerConfig = {
   command: string
   args: string[]
   env: Record<string, string>
+  /** Optional user-facing label; the object key remains the runtime identifier. */
+  displayName?: string
   active?: boolean
   type?: 'stdio' | 'http' | 'sse'
   url?: string
@@ -21,6 +23,24 @@ export type MCPServerConfig = {
 // Define the structure of all MCP servers
 export type MCPServers = {
   [key: string]: MCPServerConfig
+}
+
+/**
+ * Kept stable for existing MCP configurations and the native Browser MCP
+ * lifecycle. Do not use this identifier as user-facing copy.
+ */
+export const INTERNAL_BROWSER_MCP_SERVER_KEY = 'Jan Browser MCP'
+export const DEFAULT_BROWSER_MCP_DISPLAY_NAME = 'Browser MCP'
+
+export function getMCPServerDisplayName(
+  serverKey: string,
+  config?: MCPServerConfig
+): string {
+  const configuredName = config?.displayName?.trim()
+  if (configuredName) return configuredName
+  return serverKey === INTERNAL_BROWSER_MCP_SERVER_KEY
+    ? DEFAULT_BROWSER_MCP_DISPLAY_NAME
+    : serverKey
 }
 
 export type MCPSettings = {

@@ -28,23 +28,23 @@ ${StrLoc}
 
 !define WEBVIEW2APPGUID "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
-!define MANUFACTURER "Menlo Research Pte. Ltd."
+!define MANUFACTURER "Story Engine contributors"
 !define PRODUCTNAME "jan_productname"
 !define VERSION "jan_version"
 !define VERSIONWITHBUILD "jan_build"
 !define HOMEPAGE ""
 !define INSTALLMODE "currentUser"
 !define LICENSE ""
-!define INSTALLERICON "D:\a\jan\jan\src-tauri\icons\icon.ico"
+!define INSTALLERICON "D:\a\story-engine\story-engine\src-tauri\icons\icon.ico"
 !define SIDEBARIMAGE ""
 !define HEADERIMAGE ""
 !define MAINBINARYNAME "jan_mainbinaryname"
-!define MAINBINARYSRCPATH "D:\a\jan\jan\src-tauri\target\release\jan_mainbinaryname.exe"
-!define BUNDLEID "jan_mainbinaryname.ai.app"
+!define MAINBINARYSRCPATH "D:\a\story-engine\story-engine\src-tauri\target\release\jan_mainbinaryname.exe"
+!define BUNDLEID "com.storyengine.desktop"
 !define COPYRIGHT ""
 !define OUTFILE "nsis-output.exe"
 !define ARCH "x64"
-!define ADDITIONALPLUGINSPATH "D:\a\jan\jan\src-tauri\target\release\nsis\x64\Plugins\x86-unicode\additional"
+!define ADDITIONALPLUGINSPATH "D:\a\story-engine\story-engine\src-tauri\target\release\nsis\x64\Plugins\x86-unicode\additional"
 !define ALLOWDOWNGRADES "true"
 !define DISPLAYLANGUAGESELECTOR "false"
 !define INSTALLWEBVIEW2MODE "downloadBootstrapper"
@@ -452,7 +452,7 @@ FunctionEnd
 ;Languages
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_RESERVEFILE_LANGDLL
-  !include "D:\a\jan\jan\src-tauri\target\release\nsis\x64\English.nsh"
+  !include "D:\a\story-engine\story-engine\src-tauri\target\release\nsis\x64\English.nsh"
 
 Function .onInit
   ${GetOptions} $CMDLINE "/P" $PassiveMode
@@ -499,7 +499,7 @@ Function .onInit
     Call RestorePreviousInstallLocation
   ${EndIf}
 
-  ; Remove old Jan if it exists
+  ; Remove the legacy Jan install directory if it exists
   ${If} ${FileExists} "$INSTDIR\LICENSE.electron.txt"
       DeleteRegKey HKLM "Software\${PRODUCTNAME}"
       RMDir /r "$INSTDIR"
@@ -698,16 +698,16 @@ Section Install
     CreateDirectory "$INSTDIR\resources\pre-install"
     CreateDirectory "$INSTDIR\resources\bin"
     SetOutPath $INSTDIR
-    File /a "/oname=LICENSE" "D:\a\jan\jan\src-tauri\resources\LICENSE"
+    File /a "/oname=LICENSE" "D:\a\story-engine\story-engine\src-tauri\resources\LICENSE"
     SetOutPath "$INSTDIR\resources\pre-install"
-    File /nonfatal /a /r "D:\a\jan\jan\src-tauri\resources\pre-install\"
+    File /nonfatal /a /r "D:\a\story-engine\story-engine\src-tauri\resources\pre-install\"
     SetOutPath "$INSTDIR\resources\bin"
-    File /a "/oname=jan-cli.exe" "D:\a\jan\jan\src-tauri\resources\bin\jan-cli.exe"
+    File /a "/oname=story-engine-cli.exe" "D:\a\story-engine\story-engine\src-tauri\resources\bin\story-engine-cli.exe"
     SetOutPath $INSTDIR
 
   ; Copy external binaries
-    File /a "/oname=bun.exe" "D:\a\jan\jan\src-tauri\resources\bin\bun-x86_64-pc-windows-msvc.exe"
-    File /a "/oname=uv.exe" "D:\a\jan\jan\src-tauri\resources\bin\uv-x86_64-pc-windows-msvc.exe"
+    File /a "/oname=bun.exe" "D:\a\story-engine\story-engine\src-tauri\resources\bin\bun-x86_64-pc-windows-msvc.exe"
+    File /a "/oname=uv.exe" "D:\a\story-engine\story-engine\src-tauri\resources\bin\uv-x86_64-pc-windows-msvc.exe"
 
   ; Create file associations
 

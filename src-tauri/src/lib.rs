@@ -71,9 +71,9 @@ macro_rules! invoke_commands_with_extras {
         core::system::commands::read_logs,
         core::system::commands::is_library_available,
         core::system::commands::launch_claude_code_with_config,
-        core::system::commands::check_jan_cli_installed,
-        core::system::commands::install_jan_cli,
-        core::system::commands::uninstall_jan_cli,
+        core::system::commands::check_story_engine_cli_installed,
+        core::system::commands::install_story_engine_cli,
+        core::system::commands::uninstall_story_engine_cli,
         core::system::commands::clear_claude_code_env,
         // Server commands
         core::server::commands::start_server,
@@ -389,7 +389,7 @@ pub fn run() {
 
             setup_mcp(app);
             #[cfg(desktop)]
-            setup::setup_jan_cli(app.handle().clone(), stored_version != app_version);
+            setup::setup_story_engine_cli(app.handle().clone(), stored_version != app_version);
             setup::setup_theme_listener(app)?;
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             {
@@ -479,7 +479,7 @@ pub fn run() {
             }
 
             // Drain any debounced settings writes before the process dies so
-            // jan-cli never reads a stale settings.json.
+            // Story Engine CLI never reads a stale settings.json.
             core::app::settings_store::flush_settings();
 
             #[cfg(not(any(target_os = "ios", target_os = "android")))]

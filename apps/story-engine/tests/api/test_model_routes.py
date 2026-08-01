@@ -112,4 +112,4 @@ def test_missing_desktop_bridge_uses_stable_configuration_error(tmp_path: Path) 
 
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "model_configuration_error"
-    assert "Jan model runtime bridge" in response.json()["detail"]["message"]
+    assert "Story Engine model runtime" in response.json()["detail"]["message"]

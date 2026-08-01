@@ -564,7 +564,7 @@ pub struct CliInstallStatus {
     pub path: Option<String>,
 }
 
-/// Check if the `jan` CLI binary is accessible on PATH, or — failing that —
+/// Check if the `story-engine` CLI binary is accessible on PATH, or — failing that —
 /// at one of the known install destinations.
 ///
 /// `which`/`where` only sees what the Tauri process's PATH sees. Linux GUI
@@ -573,10 +573,10 @@ pub struct CliInstallStatus {
 /// to the already-running process. Without the fallback probe, a successful
 /// install reports `installed: false` after the next remount of Settings.
 #[tauri::command]
-pub async fn check_jan_cli_installed() -> CliInstallStatus {
+pub async fn check_story_engine_cli_installed() -> CliInstallStatus {
     let which_cmd = if cfg!(windows) { "where" } else { "which" };
     let mut cmd = std::process::Command::new(which_cmd);
-    cmd.arg("jan");
+    cmd.arg("story-engine");
 
     #[cfg(windows)]
     {
@@ -622,8 +622,8 @@ pub async fn check_jan_cli_installed() -> CliInstallStatus {
         };
     }
 
-    // Fall back to probing the destinations `install_jan_cli_sync` writes to.
-    for candidate in jan_cli_install_candidates() {
+    // Fall back to probing the destinations `install_story_engine_cli_sync` writes to.
+    for candidate in story_engine_cli_install_candidates() {
         if candidate.exists() {
             return CliInstallStatus {
                 installed: true,
@@ -638,9 +638,13 @@ pub async fn check_jan_cli_installed() -> CliInstallStatus {
     }
 }
 
-/// Paths where `install_jan_cli_sync` may have placed the `jan` binary.
-fn jan_cli_install_candidates() -> Vec<PathBuf> {
-    let bin = if cfg!(windows) { "jan.exe" } else { "jan" };
+/// Paths where `install_story_engine_cli_sync` may have placed the `story-engine` binary.
+fn story_engine_cli_install_candidates() -> Vec<PathBuf> {
+    let bin = if cfg!(windows) {
+        "story-engine.exe"
+    } else {
+        "story-engine"
+    };
     let mut out: Vec<PathBuf> = Vec::new();
 
     #[cfg(unix)]
@@ -652,7 +656,7 @@ fn jan_cli_install_candidates() -> Vec<PathBuf> {
     }
     #[cfg(windows)]
     {
-        if let Ok(dir) = jan_cli_bin_dir_windows() {
+        if let Ok(dir) = story_engine_cli_bin_dir_windows() {
             out.push(dir.join(bin));
         }
     }
@@ -660,15 +664,19 @@ fn jan_cli_install_candidates() -> Vec<PathBuf> {
 }
 
 /// Core install logic — synchronous, no Tauri command overhead.
-pub fn install_jan_cli_sync<R: Runtime>(
+pub fn install_story_engine_cli_sync<R: Runtime>(
     app_handle: &AppHandle<R>,
 ) -> Result<CliInstallStatus, String> {
     let bin_name = if cfg!(windows) {
-        "jan-cli.exe"
+        "story-engine-cli.exe"
     } else {
-        "jan-cli"
+        "story-engine-cli"
     };
-    let dest_bin_name = if cfg!(windows) { "jan.exe" } else { "jan" };
+    let dest_bin_name = if cfg!(windows) {
+        "story-engine.exe"
+    } else {
+        "story-engine"
+    };
     let resource_bin_dir = app_handle
         .path()
         .resource_dir()
@@ -678,13 +686,13 @@ pub fn install_jan_cli_sync<R: Runtime>(
     let dest = resource_bin_dir.join(dest_bin_name);
 
     if !bundled.exists() && !dest.exists() {
-        return Err("Jan CLI binary not bundled with this version of Jan.".to_string());
+        return Err("Story Engine CLI binary is not bundled with this version of Story Engine.".to_string());
     }
 
     #[cfg(windows)]
     {
         if bundled.exists() {
-            // rename won't reliably clobber a stale jan.exe from a previous
+            // rename won't reliably clobber a stale story-engine.exe from a previous
             // version (replace semantics / AV locks), so drop it first to
             // guarantee a version upgrade actually overwrites the binary.
             if dest.exists() {
@@ -693,7 +701,7 @@ pub fn install_jan_cli_sync<R: Runtime>(
                 }
             }
             if let Err(e) = std::fs::rename(&bundled, &dest) {
-                log::warn!("Could not rename jan-cli.exe to jan.exe: {}", e);
+                log::warn!("Could not rename story-engine-cli.exe to story-engine.exe: {}", e);
             }
         }
         add_to_path_windows(&resource_bin_dir)?;
@@ -705,12 +713,12 @@ pub fn install_jan_cli_sync<R: Runtime>(
 
     #[cfg(unix)]
     {
-        let install_dir = jan_cli_install_dir()?;
+        let install_dir = story_engine_cli_install_dir()?;
         std::fs::create_dir_all(&install_dir).map_err(|e| e.to_string())?;
         let dest = install_dir.join(dest_bin_name);
 
         std::fs::copy(&bundled, &dest)
-            .map_err(|e| format!("Failed to copy jan to {}: {}", dest.display(), e))?;
+            .map_err(|e| format!("Failed to copy Story Engine CLI to {}: {}", dest.display(), e))?;
 
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))
@@ -723,30 +731,30 @@ pub fn install_jan_cli_sync<R: Runtime>(
     }
 }
 
-/// Copy the bundled `jan` binary to the system PATH (Tauri command wrapper).
+/// Copy the bundled `story-engine` binary to the system PATH (Tauri command wrapper).
 #[tauri::command]
-pub async fn install_jan_cli<R: Runtime>(
+pub async fn install_story_engine_cli<R: Runtime>(
     app_handle: AppHandle<R>,
 ) -> Result<CliInstallStatus, String> {
-    install_jan_cli_sync(&app_handle)
+    install_story_engine_cli_sync(&app_handle)
 }
 
-/// Remove the installed `jan` CLI binary.
+/// Remove the installed `story-engine` CLI binary.
 #[tauri::command]
-pub fn uninstall_jan_cli() -> Result<(), String> {
+pub fn uninstall_story_engine_cli() -> Result<(), String> {
     #[cfg(windows)]
     {
-        let bin_dir = jan_cli_bin_dir_windows()?;
+        let bin_dir = story_engine_cli_bin_dir_windows()?;
         remove_from_path_windows(&bin_dir)?;
         return Ok(());
     }
 
     #[cfg(unix)]
     {
-        let dest = jan_cli_install_dir()?.join("jan");
+        let dest = story_engine_cli_install_dir()?.join("story-engine");
         if dest.exists() {
             std::fs::remove_file(&dest)
-                .map_err(|e| format!("Failed to remove Jan CLI from {}: {}", dest.display(), e))?;
+                .map_err(|e| format!("Failed to remove Story Engine CLI from {}: {}", dest.display(), e))?;
         }
         Ok(())
     }
@@ -857,12 +865,12 @@ pub fn clear_claude_code_env() -> Result<(), String> {
     }
 }
 
-/// Determine the best writable directory for the Jan CLI install (Unix only).
+/// Determine the best writable directory for the Story Engine CLI install (Unix only).
 #[cfg(unix)]
-fn jan_cli_install_dir() -> Result<PathBuf, String> {
+fn story_engine_cli_install_dir() -> Result<PathBuf, String> {
     let usr_local_bin = PathBuf::from("/usr/local/bin");
     if usr_local_bin.exists() {
-        let probe = usr_local_bin.join(".jan_write_probe");
+        let probe = usr_local_bin.join(".story_engine_write_probe");
         if std::fs::write(&probe, b"").is_ok() {
             let _ = std::fs::remove_file(&probe);
             return Ok(usr_local_bin);
@@ -875,12 +883,12 @@ fn jan_cli_install_dir() -> Result<PathBuf, String> {
 
 /// Return the directory containing the bundled CLI binary on Windows.
 #[cfg(windows)]
-fn jan_cli_bin_dir_windows() -> Result<PathBuf, String> {
+fn story_engine_cli_bin_dir_windows() -> Result<PathBuf, String> {
     let local_app_data = std::env::var("LOCALAPPDATA")
         .map_err(|_| "Cannot determine LOCALAPPDATA".to_string())?;
     Ok(PathBuf::from(local_app_data)
         .join("Programs")
-        .join("Jan")
+        .join("Story Engine")
         .join("resources")
         .join("bin"))
 }

@@ -96,6 +96,29 @@ describe('AddEditMCPServer', () => {
     expect(screen.getByDisplayValue('bar')).toBeInTheDocument()
   })
 
+  it('edits a display name without renaming the runtime key', () => {
+    const props = baseProps()
+    props.editingKey = 'Jan Browser MCP'
+    props.initialData = {
+      command: 'npx',
+      args: ['-y', 'search-mcp-server@latest'],
+      env: {},
+      type: 'stdio',
+      displayName: 'Browser MCP',
+    }
+    render(<AddEditMCPServer {...props} />)
+
+    const nameInput = screen.getByDisplayValue('Browser MCP')
+    expect(screen.queryByDisplayValue('Jan Browser MCP')).not.toBeInTheDocument()
+    fireEvent.change(nameInput, { target: { value: 'Browser Tools' } })
+    fireEvent.click(screen.getByText('mcp-servers:save'))
+
+    expect(props.onSave).toHaveBeenCalledWith(
+      'Jan Browser MCP',
+      expect.objectContaining({ displayName: 'Browser Tools' })
+    )
+  })
+
   it('disables Save when server name is empty (form mode)', () => {
     render(<AddEditMCPServer {...baseProps()} />)
     const saveBtn = screen.getByText('mcp-servers:save').closest('button')!

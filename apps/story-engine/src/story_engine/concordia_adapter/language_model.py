@@ -69,9 +69,7 @@ class JanGatewayLanguageModel(language_model.LanguageModel):  # type: ignore[mis
         except RuntimeError:
             pass
         else:
-            raise RuntimeError(
-                "Concordia model calls must run outside the API event loop"
-            )
+            raise RuntimeError("Model calls must run outside the API event loop")
 
         request = ModelRequest(
             profile_id=self._profile_id,
@@ -120,7 +118,7 @@ class JanGatewayLanguageModel(language_model.LanguageModel):  # type: ignore[mis
     ) -> tuple[int, str, Mapping[str, Any]]:
         del seed
         if not responses:
-            raise ValueError("Concordia choice sampling requires options")
+            raise ValueError("Choice sampling requires at least one option")
         schema = json.dumps(
             {
                 "type": "object",
@@ -138,8 +136,8 @@ class JanGatewayLanguageModel(language_model.LanguageModel):  # type: ignore[mis
             output_schema=schema,
         )
         if not isinstance(parsed, dict) or not isinstance(parsed.get("choice"), str):
-            raise ValueError("Jan ModelGateway returned an invalid Concordia choice")
+            raise ValueError("Story Engine model gateway returned an invalid choice")
         choice = parsed["choice"]
         if choice not in responses:
-            raise ValueError("Jan ModelGateway returned an unknown Concordia choice")
+            raise ValueError("Story Engine model gateway returned an unknown choice")
         return responses.index(choice), choice, {}

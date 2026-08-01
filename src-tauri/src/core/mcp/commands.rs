@@ -625,6 +625,7 @@ pub async fn get_mcp_configs<R: Runtime>(app: AppHandle<R>) -> Result<String, St
         mcp_servers.insert(
             "Jan Browser MCP".to_string(),
             json!({
+                "displayName": "Browser MCP",
                 "command": "npx",
                 "args": ["-y", "search-mcp-server@latest"],
                 "env": {

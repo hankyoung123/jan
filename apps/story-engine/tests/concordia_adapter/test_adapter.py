@@ -202,7 +202,7 @@ def test_concordia_adapter_rejects_an_intent_for_another_character(
 
     with pytest.raises(
         ValueError,
-        match="Concordia returned an intent for another character",
+        match="Story Engine returned an intent for another character",
     ):
         adapter.generate_intent(context)
 
