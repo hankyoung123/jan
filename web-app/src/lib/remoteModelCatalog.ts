@@ -64,7 +64,7 @@ export function ensureAnthropicHeaders(
   setDefaultHeader(headers, ANTHROPIC_BROWSER_ACCESS_HEADER, 'true')
 }
 
-type CatalogKind = 'openai' | 'anthropic' | 'gemini'
+type CatalogKind = 'openai' | 'openai-compat' | 'anthropic' | 'gemini'
 
 /// Resolve which catalog shape a provider speaks. `api_type` is authoritative
 /// (a custom-named Anthropic gateway still lists Claude models), falling back
@@ -75,9 +75,9 @@ function resolveCatalogKind(
   const name = typeof provider === 'string' ? provider : provider.provider
   const apiType = typeof provider === 'string' ? undefined : provider.api_type
   if (apiType === 'anthropic') return 'anthropic'
-  if (name === 'openai' || name === 'anthropic' || name === 'gemini') {
-    return name
-  }
+  if (name === 'openai' || name === 'gemini') return name
+  if (name === 'deepseek') return 'openai-compat'
+  if (name === 'anthropic') return 'anthropic'
   return null
 }
 
@@ -118,6 +118,26 @@ function inferOpenAICapabilities(id: string): string[] | null {
     return ['completion', 'tools']
   }
   return null
+}
+
+/// OpenAI-compatible providers expose their full chat model list through
+/// `/models`; keep unrecognized chat models with a conservative default
+/// instead of dropping them like the strict OpenAI catalog does.
+function inferOpenAICompatCapabilities(id: string): string[] | null {
+  if (
+    id.startsWith('text-embedding-') ||
+    id.startsWith('embedding-') ||
+    id.startsWith('whisper-') ||
+    id.startsWith('tts-') ||
+    id.startsWith('dall-e-') ||
+    id.startsWith('gpt-image-') ||
+    id.startsWith('omni-moderation-') ||
+    id.startsWith('davinci-') ||
+    id.startsWith('babbage-')
+  ) {
+    return null
+  }
+  return ['completion']
 }
 
 function stripModelsPrefix(id: string): string {
@@ -225,7 +245,20 @@ export async function fetchTopRemoteModels(
 
     const body = result.body as { data?: unknown }
     const rows = Array.isArray(body?.data) ? (body.data as unknown[]) : []
-    return normalizeCatalog(kind, rows)
+    if (rows.length === 0) {
+      console.warn(
+        `[story-engine] ${provider.provider} /models returned no data`,
+        result.body
+      )
+    }
+    const normalized = normalizeCatalog(kind, rows)
+    if (normalized.length === 0 && rows.length > 0) {
+      console.warn(
+        `[story-engine] ${provider.provider} /models returned unrecognized models`,
+        rows
+      )
+    }
+    return normalized
   }
 
   throw new Error(`Failed to fetch models from ${provider.provider}: ${lastStatus} ${lastStatusText}`)
@@ -235,9 +268,11 @@ function normalizeCatalog(kind: CatalogKind, rows: unknown[]): RemoteCatalogMode
   const inferCaps =
     kind === 'openai'
       ? inferOpenAICapabilities
-      : kind === 'gemini'
-        ? inferGeminiCapabilities
-        : inferAnthropicCapabilities
+      : kind === 'openai-compat'
+        ? inferOpenAICompatCapabilities
+        : kind === 'gemini'
+          ? inferGeminiCapabilities
+          : inferAnthropicCapabilities
 
   const parsed: RemoteCatalogModel[] = []
   for (const raw of rows) {

@@ -52,6 +52,7 @@ import {
 } from './activeProject'
 import {
   CharactersView,
+  EventsView,
   EvolutionView,
   ManuscriptView,
   SubmissionView,
@@ -539,8 +540,8 @@ describe('Story evolution', () => {
     expect(
       await screen.findByText(candidate.outcome.summary)
     ).toBeInTheDocument()
-    expect(screen.getByText('阿岚')).toBeInTheDocument()
-    expect(screen.getByText('柏舟')).toBeInTheDocument()
+    expect(screen.getAllByText('阿岚').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('柏舟').length).toBeGreaterThan(0)
     expect(h.engineRequest).toHaveBeenCalledWith('/projects/north-star')
     expect(h.engineRequest).toHaveBeenCalledWith(
       '/projects/north-star/turns/generate',
@@ -556,6 +557,28 @@ describe('Story evolution', () => {
     expect(
       screen.queryByRole('button', { name: '重新生成角色行动' })
     ).not.toBeInTheDocument()
+  })
+
+  it('shows the office activity panel with locations and current actions', async () => {
+    setActiveStoryProjectId('north-star')
+    mockLoadedProject()
+    render(<EvolutionView />)
+
+    expect(await screen.findByText('角色行动中')).toBeInTheDocument()
+    expect(screen.getByText('天线塔')).toBeInTheDocument()
+    expect(screen.getByText('生命支持舱')).toBeInTheDocument()
+    expect(screen.getByText('等待行动')).toBeInTheDocument()
+    expect(screen.getAllByText('尚未行动').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
+
+    expect(
+      (await screen.findAllByText('检查主天线的异常频谱')).length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText('隔离损坏的氧气循环支路').length
+    ).toBeGreaterThan(0)
+    expect(screen.getByText('本轮已完成')).toBeInTheDocument()
   })
 
   it('shows a resolver-proposed NPC as an unconfirmed candidate', async () => {
@@ -1273,5 +1296,163 @@ describe('Manuscript workspace', () => {
     expect(click).toHaveBeenCalledOnce()
 
     click.mockRestore()
+  })
+})
+
+describe('Event history views', () => {
+  beforeEach(() => {
+    clearActiveStoryProject()
+    h.engineRequest.mockReset()
+    h.subscribeProjectEvents.mockReset()
+    h.subscribeProjectEvents.mockResolvedValue(() => undefined)
+  })
+
+  it('shows the empty state before a project is selected', async () => {
+    render(<EventsView />)
+
+    expect(
+      await screen.findByText('先通过投稿讨论创建项目，再查看事件历史。')
+    ).toBeInTheDocument()
+    expect(h.engineRequest).not.toHaveBeenCalled()
+  })
+
+  it('renders real events as the default timeline', async () => {
+    setActiveStoryProjectId('north-star')
+    h.engineRequest.mockResolvedValue(storyEvents)
+
+    render(<EventsView />)
+
+    expect(
+      await screen.findByText('阿岚在主天线里找到烧蚀的校验模块。')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('柏舟启用了最后一套备用氧气循环。')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /时间线/ })
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(h.engineRequest).toHaveBeenCalledWith(
+      '/projects/north-star/events'
+    )
+  })
+
+  it('switches to the Story Map and renders turning points', async () => {
+    setActiveStoryProjectId('north-star')
+    h.engineRequest.mockResolvedValue([
+      ...storyEvents,
+      {
+        id: 'event-000006',
+        sequence: 6,
+        source_turn_id: 'turn-06',
+        occurred_at: '2026-07-31T12:10:00Z',
+        summary: '备用氧气循环触发世界状态变更。',
+        participants: ['bo'],
+        public_results: [],
+        hidden_results: ['氧气循环还剩四十分钟'],
+        character_changes: [],
+        world_changes: [
+          { fact_id: 'fact:oxygen', before: 'off', after: 'low' },
+        ],
+        approved_by_user: false,
+      },
+    ])
+
+    render(<EventsView />)
+
+    await screen.findByText('阿岚在主天线里找到烧蚀的校验模块。')
+    fireEvent.click(screen.getByRole('button', { name: /故事地图/ }))
+
+    expect(
+      await screen.findByText('备用氧气循环触发世界状态变更。')
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('转折点')).toHaveLength(1)
+    expect(screen.getAllByText('待确认').length).toBeGreaterThan(0)
+  })
+
+  it('renders the error state when loading fails', async () => {
+    setActiveStoryProjectId('north-star')
+    h.engineRequest.mockRejectedValue(new Error('事件读取失败'))
+
+    render(<EventsView />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('事件读取失败')
+  })
+})
+
+describe('Character relationship graph', () => {
+  beforeEach(() => {
+    clearActiveStoryProject()
+    h.engineRequest.mockReset()
+    h.subscribeProjectEvents.mockReset()
+    h.subscribeProjectEvents.mockResolvedValue(() => undefined)
+  })
+
+  const relationshipProject = {
+    ...projectSnapshot,
+    characters: [
+      {
+        ...projectSnapshot.characters[0],
+        relationships: [{ character_id: 'bo', description: '互为退路' }],
+      },
+      {
+        ...projectSnapshot.characters[1],
+        relationships: [{ character_id: 'ara', description: '互为退路' }],
+      },
+    ],
+  }
+
+  function mockProject(snapshot: typeof relationshipProject | typeof projectSnapshot) {
+    h.engineRequest.mockImplementation((path: string) => {
+      if (path === '/projects/north-star') return Promise.resolve(snapshot)
+      throw new Error(`Unexpected request: ${path}`)
+    })
+  }
+
+  it('renders relationships in the character roster', async () => {
+    setActiveStoryProjectId('north-star')
+    mockProject(relationshipProject)
+
+    render(<CharactersView />)
+
+    expect(await screen.findByText('互为退路')).toBeInTheDocument()
+  })
+
+  it('switches to the relationship graph and renders character nodes', async () => {
+    setActiveStoryProjectId('north-star')
+    mockProject(relationshipProject)
+
+    render(<CharactersView />)
+
+    await screen.findAllByText('阿岚')
+    fireEvent.click(screen.getByRole('button', { name: /关系图/ }))
+
+    expect(
+      screen.getByRole('img', { name: '角色关系图' })
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('阿岚').length).toBeGreaterThan(0)
+  })
+
+  it('shows the empty relationship state when none exist', async () => {
+    setActiveStoryProjectId('north-star')
+    mockProject(projectSnapshot)
+
+    render(<CharactersView />)
+
+    expect(await screen.findByText('暂无关系记录')).toBeInTheDocument()
+  })
+
+  it('shows an empty-edge hint when the graph has no relationship links', async () => {
+    setActiveStoryProjectId('north-star')
+    mockProject(projectSnapshot)
+
+    render(<CharactersView />)
+
+    await screen.findAllByText('阿岚')
+    fireEvent.click(screen.getByRole('button', { name: /关系图/ }))
+
+    expect(await screen.findByText('暂无关系连线')).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', { name: '角色关系图' })
+    ).toBeInTheDocument()
   })
 })

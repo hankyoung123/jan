@@ -101,3 +101,13 @@ The inherited Jan NSIS template is retained only in
 Tauri's default NSIS template because no custom template is configured; this
 avoids carrying the template's Jan placeholders and CI-specific absolute paths
 into the Story Engine build.
+
+## Repository Ownership Status
+
+`gh auth status` confirms an authenticated GitHub account with `repo` and
+`workflow` scopes. No user-owned Jan fork exists yet, and the current
+workspace has no `origin` remote; the existing
+`hankyoung123/ai-story-evolution-engine` repository is not a Jan fork.
+Creating the Jan fork and configuring it as `origin` remains the next
+repository-ownership gate and requires explicit user confirmation before the
+first push.

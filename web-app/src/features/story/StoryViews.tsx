@@ -9,6 +9,10 @@ import {
   FileText,
   FolderOpen,
   LockKeyhole,
+  ListTree,
+  MapPin,
+  Map as MapIcon,
+  Network,
   PanelRightClose,
   PanelRightOpen,
   RotateCcw,
@@ -19,6 +23,7 @@ import {
   Trash2,
   TriangleAlert,
   UsersRound,
+  type LucideIcon,
 } from 'lucide-react'
 import {
   lazy,
@@ -775,6 +780,78 @@ export function SubmissionView() {
   )
 }
 
+function OfficeActivityPanel({
+  characters,
+  intents,
+  generating,
+}: {
+  characters: StoryCharacter[]
+  intents: Array<{ character_id: string; action: string }>
+  generating: boolean
+}) {
+  if (characters.length === 0) return null
+  const actionByCharacter = new Map(
+    intents.map((intent) => [intent.character_id, intent.action])
+  )
+  return (
+    <section aria-label="办公室活动" className="mb-5 border bg-background">
+      <div className="flex items-center justify-between border-b px-5 py-4">
+        <div>
+          <p className="text-xs text-muted-foreground">办公室活动</p>
+          <h2 className="font-medium">角色行动中</h2>
+        </div>
+        <StatusPill
+          tone={
+            generating
+              ? 'warning'
+              : intents.length > 0
+                ? 'success'
+                : 'neutral'
+          }
+        >
+          {generating
+            ? '生成中'
+            : intents.length > 0
+              ? '本轮已完成'
+              : '等待行动'}
+        </StatusPill>
+      </div>
+      <div className="grid gap-px border-t bg-border sm:grid-cols-2 lg:grid-cols-4">
+        {characters.map((character) => {
+          const action = actionByCharacter.get(character.id)
+          return (
+            <div className="bg-background p-4" key={character.id}>
+              <div className="flex items-center gap-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-xs font-medium">
+                  {(character.display_name || character.id).slice(0, 1)}
+                </span>
+                <div className="min-w-0">
+                  <strong className="block truncate text-sm">
+                    {character.display_name || character.id}
+                  </strong>
+                  <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                    <MapPin size={12} />
+                    {character.location || '未指定'}
+                  </p>
+                </div>
+                <span
+                  className={`ml-auto size-2 shrink-0 rounded-full ${
+                    action ? 'animate-pulse bg-emerald-500' : 'bg-secondary'
+                  }`}
+                  title={action ? '行动中' : '等待行动'}
+                />
+              </div>
+              <p className="mt-3 min-h-10 text-sm text-muted-foreground">
+                {action ?? (generating ? '正在形成行动…' : '尚未行动')}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 export function EvolutionView() {
   const projectId = useActiveStoryProjectId()
   const [project, setProject] = useState<ProjectSnapshot | null>(null)
@@ -1036,6 +1113,11 @@ export function EvolutionView() {
           </li>
         ))}
       </ol>
+      <OfficeActivityPanel
+        characters={participants}
+        generating={workingAction === 'generate'}
+        intents={candidate?.intents ?? []}
+      />
       {!candidate ? (
         <section className="border bg-background p-8">
           <p className="text-xs text-muted-foreground">当前局面</p>
@@ -1221,6 +1303,116 @@ export function EvolutionView() {
   )
 }
 
+function CharacterRelationshipGraph({
+  characters,
+}: {
+  characters: StoryCharacter[]
+}) {
+  if (characters.length === 0) {
+    return <p className="text-sm text-muted-foreground">暂无角色</p>
+  }
+
+  const width = 520
+  const height = 420
+  const radius = Math.min(width, height) / 2 - 52
+  const nodes = characters.map((character, index) => {
+    const angle = (index / characters.length) * Math.PI * 2 - Math.PI / 2
+    return {
+      character,
+      x: width / 2 + radius * Math.cos(angle),
+      y: height / 2 + radius * Math.sin(angle),
+    }
+  })
+  const byId = new Map(nodes.map((node) => [node.character.id, node]))
+  const seen = new Set<string>()
+  const edges: Array<{
+    from: (typeof nodes)[number]
+    to: (typeof nodes)[number]
+    label: string
+  }> = []
+
+  for (const node of nodes) {
+    for (const relationship of node.character.relationships) {
+      const target = byId.get(relationship.character_id)
+      if (!target) continue
+      const key = [node.character.id, target.character.id].sort().join('|')
+      if (seen.has(key)) continue
+      seen.add(key)
+      edges.push({ from: node, to: target, label: relationship.description })
+    }
+  }
+
+  function nodeClass(type: StoryCharacter['type']): string {
+    if (type === 'active') return 'fill-emerald-600'
+    if (type === 'npc') return 'fill-amber-500'
+    return 'fill-muted-foreground'
+  }
+
+  return (
+    <div className="border bg-background p-6">
+      {edges.length === 0 && (
+        <p className="mb-4 text-sm text-muted-foreground">暂无关系连线</p>
+      )}
+      <svg
+        aria-label="角色关系图"
+        className="h-auto w-full"
+        height={height}
+        role="img"
+        viewBox={`0 0 ${width} ${height}`}
+      >
+        {edges.map((edge) => (
+          <g key={`${edge.from.character.id}-${edge.to.character.id}`}>
+            <line
+              className="text-border"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              x1={edge.from.x}
+              x2={edge.to.x}
+              y1={edge.from.y}
+              y2={edge.to.y}
+            />
+            <title>{`${edge.from.character.display_name || edge.from.character.id} ↔ ${edge.to.character.display_name || edge.to.character.id}: ${edge.label}`}</title>
+          </g>
+        ))}
+        {nodes.map((node) => {
+          const name = node.character.display_name || node.character.id
+          return (
+            <g key={node.character.id}>
+              <circle
+                className={nodeClass(node.character.type)}
+                cx={node.x}
+                cy={node.y}
+                r={30}
+              />
+              <text
+                className="fill-neutral-50 text-xs font-medium"
+                dominantBaseline="central"
+                textAnchor="middle"
+                x={node.x}
+                y={node.y}
+              >
+                {name.slice(0, 4)}
+              </text>
+              <title>{name}</title>
+            </g>
+          )
+        })}
+      </svg>
+      <div className="mt-5 flex flex-wrap gap-4 border-t pt-4 text-xs text-muted-foreground">
+        <span className="flex items-center gap-2">
+          <span className="size-2.5 rounded-full bg-emerald-600" /> 活跃角色
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="size-2.5 rounded-full bg-amber-500" /> 普通人物
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="size-2.5 rounded-full bg-muted-foreground" /> 已退出
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function CharactersView() {
   const projectId = useActiveStoryProjectId()
   const [project, setProject] = useState<ProjectSnapshot | null>(null)
@@ -1230,6 +1422,7 @@ export function CharactersView() {
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(projectId !== null)
+  const [viewMode, setViewMode] = useState<'roster' | 'relations'>('roster')
 
   const loadProject = useCallback(async () => {
     if (!projectId) return
@@ -1344,7 +1537,24 @@ export function CharactersView() {
   ).length
   return (
     <StoryPage>
-      <PageHeader eyebrow={`${activeCount} 个活跃角色`} title="角色" />
+      <PageHeader
+        action={
+          <StoryViewToggle
+            label="角色视图"
+            onChange={setViewMode}
+            options={[
+              { value: 'roster', label: '角色档案', icon: UsersRound },
+              { value: 'relations', label: '关系图', icon: Network },
+            ]}
+            value={viewMode}
+          />
+        }
+        eyebrow={`${activeCount} 个活跃角色`}
+        title="角色"
+      />
+      {viewMode === 'relations' ? (
+        <CharacterRelationshipGraph characters={project.characters} />
+      ) : (
       <div className="grid min-h-[540px] border bg-background md:grid-cols-[230px_1fr]">
         <nav className="border-b p-2 md:border-b-0 md:border-r">
           {project.characters.map((character) => (
@@ -1418,6 +1628,37 @@ export function CharactersView() {
               <p className="text-sm text-muted-foreground">暂无已知事实</p>
             )}
           </section>
+          <section className="mt-6">
+            <h3 className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+              <UsersRound size={14} /> 关系
+            </h3>
+            {current.relationships.length ? (
+              <ul className="space-y-2">
+                {current.relationships.map((relationship) => {
+                  const target = project.characters.find(
+                    (character) => character.id === relationship.character_id
+                  )
+                  return (
+                    <li
+                      className="border-l-2 border-primary/40 pl-3 text-sm"
+                      key={relationship.character_id}
+                    >
+                      <span className="font-medium">
+                        {target?.display_name ||
+                          target?.id ||
+                          relationship.character_id}
+                      </span>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {relationship.description}
+                      </p>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">暂无关系记录</p>
+            )}
+          </section>
           {current.type === 'npc' && (
             <section className="mt-7 border-t pt-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1480,6 +1721,7 @@ export function CharactersView() {
           )}
         </article>
       </div>
+      )}
     </StoryPage>
   )
 }
@@ -1541,39 +1783,237 @@ export function WorldView() {
   )
 }
 
+type EventViewMode = 'timeline' | 'story-map'
+
+function formatEventTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function eventParticipants(event: StoryEvent): string {
+  return event.participants.join(' · ') || '未记录参与者'
+}
+
+function isEventTurningPoint(event: StoryEvent): boolean {
+  return event.world_changes.length > 0 || event.character_changes.length > 0
+}
+
+function StoryViewToggle<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string
+  value: T
+  onChange: (value: T) => void
+  options: Array<{ value: T; label: string; icon: LucideIcon }>
+}) {
+  return (
+    <div
+      aria-label={label}
+      className="flex rounded-md border bg-background p-0.5"
+      role="group"
+    >
+      {options.map((option) => {
+        const Icon = option.icon
+        return (
+          <button
+            aria-pressed={value === option.value}
+            className={`inline-flex h-8 items-center gap-2 rounded px-3 text-sm ${
+              value === option.value
+                ? 'bg-accent font-medium'
+                : 'text-muted-foreground hover:bg-accent/60'
+            }`}
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            type="button"
+          >
+            <Icon size={15} />
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function EventTimeline({ events }: { events: StoryEvent[] }) {
+  return (
+    <div className="max-w-4xl">
+      {events.map((event, index) => (
+        <article
+          className="relative grid grid-cols-[48px_1fr] gap-4 pb-7"
+          key={event.id}
+        >
+          {index < events.length - 1 && (
+            <span className="absolute bottom-0 left-5 top-10 w-px bg-border" />
+          )}
+          <span className="z-10 grid size-10 place-items-center rounded-full border bg-background font-studio text-xs">
+            {String(event.sequence).padStart(3, '0')}
+          </span>
+          <div className="border-b pb-6">
+            <div className="mb-2 flex items-center gap-3 text-xs text-muted-foreground">
+              <span>{formatEventTime(event.occurred_at)}</span>
+              {event.approved_by_user ? (
+                <StatusPill tone="success">已确认</StatusPill>
+              ) : (
+                <StatusPill tone="warning">待确认</StatusPill>
+              )}
+            </div>
+            <h2 className="font-medium">{event.summary}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {eventParticipants(event)}
+            </p>
+          </div>
+        </article>
+      ))}
+    </div>
+  )
+}
+
+function StoryMapView({ events }: { events: StoryEvent[] }) {
+  return (
+    <div className="overflow-x-auto pb-4">
+      <div className="flex min-w-max items-stretch gap-3">
+        {events.map((event, index) => {
+          const turningPoint = isEventTurningPoint(event)
+          return (
+            <div className="flex items-stretch gap-3" key={event.id}>
+              {index > 0 && (
+                <span className="mt-8 h-px w-8 shrink-0 bg-border" />
+              )}
+              <article
+                className={`w-64 border bg-background ${
+                  turningPoint ? 'border-primary/40' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <span className="font-studio text-xs">
+                    {String(event.sequence).padStart(3, '0')}
+                  </span>
+                  {event.approved_by_user ? (
+                    <StatusPill tone="success">已确认</StatusPill>
+                  ) : (
+                    <StatusPill tone="warning">待确认</StatusPill>
+                  )}
+                </div>
+                <div className="p-4">
+                  <p className="text-xs text-muted-foreground">
+                    {formatEventTime(event.occurred_at)}
+                  </p>
+                  <h3 className="mt-2 text-sm font-medium leading-6">
+                    {event.summary}
+                  </h3>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {eventParticipants(event)}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {turningPoint && <StatusPill>转折点</StatusPill>}
+                    {event.public_results.length > 0 && (
+                      <StatusPill>公开结果</StatusPill>
+                    )}
+                    {event.hidden_results.length > 0 && (
+                      <StatusPill>隐藏结果</StatusPill>
+                    )}
+                  </div>
+                </div>
+              </article>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function EventsView() {
-  const events = [
-    ['012', '22:12', '陈默在灯芯槽中发现新鲜刮痕', '陈默 · 灯塔一层'],
-    ['011', '22:04', '林岚启动港务所备用航标', '林岚 · 港务所'],
-    ['010', '21:58', '海燕号报告能见度降至三百米', '林岚 · 近港航道'],
-    ['009', '21:51', '周放离开酒馆前往旧码头', '周放 · 旧码头'],
-  ]
+  const projectId = useActiveStoryProjectId()
+  const [events, setEvents] = useState<StoryEvent[]>([])
+  const [mode, setMode] = useState<EventViewMode>('timeline')
+  const [loading, setLoading] = useState(projectId !== null)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadEvents = useCallback(async () => {
+    if (!projectId) {
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const loaded = await engineRequest<StoryEvent[]>(
+        `/projects/${projectId}/events`
+      )
+      setEvents(loaded)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '事件历史加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    void loadEvents()
+  }, [loadEvents])
+
+  const orderedEvents = useMemo(
+    () => [...events].sort((left, right) => left.sequence - right.sequence),
+    [events]
+  )
+  const confirmedCount = orderedEvents.filter(
+    (event) => event.approved_by_user
+  ).length
+
   return (
     <StoryPage>
-      <PageHeader eyebrow="12 个已确认事件" title="事件历史" />
-      <div className="max-w-4xl">
-        {events.map(([sequence, time, title, detail], index) => (
-          <article
-            className="relative grid grid-cols-[48px_1fr] gap-4 pb-7"
-            key={sequence}
-          >
-            {index < events.length - 1 && (
-              <span className="absolute bottom-0 left-5 top-10 w-px bg-border" />
-            )}
-            <span className="z-10 grid size-10 place-items-center rounded-full border bg-background font-studio text-xs">
-              {sequence}
-            </span>
-            <div className="border-b pb-6">
-              <div className="mb-2 flex items-center gap-3 text-xs text-muted-foreground">
-                <span>{time}</span>
-                <StatusPill tone="success">已确认</StatusPill>
-              </div>
-              <h2 className="font-medium">{title}</h2>
-              <p className="mt-2 text-sm text-muted-foreground">{detail}</p>
-            </div>
-          </article>
-        ))}
-      </div>
+      <PageHeader
+        action={
+          projectId ? (
+            <StoryViewToggle
+              label="事件视图"
+              onChange={setMode}
+              options={[
+                { value: 'timeline', label: '时间线', icon: ListTree },
+                { value: 'story-map', label: '故事地图', icon: MapIcon },
+              ]}
+              value={mode}
+            />
+          ) : undefined
+        }
+        eyebrow={
+          projectId
+            ? `${confirmedCount} 个已确认事件`
+            : '尚未选择项目'
+        }
+        title="事件历史"
+      />
+      {!projectId ? (
+        <div className="rounded-md border bg-background p-8 text-center text-sm text-muted-foreground">
+          先通过投稿讨论创建项目，再查看事件历史。
+        </div>
+      ) : loading ? (
+        <p className="text-sm text-muted-foreground">正在读取事件…</p>
+      ) : error ? (
+        <div
+          className="border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+          role="alert"
+        >
+          {error}
+        </div>
+      ) : orderedEvents.length === 0 ? (
+        <div className="rounded-md border bg-background p-8 text-center text-sm text-muted-foreground">
+          还没有已确认事件。
+        </div>
+      ) : mode === 'timeline' ? (
+        <EventTimeline events={orderedEvents} />
+      ) : (
+        <StoryMapView events={orderedEvents} />
+      )}
     </StoryPage>
   )
 }

@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useServiceHub } from './useServiceHub'
+import {
+  fetchTopRemoteModels,
+  supportsRemoteCatalog,
+} from '@/lib/remoteModelCatalog'
 
 type UseProviderModelsState = {
   models: string[]
@@ -51,7 +55,12 @@ export const useProviderModels = (provider?: ModelProvider): UseProviderModelsSt
     setError(null)
 
     try {
-      const fetchedModels = await serviceHub.providers().fetchModelsFromProvider(provider)
+      const providers = serviceHub.providers()
+      const fetchedModels = supportsRemoteCatalog(provider)
+        ? (await fetchTopRemoteModels(provider, providers.fetch())).map(
+            (model) => model.id
+          )
+        : await providers.fetchModelsFromProvider(provider)
       if (currentRequestId !== requestIdRef.current) return
       const sortedModels = fetchedModels.sort((a, b) => a.localeCompare(b))
 

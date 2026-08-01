@@ -174,6 +174,45 @@ export const predefinedProviders = [
   {
     active: true,
     api_key: '',
+    base_url: 'https://api.deepseek.com',
+    explore_models_url:
+      'https://api-docs.deepseek.com/quick_start/pricing',
+    provider: 'deepseek',
+    settings: [
+      {
+        key: 'api-key',
+        title: 'API Key',
+        description:
+          "The DeepSeek API uses API keys for authentication. Visit your [API Keys](https://platform.deepseek.com/api_keys) page to retrieve the API key you'll use in your requests.",
+        controller_type: 'input',
+        controller_props: {
+          placeholder: 'Insert API Key',
+          value: '',
+          type: 'password',
+          input_actions: ['unobscure', 'copy'],
+        },
+      },
+    ],
+    models: [
+      {
+        id: 'deepseek-v4-pro',
+        name: 'deepseek-v4-pro',
+        version: '1.0',
+        description: 'DeepSeek-V4-Pro flagship model with 1M context length.',
+        capabilities: ['completion', 'tools'],
+      },
+      {
+        id: 'deepseek-v4-flash',
+        name: 'deepseek-v4-flash',
+        version: '1.0',
+        description: 'Fast and economical DeepSeek-V4 model.',
+        capabilities: ['completion', 'tools'],
+      },
+    ],
+  },
+  {
+    active: true,
+    api_key: '',
     base_url: 'https://api.mistral.ai/v1',
     explore_models_url:
       'https://docs.mistral.ai/getting-started/models/models_overview/',

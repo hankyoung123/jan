@@ -636,6 +636,31 @@ describe('ProviderDetail route', () => {
       })
     })
 
+    it('refresh shows an up-to-date toast when the catalog returns only existing models', async () => {
+      h.providersSvc.fetch = vi.fn(() =>
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({ data: [{ id: 'gpt-4', created: 1 }] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        )
+      )
+      renderComponent()
+      const addModel = screen.getByTestId('add-model')
+      const refreshBtn = addModel.parentElement?.querySelector('button') as HTMLButtonElement
+      await act(async () => {
+        fireEvent.click(refreshBtn)
+      })
+      await waitFor(() => {
+        expect(h.toastSuccess).toHaveBeenCalledWith(
+          'providers:models',
+          expect.objectContaining({
+            description: 'providers:modelsAlreadyUpToDate',
+          })
+        )
+      })
+    })
+
     it('refresh toasts error on fetch failure', async () => {
       h.providersSvc.fetch = vi.fn(() => vi.fn().mockRejectedValue(new Error('nope')))
       renderComponent()

@@ -555,14 +555,29 @@ function ProviderDetail() {
       if (supportsRemoteCatalog(provider)) {
         const importedModels = provider.models.filter((m) => m.imported)
         const importedIds = new Set(importedModels.map((m) => m.id))
-        const fresh = newModels.filter((m) => !importedIds.has(m.id))
+        const existingIds = new Set(
+          provider.models
+            .filter((m) => !m.imported)
+            .map((m) => m.id)
+        )
+        const fresh = newModels.filter(
+          (m) => !importedIds.has(m.id) && !existingIds.has(m.id)
+        )
         if (fresh.length === 0) {
           toast.success(t('providers:models'), {
-            description: t('providers:noNewModels'),
+            description:
+              newModels.length > 0
+                ? t('providers:modelsAlreadyUpToDate', {
+                    provider: provider.provider,
+                  })
+                : t('providers:noNewModels'),
           })
           return
         }
-        const updatedModels = [...importedModels, ...fresh]
+        const updatedModels = [
+          ...provider.models.filter((m) => m.imported || !fresh.some((n) => n.id === m.id)),
+          ...fresh,
+        ]
         const keepIds = new Set(updatedModels.map((m) => m.id))
         const removedIds = provider.models
           .filter((m) => !m.imported && !keepIds.has(m.id))

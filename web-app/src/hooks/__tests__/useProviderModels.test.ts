@@ -3,6 +3,16 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { useProviderModels } from '../useProviderModels'
 import { useServiceHub } from '@/hooks/useServiceHub'
 
+const catalogMocks = vi.hoisted(() => ({
+  supportsRemoteCatalog: vi.fn(),
+  fetchTopRemoteModels: vi.fn(),
+}))
+
+vi.mock('@/lib/remoteModelCatalog', () => ({
+  supportsRemoteCatalog: catalogMocks.supportsRemoteCatalog,
+  fetchTopRemoteModels: catalogMocks.fetchTopRemoteModels,
+}))
+
 // Local minimal provider type for tests
 type MockModelProvider = {
   active: boolean
@@ -30,10 +40,14 @@ describe('useProviderModels', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.clearAllMocks()
+    catalogMocks.supportsRemoteCatalog.mockReset()
+    catalogMocks.fetchTopRemoteModels.mockReset()
+    catalogMocks.supportsRemoteCatalog.mockReturnValue(false)
     const hub = (useServiceHub as unknown as () => any)()
     const mockedFetch = vi.fn()
     vi.spyOn(hub, 'providers').mockReturnValue({
       fetchModelsFromProvider: mockedFetch,
+      fetch: vi.fn(() => vi.fn()),
     } as any)
     fetchModelsSpy = mockedFetch
   })
@@ -98,5 +112,33 @@ describe('useProviderModels', () => {
     result.current.refetch()
 
     expect(fetchModelsSpy).not.toHaveBeenCalled()
+  })
+
+  it('uses the remote catalog for catalog-capable providers', async () => {
+    catalogMocks.supportsRemoteCatalog.mockReturnValue(true)
+    catalogMocks.fetchTopRemoteModels.mockResolvedValue([
+      { id: 'deepseek-v4-pro', capabilities: ['completion', 'tools'] },
+      { id: 'deepseek-v4-flash', capabilities: ['completion', 'tools'] },
+    ])
+
+    const { result } = renderHook(() =>
+      useProviderModels({
+        ...mockProvider,
+        provider: 'deepseek',
+        base_url: 'https://api.deepseek.com',
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.models).toEqual([
+        'deepseek-v4-flash',
+        'deepseek-v4-pro',
+      ])
+    })
+    expect(fetchModelsSpy).not.toHaveBeenCalled()
+    expect(catalogMocks.fetchTopRemoteModels).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'deepseek' }),
+      expect.any(Function)
+    )
   })
 })

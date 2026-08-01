@@ -2,6 +2,7 @@
   "refreshModelsError": "提供商必须配置基本 URL 和 API 密钥才能获取模型。",
   "refreshModelsSuccess": "从 {{provider}} 添加了 {{count}} 个新模型。",
   "noNewModels": "未找到新模型。所有可用模型均已添加。",
+  "modelsAlreadyUpToDate": "{{provider}} 的模型列表已是最新。",
   "refreshModelsFailed": "从 {{provider}} 获取模型失败。请检查您的 API 密钥和基本 URL。",
   "models": "模型",
   "refreshing": "刷新中...",

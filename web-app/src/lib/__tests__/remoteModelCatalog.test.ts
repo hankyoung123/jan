@@ -38,11 +38,21 @@ function mkGeminiProvider(extra: Record<string, unknown> = {}) {
   } as any
 }
 
+function mkDeepSeekProvider(extra: Record<string, unknown> = {}) {
+  return {
+    provider: 'deepseek',
+    base_url: 'https://api.deepseek.com',
+    api_key: 'sk-deepseek',
+    ...extra,
+  } as any
+}
+
 describe('supportsRemoteCatalog', () => {
   it('supports openai, anthropic and gemini', () => {
     expect(supportsRemoteCatalog('openai')).toBe(true)
     expect(supportsRemoteCatalog('anthropic')).toBe(true)
     expect(supportsRemoteCatalog('gemini')).toBe(true)
+    expect(supportsRemoteCatalog('deepseek')).toBe(true)
     expect(supportsRemoteCatalog('groq')).toBe(false)
     expect(supportsRemoteCatalog('mistral')).toBe(false)
   })
@@ -52,6 +62,42 @@ describe('supportsRemoteCatalog', () => {
       supportsRemoteCatalog({ provider: 'my-gateway', api_type: 'anthropic' })
     ).toBe(true)
     expect(supportsRemoteCatalog({ provider: 'my-gateway' })).toBe(false)
+  })
+})
+
+describe('fetchTopRemoteModels deepseek', () => {
+  it('keeps every returned DeepSeek chat model without hardcoded filtering', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      mkResponse({
+        data: [
+          { id: 'deepseek-v4-pro', created: 2000 },
+          { id: 'deepseek-v4-flash', created: 1000 },
+          { id: 'deepseek-v5-preview', created: 3000 },
+          { id: 'text-embedding-3-small', created: 4000 },
+        ],
+      })
+    )
+
+    const result = await fetchTopRemoteModels(mkDeepSeekProvider(), fetchImpl)
+
+    expect(result.map((model) => model.id)).toEqual([
+      'deepseek-v5-preview',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash',
+    ])
+    for (const model of result) {
+      expect(model.capabilities).toEqual(['completion'])
+    }
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.deepseek.com/models',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer sk-deepseek',
+          'x-api-key': 'sk-deepseek',
+        }),
+      })
+    )
   })
 })
 
