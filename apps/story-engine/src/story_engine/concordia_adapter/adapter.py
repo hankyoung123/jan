@@ -19,6 +19,9 @@ from story_engine.domain.models import (
 from story_engine.evolution.context import CharacterContext
 from story_engine.models.gateway import ModelGateway
 
+EVOLUTION_MAX_OUTPUT_TOKENS = 8192
+EVOLUTION_TIMEOUT_SECONDS = 120
+
 
 def _schema(model: type[BaseModel]) -> str:
     return json.dumps(model.model_json_schema(), ensure_ascii=False)
@@ -51,6 +54,8 @@ class ConcordiaStoryAdapter:
             profile_id="character",
             task_type="character",
             output_schema=_schema(CharacterIntent),
+            max_output_tokens=EVOLUTION_MAX_OUTPUT_TOKENS,
+            timeout_seconds=EVOLUTION_TIMEOUT_SECONDS,
             cancellation=self._cancellation,
         )
         components = {
@@ -58,7 +63,8 @@ class ConcordiaStoryAdapter:
                 state=(
                     "You are one story character. Decide only an intended action. "
                     "Do not decide success, another character's response, or new "
-                    "world facts. Use only the supplied visible fact IDs."
+                    "world facts. Use only the supplied visible facts and cite "
+                    "their IDs in knowledge_basis."
                 ),
                 pre_act_label="Story Engine role",
             ),
@@ -88,7 +94,10 @@ class ConcordiaStoryAdapter:
         intent = CharacterIntent.model_validate_json(raw)
         if intent.character_id != context.character.id:
             raise ValueError("Story Engine returned an intent for another character")
-        if not set(intent.knowledge_basis).issubset(context.visible_fact_ids):
+        visible_fact_ids = {
+            fact.id for fact in context.perception.visible_facts
+        }
+        if not set(intent.knowledge_basis).issubset(visible_fact_ids):
             raise ValueError("Character intent used facts outside its private context")
         return intent
 
@@ -134,6 +143,8 @@ class ConcordiaStoryAdapter:
             profile_id="resolver",
             task_type="resolver",
             output_schema=_schema(WorldOutcome),
+            max_output_tokens=EVOLUTION_MAX_OUTPUT_TOKENS,
+            timeout_seconds=EVOLUTION_TIMEOUT_SECONDS,
             cancellation=self._cancellation,
         )
         instructions = (
@@ -143,7 +154,10 @@ class ConcordiaStoryAdapter:
             "that character can reasonably fulfill a required role. Create a "
             "minimal new NPC only when no existing character can fulfill it. "
             "A new NPC is not an active agent. Return candidate state changes "
-            "only; never commit canonical state."
+            "only; never commit canonical state. Keep the JSON compact: include "
+            "only changes caused by this turn, never restate unchanged state or "
+            "write scene prose. Respect every JSON Schema array limit and omit "
+            "optional arrays when there are no corresponding changes."
         )
         if revision_instruction is not None:
             instructions += (

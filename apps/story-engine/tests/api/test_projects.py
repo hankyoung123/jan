@@ -73,7 +73,13 @@ class StoryTurnTransport:
         elif model == "gpt-5-mini" and "Requested revision" in prompt:
             content = {
                 "summary": "陈默暂缓拆解装置, 林岚让客船在外港等待。",
-                "public_results": ["客船在外港维持低速"],
+                "fact_candidates": [
+                    {
+                        "id": "fact:passenger-ship-waited",
+                        "statement": "客船在外港维持低速。",
+                        "visibility": "public",
+                    }
+                ],
                 "world_changes": [
                     {
                         "target_type": "world",
@@ -89,7 +95,13 @@ class StoryTurnTransport:
         elif model == "gpt-5-mini":
             content = {
                 "summary": "陈默检查装置。林岚要求客船降低航速。",
-                "public_results": ["客船开始减速"],
+                "fact_candidates": [
+                    {
+                        "id": "fact:passenger-ship-slowed",
+                        "statement": "客船开始减速。",
+                        "visibility": "public",
+                    }
+                ],
                 "world_changes": [
                     {
                         "target_type": "world",
@@ -249,6 +261,18 @@ def test_submission_message_uses_editor_profile_without_creating_project(
     assert len(transport.calls) == 1
     assert transport.calls[0]["model"] == "gpt-5-mini"
     assert transport.calls[0]["messages"][0]["role"] == "system"
+    assert "EXAMPLE JSON OUTPUT" in transport.calls[0]["messages"][0]["content"]
+    assert "public facts must use an empty known_by array" in transport.calls[0][
+        "messages"
+    ][0]["content"]
+    assert '"visibility": "public", "known_by": []' in transport.calls[0]["messages"][
+        0
+    ]["content"]
+    assert '"visibility": "secret", "known_by": ["example-a"]' in transport.calls[
+        0
+    ]["messages"][0]["content"]
+    assert '"id": "fog-harbor"' in transport.calls[0]["messages"][0]["content"]
+    assert transport.calls[0]["max_tokens"] == 8192
     assert transport.calls[0]["response_format"]["type"] == "json_schema"
 
 

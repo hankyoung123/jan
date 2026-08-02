@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Protocol
 
 from story_engine.domain.errors import DomainError
-from story_engine.domain.models import StoryEvent
+from story_engine.domain.models import Fact, StoryEvent
 from story_engine.events.commit import EventCommitService, VersionConflictError
 from story_engine.manuscript.models import (
     AmendmentCommitResult,
@@ -40,6 +40,7 @@ class ManuscriptAgent(Protocol):
         self,
         events: tuple[StoryEvent, ...],
         *,
+        facts: tuple[Fact, ...],
         project_title: str,
         genre: str,
         theme: str,
@@ -53,18 +54,23 @@ class ManuscriptAgent(Protocol):
         *,
         title: str,
         body: str,
-        public_fact_ids: tuple[str, ...],
+        public_facts: tuple[Fact, ...],
         evidence: tuple[RetrievalEvidence, ...],
     ) -> ManuscriptReviewOutput: ...
 
 
-def _event_context(events: tuple[StoryEvent, ...]) -> str:
+def _event_context(events: tuple[StoryEvent, ...], facts: tuple[Fact, ...]) -> str:
+    facts_by_id = {fact.id: fact for fact in facts}
     values = [
         {
             "id": event.id,
             "summary": event.summary,
             "participants": event.participants,
-            "public_results": event.public_results,
+            "facts": [
+                facts_by_id[fact_id].model_dump(mode="json")
+                for fact_id in event.fact_ids
+                if fact_id in facts_by_id
+            ],
             "character_changes": [
                 change.model_dump(mode="json") for change in event.character_changes
             ],
@@ -103,13 +109,14 @@ class GatewayManuscriptAgent:
         self,
         events: tuple[StoryEvent, ...],
         *,
+        facts: tuple[Fact, ...],
         project_title: str,
         genre: str,
         theme: str,
         tone: str,
         evidence: tuple[RetrievalEvidence, ...],
     ) -> WriterOutput:
-        context = _event_context(events)
+        context = _event_context(events, facts)
         prompt = (
             "You are the Story Engine Writer. Write one vivid scene using only "
             "the confirmed events supplied below. Do not invent a person, object, "
@@ -141,18 +148,23 @@ class GatewayManuscriptAgent:
         *,
         title: str,
         body: str,
-        public_fact_ids: tuple[str, ...],
+        public_facts: tuple[Fact, ...],
         evidence: tuple[RetrievalEvidence, ...],
     ) -> ManuscriptReviewOutput:
+        public_fact_context = json.dumps(
+            [fact.model_dump(mode="json") for fact in public_facts],
+            ensure_ascii=False,
+            default=str,
+        )
         prompt = (
             "You are the Story Engine manuscript Editor. Compare the prose to "
-            "the confirmed events and public fact IDs. List every concrete new "
+            "the confirmed events and public facts. List every concrete new "
             "fact asserted by the prose but unsupported by those sources. Style, "
             "sensory language, simile, and non-factual description are not new "
             "facts. A passing review must have no new_facts. Return exactly the "
             "requested JSON schema. "
-            f"Confirmed events: {_event_context(events)}. "
-            f"Public fact IDs: {json.dumps(public_fact_ids, ensure_ascii=False)}. "
+            f"Confirmed events: {_event_context(events, public_facts)}. "
+            f"Public facts: {public_fact_context}. "
             f"Scene title: {title}. Prose: {body}. "
             "Retrieval evidence (every item carries mandatory source metadata): "
             f"{_evidence_context(evidence)}"
@@ -183,6 +195,12 @@ class ManuscriptService:
         self.drafts = SceneDraftStore(root)
         self.amendments = AmendmentStore(root)
         self.rag = RagService(root)
+
+    def _facts_for_events(self, events: tuple[StoryEvent, ...]) -> tuple[Fact, ...]:
+        fact_ids = {fact_id for event in events for fact_id in event.fact_ids}
+        return tuple(
+            fact for fact in self.projects.load().facts if fact.id in fact_ids
+        )
 
     @staticmethod
     def _as_evidence(
@@ -239,7 +257,11 @@ class ManuscriptService:
                 genre,
                 theme,
                 *(event.summary for event in events),
-                *(result for event in events for result in event.public_results),
+                *(
+                    fact.statement
+                    for fact in self._facts_for_events(events)
+                    if fact.visibility == "public"
+                ),
             )
         )
         ranked = self._as_evidence(
@@ -293,6 +315,7 @@ class ManuscriptService:
         )
         output = await self.agent.generate(
             events,
+            facts=self._facts_for_events(events),
             project_title=snapshot.project.title,
             genre=snapshot.project.genre,
             theme=snapshot.project.theme,
@@ -304,7 +327,9 @@ class ManuscriptService:
             events,
             title=output.title,
             body=output.body,
-            public_fact_ids=snapshot.world.public_fact_ids,
+            public_facts=tuple(
+                fact for fact in snapshot.facts if fact.visibility == "public"
+            ),
             evidence=editor_evidence,
         )
         scene_id, sequence = self.scenes.next_identifier()
@@ -400,7 +425,9 @@ class ManuscriptService:
             events,
             title=updated.title,
             body=updated.body,
-            public_fact_ids=snapshot.world.public_fact_ids,
+            public_facts=tuple(
+                fact for fact in snapshot.facts if fact.visibility == "public"
+            ),
             evidence=editor_evidence,
         )
         retrieval_evidence = tuple(

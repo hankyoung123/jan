@@ -2,6 +2,8 @@ import asyncio
 import json
 from collections.abc import Mapping
 from contextlib import suppress
+from dataclasses import dataclass
+from pathlib import Path
 from threading import Event
 from typing import Protocol
 
@@ -16,6 +18,12 @@ from story_engine.evolution.context import CharacterContextAssembler
 from story_engine.evolution.execution import TurnCancelledError
 from story_engine.models.contracts import Message, ModelRequest, ModelResponse
 from story_engine.models.gateway import ModelGateway
+from story_engine.rag.models import (
+    RagSearchRequest,
+    RetrievalEvidence,
+    RetrievalScope,
+)
+from story_engine.rag.service import RagService
 from story_engine.workspace.project_store import ProjectSnapshot
 
 _MUTABLE_CHARACTER_FIELDS = frozenset(
@@ -24,7 +32,6 @@ _MUTABLE_CHARACTER_FIELDS = frozenset(
         "location",
         "emotional_state",
         "resources",
-        "known_fact_ids",
     }
 )
 _MUTABLE_WORLD_FIELDS = frozenset(
@@ -32,10 +39,17 @@ _MUTABLE_WORLD_FIELDS = frozenset(
         "current_time",
         "current_location",
         "active_pressures",
-        "public_fact_ids",
         "world_variables",
     }
 )
+_MAX_EDITOR_EVIDENCE = 24
+
+
+@dataclass(frozen=True, slots=True)
+class EditorialClaim:
+    id: str
+    text: str
+    evidence_ids: tuple[str, ...] = ()
 
 
 class TurnReviewer(Protocol):
@@ -132,7 +146,10 @@ class RuleBasedTurnReviewer:
                     )
                 )
                 continue
-            unavailable = set(intent.knowledge_basis) - set(context.visible_fact_ids)
+            visible_fact_ids = {
+                fact.id for fact in context.perception.visible_facts
+            }
+            unavailable = set(intent.knowledge_basis) - visible_fact_ids
             if unavailable:
                 issues.append(
                     ReviewIssue(
@@ -142,15 +159,6 @@ class RuleBasedTurnReviewer:
                         evidence_ids=tuple(sorted(unavailable)),
                     )
                 )
-            if any(term in intent.action for term in ("成功", "已经", "发现了")):
-                issues.append(
-                    ReviewIssue(
-                        code="intent_decides_outcome",
-                        message=f"{intent.character_id} 的行动意图提前决定了结果。",
-                        severity="blocking",
-                    )
-                )
-
         seen_changes: set[tuple[str, str, str]] = set()
         for expected_type, changes in (
             ("character", candidate.outcome.character_changes),
@@ -186,6 +194,7 @@ class RuleBasedTurnReviewer:
                     self._review_character_change(change, characters, issues)
 
         existing_character_ids = set(characters)
+        created_character_ids = {npc.id for npc in candidate.outcome.new_npcs}
         for npc in candidate.outcome.new_npcs:
             if npc.id in existing_character_ids:
                 issues.append(
@@ -193,6 +202,65 @@ class RuleBasedTurnReviewer:
                         code="npc_id_conflict",
                         message=f"普通人物 ID 已被现有角色使用: {npc.id}",
                         severity="blocking",
+                    )
+                )
+        existing_fact_ids = {fact.id for fact in snapshot.facts}
+        candidate_fact_ids = {
+            fact.id for fact in candidate.outcome.fact_candidates
+        }
+        available_character_ids = existing_character_ids | created_character_ids
+        available_fact_ids = existing_fact_ids | candidate_fact_ids
+        for fact in candidate.outcome.fact_candidates:
+            if fact.id in existing_fact_ids:
+                issues.append(
+                    ReviewIssue(
+                        code="fact_id_conflict",
+                        message=f"事实 ID 已存在: {fact.id}",
+                        severity="blocking",
+                        evidence_ids=(fact.id,),
+                    )
+                )
+            unknown = set(fact.known_by) - available_character_ids
+            if unknown:
+                issues.append(
+                    ReviewIssue(
+                        code="fact_knowledge_target",
+                        message=f"事实引用了未知知情角色: {fact.id}",
+                        severity="blocking",
+                        evidence_ids=tuple(sorted(unknown)),
+                    )
+                )
+            if (
+                fact.supersedes_fact_id is not None
+                and fact.supersedes_fact_id not in available_fact_ids
+            ):
+                issues.append(
+                    ReviewIssue(
+                        code="fact_supersedes_unknown",
+                        message=f"事实替代了未知事实: {fact.supersedes_fact_id}",
+                        severity="blocking",
+                        evidence_ids=(fact.supersedes_fact_id,),
+                    )
+                )
+        for knowledge_change in candidate.outcome.knowledge_changes:
+            if knowledge_change.character_id not in available_character_ids:
+                issues.append(
+                    ReviewIssue(
+                        code="knowledge_change_target",
+                        message=(
+                            "知识变更引用了未知角色: "
+                            f"{knowledge_change.character_id}"
+                        ),
+                        severity="blocking",
+                    )
+                )
+            if knowledge_change.fact_id not in available_fact_ids:
+                issues.append(
+                    ReviewIssue(
+                        code="knowledge_change_fact",
+                        message=f"知识变更引用了未知事实: {knowledge_change.fact_id}",
+                        severity="blocking",
+                        evidence_ids=(knowledge_change.fact_id,),
                     )
                 )
         return tuple(issues)
@@ -316,12 +384,133 @@ class EditorReviewService:
         self,
         model_gateway: ModelGateway,
         *,
+        root: Path,
         cancellation: Event | None = None,
         policy: RuleBasedTurnReviewer | None = None,
     ) -> None:
         self.model_gateway = model_gateway
+        self.rag = RagService(root)
         self.cancellation = cancellation
         self.policy = policy or RuleBasedTurnReviewer()
+
+    @staticmethod
+    def _claims(candidate: TurnCandidate) -> tuple[EditorialClaim, ...]:
+        claims = [
+            EditorialClaim(
+                id="outcome:summary",
+                text=candidate.outcome.summary,
+            )
+        ]
+        claims.extend(
+            EditorialClaim(
+                id=f"intent:{intent.character_id}",
+                text=" ".join(
+                    value
+                    for value in (
+                        intent.action,
+                        intent.target,
+                        intent.goal,
+                        intent.recognized_risk,
+                    )
+                    if value
+                ),
+                evidence_ids=intent.knowledge_basis,
+            )
+            for intent in candidate.intents
+        )
+        claims.extend(
+            EditorialClaim(
+                id=f"fact:{fact.id}",
+                text=fact.statement,
+                evidence_ids=(
+                    (fact.supersedes_fact_id,)
+                    if fact.supersedes_fact_id is not None
+                    else ()
+                ),
+            )
+            for fact in candidate.outcome.fact_candidates
+        )
+        claims.extend(
+            EditorialClaim(
+                id=f"state:{change.target_type}:{change.target_id}:{change.field}",
+                text=(
+                    f"{change.reason} {change.target_id} {change.field} "
+                    f"{change.old_value!r} -> {change.new_value!r}"
+                ),
+            )
+            for change in (
+                *candidate.outcome.character_changes,
+                *candidate.outcome.world_changes,
+            )
+        )
+        claims.extend(
+            EditorialClaim(
+                id=(
+                    f"knowledge:{change.character_id}:{change.fact_id}:"
+                    f"{change.action}"
+                ),
+                text=change.reason,
+                evidence_ids=(change.fact_id,),
+            )
+            for change in candidate.outcome.knowledge_changes
+        )
+        return tuple(claims)
+
+    def _evidence_for(
+        self,
+        claims: tuple[EditorialClaim, ...],
+    ) -> tuple[RetrievalEvidence, ...]:
+        scope = RetrievalScope(kind="editorial")
+        evidence: list[RetrievalEvidence] = []
+        seen_chunks: set[str] = set()
+
+        def add_hits(request: RagSearchRequest) -> None:
+            for hit in self.rag.search(request).hits:
+                if hit.chunk_id in seen_chunks:
+                    continue
+                seen_chunks.add(hit.chunk_id)
+                evidence.append(
+                    RetrievalEvidence(
+                        task="editor",
+                        **hit.model_dump(mode="python"),
+                    )
+                )
+                if len(evidence) >= _MAX_EDITOR_EVIDENCE:
+                    return
+
+        add_hits(
+            RagSearchRequest(
+                exact_id="world",
+                scope=scope,
+                limit=12,
+            )
+        )
+        for evidence_id in dict.fromkeys(
+            evidence_id
+            for claim in claims
+            for evidence_id in claim.evidence_ids
+        ):
+            add_hits(
+                RagSearchRequest(
+                    exact_id=evidence_id,
+                    scope=scope,
+                    limit=4,
+                )
+            )
+            if len(evidence) >= _MAX_EDITOR_EVIDENCE:
+                return tuple(evidence)
+
+        for claim in claims:
+            add_hits(
+                RagSearchRequest(
+                    query=claim.text,
+                    scope=scope,
+                    limit=3,
+                )
+            )
+            if len(evidence) >= _MAX_EDITOR_EVIDENCE:
+                break
+        return tuple(evidence)
 
     async def _complete_with_cancellation(self, request: ModelRequest) -> ModelResponse:
         if self.cancellation is None:
@@ -363,24 +552,36 @@ class EditorReviewService:
         else:
             raise RuntimeError("Editor review must run outside the API event loop")
 
+        claims = self._claims(candidate)
+        evidence = self._evidence_for(claims)
         context = {
-            "project": snapshot.project.model_dump(mode="json"),
-            "world": snapshot.world.model_dump(mode="json"),
-            "characters": [
-                character.model_dump(mode="json") for character in snapshot.characters
-            ],
             "candidate": candidate.model_dump(mode="json"),
+            "claims": [
+                {
+                    "id": claim.id,
+                    "text": claim.text,
+                    "evidence_ids": claim.evidence_ids,
+                }
+                for claim in claims
+            ],
+            "retrieved_evidence": [
+                item.model_dump(mode="json") for item in evidence
+            ],
             "revision_instruction": revision_instruction,
         }
         prompt = (
             "You are the single Story Engine Editor operating in turn_review mode. "
-            "Check whether every intent respects its knowledge and only proposes an "
-            "action, whether the resolved outcome follows the supplied world rules "
-            "and completed intents, and whether every state-change reason has a "
-            "credible source in the supplied evidence. You may inspect all editorial "
-            "context, including private character facts, but must not approve on the "
-            "user's behalf. Report concrete blocking or warning issues and return "
-            "exactly one ReviewResult JSON object with mode turn_review. Context: "
+            "Review each structured claim against the retrieved editorial evidence. "
+            "An intent may describe only an attempted action: block it when its "
+            "meaning asserts success, a completed discovery, another character's "
+            "response, or a new world fact, regardless of language or wording. Check "
+            "that the resolved outcome follows the evidence and completed intents, "
+            "and that every state-change reason has a credible source. Do not infer "
+            "missing evidence from general knowledge. Cite supplied source_id or "
+            "chunk_id values in each issue's evidence_ids. You may inspect all "
+            "retrieved editorial evidence, including private facts, but must not "
+            "approve on the user's behalf. Return exactly one ReviewResult JSON "
+            "object with mode turn_review. Context: "
             f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}"
         )
         response = asyncio.run(

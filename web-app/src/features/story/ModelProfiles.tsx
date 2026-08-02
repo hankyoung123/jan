@@ -52,6 +52,16 @@ const taskLabels: Record<ModelProfile['task_type'], string> = {
   embedding: '嵌入',
 }
 
+const reasoningOptions: Array<{
+  value: NonNullable<ModelProfile['reasoning_effort']>
+  label: string
+}> = [
+  { value: 'disabled', label: '关闭' },
+  { value: 'low', label: '低' },
+  { value: 'high', label: '高' },
+  { value: 'max', label: '最高' },
+]
+
 const emptyUsage: UsageTotals = {
   requests: 0,
   prompt_tokens: 0,
@@ -81,6 +91,7 @@ function ProfileRow({
   const provider = providers.find(
     (candidate) => candidate.provider === draft.provider_id
   )
+  const reasoningEffort = draft.reasoning_effort ?? 'disabled'
   const models = useMemo(
     () =>
       Array.from(
@@ -295,7 +306,7 @@ function ProfileRow({
         </div>
 
         <CollapsibleContent>
-          <div className="mt-3 grid grid-cols-1 gap-3 border-t pt-3 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-3 border-t pt-3 sm:grid-cols-4">
             <div className="space-y-1.5">
               <Label htmlFor={`${draft.id}-temperature`}>Temperature</Label>
               <Input
@@ -349,6 +360,52 @@ function ProfileRow({
                   }))
                 }
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={`${draft.id}-reasoning`}>思考强度</Label>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    id={`${draft.id}-reasoning`}
+                    variant="outline"
+                    className="h-9 w-full justify-between rounded-md px-3 font-normal"
+                    disabled={draft.provider_id !== 'deepseek'}
+                    aria-label={`${taskLabel}思考强度`}
+                  >
+                    <span className="truncate">
+                      {reasoningOptions.find(
+                        (option) => option.value === reasoningEffort
+                      )?.label ?? '关闭'}
+                    </span>
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-44">
+                  <DropdownMenuRadioGroup
+                    value={reasoningEffort}
+                    onValueChange={(value) =>
+                      setDraft((current) => ({
+                        ...current,
+                        reasoning_effort: value as ModelProfile['reasoning_effort'],
+                      }))
+                    }
+                  >
+                    {reasoningOptions.map((option) => (
+                      <DropdownMenuRadioItem
+                        key={option.value}
+                        value={option.value}
+                      >
+                        {option.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <p className="text-xs text-muted-foreground">
+                {draft.provider_id === 'deepseek'
+                  ? 'V4 Pro 当前将低档映射为高档'
+                  : '仅 DeepSeek 生效'}
+              </p>
             </div>
           </div>
         </CollapsibleContent>

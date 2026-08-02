@@ -6,6 +6,7 @@ from pathlib import Path, PurePosixPath
 from secrets import token_hex
 
 from story_engine.workspace.atomic import atomic_write_text
+from story_engine.workspace.lock import ProjectLock
 
 
 def _replace(source: Path, destination: Path) -> None:
@@ -69,6 +70,11 @@ class AtomicBatch:
     def commit(self) -> None:
         if not self._operations:
             return
+
+        with ProjectLock(self.root):
+            self._commit_locked()
+
+    def _commit_locked(self) -> None:
 
         transaction_root = (
             self.root / ".story-engine/recovery" / f"transaction-{token_hex(8)}"
@@ -150,6 +156,11 @@ class AtomicBatch:
 
 
 def recover_incomplete_transactions(root: Path) -> int:
+    with ProjectLock(root):
+        return _recover_incomplete_transactions_locked(root)
+
+
+def _recover_incomplete_transactions_locked(root: Path) -> int:
     recovery_root = root / ".story-engine/recovery"
     if not recovery_root.exists():
         return 0

@@ -306,6 +306,120 @@
         "title": "EventAmendmentCandidate",
         "type": "object"
       },
+      "Fact": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "introduced_at": {
+            "format": "date-time",
+            "title": "Introduced At",
+            "type": "string"
+          },
+          "known_by": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Known By",
+            "type": "array"
+          },
+          "source_event_id": {
+            "minLength": 1,
+            "title": "Source Event Id",
+            "type": "string"
+          },
+          "statement": {
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          },
+          "supersedes_fact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Fact Id"
+          },
+          "visibility": {
+            "enum": [
+              "public",
+              "private",
+              "secret"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "statement",
+          "visibility",
+          "source_event_id",
+          "introduced_at"
+        ],
+        "title": "Fact",
+        "type": "object"
+      },
+      "FactCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "known_by": {
+            "default": [],
+            "description": "Must be empty when visibility is public. For private or secret facts, list every knowing character id exactly once.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Known By",
+            "type": "array"
+          },
+          "statement": {
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          },
+          "supersedes_fact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Fact Id"
+          },
+          "visibility": {
+            "description": "Use public for facts known to everyone. Use private or secret only when knowledge is restricted to specific characters.",
+            "enum": [
+              "public",
+              "private",
+              "secret"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "statement",
+          "visibility"
+        ],
+        "title": "FactCandidate",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -343,6 +457,42 @@
         "type": "object"
       },
       "JsonValue": {},
+      "KnowledgeChange": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "learn",
+              "forget"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "character_id": {
+            "minLength": 1,
+            "title": "Character Id",
+            "type": "string"
+          },
+          "fact_id": {
+            "minLength": 1,
+            "title": "Fact Id",
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "character_id",
+          "fact_id",
+          "action",
+          "reason"
+        ],
+        "title": "KnowledgeChange",
+        "type": "object"
+      },
       "ManuscriptExport": {
         "additionalProperties": false,
         "properties": {
@@ -462,6 +612,17 @@
           "provider_id": {
             "minLength": 1,
             "title": "Provider Id",
+            "type": "string"
+          },
+          "reasoning_effort": {
+            "default": "disabled",
+            "enum": [
+              "disabled",
+              "low",
+              "high",
+              "max"
+            ],
+            "title": "Reasoning Effort",
             "type": "string"
           },
           "task_type": {
@@ -791,6 +952,13 @@
             "title": "Characters",
             "type": "array"
           },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
           "project": {
             "$ref": "#/components/schemas/ProjectDocument"
           },
@@ -801,7 +969,8 @@
         "required": [
           "project",
           "world",
-          "characters"
+          "characters",
+          "facts"
         ],
         "title": "ProjectSnapshot",
         "type": "object"
@@ -991,6 +1160,7 @@
               "world",
               "character",
               "event",
+              "fact",
               "scene",
               "source"
             ],
@@ -1203,6 +1373,7 @@
               "world",
               "character",
               "event",
+              "fact",
               "scene",
               "source"
             ],
@@ -1727,18 +1898,26 @@
             "title": "Character Changes",
             "type": "array"
           },
-          "hidden_results": {
+          "fact_ids": {
             "default": [],
             "items": {
               "type": "string"
             },
-            "title": "Hidden Results",
+            "title": "Fact Ids",
             "type": "array"
           },
           "id": {
             "minLength": 1,
             "title": "Id",
             "type": "string"
+          },
+          "knowledge_changes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeChange"
+            },
+            "title": "Knowledge Changes",
+            "type": "array"
           },
           "occurred_at": {
             "format": "date-time",
@@ -1750,14 +1929,6 @@
               "type": "string"
             },
             "title": "Participants",
-            "type": "array"
-          },
-          "public_results": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Public Results",
             "type": "array"
           },
           "sequence": {
@@ -1837,6 +2008,7 @@
             "type": "string"
           },
           "known_fact_ids": {
+            "description": "Only private or secret fact ids belong here. A fact id must appear exactly for the characters listed in that fact's known_by array; never include public fact ids.",
             "items": {
               "type": "string"
             },
@@ -1941,6 +2113,14 @@
             "title": "Characters",
             "type": "array"
           },
+          "facts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FactCandidate"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
           "genre": {
             "default": "",
             "title": "Genre",
@@ -1973,14 +2153,6 @@
               "type": "string"
             },
             "title": "Pressures",
-            "type": "array"
-          },
-          "public_fact_ids": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Public Fact Ids",
             "type": "array"
           },
           "theme": {
@@ -2025,6 +2197,14 @@
             "title": "Characters",
             "type": "array"
           },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/FactCandidate"
+            },
+            "minItems": 1,
+            "title": "Facts",
+            "type": "array"
+          },
           "genre": {
             "minLength": 1,
             "title": "Genre",
@@ -2059,14 +2239,6 @@
             "title": "Pressures",
             "type": "array"
           },
-          "public_fact_ids": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Public Fact Ids",
-            "type": "array"
-          },
           "theme": {
             "minLength": 1,
             "title": "Theme",
@@ -2098,7 +2270,7 @@
           "theme",
           "tone",
           "world_rules",
-          "public_fact_ids",
+          "facts",
           "characters",
           "initial_time",
           "initial_location",
@@ -2342,6 +2514,7 @@
               "world",
               "character",
               "event",
+              "fact",
               "scene"
             ],
             "title": "Kind",
@@ -2404,6 +2577,13 @@
             "title": "Event Ids",
             "type": "array"
           },
+          "fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fact Ids",
+            "type": "array"
+          },
           "project_id": {
             "minLength": 1,
             "title": "Project Id",
@@ -2433,6 +2613,7 @@
           "world_version",
           "character_versions",
           "event_ids",
+          "fact_ids",
           "scene_ids",
           "documents"
         ],
@@ -2487,15 +2668,26 @@
             "items": {
               "$ref": "#/components/schemas/StateChange"
             },
+            "maxItems": 16,
             "title": "Character Changes",
             "type": "array"
           },
-          "hidden_results": {
+          "fact_candidates": {
             "default": [],
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/FactCandidate"
             },
-            "title": "Hidden Results",
+            "maxItems": 8,
+            "title": "Fact Candidates",
+            "type": "array"
+          },
+          "knowledge_changes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeChange"
+            },
+            "maxItems": 16,
+            "title": "Knowledge Changes",
             "type": "array"
           },
           "new_npcs": {
@@ -2503,18 +2695,12 @@
             "items": {
               "$ref": "#/components/schemas/NpcCandidate"
             },
+            "maxItems": 4,
             "title": "New Npcs",
             "type": "array"
           },
-          "public_results": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Public Results",
-            "type": "array"
-          },
           "summary": {
+            "maxLength": 1000,
             "minLength": 1,
             "title": "Summary",
             "type": "string"
@@ -2524,6 +2710,7 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 8,
             "title": "Unresolved Consequences",
             "type": "array"
           },
@@ -2532,6 +2719,7 @@
             "items": {
               "$ref": "#/components/schemas/StateChange"
             },
+            "maxItems": 8,
             "title": "World Changes",
             "type": "array"
           }

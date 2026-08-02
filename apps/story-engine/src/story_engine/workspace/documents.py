@@ -9,6 +9,9 @@ from story_engine.domain.models import (
     Character,
     CharacterType,
     DomainModel,
+    Fact,
+    FactVisibility,
+    KnowledgeChange,
     Relationship,
     StateChange,
     StoryEvent,
@@ -98,8 +101,8 @@ class EventDocument(DomainModel):
     occurred_at: datetime
     summary: str = Field(min_length=1)
     participants: tuple[str, ...]
-    public_results: tuple[str, ...] = ()
-    hidden_results: tuple[str, ...] = ()
+    fact_ids: tuple[str, ...] = ()
+    knowledge_changes: tuple[KnowledgeChange, ...] = ()
     character_changes: tuple[StateChange, ...] = ()
     world_changes: tuple[StateChange, ...] = ()
     source_turn_id: str = Field(min_length=1)
@@ -113,6 +116,28 @@ class EventDocument(DomainModel):
         return StoryEvent.model_validate(
             self.model_dump(exclude={"schema_name"}),
         )
+
+
+class FactDocument(DomainModel):
+    schema_name: Literal["fact/v1"] = Field(
+        default="fact/v1",
+        serialization_alias="schema",
+        validation_alias="schema",
+    )
+    id: str = Field(min_length=1)
+    statement: str = Field(min_length=1)
+    visibility: FactVisibility
+    known_by: tuple[str, ...] = ()
+    source_event_id: str = Field(min_length=1)
+    introduced_at: datetime
+    supersedes_fact_id: str | None = None
+
+    @classmethod
+    def from_domain(cls, fact: Fact) -> "FactDocument":
+        return cls.model_validate(fact.model_dump())
+
+    def to_domain(self) -> Fact:
+        return Fact.model_validate(self.model_dump(exclude={"schema_name"}))
 
 
 class SceneDocument(DomainModel):
@@ -166,11 +191,16 @@ def render_project(document: ProjectDocument) -> str:
     return dump_document(document, body)
 
 
-def render_world(world: WorldState) -> str:
+def render_world(world: WorldState, facts: tuple[Fact, ...]) -> str:
     document = WorldDocument.from_domain(world)
     rules = "\n".join(f"- {item}" for item in world.rules) or "- None"
     pressures = "\n".join(f"- {item}" for item in world.active_pressures) or "- None"
-    facts = "\n".join(f"- {item}" for item in world.public_fact_ids) or "- None"
+    facts_by_id = {fact.id: fact for fact in facts}
+    public_facts = "\n".join(
+        f"- [{fact_id}] {facts_by_id[fact_id].statement}"
+        for fact_id in world.public_fact_ids
+        if fact_id in facts_by_id
+    ) or "- None"
     variables = (
         "\n".join(f"- {key}: {value}" for key, value in world.world_variables.items())
         or "- None"
@@ -192,7 +222,7 @@ def render_world(world: WorldState) -> str:
 
 ## Public Facts
 
-{facts}
+{public_facts}
 
 ## Variables
 
@@ -201,9 +231,14 @@ def render_world(world: WorldState) -> str:
     return dump_document(document, body)
 
 
-def render_character(character: Character) -> str:
+def render_character(character: Character, facts: tuple[Fact, ...]) -> str:
     document = CharacterDocument.from_domain(character)
-    facts = "\n".join(f"- {item}" for item in character.known_fact_ids) or "- None"
+    facts_by_id = {fact.id: fact for fact in facts}
+    known_facts = "\n".join(
+        f"- [{fact_id}] {facts_by_id[fact_id].statement}"
+        for fact_id in character.known_fact_ids
+        if fact_id in facts_by_id
+    ) or "- None"
     relationships = (
         "\n".join(
             f"- {relationship.character_id}: {relationship.description}"
@@ -228,7 +263,7 @@ def render_character(character: Character) -> str:
 
 ## Known Facts
 
-{facts}
+{known_facts}
 
 ## Relationships
 
@@ -244,21 +279,26 @@ def render_character(character: Character) -> str:
     return dump_document(document, body)
 
 
-def render_event(event: StoryEvent) -> str:
+def render_fact(fact: Fact) -> str:
+    document = FactDocument.from_domain(fact)
+    body = f"# Fact\n\n{fact.statement}\n"
+    return dump_document(document, body)
+
+
+def render_event(event: StoryEvent, facts: tuple[Fact, ...] = ()) -> str:
     document = EventDocument.from_domain(event)
-    public = "\n".join(f"- {item}" for item in event.public_results) or "- None"
-    hidden = "\n".join(f"- {item}" for item in event.hidden_results) or "- None"
+    public = "\n".join(
+        f"- [{fact.id}] {fact.statement}"
+        for fact in facts
+        if fact.visibility == "public"
+    ) or "- None"
     body = f"""# Event {event.sequence:06d}
 
 {event.summary}
 
-## Public Results
+## Public Facts
 
 {public}
-
-## Hidden Results
-
-{hidden}
 """
     return dump_document(document, body)
 

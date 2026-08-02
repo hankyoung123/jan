@@ -7,6 +7,7 @@ from story_engine.workspace.documents import (
     load_document,
     render_event,
 )
+from story_engine.workspace.lock import ProjectLock
 
 
 class EventStore:
@@ -14,9 +15,10 @@ class EventStore:
         self.root = root
 
     def append(self, event: StoryEvent) -> Path:
-        path = self.root / "events" / f"{event.sequence:06d}.md"
-        atomic_write_text(path, render_event(event), overwrite=False)
-        return path
+        with ProjectLock(self.root):
+            path = self.root / "events" / f"{event.sequence:06d}.md"
+            atomic_write_text(path, render_event(event), overwrite=False)
+            return path
 
     def list_events(self) -> tuple[StoryEvent, ...]:
         events: list[StoryEvent] = []
@@ -28,4 +30,3 @@ class EventStore:
     def next_sequence(self) -> int:
         events = self.list_events()
         return 1 if not events else events[-1].sequence + 1
-

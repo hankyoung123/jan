@@ -8,7 +8,7 @@ import pytest
 
 from story_engine.concordia_adapter.adapter import ConcordiaStoryAdapter
 from story_engine.concordia_adapter.language_model import JanGatewayLanguageModel
-from story_engine.domain.models import StateChange
+from story_engine.domain.models import CharacterIntent, StateChange
 from story_engine.evolution.context import CharacterContextAssembler
 from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.gateway import ModelGateway
@@ -21,6 +21,7 @@ class QueuedTransport:
     def __init__(self, *contents: str) -> None:
         self.contents = list(contents)
         self.calls: list[Mapping[str, Any]] = []
+        self.timeouts: list[int] = []
 
     async def complete(
         self,
@@ -28,8 +29,8 @@ class QueuedTransport:
         *,
         timeout_seconds: int,
     ) -> Mapping[str, Any]:
-        del timeout_seconds
         self.calls.append(payload)
+        self.timeouts.append(timeout_seconds)
         return {
             "choices": [
                 {
@@ -85,7 +86,13 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
         _json(
             {
                 "summary": "陈默检查装置。林岚要求客船降低航速。",
-                "public_results": ["客船开始减速"],
+                "fact_candidates": [
+                    {
+                        "id": "fact:passenger-ship-slowed",
+                        "statement": "客船开始减速。",
+                        "visibility": "public",
+                    }
+                ],
                 "world_changes": [
                     {
                         "target_type": "world",
@@ -102,7 +109,13 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
         _json(
             {
                 "summary": "陈默暂缓拆解装置, 林岚让客船在外港等待。",
-                "public_results": ["客船在外港维持低速"],
+                "fact_candidates": [
+                    {
+                        "id": "fact:passenger-ship-waited",
+                        "statement": "客船在外港维持低速。",
+                        "visibility": "public",
+                    }
+                ],
                 "world_changes": [
                     {
                         "target_type": "world",
@@ -125,6 +138,12 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
 
     chen_intent = adapter.generate_intent(contexts["chen-mo"])
     lin_intent = adapter.generate_intent(contexts["lin-lan"])
+    character_prompts = json.dumps(transport.calls[:2], ensure_ascii=False)
+    assert "initial_incident" not in character_prompts
+    assert '"round"' not in character_prompts
+    assert "secret:lin-unfiled-duty-roster" not in json.dumps(
+        transport.calls[0], ensure_ascii=False
+    )
     outcome = adapter.resolve(
         snapshot.world,
         (chen_intent, lin_intent),
@@ -173,6 +192,12 @@ def test_fixed_scene_uses_original_concordia_and_the_jan_model_gateway(
         "gpt-5-mini",
     ]
     assert all("response_format" in call for call in transport.calls)
+    assert all(call["max_tokens"] == 8192 for call in transport.calls)
+    assert transport.timeouts == [120, 120, 120, 120]
+    resolver_schema = transport.calls[2]["response_format"]["json_schema"]["schema"]
+    assert resolver_schema["properties"]["fact_candidates"]["maxItems"] == 8
+    assert resolver_schema["properties"]["world_changes"]["maxItems"] == 8
+    assert "only changes caused by this turn" in prompts[2]
     assert transport.contents == []
     assert gateway.usage.totals().requests == 4
 
@@ -205,6 +230,64 @@ def test_concordia_adapter_rejects_an_intent_for_another_character(
         match="Story Engine returned an intent for another character",
     ):
         adapter.generate_intent(context)
+
+
+def test_resolver_accepts_multiline_world_outcome_json(tmp_path: Path) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    snapshot = ProjectStore(tmp_path / "fog-harbor").load()
+    outcome = {
+        "summary": "陈默检查灯塔装置, 林岚引导客船减速。",
+        "fact_candidates": [
+            {
+                "id": "fact:passenger-ship-slowed",
+                "statement": "客船开始减速。",
+                "visibility": "public",
+            }
+        ],
+        "world_changes": [
+            {
+                "target_type": "world",
+                "target_id": "world",
+                "field": "world_variables.round",
+                "old_value": 0,
+                "new_value": 1,
+                "reason": "统一结算两个角色的行动",
+            }
+        ],
+        "unresolved_consequences": ["灯塔仍未恢复"],
+    }
+    transport = QueuedTransport(json.dumps(outcome, ensure_ascii=False, indent=2))
+    adapter = ConcordiaStoryAdapter(
+        ModelGateway(ProfileRegistry(tmp_path / "model-profiles.json"), transport)
+    )
+    intents = (
+        CharacterIntent(
+            character_id="chen-mo",
+            action="检查灯塔机械装置",
+            goal="查明灯塔熄灭原因",
+            knowledge_basis=("secret:chen-father-disappearance",),
+        ),
+        CharacterIntent(
+            character_id="lin-lan",
+            action="呼叫客船降低航速",
+            goal="让客船安全进入雾港",
+            knowledge_basis=("secret:lin-unfiled-duty-roster",),
+        ),
+    )
+
+    resolved = adapter.resolve(snapshot.world, intents, snapshot.characters)
+
+    assert resolved.summary == "陈默检查灯塔装置, 林岚引导客船减速。"
+    assert resolved.world_changes == (
+        StateChange(
+            target_type="world",
+            target_id="world",
+            field="world_variables.round",
+            old_value=0,
+            new_value=1,
+            reason="统一结算两个角色的行动",
+        ),
+    )
 
 
 def test_concordia_choices_also_use_the_jan_model_gateway(tmp_path: Path) -> None:

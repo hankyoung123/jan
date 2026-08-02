@@ -34,6 +34,12 @@ The chapter workspace composes that editor between the chapter/scene navigator
 and the source-event inspector; raw `contentEditable` or a bespoke rich-text
 engine is not a production editor boundary.
 
+Story pages are split by workflow boundary. Shared framing controls live under
+`features/story/components`, while evolution and event-history state live in
+their own modules. `StoryViews.tsx` re-exports those views so route modules keep
+one stable import surface without concentrating their request state in one
+component file.
+
 ## Source of truth
 
 Canonical project state is Markdown:
@@ -43,6 +49,7 @@ project.md
 world.md
 characters/
 events/
+facts/
 scenes/
 ```
 
@@ -61,8 +68,10 @@ and file hashes; the revision is the optimistic boundary for every derived
 candidate. Its JSON copy below `.story-engine/index` is diagnostic and may be
 deleted at any time.
 
-An open workspace owns a cross-platform polling watcher. A valid external
-Markdown change rebuilds the in-memory index and emits `workspace.changed` over
+An open workspace owns a cross-platform polling watcher. Idle polls compare
+file metadata only and do not re-read or hash every Markdown document. Stable
+changes are debounced before validation. A valid external Markdown change
+rebuilds the in-memory index and emits `workspace.changed` over
 the existing authenticated WebSocket. An invalid external edit preserves the
 last valid in-memory snapshot and emits an error state so React can require the
 user to repair or reload it. Closing a project stops its watcher and drops only
@@ -91,12 +100,24 @@ the document's semantic version number.
 
 `SubmissionService` validates the runnable initial package before creating a
 project directory. During evolution, `CharacterContextAssembler` combines
-public world facts with only the selected character's private fact IDs.
+public world facts with only the selected character's private facts. Its
+serialized `CharacterPerception` is a whitelist of time, perceived location,
+pressures, rules, sensory context, and full visible Fact statements; it has no
+`WorldState` or `world_variables` field.
 `EvolutionService` generates each intent from one such context, performs one
 unified resolution, and obtains an Editor review before exposing a candidate
 to React. Other characters' private facts and current-turn intents are absent
 from every character context. Character entities are invoked concurrently;
 the Concordia Game Master runs only after all selected intents complete.
+
+The turn Editor does not serialize the full Project, World, and Character
+snapshot into its prompt. It derives explicit claims from intents, proposed
+Facts, knowledge propagation, the outcome summary, and state changes. Each
+claim is searched through editorial-scope RAG; canonical world sections are
+included as governing evidence, exact Fact IDs are resolved before BM25, and
+the final evidence set is deduplicated and bounded. The semantic Editor decides
+whether an intent asserts an outcome in any language. Deterministic review does
+not use a small keyword blacklist as a proxy for meaning.
 
 Every generated candidate snapshots the version of every Character currently
 in the project, not only the participants. Review and commit both require a
@@ -119,6 +140,13 @@ current world, Character roster, previous outcome, and the user's instruction
 back through the Concordia Resolver. The replacement `WorldOutcome` invalidates
 the old review and is reviewed again before it can be confirmed. A failed
 Resolver call leaves the previous candidate unchanged.
+
+Every semantic fact is an immutable `facts/*.md` document with statement,
+visibility, initial knowers, source Event, introduction time, and optional
+supersession. `WorldOutcome` proposes `FactCandidate` and `KnowledgeChange`
+values instead of loose public/hidden result strings. Confirmation creates
+Fact documents, updates public and Character knowledge references, and appends
+the Event in one project-locked `AtomicBatch`.
 
 NPC promotion is a separate two-step boundary. The Editor first performs a
 `promotion_review` and may write a derived `PromotionCandidate` below
@@ -178,26 +206,53 @@ byte-identical.
   versioned `PromotionCandidate`.
 - Cancelled or failed turn generation never writes a candidate or Canonical Markdown.
 - Version conflicts return `409` and never partially write canonical files.
+- `.story-engine/project.lock` serializes canonical state access across
+  threads, Sidecars, CLI tools, and independent Python processes.
 - Atomic writes use a sibling temporary file, flush, `fsync`, and `os.replace`.
-- Sidecar startup is gated by `/health`; crashes surface a restart action.
+- Event envelopes carry a monotonic sequence; queue overflow and reconnect
+  gaps emit `stream.resync_required` so React reloads canonical HTTP state.
+- Sidecar startup is gated by a controlled port announcement and `/health`;
+  crashes surface a restart action.
 
 ## Desktop Sidecar lifecycle
 
-Tauri reserves a loopback port, generates a process-local 64-character token,
-and injects it into the Sidecar environment. The token is absent from command
-line arguments, project files, status events, and captured logs. React obtains
-the current base URL and token through a Tauri command and retains neither in
-persistent browser storage.
+Python binds `127.0.0.1:0` itself and writes the selected port to a unique,
+one-use file below application data before Uvicorn begins serving. Tauri reads
+and removes that announcement before publishing the base URL, so no released
+listener creates a port-selection TOCTOU window. Tauri also generates a
+process-local 64-character token and injects it into the Sidecar environment.
+The token is absent from command-line arguments, project files, port files,
+status events, and captured logs. React obtains the current base URL and token
+through a Tauri command and retains neither in persistent browser storage.
 
-The desktop runtime retains the last 200 redacted log lines, polls `/health`
-before declaring the engine ready, monitors the child process, and emits an
-immediate status event on startup, readiness, stop, or crash. The UI exposes
-explicit start, stop, and restart controls; start is idempotent while the
-Sidecar is starting or ready. Development uses `uv`; packaged builds resolve
-the onedir Sidecar from application resources. Sidecar stdout, stderr, and
-crash lifecycle messages are redacted before they enter Jan's persistent
-`app.log`. They remain available through normal application restarts until
-Jan's configured log rotation or the existing desktop log reset removes them.
+The desktop runtime retains the last 200 redacted log lines, waits up to 30
+seconds by default for port announcement and health, monitors the child
+process, and emits a status event on startup, readiness, stop, or crash. The
+budget is configurable from 5 to 120 seconds with
+`STORY_ENGINE_STARTUP_TIMEOUT_SECONDS`. The UI exposes explicit start, stop,
+and restart controls; start is idempotent while the Sidecar is starting or
+ready. Development uses `uv`; packaged builds resolve the onedir Sidecar from
+application resources. Sidecar stdout, stderr, and crash lifecycle messages
+are redacted before they enter Jan's persistent `app.log`. They remain
+available through normal application restarts until Jan's configured log
+rotation or the existing desktop log reset removes them.
+
+## Long-project verification
+
+`apps/story-engine/benchmarks/long_project.py` is an opt-in, reproducible
+benchmark separate from the unit suite. Its default dataset contains 10,000
+Events, 500 Scenes, and 50 active Characters. It measures seeding, workspace
+open with the watcher enabled, RAG rebuild/search, a delayed mock model call,
+turn generation, atomic commit, and an externally edited Markdown refresh.
+
+## Upstream maintenance
+
+Dependabot opens weekly Cargo, npm, Python, and GitHub Actions updates. A
+scheduled workflow compares the locked Jan v0.8.4 commit with upstream main and
+categorizes desktop/runtime, model/provider, and dependency/security changes.
+Accepted and security-relevant rejected patches are recorded in
+[`UPSTREAM_PATCHES.md`](../UPSTREAM_PATCHES.md); upstream main is never merged
+wholesale.
 
 ## Model boundary
 
@@ -221,9 +276,10 @@ form submits only task routing, enablement, temperature, output-token, and
 timeout values. Provider creation, activation, model discovery, credentials,
 and local model lifecycle continue to use Jan's existing settings and services.
 
-The gateway enforces request and response byte ceilings, timeout and output
-token limits, transient retries, stable provider errors, per-call and aggregate
-usage accounting, and final JSON Schema validation for structured responses.
+The gateway enforces request and response byte ceilings, one total Deadline and
+output-token limits, retries only network failures and explicit 429/5xx within
+that Deadline, respects `Retry-After`, and performs final JSON Schema
+validation for structured responses.
 
 See [ADR-0001](adr/0001-platform-and-upstream-locks.md),
 [ADR-0002](adr/0002-markdown-canonical-state.md), and

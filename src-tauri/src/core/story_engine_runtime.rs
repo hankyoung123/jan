@@ -1,13 +1,13 @@
 use std::{
     collections::VecDeque,
     env,
+    ffi::OsString,
     io::{BufRead, BufReader, Read},
-    net::TcpListener,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use log::Level;
@@ -19,8 +19,8 @@ use crate::core::story_model_bridge::{ModelBridge, ModelBridgeConnection};
 
 const MAX_LOG_LINES: usize = 200;
 const SIDECAR_LOG_TARGET: &str = "story_engine::sidecar";
-const HEALTH_ATTEMPTS: usize = 50;
 const HEALTH_INTERVAL: Duration = Duration::from_millis(100);
+const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -135,13 +135,16 @@ fn terminate_process(process: Option<Child>) {
     }
 }
 
-fn reserve_port() -> Result<u16, String> {
-    let listener = TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|error| format!("failed to reserve Sidecar port: {error}"))?;
-    listener
-        .local_addr()
-        .map(|address| address.port())
-        .map_err(|error| format!("failed to inspect Sidecar port: {error}"))
+fn startup_timeout_from(value: Option<OsString>) -> Duration {
+    value
+        .and_then(|value| value.to_string_lossy().parse::<u64>().ok())
+        .filter(|seconds| (5..=120).contains(seconds))
+        .map(Duration::from_secs)
+        .unwrap_or(DEFAULT_STARTUP_TIMEOUT)
+}
+
+fn startup_timeout() -> Duration {
+    startup_timeout_from(env::var_os("STORY_ENGINE_STARTUP_TIMEOUT_SECONDS"))
 }
 
 fn session_token() -> String {
@@ -201,7 +204,7 @@ fn record_current_runtime_log(runtime: &EngineRuntime, line: &str, level: Level)
 
 fn sidecar_command(
     app: &AppHandle,
-    port: u16,
+    port_file: &Path,
     token: &str,
     model_bridge: &ModelBridgeConnection,
 ) -> Result<Command, String> {
@@ -237,7 +240,8 @@ fn sidecar_command(
     std::fs::create_dir_all(&data_dir)
         .map_err(|error| format!("failed to create app data directory: {error}"))?;
     command
-        .args(["serve", "--host", "127.0.0.1", "--port", &port.to_string()])
+        .args(["serve", "--host", "127.0.0.1", "--port", "0", "--port-file"])
+        .arg(port_file)
         .env("STORY_ENGINE_SESSION_TOKEN", token)
         .current_dir(data_dir)
         .stdin(Stdio::null())
@@ -245,6 +249,31 @@ fn sidecar_command(
         .stderr(Stdio::piped());
     configure_model_bridge(&mut command, model_bridge);
     Ok(command)
+}
+
+async fn wait_for_announced_port(
+    process: &mut Child,
+    port_file: &Path,
+    timeout: Duration,
+) -> Result<u16, String> {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
+        if let Ok(value) = std::fs::read_to_string(port_file) {
+            let parsed = value.trim().parse::<u16>().ok().filter(|port| *port > 0);
+            let _ = std::fs::remove_file(port_file);
+            return parsed.ok_or_else(|| "Sidecar announced an invalid port".to_owned());
+        }
+        if let Some(status) = process
+            .try_wait()
+            .map_err(|error| format!("failed to inspect Sidecar process: {error}"))?
+        {
+            return Err(format!(
+                "Story Engine exited before announcing its port: {status}"
+            ));
+        }
+        tokio::time::sleep(HEALTH_INTERVAL).await;
+    }
+    Err("Story Engine port announcement timed out".to_owned())
 }
 
 fn capture_logs<R: Read + Send + 'static>(
@@ -291,14 +320,29 @@ async fn start(
 ) -> Result<EngineConnection, String> {
     let _ = runtime.stop()?;
     let model_bridge = runtime.model_bridge.ensure_started(&app).await?;
-    let port = reserve_port()?;
     let token = session_token();
-    let base_url = format!("http://127.0.0.1:{port}");
-    let websocket_url = format!("ws://127.0.0.1:{port}/ws/events");
-    let mut command = sidecar_command(&app, port, &token, &model_bridge)?;
+    let port_file = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("failed to resolve app data directory: {error}"))?
+        .join(format!(
+            ".story-engine-sidecar-{}.port",
+            Uuid::new_v4().simple()
+        ));
+    let mut command = sidecar_command(&app, &port_file, &token, &model_bridge)?;
     let mut process = command
         .spawn()
         .map_err(|error| format!("failed to start Story Engine Sidecar: {error}"))?;
+    let port = match wait_for_announced_port(&mut process, &port_file, startup_timeout()).await {
+        Ok(port) => port,
+        Err(error) => {
+            terminate_process(Some(process));
+            let _ = std::fs::remove_file(&port_file);
+            return Err(error);
+        }
+    };
+    let base_url = format!("http://127.0.0.1:{port}");
+    let websocket_url = format!("ws://127.0.0.1:{port}/ws/events");
     let stdout = process.stdout.take();
     let stderr = process.stderr.take();
     let log_secrets = vec![token.clone(), model_bridge.api_key.clone()];
@@ -382,7 +426,8 @@ async fn monitor(app: AppHandle, runtime: Arc<EngineRuntime>, generation: u64, b
     };
 
     let mut ready = false;
-    for _ in 0..HEALTH_ATTEMPTS {
+    let health_started = Instant::now();
+    while health_started.elapsed() < startup_timeout() {
         tokio::time::sleep(HEALTH_INTERVAL).await;
         let exited = {
             let Ok(mut inner) = runtime.inner.lock() else {
@@ -682,9 +727,20 @@ mod tests {
     }
 
     #[test]
-    fn reserved_port_is_loopback_bindable_after_release() {
-        let port = reserve_port().expect("port should be available");
-        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+    fn startup_timeout_is_bounded_and_configurable() {
+        assert_eq!(startup_timeout_from(None), Duration::from_secs(30));
+        assert_eq!(
+            startup_timeout_from(Some(OsString::from("20"))),
+            Duration::from_secs(20)
+        );
+        assert_eq!(
+            startup_timeout_from(Some(OsString::from("1"))),
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            startup_timeout_from(Some(OsString::from("invalid"))),
+            Duration::from_secs(30)
+        );
     }
 
     #[test]

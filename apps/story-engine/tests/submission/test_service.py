@@ -7,6 +7,7 @@ from story_engine.models.contracts import Message
 from story_engine.submission.service import (
     SubmissionConversationRequest,
     SubmissionDraft,
+    SubmissionModelOutput,
     SubmissionNotRunnableError,
     SubmissionService,
     fog_harbor_submission,
@@ -84,3 +85,19 @@ def test_submission_conversation_accepts_only_user_and_assistant_history() -> No
             draft=SubmissionDraft(id="north-star"),
             messages=(Message(role="assistant", content="请继续描述。"),),
         )
+
+
+def test_submission_schema_exposes_fact_knowledge_boundaries() -> None:
+    schema = SubmissionModelOutput.model_json_schema()
+    fact_schema = schema["$defs"]["FactCandidate"]
+    character_schema = schema["$defs"]["SubmissionCharacter"]
+
+    assert "known to everyone" in fact_schema["properties"]["visibility"][
+        "description"
+    ]
+    assert "Must be empty when visibility is public" in fact_schema["properties"][
+        "known_by"
+    ]["description"]
+    assert "never include public fact ids" in character_schema["properties"][
+        "known_fact_ids"
+    ]["description"]

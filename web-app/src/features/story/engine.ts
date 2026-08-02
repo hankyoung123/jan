@@ -75,27 +75,82 @@ export async function subscribeProjectEvents(
   if (!/^[a-z0-9][a-z0-9-]*$/.test(projectId)) {
     throw new Error('invalid Story Engine project ID')
   }
-  const runtime = await resolveEngineRuntime()
-  if (!runtime.websocket_url || !runtime.session_token) {
-    throw new Error(runtime.last_error ?? 'Story Engine event stream is unavailable')
+  let disposed = false
+  let socket: WebSocket | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let reconnectAttempt = 0
+  let lastSequence = 0
+
+  function scheduleReconnect() {
+    if (disposed || reconnectTimer !== null) return
+    const delay = Math.min(250 * 2 ** reconnectAttempt, 5_000)
+    reconnectAttempt += 1
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      void connect().catch(() => scheduleReconnect())
+    }, delay)
   }
-  const url = new URL(runtime.websocket_url)
-  url.searchParams.set('project_id', projectId)
-  const socket = new WebSocket(url.toString(), [
-    'story-engine.v1',
-    `story-engine.token.${runtime.session_token}`,
-  ])
-  socket.onmessage = (message) => {
-    try {
-      const value: unknown = JSON.parse(String(message.data))
-      if (isEngineEvent(value) && value.project_id === projectId) {
+
+  async function connect() {
+    const runtime = await resolveEngineRuntime()
+    if (!runtime.websocket_url || !runtime.session_token) {
+      throw new Error(
+        runtime.last_error ?? 'Story Engine event stream is unavailable'
+      )
+    }
+    const url = new URL(runtime.websocket_url)
+    url.searchParams.set('project_id', projectId)
+    if (lastSequence > 0) {
+      url.searchParams.set('after_sequence', String(lastSequence))
+    }
+    const nextSocket = new WebSocket(url.toString(), [
+      'story-engine.v1',
+      `story-engine.token.${runtime.session_token}`,
+    ])
+    socket = nextSocket
+    nextSocket.onopen = () => {
+      reconnectAttempt = 0
+    }
+    nextSocket.onmessage = (message) => {
+      try {
+        const value: unknown = JSON.parse(String(message.data))
+        if (
+          !isEngineEvent(value) ||
+          value.project_id !== projectId ||
+          value.sequence <= lastSequence
+        ) {
+          return
+        }
+        if (lastSequence > 0 && value.sequence > lastSequence + 1) {
+          listener({
+            ...value,
+            type: 'stream.resync_required',
+            payload: {
+              reason: 'client_sequence_gap',
+              after_sequence: lastSequence,
+              latest_sequence: value.sequence,
+            },
+          })
+        }
+        lastSequence = value.sequence
         listener(value)
+      } catch {
+        // HTTP remains canonical when an event is malformed or incompatible.
       }
-    } catch {
-      // Ignore malformed or forward-incompatible event records. HTTP remains canonical.
+    }
+    nextSocket.onclose = () => {
+      if (socket === nextSocket) socket = null
+      scheduleReconnect()
     }
   }
-  return () => socket.close()
+
+  await connect()
+  return () => {
+    disposed = true
+    if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+    socket?.close()
+    socket = null
+  }
 }
 
 function errorMessage(payload: unknown, status: number): string {

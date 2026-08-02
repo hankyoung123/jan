@@ -10,13 +10,15 @@ export type EngineEventType =
   | "review.started"
   | "review.completed"
   | "turn.failed"
-  | "turn.cancelled";
+  | "turn.cancelled"
+  | "stream.resync_required";
 
 export interface EngineEventEnvelope {
   event_id: string;
   project_id: string;
   turn_id: string;
   timestamp: string;
+  sequence: number;
   type: EngineEventType;
   payload: Record<string, unknown>;
 }
@@ -34,6 +36,7 @@ const eventTypes: ReadonlySet<string> = new Set<EngineEventType>([
   "review.completed",
   "turn.failed",
   "turn.cancelled",
+  "stream.resync_required",
 ]);
 
 export function isEngineEvent(value: unknown): value is EngineEventEnvelope {
@@ -44,6 +47,9 @@ export function isEngineEvent(value: unknown): value is EngineEventEnvelope {
     typeof candidate.project_id === "string" &&
     typeof candidate.turn_id === "string" &&
     typeof candidate.timestamp === "string" &&
+    typeof candidate.sequence === "number" &&
+    Number.isSafeInteger(candidate.sequence) &&
+    candidate.sequence > 0 &&
     typeof candidate.type === "string" &&
     eventTypes.has(candidate.type) &&
     typeof candidate.payload === "object" &&

@@ -154,11 +154,17 @@ def create_app(
     async def websocket_events(
         websocket: WebSocket,
         project_id: str | None = None,
+        after_sequence: int | None = None,
     ) -> None:
         if not websocket_token_is_valid(websocket, runtime_settings.session_token):
             await websocket.close(code=1008, reason="Invalid session token")
             return
-        await stream_events(websocket, event_bus, project_id=project_id)
+        await stream_events(
+            websocket,
+            event_bus,
+            project_id=project_id,
+            after_sequence=after_sequence,
+        )
 
     app.include_router(
         create_projects_router(

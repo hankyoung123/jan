@@ -28,12 +28,16 @@ class JanGatewayLanguageModel(language_model.LanguageModel):  # type: ignore[mis
         profile_id: str,
         task_type: ModelTask,
         output_schema: str | None = None,
+        max_output_tokens: int | None = None,
+        timeout_seconds: float | None = None,
         cancellation: Event | None = None,
     ) -> None:
         self._gateway = gateway
         self._profile_id = profile_id
         self._task_type = task_type
         self._output_schema = output_schema
+        self._max_output_tokens = max_output_tokens
+        self._timeout_seconds = timeout_seconds
         self._cancellation = cancellation
 
     async def _complete_with_cancellation(
@@ -98,11 +102,21 @@ class JanGatewayLanguageModel(language_model.LanguageModel):  # type: ignore[mis
         del top_p, top_k, seed
         content, _ = self._complete(
             prompt,
-            max_tokens=max_tokens,
-            timeout=timeout,
+            max_tokens=(
+                self._max_output_tokens
+                if self._max_output_tokens is not None
+                else max_tokens
+            ),
+            timeout=(
+                self._timeout_seconds
+                if self._timeout_seconds is not None
+                else timeout
+            ),
             temperature=temperature,
             output_schema=self._output_schema,
         )
+        if self._output_schema is not None:
+            return content
         end = min(
             (content.find(item) for item in terminators if item in content),
             default=len(content),

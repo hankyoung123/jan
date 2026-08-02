@@ -1,6 +1,9 @@
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator, Mapping, Sequence
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from threading import Lock
 from typing import Any, Protocol, cast
 
@@ -30,6 +33,12 @@ from story_engine.models.registry import ProfileRegistry
 MAX_REQUEST_BYTES = 1_048_576
 MAX_RESPONSE_BYTES = 1_048_576
 MAX_ATTEMPTS = 3
+MAX_PROVIDER_ERROR_DETAIL_CHARS = 1_000
+JSON_OBJECT_PROVIDERS = frozenset({"deepseek"})
+TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens"})
+MAX_STRUCTURED_ATTEMPTS = 3
+STRUCTURED_RETRY_BACKOFF_SECONDS = 0.5
+DEEPSEEK_THINKING_MIN_OUTPUT_TOKENS = 16384
 
 
 class ModelTransport(Protocol):
@@ -37,19 +46,21 @@ class ModelTransport(Protocol):
         self,
         payload: Mapping[str, Any],
         *,
-        timeout_seconds: int,
+        timeout_seconds: float,
     ) -> Mapping[str, Any]: ...
 
     def stream(
         self,
         payload: Mapping[str, Any],
         *,
-        timeout_seconds: int,
+        timeout_seconds: float,
     ) -> AsyncIterator[ModelStreamChunk]: ...
 
 
 class _TransientProviderError(Exception):
-    pass
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 def _headers(api_key: str | None) -> dict[str, str]:
@@ -74,11 +85,73 @@ async def _read_limited(response: httpx.Response) -> bytes:
     return bytes(content)
 
 
-def _raise_for_status(response: httpx.Response) -> None:
+def _provider_error_detail(content: bytes) -> str | None:
+    try:
+        payload = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+
+    candidates: list[Any] = [payload.get("message"), payload.get("detail")]
+    error = payload.get("error")
+    if isinstance(error, Mapping):
+        candidates.extend((error.get("message"), error.get("detail")))
+    elif isinstance(error, str):
+        candidates.append(error)
+
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        detail = " ".join(candidate.split())
+        if detail:
+            return detail[:MAX_PROVIDER_ERROR_DETAIL_CHARS]
+    return None
+
+
+async def _raise_for_status(response: httpx.Response) -> None:
+    if not response.is_error:
+        return
+    content = await _read_limited(response)
+    detail = _provider_error_detail(content)
+    message = f"provider returned HTTP {response.status_code}"
+    if detail is not None:
+        message = f"{message}: {detail}"
     if response.status_code == 429 or response.status_code >= 500:
-        raise _TransientProviderError(f"provider returned HTTP {response.status_code}")
-    if response.is_error:
-        raise ProviderResponseError(f"provider returned HTTP {response.status_code}")
+        raise _TransientProviderError(
+            message,
+            retry_after=_retry_after_seconds(response),
+        )
+    raise ProviderResponseError(message)
+
+
+def _reasoning_tokens(raw: Mapping[str, Any]) -> int | None:
+    usage = raw.get("usage")
+    if not isinstance(usage, Mapping):
+        return None
+    details = usage.get("completion_tokens_details")
+    if not isinstance(details, Mapping):
+        return None
+    value = details.get("reasoning_tokens")
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    value = response.headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=UTC)
+        return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
 
 
 class OpenAICompatibleTransport:
@@ -92,7 +165,7 @@ class OpenAICompatibleTransport:
         self._api_key = api_key
         self._transport = transport
 
-    def _client(self, timeout_seconds: int) -> httpx.AsyncClient:
+    def _client(self, timeout_seconds: float) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_seconds),
             follow_redirects=False,
@@ -103,12 +176,18 @@ class OpenAICompatibleTransport:
         self,
         payload: Mapping[str, Any],
         *,
-        timeout_seconds: int,
+        timeout_seconds: float,
     ) -> Mapping[str, Any]:
+        deadline = time.monotonic() + timeout_seconds
         for attempt in range(MAX_ATTEMPTS):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ModelTimeoutError("model request exceeded its total deadline")
+            retry_error: httpx.NetworkError | _TransientProviderError | None = None
             try:
                 async with (
-                    self._client(timeout_seconds) as client,
+                    self._client(remaining) as client,
+                    asyncio.timeout(remaining),
                     client.stream(
                         "POST",
                         _endpoint(self._base_url, "chat/completions"),
@@ -116,30 +195,43 @@ class OpenAICompatibleTransport:
                         json=payload,
                     ) as response,
                 ):
-                    _raise_for_status(response)
+                    await _raise_for_status(response)
                     content = await _read_limited(response)
                 parsed = json.loads(content)
                 if not isinstance(parsed, dict):
                     raise ProviderResponseError("provider response must be an object")
                 return cast(dict[str, Any], parsed)
             except (TimeoutError, httpx.TimeoutException) as error:
-                if attempt == MAX_ATTEMPTS - 1:
-                    raise ModelTimeoutError("model request timed out") from error
+                raise ModelTimeoutError("model provider request timed out") from error
             except (httpx.NetworkError, _TransientProviderError) as error:
                 if attempt == MAX_ATTEMPTS - 1:
+                    if isinstance(error, _TransientProviderError):
+                        raise ProviderResponseError(str(error)) from error
                     raise ProviderResponseError(
                         "provider was unavailable after retries"
                     ) from error
+                retry_error = error
             except json.JSONDecodeError as error:
                 raise ProviderResponseError("provider returned invalid JSON") from error
-            await asyncio.sleep(0.1 * (2**attempt))
+            retry_after = (
+                retry_error.retry_after
+                if isinstance(retry_error, _TransientProviderError)
+                else None
+            )
+            delay = retry_after if retry_after is not None else 0.1 * (2**attempt)
+            remaining = deadline - time.monotonic()
+            if delay >= remaining:
+                raise ModelTimeoutError(
+                    "model retry delay exceeded its total deadline"
+                ) from retry_error
+            await asyncio.sleep(delay)
         raise ProviderResponseError("provider request failed")
 
     async def stream(
         self,
         payload: Mapping[str, Any],
         *,
-        timeout_seconds: int,
+        timeout_seconds: float,
     ) -> AsyncIterator[ModelStreamChunk]:
         streamed_payload = {
             **payload,
@@ -156,7 +248,7 @@ class OpenAICompatibleTransport:
                     json=streamed_payload,
                 ) as response,
             ):
-                _raise_for_status(response)
+                await _raise_for_status(response)
                 received = 0
                 usage: ModelUsage | None = None
                 async for line in response.aiter_lines():
@@ -199,7 +291,7 @@ class UnavailableModelTransport:
         self,
         payload: Mapping[str, Any],
         *,
-        timeout_seconds: int,
+        timeout_seconds: float,
     ) -> Mapping[str, Any]:
         raise ModelConfigurationError("Story Engine model runtime is unavailable")
 
@@ -207,7 +299,7 @@ class UnavailableModelTransport:
         self,
         payload: Mapping[str, Any],
         *,
-        timeout_seconds: int,
+        timeout_seconds: float,
     ) -> AsyncIterator[ModelStreamChunk]:
         if False:
             yield ModelStreamChunk()
@@ -303,25 +395,61 @@ class ModelGateway:
         profile: ModelProfile,
         schema: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
+        messages = [message.model_dump(mode="json") for message in request.messages]
+        uses_json_object = (
+            schema is not None and profile.provider_id in JSON_OBJECT_PROVIDERS
+        )
+        if uses_json_object:
+            schema_text = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+            messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": (
+                        "Return exactly one valid JSON object as a single compact "
+                        "line with no line breaks. The JSON object must match this "
+                        "JSON Schema exactly; do not add Markdown fences, formatting "
+                        "whitespace, or prose: "
+                        f"{schema_text}"
+                    ),
+                },
+            )
+        thinking_enabled = (
+            profile.provider_id == "deepseek"
+            and profile.reasoning_effort != "disabled"
+        )
+        max_output_tokens = request.max_output_tokens
+        if thinking_enabled:
+            max_output_tokens = max(
+                max_output_tokens,
+                DEEPSEEK_THINKING_MIN_OUTPUT_TOKENS,
+            )
         payload: dict[str, Any] = {
             "model": profile.model,
-            "messages": [
-                message.model_dump(mode="json") for message in request.messages
-            ],
-            "max_tokens": request.max_output_tokens,
+            "messages": messages,
+            "max_tokens": max_output_tokens,
         }
         temperature = (
             request.temperature
             if request.temperature is not None
             else profile.temperature
         )
-        if temperature is not None:
+        if temperature is not None and not thinking_enabled:
             payload["temperature"] = temperature
+        if profile.provider_id == "deepseek":
+            if profile.reasoning_effort == "disabled":
+                payload["thinking"] = {"type": "disabled"}
+            else:
+                payload["reasoning_effort"] = profile.reasoning_effort
+                payload["thinking"] = {"type": "enabled"}
         if schema is not None:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "story_engine_output", "schema": schema},
-            }
+            if uses_json_object:
+                payload["response_format"] = {"type": "json_object"}
+            else:
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {"name": "story_engine_output", "schema": schema},
+                }
         encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         if len(encoded) > MAX_REQUEST_BYTES:
             raise ResponseLimitError(
@@ -367,10 +495,18 @@ class ModelGateway:
     ) -> JsonValue:
         if schema is None:
             return None
+        if not content.strip():
+            raise StructuredOutputError(
+                "model returned empty JSON content",
+                retryable=True,
+            )
         try:
             parsed: JsonValue = json.loads(content)
         except json.JSONDecodeError as error:
-            raise StructuredOutputError("model output is not valid JSON") from error
+            raise StructuredOutputError(
+                "model output is not valid JSON",
+                retryable=True,
+            ) from error
         try:
             validator_for(schema)(schema).validate(parsed)
         except ValidationError as error:
@@ -385,22 +521,56 @@ class ModelGateway:
         profile = self._resolve(request)
         schema = self._schema(request)
         payload = self._payload(request, profile, schema)
-        raw = await self.transport.complete(
-            payload,
-            timeout_seconds=request.timeout_seconds,
-        )
-        content, finish_reason, usage = self._parse_content(raw)
-        parsed_output = self._validate_output(content, schema)
-        self.usage.record(usage)
-        return ModelResponse(
-            profile_id=profile.id,
-            provider_id=profile.provider_id,
-            model=profile.model,
-            content=content,
-            parsed_output=parsed_output,
-            finish_reason=finish_reason,
-            usage=usage,
-        )
+        try:
+            async with asyncio.timeout(request.timeout_seconds):
+                for attempt in range(MAX_STRUCTURED_ATTEMPTS):
+                    raw = await self.transport.complete(
+                        payload,
+                        timeout_seconds=request.timeout_seconds,
+                    )
+                    content, finish_reason, usage = self._parse_content(raw)
+                    if (
+                        schema is not None
+                        and finish_reason in TRUNCATED_FINISH_REASONS
+                    ):
+                        message = "model JSON output was truncated at max_tokens"
+                        reasoning_tokens = _reasoning_tokens(raw)
+                        if reasoning_tokens is not None:
+                            message += (
+                                f" (finish_reason={finish_reason}, "
+                                f"reasoning_tokens={reasoning_tokens})"
+                            )
+                        else:
+                            message += f" (finish_reason={finish_reason})"
+                        raise ResponseLimitError(message)
+                    try:
+                        parsed_output = self._validate_output(content, schema)
+                    except StructuredOutputError as error:
+                        if (
+                            not error.retryable
+                            or profile.provider_id not in JSON_OBJECT_PROVIDERS
+                            or attempt == MAX_STRUCTURED_ATTEMPTS - 1
+                        ):
+                            raise
+                        await asyncio.sleep(
+                            STRUCTURED_RETRY_BACKOFF_SECONDS * (2**attempt)
+                        )
+                        continue
+                    self.usage.record(usage)
+                    return ModelResponse(
+                        profile_id=profile.id,
+                        provider_id=profile.provider_id,
+                        model=profile.model,
+                        content=content,
+                        parsed_output=parsed_output,
+                        finish_reason=finish_reason,
+                        usage=usage,
+                    )
+        except TimeoutError as error:
+            raise ModelTimeoutError(
+                "model request exceeded its total deadline"
+            ) from error
+        raise ProviderResponseError("model request failed")
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamChunk]:
         profile = self._resolve(request)
@@ -409,20 +579,26 @@ class ModelGateway:
         content: list[str] = []
         usage = ModelUsage()
         size = 0
-        async for chunk in self.transport.stream(
-            payload,
-            timeout_seconds=request.timeout_seconds,
-        ):
-            if chunk.delta:
-                size += len(chunk.delta.encode("utf-8"))
-                if size > MAX_RESPONSE_BYTES:
-                    raise ResponseLimitError(
-                        f"model output exceeded {MAX_RESPONSE_BYTES} bytes"
-                    )
-                content.append(chunk.delta)
-            if chunk.usage is not None:
-                usage = chunk.usage
-            if chunk.done:
-                self._validate_output("".join(content), schema)
-                self.usage.record(usage)
-            yield chunk
+        try:
+            async with asyncio.timeout(request.timeout_seconds):
+                async for chunk in self.transport.stream(
+                    payload,
+                    timeout_seconds=request.timeout_seconds,
+                ):
+                    if chunk.delta:
+                        size += len(chunk.delta.encode("utf-8"))
+                        if size > MAX_RESPONSE_BYTES:
+                            raise ResponseLimitError(
+                                f"model output exceeded {MAX_RESPONSE_BYTES} bytes"
+                            )
+                        content.append(chunk.delta)
+                    if chunk.usage is not None:
+                        usage = chunk.usage
+                    if chunk.done:
+                        self._validate_output("".join(content), schema)
+                        self.usage.record(usage)
+                    yield chunk
+        except TimeoutError as error:
+            raise ModelTimeoutError(
+                "model stream exceeded its total deadline"
+            ) from error

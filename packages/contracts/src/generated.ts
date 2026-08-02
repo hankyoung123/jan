@@ -664,6 +664,53 @@ export interface components {
              */
             status: "pending" | "committed";
         };
+        /** Fact */
+        Fact: {
+            /** Id */
+            id: string;
+            /**
+             * Introduced At
+             * Format: date-time
+             */
+            introduced_at: string;
+            /**
+             * Known By
+             * @default []
+             */
+            known_by: string[];
+            /** Source Event Id */
+            source_event_id: string;
+            /** Statement */
+            statement: string;
+            /** Supersedes Fact Id */
+            supersedes_fact_id?: string | null;
+            /**
+             * Visibility
+             * @enum {string}
+             */
+            visibility: "public" | "private" | "secret";
+        };
+        /** FactCandidate */
+        FactCandidate: {
+            /** Id */
+            id: string;
+            /**
+             * Known By
+             * @description Must be empty when visibility is public. For private or secret facts, list every knowing character id exactly once.
+             * @default []
+             */
+            known_by: string[];
+            /** Statement */
+            statement: string;
+            /** Supersedes Fact Id */
+            supersedes_fact_id?: string | null;
+            /**
+             * Visibility
+             * @description Use public for facts known to everyone. Use private or secret only when knowledge is restricted to specific characters.
+             * @enum {string}
+             */
+            visibility: "public" | "private" | "secret";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -679,6 +726,20 @@ export interface components {
             version: string;
         };
         JsonValue: unknown;
+        /** KnowledgeChange */
+        KnowledgeChange: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "learn" | "forget";
+            /** Character Id */
+            character_id: string;
+            /** Fact Id */
+            fact_id: string;
+            /** Reason */
+            reason: string;
+        };
         /** ManuscriptExport */
         ManuscriptExport: {
             /** Filename */
@@ -730,6 +791,12 @@ export interface components {
             name: string;
             /** Provider Id */
             provider_id: string;
+            /**
+             * Reasoning Effort
+             * @default disabled
+             * @enum {string}
+             */
+            reasoning_effort: "disabled" | "low" | "high" | "max";
             /**
              * Task Type
              * @enum {string}
@@ -848,6 +915,8 @@ export interface components {
         ProjectSnapshot: {
             /** Characters */
             characters: components["schemas"]["Character"][];
+            /** Facts */
+            facts: components["schemas"]["Fact"][];
             project: components["schemas"]["ProjectDocument"];
             world: components["schemas"]["WorldState"];
         };
@@ -918,7 +987,7 @@ export interface components {
              * Source Type
              * @enum {string}
              */
-            source_type: "project" | "world" | "character" | "event" | "scene" | "source";
+            source_type: "project" | "world" | "character" | "event" | "fact" | "scene" | "source";
         };
         /** RagIndexSummary */
         RagIndexSummary: {
@@ -992,7 +1061,7 @@ export interface components {
              * Source Type
              * @enum {string}
              */
-            source_type: "project" | "world" | "character" | "event" | "scene" | "source";
+            source_type: "project" | "world" | "character" | "event" | "fact" | "scene" | "source";
             /**
              * Task
              * @enum {string}
@@ -1173,12 +1242,17 @@ export interface components {
              */
             character_changes: components["schemas"]["StateChange"][];
             /**
-             * Hidden Results
+             * Fact Ids
              * @default []
              */
-            hidden_results: string[];
+            fact_ids: string[];
             /** Id */
             id: string;
+            /**
+             * Knowledge Changes
+             * @default []
+             */
+            knowledge_changes: components["schemas"]["KnowledgeChange"][];
             /**
              * Occurred At
              * Format: date-time
@@ -1186,11 +1260,6 @@ export interface components {
             occurred_at: string;
             /** Participants */
             participants: string[];
-            /**
-             * Public Results
-             * @default []
-             */
-            public_results: string[];
             /** Sequence */
             sequence: number;
             /** Source Turn Id */
@@ -1217,7 +1286,10 @@ export interface components {
             id: string;
             /** Identity */
             identity: string;
-            /** Known Fact Ids */
+            /**
+             * Known Fact Ids
+             * @description Only private or secret fact ids belong here. A fact id must appear exactly for the characters listed in that fact's known_by array; never include public fact ids.
+             */
             known_fact_ids: string[];
             /** Location */
             location: string;
@@ -1255,6 +1327,11 @@ export interface components {
              */
             characters: components["schemas"]["SubmissionCharacter"][];
             /**
+             * Facts
+             * @default []
+             */
+            facts: components["schemas"]["FactCandidate"][];
+            /**
              * Genre
              * @default
              */
@@ -1282,11 +1359,6 @@ export interface components {
              */
             pressures: string[];
             /**
-             * Public Fact Ids
-             * @default []
-             */
-            public_fact_ids: string[];
-            /**
              * Theme
              * @default
              */
@@ -1311,6 +1383,8 @@ export interface components {
         SubmissionPackage: {
             /** Characters */
             characters: components["schemas"]["SubmissionCharacter"][];
+            /** Facts */
+            facts: components["schemas"]["FactCandidate"][];
             /** Genre */
             genre: string;
             /** Id */
@@ -1326,8 +1400,6 @@ export interface components {
              * @default []
              */
             pressures: string[];
-            /** Public Fact Ids */
-            public_fact_ids: string[];
             /** Theme */
             theme: string;
             /** Title */
@@ -1437,7 +1509,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "project" | "world" | "character" | "event" | "scene";
+            kind: "project" | "world" | "character" | "event" | "fact" | "scene";
             /** Relative Path */
             relative_path: string;
             /** Sha256 */
@@ -1455,6 +1527,8 @@ export interface components {
             documents: components["schemas"]["WorkspaceDocumentEntry"][];
             /** Event Ids */
             event_ids: string[];
+            /** Fact Ids */
+            fact_ids: string[];
             /** Project Id */
             project_id: string;
             /** Revision */
@@ -1487,20 +1561,20 @@ export interface components {
              */
             character_changes: components["schemas"]["StateChange"][];
             /**
-             * Hidden Results
+             * Fact Candidates
              * @default []
              */
-            hidden_results: string[];
+            fact_candidates: components["schemas"]["FactCandidate"][];
+            /**
+             * Knowledge Changes
+             * @default []
+             */
+            knowledge_changes: components["schemas"]["KnowledgeChange"][];
             /**
              * New Npcs
              * @default []
              */
             new_npcs: components["schemas"]["NpcCandidate"][];
-            /**
-             * Public Results
-             * @default []
-             */
-            public_results: string[];
             /** Summary */
             summary: string;
             /**

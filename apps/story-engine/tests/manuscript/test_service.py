@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from story_engine.domain.models import StoryEvent
+from story_engine.domain.models import Fact, StoryEvent
 from story_engine.events.commit import VersionConflictError
 from story_engine.manuscript.models import (
     ManuscriptReviewOutput,
@@ -15,6 +15,7 @@ from story_engine.manuscript.service import ManuscriptService
 from story_engine.rag.models import RetrievalEvidence
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.workspace.event_store import EventStore
+from story_engine.workspace.fact_store import FactStore
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.scene_store import SceneStore
 
@@ -30,13 +31,14 @@ class DeterministicManuscriptAgent:
         self,
         events: tuple[StoryEvent, ...],
         *,
+        facts: tuple[Fact, ...],
         project_title: str,
         genre: str,
         theme: str,
         tone: str,
         evidence: tuple[RetrievalEvidence, ...],
     ) -> WriterOutput:
-        del project_title, genre, theme, tone
+        del facts, project_title, genre, theme, tone
         self.generated_from.append(tuple(event.id for event in events))
         self.generated_evidence.append(evidence)
         return WriterOutput(
@@ -50,10 +52,10 @@ class DeterministicManuscriptAgent:
         *,
         title: str,
         body: str,
-        public_fact_ids: tuple[str, ...],
+        public_facts: tuple[Fact, ...],
         evidence: tuple[RetrievalEvidence, ...],
     ) -> ManuscriptReviewOutput:
-        del events, title, public_fact_ids
+        del events, title, public_facts
         self.reviewed_bodies.append(body)
         self.reviewed_evidence.append(evidence)
         if "黑色纤维" in body:
@@ -66,6 +68,26 @@ class DeterministicManuscriptAgent:
 def _project(tmp_path: Path) -> Path:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     root = tmp_path / "fog-harbor"
+    fact = Fact(
+        id="fact:fresh-scratches-on-wick-slot",
+        statement="灯芯槽上有新鲜刮痕。",
+        visibility="public",
+        source_event_id="event-000001",
+        introduced_at=datetime(2026, 7, 31, 4, 0, tzinfo=UTC),
+    )
+    FactStore(root).save(fact)
+    store = ProjectStore(root)
+    snapshot = store.load()
+    store.save_world(
+        snapshot.world.model_copy(
+            update={
+                "public_fact_ids": (
+                    *snapshot.world.public_fact_ids,
+                    fact.id,
+                )
+            }
+        )
+    )
     EventStore(root).append(
         StoryEvent(
             id="event-000001",
@@ -73,7 +95,7 @@ def _project(tmp_path: Path) -> Path:
             occurred_at=datetime(2026, 7, 31, 4, 0, tzinfo=UTC),
             summary="陈默抵达灯塔并发现灯芯槽上的新鲜刮痕。",
             participants=("chen-mo",),
-            public_results=("灯芯槽上有新鲜刮痕",),
+            fact_ids=(fact.id,),
             source_turn_id="turn-000001",
             approved_by_user=True,
         )
@@ -223,10 +245,16 @@ def test_new_user_fact_requires_amendment_before_atomic_formal_commit(
 
     assert committed.amendment.status == "committed"
     assert committed.scene.version == 1
-    assert committed.event.public_results == ("刮痕末端沾着黑色纤维",)
+    assert committed.event.fact_ids == committed.amendment.fact_ids
     assert committed.event.approved_by_user is True
     assert committed.event.source_turn_id == result.amendment.id
     assert committed.amendment.fact_ids[0] in snapshot.world.public_fact_ids
+    committed_fact = next(
+        fact
+        for fact in snapshot.facts
+        if fact.id == committed.amendment.fact_ids[0]
+    )
+    assert committed_fact.statement == "刮痕末端沾着黑色纤维"
     assert snapshot.world.version == 1
     assert SceneStore(root).load(draft.id).body.endswith("黑色纤维。")
 

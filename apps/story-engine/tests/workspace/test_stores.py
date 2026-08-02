@@ -8,6 +8,7 @@ import pytest
 from story_engine.domain.models import (
     Character,
     CharacterIntent,
+    Fact,
     StoryEvent,
     TurnCandidate,
     WorldOutcome,
@@ -51,6 +52,31 @@ def _seed() -> ProjectSeed:
                 current_goal="让客船安全进港",
                 known_fact_ids=("fact:storm-approaching",),
                 version=0,
+            ),
+        ),
+        facts=(
+            Fact(
+                id="fact:lighthouse-never-off-at-night",
+                statement="灯塔夜间从不熄灭。",
+                visibility="public",
+                source_event_id="submission:fog-harbor",
+                introduced_at=datetime(2026, 7, 31, tzinfo=UTC),
+            ),
+            Fact(
+                id="fact:father-disappeared-near-lighthouse",
+                statement="陈默的父亲在灯塔附近失踪。",
+                visibility="secret",
+                known_by=("chen-mo",),
+                source_event_id="submission:fog-harbor",
+                introduced_at=datetime(2026, 7, 31, tzinfo=UTC),
+            ),
+            Fact(
+                id="fact:storm-approaching",
+                statement="暴风雨正在逼近。",
+                visibility="private",
+                known_by=("lin-lan",),
+                source_event_id="submission:fog-harbor",
+                introduced_at=datetime(2026, 7, 31, tzinfo=UTC),
             ),
         ),
     )
@@ -159,4 +185,3 @@ def test_project_load_does_not_depend_on_derived_index(tmp_path: Path) -> None:
         "chen-mo",
         "lin-lan",
     ]
-

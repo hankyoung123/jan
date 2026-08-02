@@ -1,4 +1,8 @@
+from datetime import UTC, datetime
+from multiprocessing import get_context
 from pathlib import Path
+from queue import Empty
+from typing import Any
 
 import pytest
 
@@ -6,6 +10,8 @@ from story_engine.domain.errors import InvalidTransitionError
 from story_engine.domain.models import (
     Character,
     CharacterIntent,
+    Fact,
+    FactCandidate,
     NpcCandidate,
     PromotionCandidate,
     ReviewResult,
@@ -69,6 +75,23 @@ def _seed() -> ProjectSeed:
                 version=2,
             ),
         ),
+        facts=(
+            Fact(
+                id="fact:lighthouse-controls-night-navigation",
+                statement="灯塔控制港口夜航。",
+                visibility="public",
+                source_event_id="submission:fog-harbor",
+                introduced_at=datetime(2026, 7, 31, tzinfo=UTC),
+            ),
+            Fact(
+                id="fact:near-harbor-reefs",
+                statement="近港航道分布着暗礁。",
+                visibility="private",
+                known_by=("temporary-pilot",),
+                source_event_id="submission:fog-harbor",
+                introduced_at=datetime(2026, 7, 31, tzinfo=UTC),
+            ),
+        ),
     )
 
 
@@ -89,12 +112,18 @@ def _candidate(
                 action="前往灯塔检查灯芯槽",
                 target="灯塔",
                 goal="查明熄灭原因",
-                knowledge_basis=("fact:lighthouse-never-off",),
+                knowledge_basis=("fact:lighthouse-controls-night-navigation",),
             ),
         ),
         outcome=WorldOutcome(
             summary="陈默抵达灯塔并发现灯芯槽上的新鲜刮痕。",
-            public_results=("陈默进入灯塔",),
+            fact_candidates=(
+                FactCandidate(
+                    id="fact:chen-entered-lighthouse",
+                    statement="陈默进入灯塔。",
+                    visibility="public",
+                ),
+            ),
             character_changes=(
                 StateChange(
                     target_type="character",
@@ -166,6 +195,22 @@ def _formal_bytes(root: Path) -> dict[str, bytes]:
         for path in sorted(root.rglob("*.md"))
         if ".story-engine" not in path.parts
     }
+
+
+def _commit_in_process(
+    root: str,
+    candidate_json: str,
+    start: Any,
+    results: Any,
+) -> None:
+    candidate = TurnCandidate.model_validate_json(candidate_json)
+    start.wait()
+    try:
+        result = EventCommitService(Path(root)).commit(candidate)
+    except Exception as error:
+        results.put(("error", type(error).__name__))
+    else:
+        results.put(("ok", result.event.id))
 
 
 def test_unapproved_candidate_cannot_change_formal_state(tmp_path: Path) -> None:
@@ -303,6 +348,45 @@ def test_successful_commit_updates_all_formal_state_consistently(
     assert snapshot.characters[0].last_event_id == "event-000001"
     assert events == (result.event,)
     assert not any((root / ".story-engine/recovery").iterdir())
+
+
+def test_two_processes_cannot_commit_the_same_event_sequence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "fog-harbor"
+    ProjectStore(root).create(_seed())
+    candidate = _approved_candidate(
+        base_workspace_revision=canonical_revision(root)
+    )
+    context = get_context("spawn")
+    start = context.Event()
+    results = context.Queue()
+    processes = [
+        context.Process(
+            target=_commit_in_process,
+            args=(str(root), candidate.model_dump_json(), start, results),
+        )
+        for _ in range(2)
+    ]
+    for process in processes:
+        process.start()
+    start.set()
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+
+    observed = []
+    for _ in processes:
+        try:
+            observed.append(results.get(timeout=2))
+        except Empty as error:
+            raise AssertionError("commit worker did not report a result") from error
+
+    assert sorted(status for status, _detail in observed) == ["error", "ok"]
+    assert ("error", "VersionConflictError") in observed
+    assert [event.id for event in EventStore(root).list_events()] == [
+        "event-000001"
+    ]
 
 
 def test_participant_version_advances_without_explicit_character_change(

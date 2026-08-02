@@ -83,3 +83,30 @@ def test_v1_registry_migration_drops_parallel_provider_configuration(
     assert migrated.schema_version == 2
     assert migrated.profiles[0].provider_id == "openai"
     assert not hasattr(migrated, "providers")
+
+
+def test_legacy_profiles_default_reasoning_effort_to_disabled(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "model-registry.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "profiles": [
+                    {
+                        "id": "resolver",
+                        "name": "Resolver",
+                        "task_type": "resolver",
+                        "provider_id": "deepseek",
+                        "model": "deepseek-v4-flash",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    profile = ProfileRegistry(path).load().profiles[0]
+
+    assert profile.reasoning_effort == "disabled"

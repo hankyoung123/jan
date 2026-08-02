@@ -191,6 +191,7 @@ def create_projects_router(
                 ),
                 reviewer=EditorReviewService(
                     model_gateway,
+                    root=root,
                     cancellation=execution.cancellation,
                 ),
             )
@@ -281,7 +282,7 @@ def create_projects_router(
             service = EvolutionService(
                 root,
                 generator=ConcordiaStoryAdapter(model_gateway),
-                reviewer=EditorReviewService(model_gateway),
+                reviewer=EditorReviewService(model_gateway, root=root),
             )
             return await asyncio.to_thread(
                 service.request_revision,

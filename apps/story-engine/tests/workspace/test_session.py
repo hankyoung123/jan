@@ -1,5 +1,6 @@
 import json
 import shutil
+import time
 from pathlib import Path
 from threading import Event
 
@@ -152,3 +153,33 @@ def test_project_catalog_comes_from_valid_canonical_markdown(tmp_path: Path) -> 
     assert [(project.id, project.title, project.is_open) for project in projects] == [
         ("fog-harbor", "雾港", False)
     ]
+
+
+def test_idle_watcher_uses_file_signatures_without_rebuilding_workspace(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _project(tmp_path)
+    from story_engine.workspace import session as session_module
+
+    real_build = session_module.build_workspace_index
+    builds = 0
+
+    def track_build(root: Path):
+        nonlocal builds
+        builds += 1
+        return real_build(root)
+
+    monkeypatch.setattr(session_module, "build_workspace_index", track_build)
+    manager = WorkspaceSessionManager(
+        tmp_path,
+        poll_interval=0.01,
+        debounce_interval=0.03,
+    )
+    try:
+        manager.open("fog-harbor")
+        time.sleep(0.08)
+    finally:
+        manager.close_all()
+
+    assert builds == 1

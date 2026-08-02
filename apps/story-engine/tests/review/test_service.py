@@ -5,6 +5,7 @@ from typing import Any
 
 from story_engine.domain.models import (
     CharacterIntent,
+    FactCandidate,
     StateChange,
     TurnCandidate,
     WorldOutcome,
@@ -82,7 +83,13 @@ def _candidate(snapshot: ProjectSnapshot) -> TurnCandidate:
         ),
         outcome=WorldOutcome(
             summary="陈默检查灯塔装置, 林岚要求客船减速。",
-            public_results=("客船开始减速",),
+            fact_candidates=(
+                FactCandidate(
+                    id="fact:passenger-ship-slowed",
+                    statement="客船开始减速。",
+                    visibility="public",
+                ),
+            ),
             world_changes=(
                 StateChange(
                     target_type="world",
@@ -102,11 +109,12 @@ def _editor(
     transport: ReviewTransport,
 ) -> EditorReviewService:
     return EditorReviewService(
-        ModelGateway(ProfileRegistry(tmp_path / "model-registry.json"), transport)
+        ModelGateway(ProfileRegistry(tmp_path / "model-registry.json"), transport),
+        root=tmp_path / "fog-harbor",
     )
 
 
-def test_editor_profile_reviews_full_editorial_context(tmp_path: Path) -> None:
+def test_editor_profile_reviews_claim_based_retrieval_evidence(tmp_path: Path) -> None:
     snapshot = _snapshot(tmp_path)
     transport = ReviewTransport(
         {
@@ -127,11 +135,67 @@ def test_editor_profile_reviews_full_editorial_context(tmp_path: Path) -> None:
     assert call["model"] == "gpt-5-mini"
     assert "response_format" in call
     prompt = call["messages"][0]["content"]
+    assert '"claims"' in prompt
+    assert '"retrieved_evidence"' in prompt
     assert "灯塔控制港口夜航" in prompt
     assert "secret:chen-father-disappearance" in prompt
-    assert "secret:lin-unfiled-duty-roster" in prompt
     assert "陈默检查灯塔装置" in prompt
     assert "turn_review" in prompt
+    assert '"project"' not in prompt
+    assert '"world_variables"' not in prompt
+
+
+def test_keyword_is_not_a_deterministic_proxy_for_intent_semantics(
+    tmp_path: Path,
+) -> None:
+    snapshot = _snapshot(tmp_path)
+    candidate = _candidate(snapshot)
+    intent = candidate.intents[0].model_copy(
+        update={"action": "尝试提高成功概率, 但不预设检查结果"}
+    )
+    candidate = candidate.model_copy(
+        update={"intents": (intent, *candidate.intents[1:])}
+    )
+
+    issues = RuleBasedTurnReviewer().evaluate(candidate, snapshot)
+
+    assert all(issue.code != "intent_decides_outcome" for issue in issues)
+
+
+def test_editor_semantically_blocks_english_intent_that_claims_an_outcome(
+    tmp_path: Path,
+) -> None:
+    snapshot = _snapshot(tmp_path)
+    candidate = _candidate(snapshot)
+    intent = candidate.intents[0].model_copy(
+        update={"action": "I found the sabotage evidence and proved who did it"}
+    )
+    candidate = candidate.model_copy(
+        update={"intents": (intent, *candidate.intents[1:])}
+    )
+    transport = ReviewTransport(
+        {
+            "mode": "turn_review",
+            "passed": False,
+            "summary": "The intent asserts completed discoveries.",
+            "issues": [
+                {
+                    "code": "intent_decides_outcome",
+                    "message": "The character intent claims a completed result.",
+                    "severity": "blocking",
+                    "evidence_ids": ["intent:chen-mo"],
+                }
+            ],
+        }
+    )
+
+    reviewed = _editor(tmp_path, transport).review(candidate, snapshot)
+
+    assert reviewed.status == "needs_revision"
+    assert reviewed.review is not None
+    assert reviewed.review.issues[0].code == "intent_decides_outcome"
+    prompt = transport.calls[0]["messages"][0]["content"]
+    assert "regardless of language or wording" in prompt
 
 
 def test_editor_semantic_world_rule_conflict_blocks_candidate(tmp_path: Path) -> None:

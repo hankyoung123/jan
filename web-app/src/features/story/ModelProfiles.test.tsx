@@ -1,10 +1,18 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   engineRequest: vi.fn(),
   providers: [
+    {
+      active: true,
+      provider: 'deepseek',
+      base_url: 'https://api.deepseek.com/v1',
+      settings: [],
+      models: [{ id: 'deepseek-v4-flash' }, { id: 'deepseek-v4-pro' }],
+    },
     {
       active: true,
       provider: 'openai',
@@ -21,6 +29,15 @@ const h = vi.hoisted(() => ({
     },
   ],
 }))
+
+vi.stubGlobal(
+  'ResizeObserver',
+  class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+)
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
@@ -181,6 +198,47 @@ describe('ModelProfiles', () => {
       enabled: false,
     })
     expect(JSON.stringify(body).toLowerCase()).not.toContain('api_key')
+  })
+
+  it('shows thinking strength in advanced settings and disables it off DeepSeek', async () => {
+    render(<ModelProfiles />)
+    await screen.findByText('写作')
+
+    fireEvent.click(screen.getByRole('button', { name: '写作高级设置' }))
+
+    const select = screen.getByRole('button', { name: '写作思考强度' })
+    expect(select).toBeDisabled()
+    expect(select).toHaveTextContent('关闭')
+    expect(screen.getByText('仅 DeepSeek 生效')).toBeInTheDocument()
+  })
+
+  it('saves a chosen reasoning effort for a DeepSeek task', async () => {
+    const user = userEvent.setup()
+    render(<ModelProfiles />)
+    await screen.findByText('写作')
+
+    await user.click(screen.getByRole('button', { name: '写作 Provider' }))
+    await user.click(await screen.findByRole('menuitemradio', { name: /DeepSeek/ }))
+    await user.click(screen.getByRole('button', { name: '写作高级设置' }))
+
+    const select = screen.getByRole('button', { name: '写作思考强度' })
+    expect(select).toBeEnabled()
+    expect(screen.getByText('V4 Pro 当前将低档映射为高档')).toBeInTheDocument()
+    await user.click(select)
+    await user.click(await screen.findByRole('menuitemradio', { name: '低' }))
+    await user.click(screen.getByRole('button', { name: '保存写作配置' }))
+
+    await waitFor(() => {
+      expect(h.engineRequest).toHaveBeenCalledWith(
+        '/models/profiles/writer',
+        expect.objectContaining({ method: 'PUT' })
+      )
+    })
+    const request = h.engineRequest.mock.calls.find(
+      ([path]) => path === '/models/profiles/writer'
+    )
+    const body = JSON.parse(String(request?.[1]?.body))
+    expect(body.reasoning_effort).toBe('low')
   })
 
   it('offers an in-place retry when the Story Engine is unavailable', async () => {

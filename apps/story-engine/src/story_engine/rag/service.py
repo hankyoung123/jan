@@ -20,6 +20,7 @@ from story_engine.rag.models import (
 )
 from story_engine.workspace.atomic import atomic_write_text
 from story_engine.workspace.documents import ProjectDocument, load_document
+from story_engine.workspace.lock import ProjectLock
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 _TOKEN_RUN = re.compile(r"[a-z0-9_:.\-/]+|[\u3400-\u4dbf\u4e00-\u9fff]+", re.I)
@@ -76,7 +77,7 @@ class RagService:
 
     def _document_paths(self) -> tuple[Path, ...]:
         candidates = [self.root / "project.md", self.root / "world.md"]
-        for directory in ("characters", "events", "scenes", "sources"):
+        for directory in ("characters", "events", "facts", "scenes", "sources"):
             candidates.extend(sorted((self.root / directory).rglob("*.md")))
         return tuple(
             path
@@ -84,12 +85,29 @@ class RagService:
             if path.is_file() and ".story-engine" not in path.parts
         )
 
-    def _fingerprint(self, paths: tuple[Path, ...]) -> str:
+    def _signatures(self, paths: tuple[Path, ...]) -> dict[str, str]:
+        return {
+            path.relative_to(self.root).as_posix(): (
+                f"{path.stat().st_mtime_ns}:{path.stat().st_size}"
+            )
+            for path in paths
+        }
+
+    def _document_hashes(self, paths: tuple[Path, ...]) -> dict[str, str]:
+        return {
+            path.relative_to(self.root).as_posix(): hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+            for path in paths
+        }
+
+    @staticmethod
+    def _fingerprint(document_hashes: dict[str, str]) -> str:
         digest = hashlib.sha256()
-        for path in paths:
-            digest.update(path.relative_to(self.root).as_posix().encode("utf-8"))
+        for relative, document_hash in sorted(document_hashes.items()):
+            digest.update(relative.encode("utf-8"))
             digest.update(b"\0")
-            digest.update(path.read_bytes())
+            digest.update(document_hash.encode("ascii"))
             digest.update(b"\0")
         return digest.hexdigest()
 
@@ -103,6 +121,7 @@ class RagService:
         mapping: dict[str, RagSourceType] = {
             "characters": "character",
             "events": "event",
+            "facts": "fact",
             "scenes": "scene",
             "sources": "source",
         }
@@ -134,6 +153,17 @@ class RagService:
             if isinstance(participant_value, (list, tuple))
             else ()
         )
+        fact_visibility = (
+            cast(Any, metadata.get("visibility"))
+            if source_type == "fact"
+            else None
+        )
+        fact_known_by_value = metadata.get("known_by", ())
+        fact_known_by = (
+            tuple(str(value) for value in fact_known_by_value)
+            if isinstance(fact_known_by_value, (list, tuple))
+            else ()
+        )
         chunks: list[RagChunk] = []
         if metadata:
             chunks.append(
@@ -152,6 +182,8 @@ class RagService:
                     ),
                     character_id=character_id,
                     participant_ids=participant_ids,
+                    fact_visibility=fact_visibility,
+                    fact_known_by=fact_known_by,
                     front_matter=True,
                 )
             )
@@ -190,45 +222,121 @@ class RagService:
                         content=content,
                         character_id=character_id,
                         participant_ids=participant_ids,
+                        fact_visibility=fact_visibility,
+                        fact_known_by=fact_known_by,
                     )
                 )
         return tuple(chunks)
 
     def rebuild_index(self) -> RagIndex:
-        paths = self._document_paths()
-        project, _body = load_document(self.root / "project.md", ProjectDocument)
-        chunks = tuple(chunk for path in paths for chunk in self._chunks_for(path))
-        index = RagIndex(
-            project_id=project.id,
-            fingerprint=self._fingerprint(paths),
-            document_count=len(paths),
-            chunk_count=len(chunks),
-            chunks=chunks,
-        )
+        with ProjectLock(self.root):
+            paths = self._document_paths()
+            project, _body = load_document(
+                self.root / "project.md", ProjectDocument
+            )
+            signatures = self._signatures(paths)
+            document_hashes = self._document_hashes(paths)
+            chunks = tuple(
+                chunk for path in paths for chunk in self._chunks_for(path)
+            )
+            index = RagIndex(
+                project_id=project.id,
+                fingerprint=self._fingerprint(document_hashes),
+                document_count=len(paths),
+                chunk_count=len(chunks),
+                document_signatures=signatures,
+                document_hashes=document_hashes,
+                chunks=chunks,
+            )
+            self._persist(index)
+            return index
+
+    def _persist(self, index: RagIndex) -> None:
         atomic_write_text(
             self.index_path,
             f"{index.model_dump_json(indent=2, by_alias=True)}\n",
         )
-        return index
 
     def ensure_index(self) -> RagIndex:
-        paths = self._document_paths()
-        fingerprint = self._fingerprint(paths)
-        try:
-            index = RagIndex.model_validate_json(
-                self.index_path.read_text(encoding="utf-8")
+        with ProjectLock(self.root):
+            paths = self._document_paths()
+            signatures = self._signatures(paths)
+            try:
+                index = RagIndex.model_validate_json(
+                    self.index_path.read_text(encoding="utf-8")
+                )
+            except (FileNotFoundError, OSError, ValidationError, ValueError):
+                return self.rebuild_index()
+            if index.document_signatures == signatures:
+                return index
+            return self._update_index(index, paths, signatures)
+
+    def _update_index(
+        self,
+        index: RagIndex,
+        paths: tuple[Path, ...],
+        signatures: dict[str, str],
+    ) -> RagIndex:
+        paths_by_relative = {
+            path.relative_to(self.root).as_posix(): path for path in paths
+        }
+        changed = {
+            relative
+            for relative, signature in signatures.items()
+            if index.document_signatures.get(relative) != signature
+        }
+        removed = set(index.document_signatures) - set(signatures)
+        document_hashes = {
+            relative: value
+            for relative, value in index.document_hashes.items()
+            if relative not in removed
+        }
+        for relative in changed:
+            document_hashes[relative] = hashlib.sha256(
+                paths_by_relative[relative].read_bytes()
+            ).hexdigest()
+
+        existing_chunks: dict[str, tuple[RagChunk, ...]] = {}
+        for relative in signatures:
+            if relative in changed:
+                continue
+            existing_chunks[relative] = tuple(
+                chunk for chunk in index.chunks if chunk.source_path == relative
             )
-        except (FileNotFoundError, OSError, ValidationError, ValueError):
-            return self.rebuild_index()
-        if index.fingerprint != fingerprint:
-            return self.rebuild_index()
-        return index
+        chunks = tuple(
+            chunk
+            for relative, path in paths_by_relative.items()
+            for chunk in (
+                self._chunks_for(path)
+                if relative in changed
+                else existing_chunks.get(relative, ())
+            )
+        )
+        project_id = index.project_id
+        if "project.md" in changed:
+            project, _body = load_document(
+                self.root / "project.md", ProjectDocument
+            )
+            project_id = project.id
+        updated = RagIndex(
+            project_id=project_id,
+            fingerprint=self._fingerprint(document_hashes),
+            document_count=len(signatures),
+            chunk_count=len(chunks),
+            document_signatures=signatures,
+            document_hashes=document_hashes,
+            chunks=chunks,
+        )
+        self._persist(updated)
+        return updated
 
     @staticmethod
     def _authorized(chunk: RagChunk, scope: RetrievalScope) -> bool:
         if scope.kind == "editorial":
             return True
         if scope.kind == "writer":
+            if chunk.source_type == "fact":
+                return chunk.fact_visibility == "public" and not chunk.front_matter
             if chunk.source_type in {"project", "scene"}:
                 return True
             if chunk.source_type == "source":
@@ -248,6 +356,11 @@ class RagService:
             )
 
         character_id = scope.character_id
+        if chunk.source_type == "fact":
+            return not chunk.front_matter and (
+                chunk.fact_visibility == "public"
+                or character_id in chunk.fact_known_by
+            )
         if chunk.source_type == "character":
             return chunk.character_id == character_id
         if chunk.front_matter:

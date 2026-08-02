@@ -25,6 +25,10 @@ class ResponseLimitError(ModelGatewayError):
 class StructuredOutputError(ModelGatewayError):
     code = "structured_output_invalid"
 
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
 
 class ModelConfigurationError(ModelGatewayError):
     code = "model_configuration_error"

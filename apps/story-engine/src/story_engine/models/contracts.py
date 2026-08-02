@@ -17,6 +17,7 @@ class ModelProfile(DomainModel):
     max_output_tokens: int = Field(default=2048, ge=1, le=8192)
     timeout_seconds: int = Field(default=60, ge=1, le=120)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    reasoning_effort: Literal["disabled", "low", "high", "max"] = "disabled"
     enabled: bool = True
 
 

@@ -24,6 +24,8 @@ ReviewMode = Literal[
     "promotion_review",
     "manuscript_review",
 ]
+FactVisibility = Literal["public", "private", "secret"]
+KnowledgeAction = Literal["learn", "forget"]
 
 
 class DomainModel(BaseModel):
@@ -45,6 +47,64 @@ class StateChange(DomainModel):
     field: str = Field(min_length=1)
     old_value: JsonValue = None
     new_value: JsonValue
+    reason: str = Field(min_length=1)
+
+
+class Fact(DomainModel):
+    id: str = Field(min_length=1)
+    statement: str = Field(min_length=1)
+    visibility: FactVisibility
+    known_by: tuple[str, ...] = ()
+    source_event_id: str = Field(min_length=1)
+    introduced_at: datetime
+    supersedes_fact_id: str | None = None
+
+    @model_validator(mode="after")
+    def visibility_has_valid_owners(self) -> Self:
+        if self.visibility == "public" and self.known_by:
+            raise ValueError("public fact must not have a restricted owner list")
+        if self.visibility != "public" and not self.known_by:
+            raise ValueError("non-public fact requires at least one knowing character")
+        if len(self.known_by) != len(set(self.known_by)):
+            raise ValueError("fact known_by character ids must be unique")
+        if self.introduced_at.tzinfo is None:
+            raise ValueError("introduced_at must include a timezone")
+        return self
+
+
+class FactCandidate(DomainModel):
+    id: str = Field(min_length=1)
+    statement: str = Field(min_length=1)
+    visibility: FactVisibility = Field(
+        description=(
+            "Use public for facts known to everyone. Use private or secret only "
+            "when knowledge is restricted to specific characters."
+        )
+    )
+    known_by: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Must be empty when visibility is public. For private or secret facts, "
+            "list every knowing character id exactly once."
+        ),
+    )
+    supersedes_fact_id: str | None = None
+
+    @model_validator(mode="after")
+    def visibility_has_valid_owners(self) -> Self:
+        if self.visibility == "public" and self.known_by:
+            raise ValueError("public fact candidate must not have known_by owners")
+        if self.visibility != "public" and not self.known_by:
+            raise ValueError("non-public fact candidate requires a knowing character")
+        if len(self.known_by) != len(set(self.known_by)):
+            raise ValueError("fact candidate known_by ids must be unique")
+        return self
+
+
+class KnowledgeChange(DomainModel):
+    character_id: str = Field(min_length=1)
+    fact_id: str = Field(min_length=1)
+    action: KnowledgeAction
     reason: str = Field(min_length=1)
 
 
@@ -97,19 +157,22 @@ class NpcCandidate(DomainModel):
 
 
 class WorldOutcome(DomainModel):
-    summary: str = Field(min_length=1)
-    public_results: tuple[str, ...] = ()
-    hidden_results: tuple[str, ...] = ()
-    character_changes: tuple[StateChange, ...] = ()
-    world_changes: tuple[StateChange, ...] = ()
-    new_npcs: tuple[NpcCandidate, ...] = ()
-    unresolved_consequences: tuple[str, ...] = ()
+    summary: str = Field(min_length=1, max_length=1000)
+    fact_candidates: tuple[FactCandidate, ...] = Field(default=(), max_length=8)
+    knowledge_changes: tuple[KnowledgeChange, ...] = Field(default=(), max_length=16)
+    character_changes: tuple[StateChange, ...] = Field(default=(), max_length=16)
+    world_changes: tuple[StateChange, ...] = Field(default=(), max_length=8)
+    new_npcs: tuple[NpcCandidate, ...] = Field(default=(), max_length=4)
+    unresolved_consequences: tuple[str, ...] = Field(default=(), max_length=8)
 
     @model_validator(mode="after")
     def npc_ids_are_unique(self) -> Self:
         npc_ids = [npc.id for npc in self.new_npcs]
         if len(npc_ids) != len(set(npc_ids)):
             raise ValueError("NPC IDs must be unique within one outcome")
+        fact_ids = [fact.id for fact in self.fact_candidates]
+        if len(fact_ids) != len(set(fact_ids)):
+            raise ValueError("Fact candidate IDs must be unique within one outcome")
         return self
 
 
@@ -164,8 +227,8 @@ class StoryEvent(DomainModel):
     occurred_at: datetime
     summary: str = Field(min_length=1)
     participants: tuple[str, ...]
-    public_results: tuple[str, ...] = ()
-    hidden_results: tuple[str, ...] = ()
+    fact_ids: tuple[str, ...] = ()
+    knowledge_changes: tuple[KnowledgeChange, ...] = ()
     character_changes: tuple[StateChange, ...] = ()
     world_changes: tuple[StateChange, ...] = ()
     source_turn_id: str = Field(min_length=1)

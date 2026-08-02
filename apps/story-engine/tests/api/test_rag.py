@@ -21,8 +21,6 @@ def _client(tmp_path: Path) -> TestClient:
             occurred_at=datetime(2026, 7, 31, 4, 0, tzinfo=UTC),
             summary="陈默在灯塔里发现了一道新鲜刮痕。",
             participants=("chen-mo",),
-            public_results=("灯芯槽上有新鲜刮痕",),
-            hidden_results=("备用钥匙一直由林岚保管",),
             source_turn_id="turn-000001",
             approved_by_user=True,
         )

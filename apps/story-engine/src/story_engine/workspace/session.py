@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,11 +18,13 @@ from story_engine.workspace.atomic import atomic_write_text
 from story_engine.workspace.documents import (
     CharacterDocument,
     EventDocument,
+    FactDocument,
     ProjectDocument,
     SceneDocument,
     WorldDocument,
     load_document,
 )
+from story_engine.workspace.lock import ProjectLock
 from story_engine.workspace.project_store import ProjectSnapshot, ProjectStore
 from story_engine.workspace.transaction import recover_incomplete_transactions
 
@@ -36,7 +39,9 @@ _DERIVED_DIRECTORIES = (
     ".story-engine/recovery",
 )
 
-WorkspaceDocumentKind = Literal["project", "world", "character", "event", "scene"]
+WorkspaceDocumentKind = Literal[
+    "project", "world", "character", "event", "fact", "scene"
+]
 
 
 class WorkspaceNotOpenError(DomainError):
@@ -57,6 +62,7 @@ class WorkspaceIndex(DomainModel):
     world_version: int = Field(ge=0)
     character_versions: dict[str, int]
     event_ids: tuple[str, ...]
+    fact_ids: tuple[str, ...]
     scene_ids: tuple[str, ...]
     documents: tuple[WorkspaceDocumentEntry, ...] = Field(min_length=2)
 
@@ -95,12 +101,35 @@ class ProjectCatalogEntry(DomainModel):
 class _WorkspaceSession:
     state: WorkspaceState
     hashes: dict[str, str]
+    signatures: dict[str, tuple[int, int]]
     stop: Event
     watcher: Thread | None = None
 
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _canonical_paths(root: Path) -> tuple[Path, ...]:
+    paths = [root / "project.md", root / "world.md"]
+    for directory in ("characters", "events", "facts", "scenes"):
+        paths.extend((root / directory).rglob("*.md"))
+    return tuple(
+        sorted(
+            (path for path in paths if path.is_file()),
+            key=lambda path: path.relative_to(root).as_posix(),
+        )
+    )
+
+
+def _file_signatures(root: Path) -> dict[str, tuple[int, int]]:
+    return {
+        path.relative_to(root).as_posix(): (
+            path.stat().st_mtime_ns,
+            path.stat().st_size,
+        )
+        for path in _canonical_paths(root)
+    }
 
 
 def _document(
@@ -122,6 +151,14 @@ def _document(
 
 def build_workspace_index(root: Path) -> tuple[ProjectSnapshot, WorkspaceIndex]:
     """Validate canonical Markdown and build a disposable in-memory index."""
+
+    with ProjectLock(root):
+        return _build_workspace_index_locked(root)
+
+
+def _build_workspace_index_locked(
+    root: Path,
+) -> tuple[ProjectSnapshot, WorkspaceIndex]:
 
     snapshot = ProjectStore(root).load()
     documents: list[WorkspaceDocumentEntry] = []
@@ -191,6 +228,22 @@ def build_workspace_index(root: Path) -> tuple[ProjectSnapshot, WorkspaceIndex]:
             )
         )
 
+    fact_ids: list[str] = []
+    for path in sorted((root / "facts").glob("*.md")):
+        fact, _ = load_document(path, FactDocument)
+        if fact.id in fact_ids:
+            raise ValueError(f"duplicate fact id: {fact.id}")
+        fact_ids.append(fact.id)
+        documents.append(
+            _document(
+                root,
+                path,
+                kind="fact",
+                document_id=fact.id,
+                version=None,
+            )
+        )
+
     scene_ids: list[str] = []
     scene_sequences: set[int] = set()
     for path in sorted((root / "scenes").glob("*.md")):
@@ -223,6 +276,7 @@ def build_workspace_index(root: Path) -> tuple[ProjectSnapshot, WorkspaceIndex]:
         world_version=world.version,
         character_versions=character_versions,
         event_ids=tuple(event_ids),
+        fact_ids=tuple(fact_ids),
         scene_ids=tuple(scene_ids),
         documents=tuple(documents),
     )
@@ -243,13 +297,17 @@ class WorkspaceSessionManager:
         projects_root: Path,
         *,
         poll_interval: float = 0.25,
+        debounce_interval: float = 0.75,
         on_change: Callable[[WorkspaceChange], object] | None = None,
         start_watchers: bool = True,
     ) -> None:
         if poll_interval <= 0:
             raise ValueError("poll interval must be positive")
+        if debounce_interval < poll_interval:
+            raise ValueError("debounce interval must be at least poll interval")
         self.projects_root = projects_root
         self.poll_interval = poll_interval
+        self.debounce_interval = debounce_interval
         self.on_change = on_change or (lambda _change: None)
         self.start_watchers = start_watchers
         self._sessions: dict[str, _WorkspaceSession] = {}
@@ -299,6 +357,7 @@ class WorkspaceSessionManager:
         session = _WorkspaceSession(
             state=state,
             hashes={item.relative_path: item.sha256 for item in index.documents},
+            signatures=_file_signatures(root),
             stop=Event(),
         )
         with self._lock:
@@ -378,6 +437,7 @@ class WorkspaceSessionManager:
                 raise WorkspaceNotOpenError(f"workspace {project_id!r} is not open")
             current.state = next_state
             current.hashes = hashes
+            current.signatures = _file_signatures(root)
         if changed_paths or recovering:
             self.on_change(
                 WorkspaceChange(
@@ -435,10 +495,30 @@ class WorkspaceSessionManager:
         return tuple(projects)
 
     def _watch(self, project_id: str, session: _WorkspaceSession) -> None:
+        pending: dict[str, tuple[int, int]] | None = None
+        deadline = 0.0
         while not session.stop.wait(self.poll_interval):
+            root = self._root(project_id)
+            try:
+                current = _file_signatures(root)
+            except (WorkspaceNotOpenError, FileNotFoundError):
+                return
+            except OSError:
+                continue
+            if current == session.signatures:
+                pending = None
+                continue
+            if current != pending:
+                pending = current
+                deadline = time.monotonic() + self.debounce_interval
+                continue
+            if time.monotonic() < deadline:
+                continue
             try:
                 self.refresh(project_id)
             except (WorkspaceNotOpenError, FileNotFoundError):
                 return
             except (OSError, ValueError):
+                pending = None
                 continue
+            pending = None

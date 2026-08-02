@@ -137,6 +137,7 @@ describe('Story Engine client', () => {
   })
 
   it('subscribes to project events without placing the token in the URL', async () => {
+    vi.useFakeTimers()
     h.isTauri.mockReturnValue(true)
     h.invoke.mockResolvedValue({
       phase: 'ready',
@@ -148,7 +149,9 @@ describe('Story Engine client', () => {
     })
     const sockets: FakeWebSocket[] = []
     class FakeWebSocket {
+      onopen: (() => void) | null = null
       onmessage: ((event: MessageEvent<string>) => void) | null = null
+      onclose: (() => void) | null = null
       closed = false
 
       constructor(
@@ -167,12 +170,14 @@ describe('Story Engine client', () => {
 
     const cleanup = await subscribeProjectEvents('fog-harbor', listener)
     const socket = sockets[0]
+    socket.onopen?.()
     socket.onmessage?.({
       data: JSON.stringify({
         event_id: '01J00000000000000000000000',
         project_id: 'fog-harbor',
         turn_id: 'workspace',
         timestamp: '2026-07-31T12:00:00Z',
+        sequence: 1,
         type: 'workspace.changed',
         payload: { changed_paths: ['world.md'] },
       }),
@@ -189,7 +194,12 @@ describe('Story Engine client', () => {
     expect(listener).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'workspace.changed' })
     )
+    socket.onclose?.()
+    await vi.advanceTimersByTimeAsync(250)
+    expect(sockets).toHaveLength(2)
+    expect(sockets[1].url).toContain('after_sequence=1')
     cleanup()
-    expect(socket.closed).toBe(true)
+    expect(sockets[1].closed).toBe(true)
+    vi.useRealTimers()
   })
 })

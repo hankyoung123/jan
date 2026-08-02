@@ -4,7 +4,9 @@ from pydantic import Field, model_validator
 
 from story_engine.domain.models import DomainModel
 
-RagSourceType = Literal["project", "world", "character", "event", "scene", "source"]
+RagSourceType = Literal[
+    "project", "world", "character", "event", "fact", "scene", "source"
+]
 RagScopeKind = Literal["editorial", "writer", "character"]
 RagRetrievalMode = Literal["exact", "bm25"]
 RagTask = Literal["writer", "editor"]
@@ -39,12 +41,14 @@ class RagChunk(DomainModel):
     content: str = Field(min_length=1)
     character_id: str | None = None
     participant_ids: tuple[str, ...] = ()
+    fact_visibility: Literal["public", "private", "secret"] | None = None
+    fact_known_by: tuple[str, ...] = ()
     front_matter: bool = False
 
 
 class RagIndex(DomainModel):
-    schema_name: Literal["rag-index/v1"] = Field(
-        default="rag-index/v1",
+    schema_name: Literal["rag-index/v2"] = Field(
+        default="rag-index/v2",
         serialization_alias="schema",
         validation_alias="schema",
     )
@@ -52,12 +56,20 @@ class RagIndex(DomainModel):
     fingerprint: str = Field(min_length=64, max_length=64)
     document_count: int = Field(ge=0)
     chunk_count: int = Field(ge=0)
+    document_signatures: dict[str, str]
+    document_hashes: dict[str, str]
     chunks: tuple[RagChunk, ...]
 
     @model_validator(mode="after")
     def count_matches_chunks(self) -> Self:
         if self.chunk_count != len(self.chunks):
             raise ValueError("chunk_count must match chunks")
+        if self.document_count != len(self.document_signatures):
+            raise ValueError("document_count must match signatures")
+        if set(self.document_signatures) != set(self.document_hashes):
+            raise ValueError("RAG signatures and hashes must cover the same documents")
+        if any(len(value) != 64 for value in self.document_hashes.values()):
+            raise ValueError("RAG document hashes must be SHA-256 values")
         chunk_ids = [chunk.chunk_id for chunk in self.chunks]
         if len(chunk_ids) != len(set(chunk_ids)):
             raise ValueError("RAG chunk IDs must be unique")

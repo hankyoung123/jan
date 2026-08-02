@@ -1,12 +1,13 @@
 import json
 from collections.abc import AsyncIterator, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from story_engine.domain.errors import InvalidTransitionError
-from story_engine.domain.models import Character
+from story_engine.domain.models import Character, Fact
 from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.registry import ProfileRegistry
@@ -14,6 +15,7 @@ from story_engine.promotion.service import CharacterPromotionService
 from story_engine.review.promotion import EditorPromotionReviewer
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.workspace.event_store import EventStore
+from story_engine.workspace.fact_store import FactStore
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.promotion_store import PromotionCandidateStore
 
@@ -57,6 +59,16 @@ class PromotionTransport:
 def _root(tmp_path: Path) -> Path:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     root = tmp_path / "fog-harbor"
+    FactStore(root).save(
+        Fact(
+            id="fact:near-harbor-reefs",
+            statement="近港航道分布着暗礁。",
+            visibility="private",
+            known_by=("temporary-pilot",),
+            source_event_id="submission:fog-harbor",
+            introduced_at=datetime(2026, 7, 31, tzinfo=UTC),
+        )
+    )
     ProjectStore(root).save_character(
         Character(
             id="temporary-pilot",

@@ -25,6 +25,7 @@ EngineEventType = Literal[
     "review.completed",
     "turn.failed",
     "turn.cancelled",
+    "stream.resync_required",
 ]
 
 EventSink = Callable[[EngineEventType, dict[str, JsonValue]], None]
@@ -47,15 +48,16 @@ class EngineEvent(DomainModel):
     project_id: str = Field(min_length=1)
     turn_id: str = Field(min_length=1)
     timestamp: datetime
+    sequence: int = Field(ge=1)
     type: EngineEventType
     payload: dict[str, JsonValue]
 
 
 class _Subscriber:
-    def __init__(self, project_id: str | None) -> None:
+    def __init__(self, project_id: str | None, queue_size: int) -> None:
         self.project_id = project_id
         self.loop = asyncio.get_running_loop()
-        self.queue: asyncio.Queue[EngineEvent] = asyncio.Queue(maxsize=256)
+        self.queue: asyncio.Queue[EngineEvent] = asyncio.Queue(maxsize=queue_size)
 
 
 class EngineEventBus:
@@ -63,13 +65,18 @@ class EngineEventBus:
         self,
         *,
         clock: Callable[[], datetime] | None = None,
+        queue_size: int = 256,
     ) -> None:
+        if queue_size < 2:
+            raise ValueError("event queue size must be at least two")
         self.clock = clock or (lambda: datetime.now(UTC))
+        self.queue_size = queue_size
         self._subscribers: set[_Subscriber] = set()
         self._lock = Lock()
+        self._sequence = 0
 
     def subscribe(self, project_id: str | None) -> _Subscriber:
-        subscriber = _Subscriber(project_id)
+        subscriber = _Subscriber(project_id, self.queue_size)
         with self._lock:
             self._subscribers.add(subscriber)
         return subscriber
@@ -86,16 +93,18 @@ class EngineEventBus:
         event_type: EngineEventType,
         payload: dict[str, JsonValue],
     ) -> EngineEvent:
-        timestamp = self.clock()
-        event = EngineEvent(
-            event_id=_ulid(timestamp),
-            project_id=project_id,
-            turn_id=turn_id,
-            timestamp=timestamp,
-            type=event_type,
-            payload=payload,
-        )
         with self._lock:
+            self._sequence += 1
+            timestamp = self.clock()
+            event = EngineEvent(
+                event_id=_ulid(timestamp),
+                project_id=project_id,
+                turn_id=turn_id,
+                timestamp=timestamp,
+                sequence=self._sequence,
+                type=event_type,
+                payload=payload,
+            )
             subscribers = tuple(self._subscribers)
         for subscriber in subscribers:
             if subscriber.project_id not in {None, project_id}:
@@ -107,10 +116,28 @@ class EngineEventBus:
             )
         return event
 
+    @property
+    def sequence(self) -> int:
+        with self._lock:
+            return self._sequence
+
     @staticmethod
     def _deliver(subscriber: _Subscriber, event: EngineEvent) -> None:
         if subscriber.queue.full():
-            subscriber.queue.get_nowait()
+            while not subscriber.queue.empty():
+                subscriber.queue.get_nowait()
+            subscriber.queue.put_nowait(
+                event.model_copy(
+                    update={
+                        "type": "stream.resync_required",
+                        "payload": {
+                            "reason": "subscriber_queue_overflow",
+                            "latest_sequence": event.sequence,
+                        },
+                    }
+                )
+            )
+            return
         subscriber.queue.put_nowait(event)
 
 
@@ -136,10 +163,31 @@ async def stream_events(
     event_bus: EngineEventBus,
     *,
     project_id: str | None,
+    after_sequence: int | None = None,
 ) -> None:
     await websocket.accept(subprotocol="story-engine.v1")
     subscriber = event_bus.subscribe(project_id)
     try:
+        if (
+            after_sequence is not None
+            and project_id is not None
+            and after_sequence < event_bus.sequence
+        ):
+            timestamp = event_bus.clock()
+            await websocket.send_json(
+                EngineEvent(
+                    event_id=_ulid(timestamp),
+                    project_id=project_id,
+                    turn_id="stream",
+                    timestamp=timestamp,
+                    sequence=event_bus.sequence,
+                    type="stream.resync_required",
+                    payload={
+                        "reason": "events_missed_while_disconnected",
+                        "after_sequence": after_sequence,
+                    },
+                ).model_dump(mode="json")
+            )
         while True:
             event_task = asyncio.create_task(subscriber.queue.get())
             disconnect_task = asyncio.create_task(websocket.receive())

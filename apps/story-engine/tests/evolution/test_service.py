@@ -6,6 +6,7 @@ from threading import Barrier, Lock, get_ident
 from story_engine.domain.models import (
     Character,
     CharacterIntent,
+    FactCandidate,
     NpcCandidate,
     StateChange,
     StoryEvent,
@@ -29,13 +30,16 @@ class DeterministicTurnGenerator:
     def generate_intent(self, context: CharacterContext) -> CharacterIntent:
         with self._lock:
             self.intent_calls.append(context.character.id)
+        visible_fact_ids = tuple(
+            fact.id for fact in context.perception.visible_facts
+        )
         fact_id = next(
             (
                 item
                 for item in context.character.known_fact_ids
-                if item in context.visible_fact_ids
+                if item in visible_fact_ids
             ),
-            context.visible_fact_ids[0],
+            visible_fact_ids[0],
         )
         actions = {
             "chen-mo": "检查灯塔机械装置",
@@ -44,7 +48,7 @@ class DeterministicTurnGenerator:
         return CharacterIntent(
             character_id=context.character.id,
             action=actions.get(context.character.id, "观察当前局势"),
-            target=context.world.current_location,
+            target=context.perception.perceived_location,
             goal=context.character.current_goal or context.character.core_desire,
             knowledge_basis=(fact_id,),
             recognized_risk="行动可能加剧当前压力",
@@ -69,7 +73,13 @@ class DeterministicTurnGenerator:
         next_round = round_number + 1
         return WorldOutcome(
             summary=f"第 {next_round} 轮: {participants} 的行动改变了当前局势。",
-            public_results=(f"局势推进至第 {next_round} 轮",),
+            fact_candidates=(
+                FactCandidate(
+                    id=f"fact:round-{next_round:06d}",
+                    statement=f"局势推进至第 {next_round} 轮。",
+                    visibility="public",
+                ),
+            ),
             world_changes=(
                 StateChange(
                     target_type="world",
@@ -98,7 +108,13 @@ class DeterministicTurnGenerator:
         assert isinstance(round_number, int) and not isinstance(round_number, bool)
         return WorldOutcome(
             summary="陈默与林岚暂缓行动, 先观察客船与灯塔的变化。",
-            public_results=("客船维持低速等待进一步指令",),
+            fact_candidates=(
+                FactCandidate(
+                    id=f"fact:revision-round-{round_number + 1:06d}",
+                    statement="客船维持低速等待进一步指令。",
+                    visibility="public",
+                ),
+            ),
             world_changes=(
                 StateChange(
                     target_type="world",
@@ -176,10 +192,12 @@ def test_character_contexts_isolate_private_facts_and_other_intents(
     chen = contexts["chen-mo"]
     lin = contexts["lin-lan"]
 
-    assert "secret:chen-father-disappearance" in chen.visible_fact_ids
-    assert "secret:lin-unfiled-duty-roster" not in chen.visible_fact_ids
-    assert "secret:lin-unfiled-duty-roster" in lin.visible_fact_ids
-    assert "secret:chen-father-disappearance" not in lin.visible_fact_ids
+    chen_fact_ids = {fact.id for fact in chen.perception.visible_facts}
+    lin_fact_ids = {fact.id for fact in lin.perception.visible_facts}
+    assert "secret:chen-father-disappearance" in chen_fact_ids
+    assert "secret:lin-unfiled-duty-roster" not in chen_fact_ids
+    assert "secret:lin-unfiled-duty-roster" in lin_fact_ids
+    assert "secret:chen-father-disappearance" not in lin_fact_ids
     assert not hasattr(chen, "other_intents")
     assert chen.character.id == "chen-mo"
     assert lin.character.id == "lin-lan"
@@ -388,7 +406,6 @@ def test_large_project_supports_thirty_traceable_rounds(tmp_path: Path) -> None:
                 occurred_at=history_start + timedelta(minutes=sequence),
                 summary=f"归档事件 {sequence}",
                 participants=("chen-mo", "lin-lan"),
-                public_results=(f"历史回合推进至 {sequence}",),
                 source_turn_id=f"archived-turn-{sequence:06d}",
                 approved_by_user=True,
             )

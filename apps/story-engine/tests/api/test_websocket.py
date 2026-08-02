@@ -1,3 +1,4 @@
+import asyncio
 import re
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
+from story_engine.events.stream import EngineEventBus
 
 TOKEN = "test-token"
 PROTOCOLS = ["story-engine.v1", f"story-engine.token.{TOKEN}"]
@@ -73,7 +75,38 @@ def test_websocket_delivers_filtered_typed_event_envelopes(tmp_path: Path) -> No
     assert received == expected.model_dump(mode="json")
     assert re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", received["event_id"])
     assert received["timestamp"].endswith("Z")
+    assert received["sequence"] == expected.sequence
     assert received["project_id"] == "fog-harbor"
     assert received["turn_id"] == "turn-000001"
     assert received["type"] == "character.intent.completed"
     assert received["payload"] == {"character_id": "chen-mo"}
+
+
+def test_event_sequence_is_monotonic_and_queue_overflow_requires_resync() -> None:
+    async def exercise() -> None:
+        bus = EngineEventBus(queue_size=2)
+        subscriber = bus.subscribe("fog-harbor")
+        try:
+            published = [
+                bus.publish(
+                    project_id="fog-harbor",
+                    turn_id="turn-000001",
+                    event_type="turn.started",
+                    payload={"index": index},
+                )
+                for index in range(3)
+            ]
+            await asyncio.sleep(0)
+            queued = []
+            while not subscriber.queue.empty():
+                queued.append(subscriber.queue.get_nowait())
+        finally:
+            bus.unsubscribe(subscriber)
+
+        assert [event.sequence for event in published] == [1, 2, 3]
+        assert len(queued) == 1
+        assert queued[0].sequence == 3
+        assert queued[0].type == "stream.resync_required"
+        assert queued[0].payload["reason"] == "subscriber_queue_overflow"
+
+    asyncio.run(exercise())

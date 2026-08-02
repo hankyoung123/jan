@@ -94,7 +94,6 @@ def _client(tmp_path: Path) -> tuple[TestClient, ManuscriptTransport]:
             occurred_at=datetime(2026, 7, 31, 4, 0, tzinfo=UTC),
             summary="陈默抵达灯塔并发现灯芯槽上的新鲜刮痕。",
             participants=("chen-mo",),
-            public_results=("灯芯槽上有新鲜刮痕",),
             source_turn_id="turn-000001",
             approved_by_user=True,
         )
@@ -132,7 +131,7 @@ def test_scene_api_generates_lists_and_saves_reviewed_markdown(tmp_path: Path) -
         for item in draft["retrieval_evidence"]
     )
     assert "event-000001" in transport.prompts[0]
-    assert "hidden_results" not in transport.prompts[0]
+    assert "林岚保留了一份未归档的值班表" not in transport.prompts[0]
     assert all("Retrieval evidence" in prompt for prompt in transport.prompts[:2])
     assert all('"chunk_id"' in prompt for prompt in transport.prompts[:2])
 

@@ -9,9 +9,6 @@ import {
   FileText,
   FolderOpen,
   LockKeyhole,
-  ListTree,
-  MapPin,
-  Map as MapIcon,
   Network,
   PanelRightClose,
   PanelRightOpen,
@@ -19,11 +16,8 @@ import {
   Save,
   ShieldCheck,
   Sparkles,
-  Square,
-  Trash2,
   TriangleAlert,
   UsersRound,
-  type LucideIcon,
 } from 'lucide-react'
 import {
   lazy,
@@ -31,8 +25,8 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
-  type ReactNode,
 } from 'react'
 
 import {
@@ -49,18 +43,26 @@ import {
   setActiveStoryProjectId,
   useActiveStoryProjectId,
 } from './activeProject'
+import {
+  PageHeader,
+  primaryButton,
+  secondaryButton,
+  StatusPill,
+  StoryPage,
+  StoryViewToggle,
+} from './components/StoryLayout'
 import { engineRequest, subscribeProjectEvents } from './engine'
+import {
+  resetSubmissionSession,
+  useSubmissionSession,
+} from './submission/session'
 
 type SubmissionPackage = components['schemas']['SubmissionPackage']
-type SubmissionDraft = components['schemas']['SubmissionDraft']
 type SubmissionConversationResponse =
   components['schemas']['SubmissionConversationResponse']
 type SubmissionMessage = components['schemas']['Message']
 type ProjectSnapshot = components['schemas']['ProjectSnapshot']
 type StoryCharacter = components['schemas']['Character']
-type TurnCandidate = components['schemas']['TurnCandidate']
-type TurnCancellationResult = components['schemas']['TurnCancellationResult']
-type CommitResult = components['schemas']['CommitResult']
 type StoryEvent = components['schemas']['StoryEvent']
 type SceneDraft = components['schemas']['SceneDraft']
 type SceneMutationResult = components['schemas']['SceneMutationResult']
@@ -77,63 +79,6 @@ const NovelManuscriptEditor = lazy(() =>
     default: module.NovelManuscriptEditor,
   }))
 )
-
-const primaryButton =
-  'inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm transition hover:brightness-95 disabled:pointer-events-none disabled:opacity-50'
-const secondaryButton =
-  'inline-flex h-9 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition hover:bg-accent disabled:pointer-events-none disabled:opacity-50'
-
-function StoryPage({ children }: { children: ReactNode }) {
-  return (
-    <main className="h-svh overflow-y-auto bg-neutral-50 px-5 pb-12 pt-14 dark:bg-background md:px-8">
-      <div className="mx-auto w-full max-w-6xl">{children}</div>
-    </main>
-  )
-}
-
-function PageHeader({
-  eyebrow,
-  title,
-  action,
-}: {
-  eyebrow: string
-  title: string
-  action?: ReactNode
-}) {
-  return (
-    <header className="mb-6 flex min-h-14 flex-wrap items-end justify-between gap-4 border-b pb-5">
-      <div>
-        <p className="mb-1 text-xs font-medium text-muted-foreground">
-          {eyebrow}
-        </p>
-        <h1 className="font-studio text-2xl font-medium">{title}</h1>
-      </div>
-      {action}
-    </header>
-  )
-}
-
-function StatusPill({
-  children,
-  tone = 'neutral',
-}: {
-  children: ReactNode
-  tone?: 'success' | 'warning' | 'danger' | 'neutral'
-}) {
-  const tones = {
-    success: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-    warning: 'bg-amber-500/12 text-amber-700 dark:text-amber-300',
-    danger: 'bg-destructive/10 text-destructive',
-    neutral: 'bg-muted text-muted-foreground',
-  }
-  return (
-    <span
-      className={`inline-flex rounded px-2 py-1 text-xs font-medium ${tones[tone]}`}
-    >
-      {children}
-    </span>
-  )
-}
 
 function chapterLabel(chapterId: string) {
   const match = /^chapter-(\d+)$/.exec(chapterId)
@@ -216,8 +161,9 @@ export function WorkbenchView() {
     let disposed = false
     let cleanup: () => void = () => undefined
     void subscribeProjectEvents(projectId, (event) => {
-      if (event.type !== 'workspace.changed') return
-      if (event.payload.status === 'error') {
+      const resyncRequired = event.type === 'stream.resync_required'
+      if (event.type !== 'workspace.changed' && !resyncRequired) return
+      if (!resyncRequired && event.payload.status === 'error') {
         const message = event.payload.error
         setWatchError(
           typeof message === 'string' ? message : '外部 Markdown 修改无效'
@@ -225,7 +171,12 @@ export function WorkbenchView() {
         return
       }
       setWatchError(null)
-      void engineRequest<WorkspaceState>(`/projects/${projectId}/workspace`)
+      void engineRequest<WorkspaceState>(
+        resyncRequired
+          ? `/projects/${projectId}/open`
+          : `/projects/${projectId}/workspace`,
+        resyncRequired ? { method: 'POST' } : undefined
+      )
         .then((current) => {
           if (!disposed) setWorkspace(current)
         })
@@ -509,49 +460,40 @@ export function WorkbenchView() {
   )
 }
 
-function newSubmissionDraft(): SubmissionDraft {
-  return {
-    id: `story-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    title: '',
-    genre: '',
-    theme: '',
-    tone: '',
-    world_rules: [],
-    public_fact_ids: [],
-    characters: [],
-    initial_time: '',
-    initial_location: '',
-    initial_incident: '',
-    pressures: [],
-  }
-}
-
-const welcomeMessage: SubmissionMessage = {
-  role: 'assistant',
-  content:
-    '告诉我你想建立怎样的故事世界。我们会一起明确创作方向、世界规则、初始角色和起始局面，不需要先写大纲。',
-}
-
 export function SubmissionView() {
-  const [draft, setDraft] = useState<SubmissionDraft>(newSubmissionDraft)
-  const [messages, setMessages] = useState<SubmissionMessage[]>([
-    welcomeMessage,
-  ])
-  const [composer, setComposer] = useState('')
-  const [missingRequirements, setMissingRequirements] = useState<string[]>([
-    '创作方向',
-    '世界规则与公共事实',
-    '初始角色 (2-4 个)',
-    '初始时间、地点和起始事件',
-    '世界压力或角色目标冲突',
-  ])
-  const [reviewSummary, setReviewSummary] =
-    useState('通过讨论逐步形成可运行的初始设定包。')
-  const [runnable, setRunnable] = useState(false)
-  const [project, setProject] = useState<ProjectSnapshot | null>(null)
-  const [discussing, setDiscussing] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const {
+    draft,
+    messages,
+    composer,
+    missingRequirements,
+    reviewSummary,
+    runnable,
+    project,
+    discussing,
+    saving,
+    error,
+    setDraft,
+    setMessages,
+    setComposer,
+    setMissingRequirements,
+    setReviewSummary,
+    setRunnable,
+    setProject,
+    setDiscussing,
+    setSaving,
+    setError,
+  } = useSubmissionSession()
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      if (useSubmissionSession.getState().project !== null) {
+        resetSubmissionSession()
+      }
+    }
+  }, [])
   const janMessages = useMemo<UIMessage[]>(
     () =>
       messages.map((message, index) => ({
@@ -595,6 +537,8 @@ export function SubmissionView() {
       setReviewSummary(response.review.summary)
       setRunnable(response.runnable)
     } catch (cause) {
+      setMessages(messages)
+      setComposer(content)
       setError(cause instanceof Error ? cause.message : '投稿讨论失败')
     } finally {
       setDiscussing(false)
@@ -614,7 +558,11 @@ export function SubmissionView() {
         }
       )
       setActiveStoryProjectId(createdProject.project.id)
-      setProject(createdProject)
+      if (mounted.current) {
+        setProject(createdProject)
+      } else {
+        resetSubmissionSession()
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '投稿创建失败')
     } finally {
@@ -780,529 +728,7 @@ export function SubmissionView() {
   )
 }
 
-function OfficeActivityPanel({
-  characters,
-  intents,
-  generating,
-}: {
-  characters: StoryCharacter[]
-  intents: Array<{ character_id: string; action: string }>
-  generating: boolean
-}) {
-  if (characters.length === 0) return null
-  const actionByCharacter = new Map(
-    intents.map((intent) => [intent.character_id, intent.action])
-  )
-  return (
-    <section aria-label="办公室活动" className="mb-5 border bg-background">
-      <div className="flex items-center justify-between border-b px-5 py-4">
-        <div>
-          <p className="text-xs text-muted-foreground">办公室活动</p>
-          <h2 className="font-medium">角色行动中</h2>
-        </div>
-        <StatusPill
-          tone={
-            generating
-              ? 'warning'
-              : intents.length > 0
-                ? 'success'
-                : 'neutral'
-          }
-        >
-          {generating
-            ? '生成中'
-            : intents.length > 0
-              ? '本轮已完成'
-              : '等待行动'}
-        </StatusPill>
-      </div>
-      <div className="grid gap-px border-t bg-border sm:grid-cols-2 lg:grid-cols-4">
-        {characters.map((character) => {
-          const action = actionByCharacter.get(character.id)
-          return (
-            <div className="bg-background p-4" key={character.id}>
-              <div className="flex items-center gap-3">
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-xs font-medium">
-                  {(character.display_name || character.id).slice(0, 1)}
-                </span>
-                <div className="min-w-0">
-                  <strong className="block truncate text-sm">
-                    {character.display_name || character.id}
-                  </strong>
-                  <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                    <MapPin size={12} />
-                    {character.location || '未指定'}
-                  </p>
-                </div>
-                <span
-                  className={`ml-auto size-2 shrink-0 rounded-full ${
-                    action ? 'animate-pulse bg-emerald-500' : 'bg-secondary'
-                  }`}
-                  title={action ? '行动中' : '等待行动'}
-                />
-              </div>
-              <p className="mt-3 min-h-10 text-sm text-muted-foreground">
-                {action ?? (generating ? '正在形成行动…' : '尚未行动')}
-              </p>
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-export function EvolutionView() {
-  const projectId = useActiveStoryProjectId()
-  const [project, setProject] = useState<ProjectSnapshot | null>(null)
-  const [loading, setLoading] = useState(projectId !== null)
-  const [candidate, setCandidate] = useState<TurnCandidate | null>(null)
-  const [committed, setCommitted] = useState<CommitResult | null>(null)
-  const [revision, setRevision] = useState('让结果更克制')
-  const [workingAction, setWorkingAction] = useState<
-    'generate' | 'revise' | 'discard' | 'confirm' | null
-  >(null)
-  const [error, setError] = useState<string | null>(null)
-  const [generationNotice, setGenerationNotice] = useState<string | null>(null)
-  const [retryAvailable, setRetryAvailable] = useState(false)
-  const working = workingAction !== null
-
-  const loadProject = useCallback(async () => {
-    if (!projectId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setProject(await engineRequest<ProjectSnapshot>(`/projects/${projectId}`))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '项目加载失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [projectId])
-
-  useEffect(() => {
-    void loadProject()
-  }, [loadProject])
-
-  async function act<Response>(
-    action: NonNullable<typeof workingAction>,
-    request: () => Promise<Response>
-  ) {
-    setWorkingAction(action)
-    setError(null)
-    try {
-      return await request()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '引擎请求失败')
-      return null
-    } finally {
-      setWorkingAction(null)
-    }
-  }
-  const participants =
-    project?.characters.filter((character) => character.type === 'active') ?? []
-  const characterNames = new Map(
-    project?.characters.map((character) => [
-      character.id,
-      character.display_name || character.id,
-    ]) ?? []
-  )
-  const candidatePending =
-    candidate !== null && candidate.status !== 'discarded' && committed === null
-
-  async function generate() {
-    if (!projectId || participants.length === 0 || candidatePending) return
-    setWorkingAction('generate')
-    setError(null)
-    setGenerationNotice(null)
-    try {
-      const value = await engineRequest<TurnCandidate>(
-        `/projects/${projectId}/turns/generate`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            participant_ids: participants.map((character) => character.id),
-          }),
-        }
-      )
-      setCandidate(value)
-      setCommitted(null)
-      setRetryAvailable(false)
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : '本轮生成失败'
-      if (message.includes('cancelled') || message.includes('取消')) {
-        setGenerationNotice('本轮生成已取消，正式状态未改变。')
-      } else {
-        setError(message)
-      }
-      setRetryAvailable(true)
-    } finally {
-      setWorkingAction(null)
-    }
-  }
-  async function cancelGeneration() {
-    if (!projectId || workingAction !== 'generate') return
-    setError(null)
-    setGenerationNotice('正在取消本轮生成…')
-    try {
-      await engineRequest<TurnCancellationResult>(
-        `/projects/${projectId}/turns/active/cancel`,
-        { method: 'POST' }
-      )
-    } catch (cause) {
-      setGenerationNotice(null)
-      setError(cause instanceof Error ? cause.message : '取消本轮失败')
-    }
-  }
-  async function revise() {
-    if (!projectId || !candidate) return
-    const value = await act('revise', () =>
-      engineRequest<TurnCandidate>(
-        `/projects/${projectId}/turns/${candidate.id}/request-revision`,
-        { method: 'POST', body: JSON.stringify({ instruction: revision }) }
-      )
-    )
-    if (value) setCandidate(value)
-  }
-  async function discard() {
-    if (!projectId || !candidate) return
-    const value = await act('discard', () =>
-      engineRequest<TurnCandidate>(
-        `/projects/${projectId}/turns/${candidate.id}/discard`,
-        { method: 'POST' }
-      )
-    )
-    if (value) setCandidate(value)
-  }
-  async function confirm() {
-    if (!projectId || !candidate) return
-    const value = await act('confirm', async () => {
-      const result = await engineRequest<CommitResult>(
-        `/projects/${projectId}/turns/${candidate.id}/confirm`,
-        { method: 'POST' }
-      )
-      const refreshedProject = await engineRequest<ProjectSnapshot>(
-        `/projects/${projectId}`
-      )
-      return { result, refreshedProject }
-    })
-    if (value) {
-      setCandidate(value.result.candidate)
-      setCommitted(value.result)
-      setProject(value.refreshedProject)
-    }
-  }
-
-  if (!projectId) {
-    return (
-      <StoryPage>
-        <PageHeader eyebrow="故事工作区" title="推进故事" />
-        <section className="border bg-background p-8">
-          <h2 className="font-studio text-xl">尚未选择故事项目</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            先完成投稿，Story Engine 才能建立第一版正式世界状态。
-          </p>
-          <Link className={`${primaryButton} mt-5`} to={route.submission}>
-            前往投稿 <ArrowRight size={15} />
-          </Link>
-        </section>
-      </StoryPage>
-    )
-  }
-
-  if (loading) {
-    return (
-      <StoryPage>
-        <PageHeader eyebrow="正在读取 Story Engine" title="推进故事" />
-        <section className="border bg-background p-8 text-sm text-muted-foreground">
-          正在加载项目…
-        </section>
-      </StoryPage>
-    )
-  }
-
-  if (!project) {
-    return (
-      <StoryPage>
-        <PageHeader eyebrow="项目不可用" title="推进故事" />
-        <section className="border bg-background p-8">
-          <p className="text-sm text-destructive" role="alert">
-            {error || '项目加载失败'}
-          </p>
-          <Button
-            className="mt-5"
-            onClick={() => void loadProject()}
-            variant="outline"
-          >
-            <RotateCcw size={15} /> 重试加载
-          </Button>
-        </section>
-      </StoryPage>
-    )
-  }
-
-  const incident =
-    typeof project.world.world_variables?.initial_incident === 'string'
-      ? project.world.world_variables.initial_incident
-      : '等待角色根据当前世界状态采取行动'
-  const progress = [
-    ['当前局面', true],
-    ['角色行动', candidate !== null],
-    ['世界结算', candidate !== null],
-    ['编辑检查', candidate?.review !== null && candidate?.review !== undefined],
-    ['用户确认', committed !== null],
-    ['正文', committed !== null],
-  ] as const
-
-  return (
-    <StoryPage>
-      <PageHeader
-        eyebrow={`${project.project.title} / 世界版本 ${project.world.version}`}
-        title="推进故事"
-        action={
-          <div className="flex items-center gap-2">
-            <Button
-              aria-busy={workingAction === 'generate'}
-              disabled={
-                working || candidatePending || participants.length === 0
-              }
-              onClick={() => void generate()}
-              size="sm"
-              variant="outline"
-            >
-              <Sparkles size={15} />{' '}
-              {workingAction === 'generate'
-                ? '正在生成'
-                : candidatePending
-                  ? '本轮待确认'
-                  : retryAvailable
-                    ? '重试本轮'
-                    : '生成角色行动'}
-            </Button>
-            {workingAction === 'generate' && (
-              <Button
-                onClick={() => void cancelGeneration()}
-                size="sm"
-                variant="destructive"
-              >
-                <Square size={14} /> 取消生成
-              </Button>
-            )}
-          </div>
-        }
-      />
-      <ol
-        aria-label="故事推进步骤"
-        className="mb-5 grid grid-cols-2 gap-px overflow-hidden border bg-border text-xs sm:grid-cols-3 lg:grid-cols-6"
-      >
-        {progress.map(([label, complete], index) => (
-          <li
-            className="flex items-center gap-2 bg-background px-3 py-3"
-            key={label}
-          >
-            <span
-              className={`grid size-5 shrink-0 place-items-center rounded-full ${complete ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-            >
-              {complete ? <Check size={12} /> : index + 1}
-            </span>
-            <span
-              className={complete ? 'font-medium' : 'text-muted-foreground'}
-            >
-              {label}
-            </span>
-          </li>
-        ))}
-      </ol>
-      <OfficeActivityPanel
-        characters={participants}
-        generating={workingAction === 'generate'}
-        intents={candidate?.intents ?? []}
-      />
-      {!candidate ? (
-        <section className="border bg-background p-8">
-          <p className="text-xs text-muted-foreground">当前局面</p>
-          <h2 className="my-3 font-studio text-xl">{incident}</h2>
-          <dl className="mb-4 grid max-w-2xl grid-cols-1 gap-px border bg-border text-sm sm:grid-cols-3">
-            {[
-              ['时间', project.world.current_time],
-              ['地点', project.world.current_location || '未指定'],
-              ['压力', project.world.active_pressures.join('；') || '暂无'],
-            ].map(([label, value]) => (
-              <div className="bg-background p-3" key={label}>
-                <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="mt-1">{value}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="text-muted-foreground">
-            {participants
-              .map((character) => character.display_name || character.id)
-              .join('、')}{' '}
-            将依据各自的私有知识独立行动。
-          </p>
-        </section>
-      ) : (
-        <>
-          <section className="border bg-background">
-            <div className="flex items-center justify-between border-b px-5 py-4">
-              <div>
-                <p className="text-xs text-muted-foreground">
-                  私有上下文已隔离
-                </p>
-                <h2 className="font-medium">角色行动</h2>
-              </div>
-              <StatusPill tone="success">
-                {candidate.intents.length} / {candidate.intents.length} 完成
-              </StatusPill>
-            </div>
-            {candidate.intents.map((intent) => (
-              <div
-                className="grid gap-3 border-b px-5 py-4 md:grid-cols-[22px_160px_1fr_auto] md:items-center"
-                key={intent.character_id}
-              >
-                <CheckCircle2 className="text-emerald-600" size={17} />
-                <div>
-                  <strong className="text-sm">
-                    {characterNames.get(intent.character_id) ||
-                      intent.character_id}
-                  </strong>
-                  <p className="text-xs text-muted-foreground">{intent.goal}</p>
-                </div>
-                <p className="text-sm text-muted-foreground">{intent.action}</p>
-                <StatusPill tone="success">已完成</StatusPill>
-              </div>
-            ))}
-          </section>
-          <section className="mt-5 grid gap-5 border bg-background p-5 md:grid-cols-[1fr_280px]">
-            <div>
-              <p className="text-xs text-muted-foreground">统一结算</p>
-              <h2 className="my-2 font-studio text-lg">
-                {candidate.outcome.summary}
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                {candidate.outcome.public_results.join(' · ')}
-              </p>
-            </div>
-            <div className="border-t pt-5 md:border-l md:border-t-0 md:pl-5 md:pt-0">
-              <p className="flex items-center gap-2 text-sm font-medium">
-                <ShieldCheck
-                  className={
-                    candidate.review?.passed
-                      ? 'text-emerald-600'
-                      : 'text-destructive'
-                  }
-                  size={17}
-                />{' '}
-                Editor {candidate.review?.passed ? '检查通过' : '要求修订'}
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {candidate.review?.summary}
-              </p>
-            </div>
-          </section>
-          {candidate.outcome.new_npcs.length > 0 && (
-            <section className="mt-5 border bg-background">
-              <div className="flex items-center justify-between border-b px-5 py-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Resolver 提议</p>
-                  <h2 className="font-medium">新增普通人物</h2>
-                </div>
-                <StatusPill tone="warning">待用户确认后创建普通人物</StatusPill>
-              </div>
-              {candidate.outcome.new_npcs.map((npc) => (
-                <div
-                  className="grid gap-2 border-b px-5 py-4 last:border-0 md:grid-cols-[1fr_1fr]"
-                  key={npc.id}
-                >
-                  <div>
-                    <strong className="text-sm">{npc.identity}</strong>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {npc.id}
-                    </p>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{npc.purpose}</p>
-                </div>
-              ))}
-            </section>
-          )}
-          {!committed && candidate.status !== 'discarded' && (
-            <section
-              aria-busy={working}
-              className="mt-5 grid gap-3 border bg-background p-4 md:grid-cols-[1fr_auto_auto_auto]"
-            >
-              <Input
-                aria-label="修改要求"
-                value={revision}
-                onChange={(event) => setRevision(event.target.value)}
-              />
-              <Button
-                disabled={working || !revision.trim()}
-                onClick={() => void revise()}
-                variant="outline"
-              >
-                <RotateCcw size={15} />{' '}
-                {workingAction === 'revise' ? '正在修改' : '要求修改'}
-              </Button>
-              <Button
-                aria-label={
-                  workingAction === 'discard' ? '正在放弃本轮' : '放弃本轮'
-                }
-                disabled={working}
-                onClick={() => void discard()}
-                size="icon"
-                title="放弃本轮"
-                variant="outline"
-              >
-                <Trash2 size={15} />
-              </Button>
-              <Button
-                disabled={working || !candidate.review?.passed}
-                onClick={() => void confirm()}
-              >
-                <Check size={15} />{' '}
-                {workingAction === 'confirm' ? '正在提交' : '确认本轮'}
-              </Button>
-            </section>
-          )}
-          {committed && (
-            <p
-              className="mt-5 flex items-center gap-2 bg-emerald-500/10 p-3 text-sm text-emerald-700"
-              role="status"
-            >
-              <CheckCircle2 size={16} /> {committed.event.id} 已写入正式
-              Markdown
-            </p>
-          )}
-          {candidate.status === 'discarded' && (
-            <p
-              className="mt-5 bg-muted p-3 text-sm text-muted-foreground"
-              role="status"
-            >
-              本轮已放弃，正式状态未改变。
-            </p>
-          )}
-        </>
-      )}
-      {generationNotice && (
-        <p
-          className="mt-4 bg-muted p-3 text-sm text-muted-foreground"
-          role="status"
-        >
-          {generationNotice}
-        </p>
-      )}
-      {error && (
-        <p
-          className="mt-4 bg-destructive/10 p-3 text-sm text-destructive"
-          role="alert"
-        >
-          {error}
-        </p>
-      )}
-    </StoryPage>
-  )
-}
-
+export { EvolutionView } from './evolution/EvolutionView'
 function CharacterRelationshipGraph({
   characters,
 }: {
@@ -1783,241 +1209,7 @@ export function WorldView() {
   )
 }
 
-type EventViewMode = 'timeline' | 'story-map'
-
-function formatEventTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function eventParticipants(event: StoryEvent): string {
-  return event.participants.join(' · ') || '未记录参与者'
-}
-
-function isEventTurningPoint(event: StoryEvent): boolean {
-  return event.world_changes.length > 0 || event.character_changes.length > 0
-}
-
-function StoryViewToggle<T extends string>({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string
-  value: T
-  onChange: (value: T) => void
-  options: Array<{ value: T; label: string; icon: LucideIcon }>
-}) {
-  return (
-    <div
-      aria-label={label}
-      className="flex rounded-md border bg-background p-0.5"
-      role="group"
-    >
-      {options.map((option) => {
-        const Icon = option.icon
-        return (
-          <button
-            aria-pressed={value === option.value}
-            className={`inline-flex h-8 items-center gap-2 rounded px-3 text-sm ${
-              value === option.value
-                ? 'bg-accent font-medium'
-                : 'text-muted-foreground hover:bg-accent/60'
-            }`}
-            key={option.value}
-            onClick={() => onChange(option.value)}
-            type="button"
-          >
-            <Icon size={15} />
-            {option.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function EventTimeline({ events }: { events: StoryEvent[] }) {
-  return (
-    <div className="max-w-4xl">
-      {events.map((event, index) => (
-        <article
-          className="relative grid grid-cols-[48px_1fr] gap-4 pb-7"
-          key={event.id}
-        >
-          {index < events.length - 1 && (
-            <span className="absolute bottom-0 left-5 top-10 w-px bg-border" />
-          )}
-          <span className="z-10 grid size-10 place-items-center rounded-full border bg-background font-studio text-xs">
-            {String(event.sequence).padStart(3, '0')}
-          </span>
-          <div className="border-b pb-6">
-            <div className="mb-2 flex items-center gap-3 text-xs text-muted-foreground">
-              <span>{formatEventTime(event.occurred_at)}</span>
-              {event.approved_by_user ? (
-                <StatusPill tone="success">已确认</StatusPill>
-              ) : (
-                <StatusPill tone="warning">待确认</StatusPill>
-              )}
-            </div>
-            <h2 className="font-medium">{event.summary}</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {eventParticipants(event)}
-            </p>
-          </div>
-        </article>
-      ))}
-    </div>
-  )
-}
-
-function StoryMapView({ events }: { events: StoryEvent[] }) {
-  return (
-    <div className="overflow-x-auto pb-4">
-      <div className="flex min-w-max items-stretch gap-3">
-        {events.map((event, index) => {
-          const turningPoint = isEventTurningPoint(event)
-          return (
-            <div className="flex items-stretch gap-3" key={event.id}>
-              {index > 0 && (
-                <span className="mt-8 h-px w-8 shrink-0 bg-border" />
-              )}
-              <article
-                className={`w-64 border bg-background ${
-                  turningPoint ? 'border-primary/40' : ''
-                }`}
-              >
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                  <span className="font-studio text-xs">
-                    {String(event.sequence).padStart(3, '0')}
-                  </span>
-                  {event.approved_by_user ? (
-                    <StatusPill tone="success">已确认</StatusPill>
-                  ) : (
-                    <StatusPill tone="warning">待确认</StatusPill>
-                  )}
-                </div>
-                <div className="p-4">
-                  <p className="text-xs text-muted-foreground">
-                    {formatEventTime(event.occurred_at)}
-                  </p>
-                  <h3 className="mt-2 text-sm font-medium leading-6">
-                    {event.summary}
-                  </h3>
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    {eventParticipants(event)}
-                  </p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {turningPoint && <StatusPill>转折点</StatusPill>}
-                    {event.public_results.length > 0 && (
-                      <StatusPill>公开结果</StatusPill>
-                    )}
-                    {event.hidden_results.length > 0 && (
-                      <StatusPill>隐藏结果</StatusPill>
-                    )}
-                  </div>
-                </div>
-              </article>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-export function EventsView() {
-  const projectId = useActiveStoryProjectId()
-  const [events, setEvents] = useState<StoryEvent[]>([])
-  const [mode, setMode] = useState<EventViewMode>('timeline')
-  const [loading, setLoading] = useState(projectId !== null)
-  const [error, setError] = useState<string | null>(null)
-
-  const loadEvents = useCallback(async () => {
-    if (!projectId) {
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const loaded = await engineRequest<StoryEvent[]>(
-        `/projects/${projectId}/events`
-      )
-      setEvents(loaded)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '事件历史加载失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [projectId])
-
-  useEffect(() => {
-    void loadEvents()
-  }, [loadEvents])
-
-  const orderedEvents = useMemo(
-    () => [...events].sort((left, right) => left.sequence - right.sequence),
-    [events]
-  )
-  const confirmedCount = orderedEvents.filter(
-    (event) => event.approved_by_user
-  ).length
-
-  return (
-    <StoryPage>
-      <PageHeader
-        action={
-          projectId ? (
-            <StoryViewToggle
-              label="事件视图"
-              onChange={setMode}
-              options={[
-                { value: 'timeline', label: '时间线', icon: ListTree },
-                { value: 'story-map', label: '故事地图', icon: MapIcon },
-              ]}
-              value={mode}
-            />
-          ) : undefined
-        }
-        eyebrow={
-          projectId
-            ? `${confirmedCount} 个已确认事件`
-            : '尚未选择项目'
-        }
-        title="事件历史"
-      />
-      {!projectId ? (
-        <div className="rounded-md border bg-background p-8 text-center text-sm text-muted-foreground">
-          先通过投稿讨论创建项目，再查看事件历史。
-        </div>
-      ) : loading ? (
-        <p className="text-sm text-muted-foreground">正在读取事件…</p>
-      ) : error ? (
-        <div
-          className="border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
-          role="alert"
-        >
-          {error}
-        </div>
-      ) : orderedEvents.length === 0 ? (
-        <div className="rounded-md border bg-background p-8 text-center text-sm text-muted-foreground">
-          还没有已确认事件。
-        </div>
-      ) : mode === 'timeline' ? (
-        <EventTimeline events={orderedEvents} />
-      ) : (
-        <StoryMapView events={orderedEvents} />
-      )}
-    </StoryPage>
-  )
-}
-
+export { EventsView } from './events/EventsView'
 export function ManuscriptView() {
   const projectId = useActiveStoryProjectId()
   const [events, setEvents] = useState<StoryEvent[]>([])

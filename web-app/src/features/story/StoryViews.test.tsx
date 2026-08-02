@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -58,6 +58,7 @@ import {
   SubmissionView,
   WorkbenchView,
 } from './StoryViews'
+import { resetSubmissionSession } from './submission/session'
 
 const projectSnapshot = {
   project: {
@@ -110,6 +111,35 @@ const projectSnapshot = {
       version: 1,
     },
   ],
+  facts: [
+    {
+      id: 'fact:station-offline',
+      statement: '观测站与外界失联。',
+      visibility: 'public',
+      known_by: [],
+      source_event_id: 'submission:north-star',
+      introduced_at: '2026-07-31T11:00:00Z',
+      supersedes_fact_id: null,
+    },
+    {
+      id: 'secret:ara-signal',
+      statement: '阿岚捕获到一段异常校验信号。',
+      visibility: 'secret',
+      known_by: ['ara'],
+      source_event_id: 'submission:north-star',
+      introduced_at: '2026-07-31T11:00:00Z',
+      supersedes_fact_id: null,
+    },
+    {
+      id: 'secret:bo-oxygen',
+      statement: '备用氧气的真实余量低于公开读数。',
+      visibility: 'secret',
+      known_by: ['bo'],
+      source_event_id: 'submission:north-star',
+      introduced_at: '2026-07-31T11:00:00Z',
+      supersedes_fact_id: null,
+    },
+  ],
 }
 
 const candidate = {
@@ -137,8 +167,16 @@ const candidate = {
   ],
   outcome: {
     summary: '观测站暂时恢复一条低带宽通信链路。',
-    public_results: ['外界回应了一段校验信号'],
-    hidden_results: [],
+    fact_candidates: [
+      {
+        id: 'fact:calibration-response',
+        statement: '外界回应了一段校验信号。',
+        visibility: 'public',
+        known_by: [],
+        supersedes_fact_id: null,
+      },
+    ],
+    knowledge_changes: [],
     character_changes: [],
     world_changes: [],
     new_npcs: [],
@@ -171,8 +209,8 @@ const storyEvents = [
     occurred_at: '2026-07-31T12:00:00Z',
     summary: '阿岚在主天线里找到烧蚀的校验模块。',
     participants: ['ara'],
-    public_results: ['主天线校验模块已经烧毁'],
-    hidden_results: [],
+    fact_ids: ['fact:calibration-module-burned'],
+    knowledge_changes: [],
     character_changes: [],
     world_changes: [],
     approved_by_user: true,
@@ -184,8 +222,8 @@ const storyEvents = [
     occurred_at: '2026-07-31T12:05:00Z',
     summary: '柏舟启用了最后一套备用氧气循环。',
     participants: ['bo'],
-    public_results: ['备用氧气循环已经启动'],
-    hidden_results: [],
+    fact_ids: ['fact:backup-oxygen-started'],
+    knowledge_changes: [],
     character_changes: [],
     world_changes: [],
     approved_by_user: true,
@@ -368,6 +406,89 @@ describe('Story submission', () => {
   beforeEach(() => {
     h.engineRequest.mockReset()
     clearActiveStoryProject()
+    resetSubmissionSession()
+  })
+
+  it('keeps unsent submission text across route unmounts', () => {
+    const view = render(<SubmissionView />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: '投稿消息' }), {
+      target: { value: '保留这段尚未发送的世界设定。' },
+    })
+    view.unmount()
+
+    render(<SubmissionView />)
+    expect(screen.getByRole('textbox', { name: '投稿消息' })).toHaveValue(
+      '保留这段尚未发送的世界设定。'
+    )
+  })
+
+  it('keeps an in-flight submission result after leaving the route', async () => {
+    let resolveRequest: ((value: unknown) => void) | undefined
+    h.engineRequest.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRequest = resolve
+      })
+    )
+    const view = render(<SubmissionView />)
+    fireEvent.change(screen.getByRole('textbox', { name: '投稿消息' }), {
+      target: { value: '建立一座暴雨中的海港。' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+    view.unmount()
+
+    await act(async () => {
+      resolveRequest?.({
+        reply: '海港世界已经记录，可以继续补充角色。',
+        draft: {
+          id: 'story-pending',
+          title: '暴雨港',
+          genre: '悬疑',
+          theme: '信任',
+          tone: '压迫',
+          world_rules: [],
+          facts: [],
+          characters: [],
+          initial_time: '',
+          initial_location: '',
+          initial_incident: '',
+          pressures: [],
+        },
+        review: {
+          mode: 'submission_review',
+          passed: false,
+          summary: '仍需补充初始角色。',
+          issues: [],
+        },
+        runnable: false,
+        missing_requirements: ['初始角色 (2-4 个)'],
+      })
+    })
+
+    render(<SubmissionView />)
+    expect(
+      screen.getByText('海港世界已经记录，可以继续补充角色。')
+    ).toBeInTheDocument()
+    expect(screen.getByText('暴雨港')).toBeInTheDocument()
+    expect(screen.getByText('初始角色 (2-4 个)')).toBeInTheDocument()
+  })
+
+  it('restores the composer when submission discussion fails', async () => {
+    h.engineRequest.mockRejectedValue(
+      new Error('provider returned HTTP 400: Invalid Format')
+    )
+    render(<SubmissionView />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: '投稿消息' }), {
+      target: { value: '这段内容在失败后仍应可编辑。' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid Format')
+    expect(screen.getByRole('textbox', { name: '投稿消息' })).toHaveValue(
+      '这段内容在失败后仍应可编辑。'
+    )
+    expect(screen.getAllByTestId('jan-message-item')).toHaveLength(1)
   })
 
   it('discusses a setting package before creating and selecting the project', async () => {
@@ -535,6 +656,8 @@ describe('Story evolution', () => {
 
     expect(await screen.findByText('主天线在极光中失效')).toBeInTheDocument()
     expect(screen.getByText('北境观测站')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '选择 阿岚' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '选择 柏舟' })).not.toBeChecked()
     fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
 
     expect(
@@ -547,7 +670,7 @@ describe('Story evolution', () => {
       '/projects/north-star/turns/generate',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ participant_ids: ['ara', 'bo'] }),
+        body: JSON.stringify({ participant_ids: ['ara'] }),
       })
     )
     expect(screen.getByRole('button', { name: '要求修改' })).toBeEnabled()
@@ -565,8 +688,8 @@ describe('Story evolution', () => {
     render(<EvolutionView />)
 
     expect(await screen.findByText('角色行动中')).toBeInTheDocument()
-    expect(screen.getByText('天线塔')).toBeInTheDocument()
-    expect(screen.getByText('生命支持舱')).toBeInTheDocument()
+    expect(screen.getAllByText('天线塔').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('生命支持舱').length).toBeGreaterThan(0)
     expect(screen.getByText('等待行动')).toBeInTheDocument()
     expect(screen.getAllByText('尚未行动').length).toBeGreaterThan(0)
 
@@ -1347,8 +1470,8 @@ describe('Event history views', () => {
         occurred_at: '2026-07-31T12:10:00Z',
         summary: '备用氧气循环触发世界状态变更。',
         participants: ['bo'],
-        public_results: [],
-        hidden_results: ['氧气循环还剩四十分钟'],
+        fact_ids: ['secret:oxygen-forty-minutes'],
+        knowledge_changes: [],
         character_changes: [],
         world_changes: [
           { fact_id: 'fact:oxygen', before: 'off', after: 'low' },

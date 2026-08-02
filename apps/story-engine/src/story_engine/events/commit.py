@@ -9,6 +9,9 @@ from story_engine.domain.errors import DomainError, InvalidTransitionError
 from story_engine.domain.models import (
     Character,
     DomainModel,
+    Fact,
+    FactCandidate,
+    KnowledgeChange,
     NpcCandidate,
     PromotionCandidate,
     StateChange,
@@ -24,10 +27,13 @@ from story_engine.manuscript.models import (
 from story_engine.workspace.documents import (
     render_character,
     render_event,
+    render_fact,
     render_scene,
     render_world,
 )
 from story_engine.workspace.event_store import EventStore
+from story_engine.workspace.fact_store import FactStore
+from story_engine.workspace.lock import ProjectLock
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.scene_store import SceneStore
 from story_engine.workspace.session import canonical_revision
@@ -64,7 +70,6 @@ class EventCommitService:
             "location",
             "emotional_state",
             "resources",
-            "known_fact_ids",
         }
     )
     _world_fields: ClassVar[frozenset[str]] = frozenset(
@@ -72,7 +77,6 @@ class EventCommitService:
             "current_time",
             "current_location",
             "active_pressures",
-            "public_fact_ids",
             "world_variables",
         }
     )
@@ -89,6 +93,10 @@ class EventCommitService:
         self.clock = clock or (lambda: datetime.now(UTC))
 
     def commit(self, candidate: TurnCandidate) -> CommitResult:
+        with ProjectLock(self.root):
+            return self._commit_locked(candidate)
+
+    def _commit_locked(self, candidate: TurnCandidate) -> CommitResult:
         if candidate.status != "approved":
             raise InvalidTransitionError(
                 "only an approved candidate can change formal state"
@@ -112,6 +120,15 @@ class EventCommitService:
             for change in candidate.outcome.character_changes
             if change.target_type == "character"
         )
+        required_character_versions.update(
+            change.character_id for change in candidate.outcome.knowledge_changes
+        )
+        required_character_versions.update(
+            character_id
+            for fact in candidate.outcome.fact_candidates
+            for character_id in fact.known_by
+            if character_id in characters
+        )
         for character_id in sorted(required_character_versions):
             if character_id not in candidate.base_character_versions:
                 raise VersionConflictError(
@@ -128,6 +145,15 @@ class EventCommitService:
 
         sequence = self.event_store.next_sequence()
         event_id = f"event-{sequence:06d}"
+        occurred_at = self.clock()
+        facts = self._materialize_facts(
+            candidate.outcome.fact_candidates,
+            existing_facts=snapshot.facts,
+            character_ids=set(characters)
+            | {npc.id for npc in candidate.outcome.new_npcs},
+            event_id=event_id,
+            occurred_at=occurred_at,
+        )
         updated_world = self._apply_world_changes(
             snapshot.world,
             candidate.outcome.world_changes,
@@ -144,28 +170,52 @@ class EventCommitService:
             event_id=event_id,
             location=updated_world.current_location,
         )
+        public_fact_ids = tuple(
+            fact.id for fact in facts if fact.visibility == "public"
+        )
+        updated_world = updated_world.model_copy(
+            update={
+                "public_fact_ids": (
+                    *updated_world.public_fact_ids,
+                    *public_fact_ids,
+                )
+            }
+        )
+        updated_characters, created_npcs = self._apply_knowledge_changes(
+            existing=characters,
+            updated=updated_characters,
+            created=created_npcs,
+            facts=facts,
+            changes=candidate.outcome.knowledge_changes,
+            all_facts=(*snapshot.facts, *facts),
+            event_id=event_id,
+        )
         event = StoryEvent(
             id=event_id,
             sequence=sequence,
-            occurred_at=self.clock(),
+            occurred_at=occurred_at,
             summary=candidate.outcome.summary,
             participants=tuple(intent.character_id for intent in candidate.intents),
-            public_results=candidate.outcome.public_results,
-            hidden_results=candidate.outcome.hidden_results,
+            fact_ids=tuple(fact.id for fact in facts),
+            knowledge_changes=candidate.outcome.knowledge_changes,
             character_changes=candidate.outcome.character_changes,
             world_changes=candidate.outcome.world_changes,
             source_turn_id=candidate.id,
             approved_by_user=True,
         )
+        formal_facts = (*snapshot.facts, *facts)
 
         batch = AtomicBatch(self.root)
-        batch.add("world.md", render_world(updated_world))
+        batch.add("world.md", render_world(updated_world, formal_facts))
         for character_id in sorted(updated_characters):
             character = updated_characters[character_id]
             relative = self.project_store.character_path(character).relative_to(
                 self.root
             )
-            batch.add(relative.as_posix(), render_character(character))
+            batch.add(
+                relative.as_posix(),
+                render_character(character, formal_facts),
+            )
         for character_id in sorted(created_npcs):
             character = created_npcs[character_id]
             relative = self.project_store.character_path(character).relative_to(
@@ -173,12 +223,18 @@ class EventCommitService:
             )
             batch.add(
                 relative.as_posix(),
-                render_character(character),
+                render_character(character, formal_facts),
+                overwrite=False,
+            )
+        for fact in facts:
+            batch.add(
+                FactStore.relative_path(fact.id),
+                render_fact(fact),
                 overwrite=False,
             )
         batch.add(
             f"events/{sequence:06d}.md",
-            render_event(event),
+            render_event(event, facts),
             overwrite=False,
         )
         self._assert_workspace_revision(candidate.base_workspace_revision)
@@ -186,6 +242,13 @@ class EventCommitService:
         return CommitResult(event=event, candidate=candidate.mark_committed())
 
     def promote_npc(self, candidate: PromotionCandidate) -> PromotionCommitResult:
+        with ProjectLock(self.root):
+            return self._promote_npc_locked(candidate)
+
+    def _promote_npc_locked(
+        self,
+        candidate: PromotionCandidate,
+    ) -> PromotionCommitResult:
         if candidate.status != "pending":
             raise InvalidTransitionError("only a pending promotion can be committed")
 
@@ -243,7 +306,6 @@ class EventCommitService:
             occurred_at=self.clock(),
             summary=f"{display_name} 升级为活跃角色。",
             participants=(promoted.id,),
-            public_results=(f"{display_name} 将从后续回合开始独立行动",),
             character_changes=tuple(changes),
             source_turn_id=candidate.id,
             approved_by_user=True,
@@ -258,7 +320,7 @@ class EventCommitService:
         batch = AtomicBatch(self.root)
         batch.add(
             promoted_path.as_posix(),
-            render_character(promoted),
+            render_character(promoted, snapshot.facts),
             overwrite=False,
         )
         batch.delete(previous_path.as_posix())
@@ -298,7 +360,115 @@ class EventCommitService:
             )
         return created
 
+    @staticmethod
+    def _materialize_facts(
+        candidates: tuple[FactCandidate, ...],
+        *,
+        existing_facts: tuple[Fact, ...],
+        character_ids: set[str],
+        event_id: str,
+        occurred_at: datetime,
+    ) -> tuple[Fact, ...]:
+        existing_ids = {fact.id for fact in existing_facts}
+        candidate_ids = {candidate.id for candidate in candidates}
+        if existing_ids.intersection(candidate_ids):
+            raise StateChangeConflictError("fact ID already exists")
+        available_fact_ids = existing_ids | candidate_ids
+        facts: list[Fact] = []
+        for candidate in candidates:
+            unknown_characters = set(candidate.known_by) - character_ids
+            if unknown_characters:
+                raise StateChangeConflictError(
+                    "fact references unknown characters: "
+                    + ", ".join(sorted(unknown_characters))
+                )
+            if (
+                candidate.supersedes_fact_id is not None
+                and candidate.supersedes_fact_id not in available_fact_ids
+            ):
+                raise StateChangeConflictError(
+                    f"fact supersedes unknown fact: {candidate.supersedes_fact_id}"
+                )
+            facts.append(
+                Fact(
+                    **candidate.model_dump(),
+                    source_event_id=event_id,
+                    introduced_at=occurred_at,
+                )
+            )
+        return tuple(facts)
+
+    @staticmethod
+    def _apply_knowledge_changes(
+        *,
+        existing: dict[str, Character],
+        updated: dict[str, Character],
+        created: dict[str, Character],
+        facts: tuple[Fact, ...],
+        changes: tuple[KnowledgeChange, ...],
+        all_facts: tuple[Fact, ...],
+        event_id: str,
+    ) -> tuple[dict[str, Character], dict[str, Character]]:
+        characters = {**updated, **created}
+        known_fact_ids = {fact.id for fact in all_facts}
+        actions = [
+            KnowledgeChange(
+                character_id=character_id,
+                fact_id=fact.id,
+                action="learn",
+                reason="角色是新事实的初始知情者",
+            )
+            for fact in facts
+            if fact.visibility != "public"
+            for character_id in fact.known_by
+        ]
+        actions.extend(changes)
+
+        touched: set[str] = set()
+        for change in actions:
+            character = characters.get(change.character_id)
+            if character is None:
+                raise StateChangeConflictError(
+                    f"knowledge change targets unknown character: {change.character_id}"
+                )
+            if change.fact_id not in known_fact_ids:
+                raise StateChangeConflictError(
+                    f"knowledge change references unknown fact: {change.fact_id}"
+                )
+            fact_ids = list(character.known_fact_ids)
+            if change.action == "learn" and change.fact_id not in fact_ids:
+                fact_ids.append(change.fact_id)
+            if change.action == "forget" and change.fact_id in fact_ids:
+                fact_ids.remove(change.fact_id)
+            data = character.model_dump()
+            data["known_fact_ids"] = tuple(fact_ids)
+            if change.character_id in existing and change.character_id not in touched:
+                if character.version == existing[change.character_id].version:
+                    data["version"] = character.version + 1
+                data["last_event_id"] = event_id
+            characters[change.character_id] = Character.model_validate(data)
+            touched.add(change.character_id)
+
+        return (
+            {character_id: characters[character_id] for character_id in updated},
+            {character_id: characters[character_id] for character_id in created},
+        )
+
     def commit_scene(
+        self,
+        scene: Scene,
+        *,
+        expected_version: int,
+        expected_workspace_revision: str | None,
+    ) -> Scene:
+        with ProjectLock(self.root):
+            return self._commit_scene_locked(
+                scene,
+                expected_version=expected_version,
+                expected_workspace_revision=expected_workspace_revision,
+            )
+
+    def _commit_scene_locked(
         self,
         scene: Scene,
         *,
@@ -321,6 +491,14 @@ class EventCommitService:
         return scene
 
     def commit_scene_amendment(
+        self,
+        scene: Scene,
+        amendment: EventAmendmentCandidate,
+    ) -> AmendmentCommitResult:
+        with ProjectLock(self.root):
+            return self._commit_scene_amendment_locked(scene, amendment)
+
+    def _commit_scene_amendment_locked(
         self,
         scene: Scene,
         amendment: EventAmendmentCandidate,
@@ -365,10 +543,28 @@ class EventCommitService:
             }
         )
         sequence = self.event_store.next_sequence()
+        occurred_at = self.clock()
+        facts = tuple(
+            Fact(
+                id=fact_id,
+                statement=statement,
+                visibility="public",
+                source_event_id=f"event-{sequence:06d}",
+                introduced_at=occurred_at,
+            )
+            for fact_id, statement in zip(
+                amendment.fact_ids,
+                amendment.proposed_facts,
+                strict=True,
+            )
+        )
+        existing_fact_ids = {fact.id for fact in snapshot.facts}
+        if existing_fact_ids.intersection(amendment.fact_ids):
+            raise StateChangeConflictError("amendment fact ID already exists")
         event = StoryEvent(
             id=f"event-{sequence:06d}",
             sequence=sequence,
-            occurred_at=self.clock(),
+            occurred_at=occurred_at,
             summary="正文补充事实: " + "; ".join(amendment.proposed_facts),
             participants=tuple(
                 sorted(
@@ -380,17 +576,24 @@ class EventCommitService:
                     }
                 )
             ),
-            public_results=amendment.proposed_facts,
+            fact_ids=amendment.fact_ids,
             world_changes=(world_change,),
             source_turn_id=amendment.id,
             approved_by_user=True,
         )
         committed = amendment.mark_committed()
         batch = AtomicBatch(self.root)
-        batch.add("world.md", render_world(updated_world))
+        formal_facts = (*snapshot.facts, *facts)
+        batch.add("world.md", render_world(updated_world, formal_facts))
+        for fact in facts:
+            batch.add(
+                FactStore.relative_path(fact.id),
+                render_fact(fact),
+                overwrite=False,
+            )
         batch.add(
             f"events/{sequence:06d}.md",
-            render_event(event),
+            render_event(event, facts),
             overwrite=False,
         )
         batch.add(

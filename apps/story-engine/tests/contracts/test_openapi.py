@@ -44,3 +44,13 @@ def test_openapi_never_contains_runtime_session_token() -> None:
     serialized = json.dumps(build_openapi_schema())
 
     assert "contract-generation-token" not in serialized
+
+
+def test_openapi_model_profile_exposes_reasoning_effort_choices() -> None:
+    schema = build_openapi_schema()
+
+    profile_schema = schema["components"]["schemas"]["ModelProfile"]
+    reasoning = profile_schema["properties"]["reasoning_effort"]
+
+    assert reasoning["default"] == "disabled"
+    assert reasoning["enum"] == ["disabled", "low", "high", "max"]
