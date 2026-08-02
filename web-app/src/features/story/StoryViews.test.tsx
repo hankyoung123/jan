@@ -59,6 +59,15 @@ import {
   WorkbenchView,
 } from './StoryViews'
 import { resetSubmissionSession } from './submission/session'
+import { TranslationProvider } from '@/i18n'
+
+function renderEvolution() {
+  return render(
+    <TranslationProvider>
+      <EvolutionView />
+    </TranslationProvider>
+  )
+}
 
 const projectSnapshot = {
   project: {
@@ -346,6 +355,8 @@ describe('Story workspace lifecycle', () => {
 describe('Story submission', () => {
   beforeEach(() => {
     h.engineRequest.mockReset()
+    h.subscribeProjectEvents.mockReset()
+    h.subscribeProjectEvents.mockResolvedValue(() => undefined)
     clearActiveStoryProject()
     resetSubmissionSession()
   })
@@ -580,10 +591,10 @@ describe('Story simulation', () => {
   })
 
   it('requires an active story project', () => {
-    render(<EvolutionView />)
+    renderEvolution()
 
-    expect(screen.getByText('尚未选择故事项目')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '前往投稿' })).toHaveAttribute(
+    expect(screen.getByText('No story project selected')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Go to submission' })).toHaveAttribute(
       'href',
       '/submission'
     )
@@ -596,12 +607,38 @@ describe('Story simulation', () => {
       project_id: 'north-star',
       branch_id: 'main',
       status: 'created',
+      pending_control: 'none',
       content_locale: 'zh-CN',
+      request: {
+        project_id: 'north-star',
+        branch_id: 'main',
+        premise_text: '主天线在极光中失效',
+        actor_ids: [],
+        content_locale: 'zh-CN',
+        control: {
+          mode: 'scene',
+          pause_after_scene: true,
+          max_steps: 100,
+          max_scenes: 12,
+          max_total_tokens: 500000,
+          max_runtime_seconds: 3600,
+          max_consecutive_model_failures: 3,
+          allow_dynamic_entities: true,
+          allow_user_override: true,
+          checkpoint_every_steps: 5,
+        },
+        seed: null,
+      },
       current_step: 0,
+      completed_scenes: 0,
+      active_entity_ids: ['ara', 'bo'],
+      dynamic_entities: [],
       actor_states: {},
       game_master_states: {},
       memory_snapshots: {},
       raw_log_offset: 0,
+      total_model_tokens: 0,
+      consecutive_model_failures: 0,
       checkpoint_id: 'checkpoint-' + 'a'.repeat(64),
       started_at: '2026-08-02T00:00:00Z',
       updated_at: '2026-08-02T00:00:00Z',
@@ -610,10 +647,36 @@ describe('Story simulation', () => {
       active_actor_id: null,
       current_action_spec: null,
     }
-    h.engineRequest.mockImplementation((path: string) => {
+    let currentSession = session
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
       if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
-      if (path === '/projects/north-star/simulations') return Promise.resolve(session)
+      if (path === '/projects/north-star/branches') {
+        return Promise.resolve([
+          {
+            branch_id: 'main',
+            project_id: 'north-star',
+            head_checkpoint_id: session.checkpoint_id,
+            head_step: 0,
+            parent_branch_id: null,
+            source_checkpoint_id: null,
+            content_locale: 'zh-CN',
+            updated_at: '2026-08-02T00:00:00Z',
+          },
+        ])
+      }
+      if (path === '/projects/north-star/simulations' && !init) {
+        return Promise.resolve([])
+      }
+      if (path === '/projects/north-star/simulations' && init?.method === 'POST') {
+        return Promise.resolve(currentSession)
+      }
+      if (path === `/projects/north-star/simulations/${session.session_id}`) {
+        return Promise.resolve(currentSession)
+      }
+      if (path.includes('/simulation-events')) return Promise.resolve([])
+      if (path.includes('/simulation-trace')) return Promise.resolve([])
       if (path.endsWith('/step')) {
+        currentSession = { ...currentSession, current_step: 1, status: 'paused' }
         return Promise.resolve({
           session_id: session.session_id,
           branch_id: 'main',
@@ -628,12 +691,12 @@ describe('Story simulation', () => {
       }
       throw new Error(`Unexpected request: ${path}`)
     })
-    render(<EvolutionView />)
+    renderEvolution()
 
     await screen.findByDisplayValue('主天线在极光中失效')
-    fireEvent.click(screen.getByRole('button', { name: '启动会话' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }))
     expect(await screen.findByText('Step 0')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '单步' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Single step' }))
     expect(await screen.findByText('Step 1')).toBeInTheDocument()
     expect(h.engineRequest).toHaveBeenCalledWith(
       '/projects/north-star/simulations',

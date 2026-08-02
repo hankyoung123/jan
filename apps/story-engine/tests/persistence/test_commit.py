@@ -7,7 +7,10 @@ import pytest
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.simulation import (
+    ControlMode,
+    ControlPolicy,
     StepResult,
+    TurnSessionRequest,
     TurnSessionSnapshot,
     TurnSessionStatus,
 )
@@ -30,6 +33,14 @@ def _snapshot(
         branch_id=branch_id,
         status=status,
         content_locale="en-US",
+        request=TurnSessionRequest(
+            project_id="fog-harbor",
+            branch_id=branch_id,
+            premise_text="Test checkpoint",
+            actor_ids=("actor-a",),
+            content_locale="en-US",
+            control=ControlPolicy(mode=ControlMode.STEP),
+        ),
         current_step=step,
         actor_states={"actor-a": {"step": step}},
         game_master_states={"gm": {"step": step}},
@@ -57,10 +68,15 @@ def _result(step: int) -> StepResult:
     )
 
 
-def _trace(step: int) -> TurnTrace:
+def _trace(
+    step: int,
+    *,
+    status: ModelCallStatus = ModelCallStatus.SUCCEEDED,
+    attempt: int = 0,
+) -> TurnTrace:
     now = datetime.now(UTC)
     return TurnTrace(
-        trace_id=f"trace:session-1:{step}",
+        trace_id=f"trace:session-1:{step}:{attempt}",
         session_id="session:1",
         branch_id="main",
         step=step,
@@ -70,7 +86,7 @@ def _trace(step: int) -> TurnTrace:
         acting_actor_id="actor-a",
         started_at=now,
         completed_at=now,
-        status=ModelCallStatus.SUCCEEDED,
+        status=status,
     )
 
 
@@ -126,6 +142,34 @@ def test_failed_head_advance_leaves_old_head_valid(
     assert branch.head_checkpoint_id == initial.checkpoint_id
     assert kernel.checkpoints.exists(initial.checkpoint_id)
     assert len(kernel.logs.read("main")) == 1
+
+
+def test_failed_step_trace_can_be_followed_by_successful_checkpoint_retry(
+    tmp_path: Path,
+) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    failed_result = _result(0).model_copy(update={"status": TurnSessionStatus.FAILED})
+    kernel.append_step(
+        failed_result,
+        _snapshot(step=0, status=TurnSessionStatus.FAILED),
+        _trace(0, status=ModelCallStatus.FAILED),
+        checkpoint=False,
+    )
+
+    committed = kernel.append_step(
+        _result(0),
+        _snapshot(step=1),
+        _trace(0, attempt=1),
+    )
+
+    records = kernel.logs.read("main")
+    assert committed is not None
+    assert [record.trace.status for record in records] == [
+        ModelCallStatus.FAILED,
+        ModelCallStatus.SUCCEEDED,
+    ]
+    assert kernel.branches.load("main").head_step == 1
 
 
 def test_branch_fork_and_rollback_keep_independent_heads(tmp_path: Path) -> None:

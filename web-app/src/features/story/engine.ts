@@ -70,7 +70,8 @@ export async function subscribeEngineRuntime(
 
 export async function subscribeProjectEvents(
   projectId: string,
-  listener: (event: EngineEventEnvelope) => void
+  listener: (event: EngineEventEnvelope) => void,
+  afterSequence = 0
 ): Promise<() => void> {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(projectId)) {
     throw new Error('invalid Story Engine project ID')
@@ -79,7 +80,7 @@ export async function subscribeProjectEvents(
   let socket: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let reconnectAttempt = 0
-  let lastSequence = 0
+  let lastSequence = afterSequence
 
   function scheduleReconnect() {
     if (disposed || reconnectTimer !== null) return

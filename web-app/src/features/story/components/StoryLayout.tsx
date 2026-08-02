@@ -6,10 +6,18 @@ export const primaryButton =
 export const secondaryButton =
   'inline-flex h-9 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition hover:bg-accent disabled:pointer-events-none disabled:opacity-50'
 
-export function StoryPage({ children }: { children: ReactNode }) {
+export function StoryPage({
+  children,
+  wide = false,
+}: {
+  children: ReactNode
+  wide?: boolean
+}) {
   return (
     <main className="h-svh overflow-y-auto bg-neutral-50 px-5 pb-12 pt-14 dark:bg-background md:px-8">
-      <div className="mx-auto w-full max-w-6xl">{children}</div>
+      <div className={`mx-auto w-full ${wide ? 'max-w-[1600px]' : 'max-w-6xl'}`}>
+        {children}
+      </div>
     </main>
   )
 }

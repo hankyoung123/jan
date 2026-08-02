@@ -84,6 +84,17 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
     def set_content_locale(self, content_locale: str) -> None:
         self._content_locale = content_locale
 
+    def set_trace_context(
+        self,
+        *,
+        step: int,
+        component_ids: tuple[str, ...],
+        source_record_ids: tuple[str, ...] = (),
+    ) -> None:
+        self._step = step
+        self._component_ids = component_ids
+        self._source_record_ids = source_record_ids
+
     async def _complete_with_cancellation(
         self,
         request: ModelRequest,
@@ -143,7 +154,11 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
             prompt_tokens=response.usage.prompt_tokens if response else 0,
             completion_tokens=response.usage.completion_tokens if response else 0,
             duration_ms=duration_ms,
-            error_code=type(error).__name__.lower() if error is not None else None,
+            error_code=(
+                getattr(error, "code", type(error).__name__.lower())
+                if error is not None
+                else None
+            ),
             started_at=started_at,
             completed_at=datetime.now(UTC),
         )

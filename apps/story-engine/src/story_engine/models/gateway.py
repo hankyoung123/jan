@@ -56,6 +56,13 @@ class ModelTransport(Protocol):
         timeout_seconds: float,
     ) -> AsyncIterator[ModelStreamChunk]: ...
 
+    def embed(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> Mapping[str, Any]: ...
+
 
 class _TransientProviderError(Exception):
     def __init__(self, message: str, *, retry_after: float | None = None) -> None:
@@ -285,6 +292,46 @@ class OpenAICompatibleTransport:
         except _TransientProviderError as error:
             raise ProviderResponseError("provider stream was unavailable") from error
 
+    def embed(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> Mapping[str, Any]:
+        """Call the OpenAI-compatible embedding endpoint from runtime threads."""
+        try:
+            with httpx.Client(
+                timeout=httpx.Timeout(timeout_seconds),
+                follow_redirects=False,
+                transport=cast(httpx.BaseTransport | None, self._transport),
+            ) as client:
+                response = client.post(
+                    _endpoint(self._base_url, "embeddings"),
+                    headers=_headers(self._api_key),
+                    json=payload,
+                )
+        except httpx.TimeoutException as error:
+            raise ModelTimeoutError("embedding provider request timed out") from error
+        except httpx.NetworkError as error:
+            raise ProviderResponseError("embedding provider was unavailable") from error
+        if response.is_error:
+            detail = _provider_error_detail(response.content[:MAX_RESPONSE_BYTES])
+            message = f"provider returned HTTP {response.status_code}"
+            if detail:
+                message = f"{message}: {detail}"
+            raise ProviderResponseError(message)
+        if len(response.content) > MAX_RESPONSE_BYTES:
+            raise ResponseLimitError(
+                f"provider response exceeded {MAX_RESPONSE_BYTES} bytes"
+            )
+        try:
+            parsed = response.json()
+        except json.JSONDecodeError as error:
+            raise ProviderResponseError("provider returned invalid JSON") from error
+        if not isinstance(parsed, dict):
+            raise ProviderResponseError("embedding response must be an object")
+        return cast(dict[str, Any], parsed)
+
 
 class UnavailableModelTransport:
     async def complete(
@@ -304,6 +351,15 @@ class UnavailableModelTransport:
         if False:
             yield ModelStreamChunk()
         raise ModelConfigurationError("Story Engine model runtime is unavailable")
+
+    def embed(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> Mapping[str, Any]:
+        del payload, timeout_seconds
+        raise ModelConfigurationError("Story Engine embedding runtime is unavailable")
 
 
 def _stream_delta(event: Mapping[str, Any]) -> str:
@@ -598,3 +654,51 @@ class ModelGateway:
             raise ModelTimeoutError(
                 "model stream exceeded its total deadline"
             ) from error
+
+    def embed(self, text: str, *, profile_id: str = "embedding") -> tuple[float, ...]:
+        """Create one production embedding through the configured task profile."""
+        if not text.strip():
+            raise ValueError("embedding text must not be empty")
+        profile = self.registry.get_profile(profile_id)
+        if not profile.enabled:
+            raise ModelConfigurationError(f"profile {profile.id!r} is disabled")
+        if profile.task_type != "embedding":
+            raise ProfileMismatchError(
+                f"profile {profile.id!r} is for {profile.task_type}, not embedding"
+            )
+        payload = {"model": profile.model, "input": text, "encoding_format": "float"}
+        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > MAX_REQUEST_BYTES:
+            raise ResponseLimitError(
+                f"embedding request exceeded {MAX_REQUEST_BYTES} bytes"
+            )
+        raw = self.transport.embed(payload, timeout_seconds=profile.timeout_seconds)
+        data = raw.get("data")
+        if (
+            not isinstance(data, Sequence)
+            or isinstance(data, (str, bytes))
+            or not data
+            or not isinstance(data[0], Mapping)
+        ):
+            raise ProviderResponseError("provider response has no embedding")
+        vector = data[0].get("embedding")
+        if (
+            not isinstance(vector, Sequence)
+            or isinstance(vector, (str, bytes))
+            or not vector
+            or any(not isinstance(item, (int, float)) for item in vector)
+        ):
+            raise ProviderResponseError("provider returned an invalid embedding")
+        usage_value = raw.get("usage")
+        if isinstance(usage_value, Mapping):
+            prompt_tokens = usage_value.get("prompt_tokens", 0)
+            total_tokens = usage_value.get("total_tokens", prompt_tokens)
+            self.usage.record(
+                ModelUsage(
+                    prompt_tokens=(
+                        prompt_tokens if isinstance(prompt_tokens, int) else 0
+                    ),
+                    total_tokens=total_tokens if isinstance(total_tokens, int) else 0,
+                )
+            )
+        return tuple(float(item) for item in vector)

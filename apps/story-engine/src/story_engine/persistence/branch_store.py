@@ -58,6 +58,16 @@ class BranchStore:
             raise ValueError("branch head points to a missing checkpoint")
         return manifest
 
+    def list(self) -> tuple[BranchManifest, ...]:
+        if not self.directory.exists():
+            return ()
+        return tuple(
+            sorted(
+                (self.load(path.stem) for path in self.directory.glob("*.json")),
+                key=lambda branch: (branch.created_at, branch.branch_id),
+            )
+        )
+
     def ensure(
         self,
         *,

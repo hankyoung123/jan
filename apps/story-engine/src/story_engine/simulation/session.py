@@ -6,6 +6,7 @@ from threading import RLock
 from typing import Any
 
 from story_engine.domain.simulation import (
+    PendingControl,
     TurnSessionRequest,
     TurnSessionSnapshot,
     TurnSessionStatus,
@@ -37,6 +38,7 @@ class SimulationSession:
     runtime: StorySimulationRuntime
     status: TurnSessionStatus = TurnSessionStatus.CREATED
     current_step: int = 0
+    completed_scenes: int = 0
     raw_log_offset: int = 0
     total_model_tokens: int = 0
     consecutive_model_failures: int = 0
@@ -44,7 +46,7 @@ class SimulationSession:
     termination_reason_text: str | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    pause_requested: bool = False
+    pending_control: PendingControl = PendingControl.NONE
     lock: RLock = field(default_factory=RLock)
 
     def touch(self) -> None:
@@ -54,13 +56,28 @@ class SimulationSession:
         actor_states = self.runtime.actor_states()
         game_master_states = self.runtime.game_master_states()
         memory_snapshots = self.runtime.memory_snapshots()
+        active_ids = getattr(self.runtime, "active_entity_ids", None)
+        dynamic_definitions = getattr(
+            self.runtime,
+            "dynamic_entity_definitions",
+            None,
+        )
         provisional = TurnSessionSnapshot(
             session_id=self.session_id,
             project_id=self.request.project_id,
             branch_id=self.request.branch_id,
             status=self.status,
+            pending_control=self.pending_control,
             content_locale=self.request.content_locale,
+            request=self.request,
+            active_entity_ids=(
+                active_ids() if active_ids is not None else tuple(actor_states)
+            ),
+            dynamic_entities=(
+                dynamic_definitions() if dynamic_definitions is not None else ()
+            ),
             current_step=self.current_step,
+            completed_scenes=self.completed_scenes,
             actor_states=actor_states,
             game_master_states=game_master_states,
             memory_snapshots=memory_snapshots,

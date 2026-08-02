@@ -31,8 +31,14 @@ def _resolve_story_event(
         document.open_question(
             question=(
                 f"Considering established world truth, what actually results from "
-                f"{active_player_name}'s putative action? State only the resolved "
-                "world event; success, failure, or partial success are all possible."
+                f"{active_player_name}'s putative action? Return one compact JSON "
+                "object with event_text, boundary (none|scene|chapter), visibility "
+                "(public|participants|restricted|gm_only), observer_ids, "
+                "participant_ids, and entity_changes. Each entity change is either "
+                "{operation:create,entity_id,display_name,identity,goal,location} "
+                "or {operation:archive,entity_id}. Use entity_changes only when the "
+                "story event truly introduces or removes a participant. Do not "
+                "include reasoning or Markdown."
             ),
             terminators=(),
         ),

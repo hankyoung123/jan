@@ -1,328 +1,318 @@
-import type { components } from '@story-engine/contracts'
+import type { SimulationStage } from '@story-engine/contracts'
 import { Link } from '@tanstack/react-router'
-import { ArrowRight, GitBranch, Pause, Play, Save, Square } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { ArrowRight, Play, RotateCcw } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { route } from '@/constants/routes'
+import { useTranslation } from '@/i18n'
 import { useActiveStoryProjectId } from '../activeProject'
+import { PageHeader, primaryButton, StoryPage } from '../components/StoryLayout'
+import { ActorRail } from './ActorRail'
+import { BranchNavigator } from './BranchNavigator'
+import { SimulationControls } from './SimulationControls'
+import { SimulationHeader } from './SimulationHeader'
+import { SimulationTimeline } from './SimulationTimeline'
+import { StageInspector } from './StageInspector'
+import { StepPipeline } from './StepPipeline'
+import type { StepViewModel } from './simulationViewModel'
 import {
-  PageHeader,
-  primaryButton,
-  StatusPill,
-  StoryPage,
-} from '../components/StoryLayout'
-import { engineRequest } from '../engine'
+  type ControlMode,
+  type ProjectSnapshot,
+  useSimulationSession,
+} from './useSimulationSession'
+import { useSimulationStream } from './useSimulationStream'
 
-type ProjectSnapshot = components['schemas']['ProjectSnapshot']
-type SessionSnapshot = components['schemas']['TurnSessionSnapshot']
-type StepResult = components['schemas']['StepResult']
-type CommitResult = components['schemas']['CommitResult']
+const CONTROL_MODES: ControlMode[] = ['step', 'scene', 'chapter', 'autonomous']
 
-export function EvolutionView() {
-  const projectId = useActiveStoryProjectId()
-  const [project, setProject] = useState<ProjectSnapshot | null>(null)
-  const [session, setSession] = useState<SessionSnapshot | null>(null)
-  const [lastStep, setLastStep] = useState<StepResult | null>(null)
-  const [premise, setPremise] = useState('')
+function SessionSetup({
+  project,
+  pending,
+  onStart,
+}: {
+  project: ProjectSnapshot
+  pending: boolean
+  onStart: (options: {
+    branchId: string
+    premise: string
+    actorIds: string[]
+    contentLocale: string
+    mode: ControlMode
+  }) => void
+}) {
+  const { t } = useTranslation('evolution')
+  const initialIncident = project.world.world_variables?.initial_incident
+  const [premise, setPremise] = useState(
+    typeof initialIncident === 'string' ? initialIncident : ''
+  )
   const [branchId, setBranchId] = useState('main')
   const [contentLocale, setContentLocale] = useState('zh-CN')
-  const [forkId, setForkId] = useState('alternate')
+  const [mode, setMode] = useState<ControlMode>('scene')
   const [selectedActors, setSelectedActors] = useState<string[]>([])
-  const [working, setWorking] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const activeActors = project.characters.filter((actor) => actor.type === 'active')
 
-  const loadProject = useCallback(async () => {
-    if (!projectId) return
-    try {
-      const loaded = await engineRequest<ProjectSnapshot>(`/projects/${projectId}`)
-      const active = loaded.characters.filter((item) => item.type === 'active')
-      setProject(loaded)
-      setSelectedActors(active.map((item) => item.id))
-      const incident = loaded.world.world_variables?.initial_incident
-      setPremise(typeof incident === 'string' ? incident : '')
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '项目加载失败')
-    }
-  }, [projectId])
+  return (
+    <section className="border bg-background">
+      <header className="border-b p-5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          {t('setup.eyebrow')}
+        </p>
+        <h2 className="mt-1 font-studio text-xl">{t('setup.title')}</h2>
+      </header>
+      <div className="grid gap-6 p-5 lg:grid-cols-2">
+        <div className="space-y-4">
+          <label className="block text-sm font-medium" htmlFor="simulation-premise">
+            {t('setup.premise')}
+          </label>
+          <textarea
+            className="min-h-32 w-full resize-y border bg-background p-3 text-sm outline-none focus:border-amber-500"
+            id="simulation-premise"
+            onChange={(event) => setPremise(event.target.value)}
+            value={premise}
+          />
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="text-xs font-medium" htmlFor="simulation-mode">
+              {t('setup.mode')}
+              <select
+                className="mt-2 h-9 w-full border bg-background px-2 text-sm"
+                id="simulation-mode"
+                onChange={(event) => setMode(event.target.value as ControlMode)}
+                value={mode}
+              >
+                {CONTROL_MODES.map((value) => (
+                  <option key={value} value={value}>{t(`mode.${value}`)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-medium" htmlFor="simulation-branch">
+              {t('setup.branch')}
+              <Input
+                className="mt-2"
+                id="simulation-branch"
+                onChange={(event) => setBranchId(event.target.value)}
+                value={branchId}
+              />
+            </label>
+            <label className="text-xs font-medium" htmlFor="content-locale">
+              {t('locale')}
+              <Input
+                className="mt-2"
+                id="content-locale"
+                onChange={(event) => setContentLocale(event.target.value)}
+                value={contentLocale}
+              />
+            </label>
+          </div>
+        </div>
+        <fieldset>
+          <legend className="text-sm font-medium">{t('setup.actors')}</legend>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {t('setup.actorsHint')}
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {activeActors.map((actor) => (
+              <label className="flex items-center gap-2 border p-3 text-sm" key={actor.id}>
+                <input
+                  checked={selectedActors.includes(actor.id)}
+                  onChange={() =>
+                    setSelectedActors((current) =>
+                      current.includes(actor.id)
+                        ? current.filter((id) => id !== actor.id)
+                        : [...current, actor.id]
+                    )
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block font-medium">{actor.display_name || actor.id}</span>
+                  <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                    {actor.location || t('actor.unknownLocation')}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="mt-3 border-l-2 border-l-amber-500 pl-3 text-xs text-muted-foreground">
+            {selectedActors.length === 0
+              ? t('setup.automaticParticipants')
+              : t('setup.selectedParticipants', { count: selectedActors.length })}
+          </p>
+        </fieldset>
+      </div>
+      <footer className="flex justify-end border-t p-4">
+        <Button
+          disabled={pending || !premise.trim() || !branchId.trim()}
+          onClick={() =>
+            onStart({
+              branchId: branchId.trim(),
+              premise: premise.trim(),
+              actorIds: selectedActors,
+              contentLocale: contentLocale.trim(),
+              mode,
+            })
+          }
+        >
+          <Play size={15} /> {t('setup.start')}
+        </Button>
+      </footer>
+    </section>
+  )
+}
+
+export function EvolutionView() {
+  const { t } = useTranslation('evolution')
+  const projectId = useActiveStoryProjectId()
+  const simulation = useSimulationSession(projectId ?? undefined)
+  const [notice, setNotice] = useState<string | null>(null)
+  const { viewState, chooseStage } = useSimulationStream({
+    projectId: projectId ?? undefined,
+    sessionId: simulation.session?.session_id,
+    sessionStatus: simulation.session?.status,
+    currentStep: simulation.session?.current_step,
+    branchId: simulation.session?.branch_id,
+    onSessionChanged: simulation.refreshSession,
+  })
+
+  const selectedStep = viewState.steps[viewState.selectedStep]
+  const selectedStage = viewState.selectedStage
+    ? selectedStep?.stages[viewState.selectedStage]
+    : undefined
+  const retryCheckpointId =
+    selectedStage?.status === 'failed' && simulation.session?.status === 'failed'
+      ? simulation.session?.checkpoint_id ?? undefined
+      : undefined
+  const ended = simulation.session
+    ? ['terminated', 'cancelled', 'failed'].includes(simulation.session.status)
+    : false
 
   useEffect(() => {
-    void loadProject()
-  }, [loadProject])
+    if (simulation.error) setNotice(null)
+  }, [simulation.error])
 
-  async function perform<T>(operation: () => Promise<T>): Promise<T | null> {
-    setWorking(true)
-    setError(null)
-    try {
-      return await operation()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '引擎请求失败')
-      return null
-    } finally {
-      setWorking(false)
-    }
+  const selectTimelineStep = (step: StepViewModel) => {
+    const preferred: SimulationStage = step.stages.resolution
+      ? 'resolution'
+      : (Object.keys(step.stages)[0] as SimulationStage | undefined) ?? 'termination'
+    chooseStage(step.step, preferred)
   }
 
-  async function start() {
-    if (!projectId || !premise.trim()) return
-    const created = await perform(() =>
-      engineRequest<SessionSnapshot>(`/projects/${projectId}/simulations`, {
-        method: 'POST',
-        body: JSON.stringify({
-          branch_id: branchId,
-          premise_text: premise,
-          actor_ids: selectedActors,
-          content_locale: contentLocale,
-          control: { mode: 'step', max_steps: 100 },
-        }),
-      })
-    )
-    if (created) {
-      setSession(created)
-      setLastStep(null)
-      setNotice(`会话已启动：${created.session_id}`)
-    }
-  }
-
-  async function step() {
-    if (!projectId || !session) return
-    const result = await perform(() =>
-      engineRequest<StepResult>(
-        `/projects/${projectId}/simulations/${session.session_id}/step`,
-        { method: 'POST' }
-      )
-    )
-    if (result) {
-      setLastStep(result)
-      setSession((current) =>
-        current
-          ? {
-              ...current,
-              current_step: result.step + 1,
-              status: result.status,
-              checkpoint_id: result.checkpoint_id,
-            }
-          : current
-      )
-    }
-  }
-
-  async function control(action: 'run' | 'pause' | 'resume' | 'terminate') {
-    if (!projectId || !session) return
-    const updated = await perform(() =>
-      engineRequest<SessionSnapshot>(
-        `/projects/${projectId}/simulations/${session.session_id}/${action}`,
-        {
-          method: 'POST',
-          body:
-            action === 'terminate'
-              ? JSON.stringify({ reason_text: '用户终止会话' })
-              : undefined,
-        }
-      )
-    )
-    if (updated) setSession(updated)
-  }
-
-  async function checkpoint() {
-    if (!projectId || !session) return
-    const committed = await perform(() =>
-      engineRequest<CommitResult>(
-        `/projects/${projectId}/simulations/${session.session_id}/checkpoint`,
-        { method: 'POST', body: JSON.stringify({ reason: '用户检查点' }) }
-      )
-    )
-    if (committed) {
-      setSession((current) =>
-        current ? { ...current, checkpoint_id: committed.checkpoint_id } : current
-      )
-      setNotice(`检查点已保存：${committed.checkpoint_id}`)
-    }
-  }
-
-  async function fork() {
-    if (!projectId || !session?.checkpoint_id) return
-    const created = await perform(() =>
-      engineRequest<components['schemas']['BranchManifest']>(
-        `/projects/${projectId}/branches`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            branch_id: forkId,
-            source_checkpoint_id: session.checkpoint_id,
-            parent_branch_id: session.branch_id,
-            content_locale: session.content_locale,
-          }),
-        }
-      )
-    )
-    if (created) setNotice(`分支已创建：${created.branch_id}`)
-  }
-
-  async function rebuildProjection() {
-    if (!projectId || !session) return
-    const result = await perform(() =>
-      engineRequest<components['schemas']['ProjectionResponse']>(
-        `/projects/${projectId}/branches/${session.branch_id}/projection`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ checkpoint_id: session.checkpoint_id }),
-        }
-      )
-    )
-    if (result) setNotice(`Markdown 投影已重建（${result.written_paths.length} 个文件）`)
-  }
-
-  async function switchLocale() {
-    if (!projectId || !session) return
-    const updated = await perform(() =>
-      engineRequest<SessionSnapshot>(
-        `/projects/${projectId}/simulations/${session.session_id}/locale`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ content_locale: contentLocale }),
-        }
-      )
-    )
-    if (updated) {
-      setSession(updated)
-      setNotice(`内容语言已切换为 ${updated.content_locale}`)
-    }
-  }
+  const eyebrow = useMemo(
+    () =>
+      simulation.project
+        ? `${simulation.project.project.title} / ${simulation.session?.branch_id ?? 'main'}`
+        : t('loading'),
+    [simulation.project, simulation.session?.branch_id, t]
+  )
 
   if (!projectId) {
     return (
       <StoryPage>
-        <PageHeader eyebrow="故事工作区" title="模拟控制台" />
+        <PageHeader eyebrow={t('workspace')} title={t('title')} />
         <section className="border bg-background p-8">
-          <h2 className="font-studio text-xl">尚未选择故事项目</h2>
+          <h2 className="font-studio text-xl">{t('noProject')}</h2>
           <Link className={`${primaryButton} mt-5`} to={route.submission}>
-            前往投稿 <ArrowRight size={15} />
+            {t('goToSubmission')} <ArrowRight size={15} />
           </Link>
         </section>
       </StoryPage>
     )
   }
 
-  const activeCharacters =
-    project?.characters.filter((character) => character.type === 'active') ?? []
-
   return (
-    <StoryPage>
+    <StoryPage wide>
       <PageHeader
-        eyebrow={project ? `${project.project.title} / ${branchId}` : '正在加载项目'}
-        title="模拟控制台"
+        action={ended ? (
+          <Button onClick={simulation.startNew} variant="outline">
+            <RotateCcw size={14} /> {t('newSession')}
+          </Button>
+        ) : undefined}
+        eyebrow={eyebrow}
+        title={t('title')}
       />
-      {error && (
+      {simulation.error && (
         <p className="mb-4 border border-destructive p-3 text-sm text-destructive" role="alert">
-          {error}
+          {simulation.error}
         </p>
       )}
       {notice && (
-        <p className="mb-4 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status">
+        <p className="mb-4 border border-emerald-500/30 bg-emerald-500/8 p-3 text-sm text-emerald-700" role="status">
           {notice}
         </p>
       )}
-
-      {!session ? (
-        <section className="space-y-5 border bg-background p-6">
-          <div>
-            <label className="text-sm font-medium" htmlFor="simulation-premise">
-              场景目标
-            </label>
-            <Input
-              id="simulation-premise"
-              onChange={(event) => setPremise(event.target.value)}
-              value={premise}
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium" htmlFor="content-locale">
-              内容语言
-            </label>
-            <Input
-              id="content-locale"
-              onChange={(event) => setContentLocale(event.target.value)}
-              value={contentLocale}
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium" htmlFor="simulation-branch">
-              分支 ID
-            </label>
-            <Input
-              id="simulation-branch"
-              onChange={(event) => setBranchId(event.target.value)}
-              value={branchId}
-            />
-          </div>
-          <fieldset className="grid gap-2 sm:grid-cols-2">
-            <legend className="mb-2 text-sm font-medium">参与角色</legend>
-            {activeCharacters.map((character) => (
-              <label className="flex items-center gap-2 border p-3 text-sm" key={character.id}>
-                <input
-                  checked={selectedActors.includes(character.id)}
-                  onChange={() =>
-                    setSelectedActors((current) =>
-                      current.includes(character.id)
-                        ? current.filter((id) => id !== character.id)
-                        : [...current, character.id]
-                    )
-                  }
-                  type="checkbox"
-                />
-                {character.display_name || character.id}
-              </label>
-            ))}
-          </fieldset>
-          <Button disabled={working || selectedActors.length === 0} onClick={() => void start()}>
-            <Play size={15} /> 启动会话
-          </Button>
-        </section>
+      {!simulation.session ? (
+        simulation.project && (
+          <SessionSetup
+            onStart={(options) => void simulation.start(options)}
+            pending={simulation.isPending('start')}
+            project={simulation.project}
+          />
+        )
       ) : (
-        <div className="space-y-5">
-          <section className="border bg-background p-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <StatusPill tone={session.status === 'failed' ? 'danger' : 'success'}>
-                {session.status}
-              </StatusPill>
-              <span className="text-sm">Step {session.current_step}</span>
-              <code className="text-xs text-muted-foreground">{session.checkpoint_id}</code>
-            </div>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Button disabled={working} onClick={() => void step()}><Play size={15} /> 单步</Button>
-              <Button disabled={working} onClick={() => void control('run')} variant="outline">连续运行</Button>
-              <Button disabled={working} onClick={() => void control('pause')} variant="outline"><Pause size={15} /> 暂停</Button>
-              <Button disabled={working} onClick={() => void control('resume')} variant="outline">继续</Button>
-              <Button disabled={working} onClick={() => void checkpoint()} variant="outline"><Save size={15} /> 保存检查点</Button>
-              <Button disabled={working} onClick={() => void control('terminate')} variant="destructive"><Square size={15} /> 终止</Button>
-            </div>
-          </section>
-
-          {lastStep?.resolved_turn && (
-            <section className="border bg-background p-6">
-              <p className="text-xs text-muted-foreground">最近世界事件</p>
-              <p className="mt-2">{lastStep.resolved_turn.raw_resolution_text}</p>
-            </section>
-          )}
-
-          <section className="grid gap-3 border bg-background p-6 sm:grid-cols-[1fr_auto_auto]">
-            <Input aria-label="新分支 ID" onChange={(event) => setForkId(event.target.value)} value={forkId} />
-            <Button disabled={working || !session.checkpoint_id} onClick={() => void fork()} variant="outline"><GitBranch size={15} /> 从检查点分支</Button>
-            <Button disabled={working} onClick={() => void rebuildProjection()} variant="outline">重建 Markdown</Button>
-          </section>
-          <section className="flex gap-3 border bg-background p-6">
-            <Input
-              aria-label="内容语言"
-              onChange={(event) => setContentLocale(event.target.value)}
-              value={contentLocale}
+        <div className="space-y-4">
+          <div>
+            <SimulationHeader session={simulation.session} />
+            <SimulationControls
+              onCancel={() => void simulation.control('cancel')}
+              onCheckpoint={() => void simulation.checkpoint()}
+              onPause={() => void simulation.control('pause')}
+              onResume={() => void simulation.control('resume')}
+              onRun={() => void simulation.control('run')}
+              onStep={() => void simulation.step()}
+              onTerminate={() => void simulation.control('terminate')}
+              pending={simulation.isPending}
+              status={simulation.session.status}
             />
-            <Button disabled={working} onClick={() => void switchLocale()} variant="outline">
-              切换内容语言
-            </Button>
-          </section>
+          </div>
+          {simulation.project && (
+            <div className="grid min-h-[560px] gap-4 xl:grid-cols-[260px_minmax(360px,1fr)_minmax(300px,0.85fr)]">
+              <ActorRail
+                project={simulation.project}
+                session={simulation.session}
+                step={selectedStep}
+              />
+              <StepPipeline
+                onSelect={(stage) => chooseStage(viewState.selectedStep, stage)}
+                selectedStage={viewState.selectedStage}
+                step={selectedStep}
+              />
+              <StageInspector
+                onRetry={
+                  retryCheckpointId
+                    ? () => void simulation.restore(retryCheckpointId)
+                    : undefined
+                }
+                stage={selectedStage}
+              />
+            </div>
+          )}
+          <SimulationTimeline state={viewState} onSelect={selectTimelineStep} />
+          <BranchNavigator
+            branches={simulation.branches}
+            onCompare={simulation.compareBranches}
+            onFork={async (branchId) => {
+              const result = await simulation.fork(branchId)
+              if (result) setNotice(t('notice.branchCreated', { branch: branchId }))
+              return result
+            }}
+            onLocale={async (locale) => {
+              const result = await simulation.switchLocale(locale)
+              if (result) setNotice(t('notice.localeChanged', { locale }))
+              return result
+            }}
+            onProjection={async () => {
+              const result = await simulation.rebuildProjection()
+              if (result) setNotice(t('notice.projectionBuilt'))
+              return result
+            }}
+            onRestore={async (checkpointId) => {
+              const result = await simulation.restore(checkpointId)
+              if (result) setNotice(t('notice.restored'))
+              return result
+            }}
+            pending={simulation.isPending}
+            session={simulation.session}
+          />
         </div>
       )}
     </StoryPage>

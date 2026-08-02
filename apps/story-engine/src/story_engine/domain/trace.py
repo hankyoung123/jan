@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
-from typing import Self
+from typing import Protocol, Self
 
 from pydantic import Field, model_validator
 
@@ -13,6 +13,56 @@ class ModelCallStatus(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     TIMED_OUT = "timed_out"
+
+
+class SimulationStage(StrEnum):
+    TERMINATION = "termination"
+    OBSERVATION = "observation"
+    ACTOR_SELECTION = "actor_selection"
+    ACTION_SPEC = "action_spec"
+    ACTOR_ACTION = "actor_action"
+    RESOLUTION = "resolution"
+    MEMORY_ROUTING = "memory_routing"
+    COMMIT = "commit"
+
+
+class StageStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class SimulationStageEvent(RuntimeModel):
+    event_id: Identifier
+    project_id: Identifier
+    session_id: Identifier
+    branch_id: Identifier
+    step: int = Field(ge=0)
+    stage: SimulationStage
+    status: StageStatus
+    actor_id: Identifier | None = None
+    action_spec: ActionSpec | None = None
+    summary_text: str | None = Field(default=None, max_length=131_072)
+    input_record_ids: tuple[Identifier, ...] = ()
+    output_record_ids: tuple[Identifier, ...] = ()
+    visible_to: tuple[Identifier, ...] = ()
+    profile_ids: tuple[Identifier, ...] = ()
+    provider_ids: tuple[Identifier, ...] = ()
+    model_ids: tuple[str, ...] = ()
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    duration_ms: int | None = Field(default=None, ge=0)
+    checkpoint_id: Identifier | None = None
+    error_code: str | None = None
+    started_at: datetime
+    completed_at: datetime | None = None
+
+
+class SimulationObserver(Protocol):
+    def publish(self, event: SimulationStageEvent) -> None: ...
 
 
 class ModelCallTrace(RuntimeModel):
@@ -58,10 +108,18 @@ class StageTrace(RuntimeModel):
     stage_type: Identifier
     started_at: datetime
     completed_at: datetime | None = None
-    status: ModelCallStatus
+    status: StageStatus
+    actor_id: Identifier | None = None
+    action_spec: ActionSpec | None = None
     model_call_ids: tuple[Identifier, ...] = ()
     input_record_ids: tuple[Identifier, ...] = ()
     output_record_ids: tuple[Identifier, ...] = ()
+    visible_to: tuple[Identifier, ...] = ()
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    duration_ms: int | None = Field(default=None, ge=0)
+    checkpoint_id: Identifier | None = None
+    error_code: Identifier | None = None
     detail_text: str | None = None
 
 

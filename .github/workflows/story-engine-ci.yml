@@ -2,7 +2,9 @@ name: Story Engine CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'codex/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -73,8 +75,8 @@ jobs:
       - name: Test Python
         run: uv run --project apps/story-engine pytest -c apps/story-engine/pyproject.toml apps/story-engine/tests
 
-      - name: Verify large-project 30-turn performance
-        run: uv run --project apps/story-engine pytest -c apps/story-engine/pyproject.toml apps/story-engine/tests/evolution/test_service.py -k large_project --durations=1
+      - name: Verify 100-step Concordia replay
+        run: uv run --project apps/story-engine pytest -c apps/story-engine/pyproject.toml apps/story-engine/tests/simulation/test_engine.py -k one_hundred --durations=1
 
       - name: Build Python package
         run: uv run --project apps/story-engine python -m build apps/story-engine

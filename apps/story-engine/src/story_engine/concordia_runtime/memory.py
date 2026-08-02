@@ -106,14 +106,28 @@ class ConcordiaMemoryBank:
         self._owner_id = owner_id
         self._scope = scope
         self._codec = codec or ConcordiaMemoryCodec()
+        self._embedder = embedder
+        self._embedding_cache: dict[str, np.ndarray] = {}
         self._bank = basic_associative_memory.AssociativeMemoryBank(
-            sentence_embedder=embedder,
+            sentence_embedder=self._embed,
             allow_duplicates=(
                 scope == MemoryScope.GAME_MASTER
                 if allow_duplicates is None
                 else allow_duplicates
             ),
         )
+
+    def _embed(self, text: str) -> np.ndarray:
+        cached = self._embedding_cache.get(text)
+        if cached is not None:
+            return cached
+        vector = np.asarray(self._embedder(text), dtype=float)
+        if vector.ndim != 1 or vector.size == 0 or not np.isfinite(vector).all():
+            raise ValueError("memory embedder must return one finite vector")
+        norm = float(np.linalg.norm(vector))
+        normalized = vector if math.isclose(norm, 0.0) else vector / norm
+        self._embedding_cache[text] = normalized
+        return normalized
 
     @property
     def owner_id(self) -> str:
@@ -177,11 +191,55 @@ class ConcordiaMemoryBank:
             record
             for record in self._decode_many(values)
             if self._matches(record, query)
-        ][: query.limit]
-        return tuple(
-            MemoryHit(record=record, score=1.0 / (index + 1))
-            for index, record in enumerate(records)
+        ]
+        if not records:
+            return ()
+        query_vector = self._embed(query.query_text)
+        reference_step = query.before_step or max(record.step for record in records) + 1
+
+        def relation_score(record: MemoryRecord) -> float:
+            scores: list[float] = []
+            for requested, actual in (
+                (query.actor_ids, record.actor_ids),
+                (query.location_ids, record.location_ids),
+                (query.tags, record.tags),
+            ):
+                if requested:
+                    scores.append(
+                        len(set(requested) & set(actual)) / len(set(requested))
+                    )
+            return sum(scores) / len(scores) if scores else 0.5
+
+        ranked: list[MemoryHit] = []
+        for record in records:
+            record_vector = self._embed(record.raw_text or self._codec.encode(record))
+            if record_vector.shape != query_vector.shape:
+                raise ValueError("memory embeddings changed dimensions within one bank")
+            cosine = float(np.dot(query_vector, record_vector))
+            semantic = min(1.0, max(0.0, (cosine + 1.0) / 2.0))
+            distance = max(0, reference_step - record.step)
+            recency = math.exp(-distance / 50.0)
+            relation = relation_score(record)
+            score = (
+                0.55 * semantic
+                + 0.20 * record.importance
+                + 0.15 * recency
+                + 0.10 * relation
+            )
+            ranked.append(
+                MemoryHit(
+                    record=record,
+                    score=score,
+                    semantic_score=semantic,
+                    recency_score=recency,
+                    importance_score=record.importance,
+                )
+            )
+        ranked.sort(
+            key=lambda hit: (hit.score, hit.record.step, hit.record.record_id),
+            reverse=True,
         )
+        return tuple(ranked[: query.limit])
 
     def retrieve_recent(
         self,
@@ -241,5 +299,6 @@ class ConcordiaMemoryBank:
         if digest != snapshot.state_hash:
             raise ValueError("memory snapshot hash mismatch")
         self._bank.set_state(cast(dict[str, Any], snapshot.state))
+        self._embedding_cache.clear()
         if len(self._bank) != snapshot.record_count:
             raise ValueError("memory snapshot record count mismatch")

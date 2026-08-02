@@ -20,7 +20,10 @@ from story_engine.domain.simulation import (
     TurnSessionStatus,
 )
 from story_engine.domain.trace import ModelCallStatus, ModelCallTrace
-from story_engine.simulation.engine import StoryTurnEngine
+from story_engine.simulation.engine import (
+    InvalidSessionTransitionError,
+    StoryTurnEngine,
+)
 from story_engine.simulation.execution import BranchAlreadyActiveError
 from story_engine.simulation.runtime import StorySimulationRuntime
 
@@ -28,13 +31,23 @@ from story_engine.simulation.runtime import StorySimulationRuntime
 def _runtime_factory(
     *,
     semantic_termination: bool = False,
+    boundaries: tuple[str, ...] | None = None,
 ):
     def build(session_id: str, request: TurnSessionRequest) -> StorySimulationRuntime:
         steps = request.control.max_steps
+        boundary_values = boundaries or tuple("none" for _ in range(steps))
         gm_choices = (
             ("Yes",)
             if semantic_termination
-            else tuple(value for _ in range(steps) for value in ("No", "actor-a"))
+            else tuple(
+                value
+                for step in range(steps)
+                for value in (
+                    ("No", "actor-a")
+                    if boundaries is not None
+                    else ("No", "actor-a", "none")
+                )
+            )
         )
         gm_text = tuple(
             value
@@ -43,7 +56,14 @@ def _runtime_factory(
                 f"Observation {step}",
                 '{"call_to_action":"Act now.","output_type":"free",'
                 '"options":[],"tag":"action"}',
-                f"Resolved event {step}",
+                (
+                    '{"event_text":"Resolved event '
+                    f'{step}","boundary":"{boundary_values[step]}",'
+                    '"visibility":"participants","observer_ids":[],'
+                    '"participant_ids":["actor-a"],"entity_changes":[]}'
+                    if boundaries is not None
+                    else f"Resolved event {step}"
+                ),
             )
         )
         actor_model = ReplayLanguageModel(
@@ -78,6 +98,7 @@ def _runtime_factory(
             ),
         )
         return StorySimulationRuntime(
+            project_id=request.project_id,
             session_id=session_id,
             branch_id=request.branch_id,
             content_locale=request.content_locale,
@@ -136,7 +157,7 @@ def test_replay_runtime_runs_one_hundred_steps_without_state_drift() -> None:
     assert snapshot.current_step == 100
     assert snapshot.raw_log_offset == 100
     assert [result.step for result in completed] == list(range(100))
-    assert snapshot.memory_snapshots["actor-a"].record_count == 100
+    assert snapshot.memory_snapshots["actor-a"].record_count == 200
     assert snapshot.memory_snapshots["gm"].record_count == 200
 
 
@@ -154,6 +175,78 @@ def test_step_mode_pauses_and_resume_runs_exactly_one_more_step() -> None:
     assert after_first.current_step == 1
     assert after_resume.status == TurnSessionStatus.PAUSED
     assert after_resume.current_step == 2
+
+
+def test_scene_mode_pauses_only_at_scene_or_chapter_boundary() -> None:
+    engine = StoryTurnEngine(
+        _runtime_factory(boundaries=("none", "scene", "none", "none"))
+    )
+    created = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.SCENE, max_steps=4, max_scenes=4))
+    )
+
+    snapshot = engine.run(created.session_id, cancellation=Event())
+
+    assert snapshot.status == TurnSessionStatus.PAUSED
+    assert snapshot.current_step == 2
+    assert snapshot.completed_scenes == 1
+
+
+def test_chapter_mode_runs_across_scenes_until_chapter_boundary() -> None:
+    engine = StoryTurnEngine(
+        _runtime_factory(boundaries=("scene", "none", "chapter", "none"))
+    )
+    created = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.CHAPTER, max_steps=4, max_scenes=4))
+    )
+
+    snapshot = engine.run(created.session_id, cancellation=Event())
+
+    assert snapshot.status == TurnSessionStatus.PAUSED
+    assert snapshot.current_step == 3
+    assert snapshot.completed_scenes == 2
+
+
+def test_autonomous_mode_can_cross_boundaries_until_a_hard_limit() -> None:
+    engine = StoryTurnEngine(_runtime_factory(boundaries=("scene", "chapter", "none")))
+    created = engine.create_session(
+        _request(
+            ControlPolicy(
+                mode=ControlMode.AUTONOMOUS,
+                pause_after_scene=False,
+                max_steps=3,
+                max_scenes=5,
+            )
+        )
+    )
+
+    snapshot = engine.run(created.session_id, cancellation=Event())
+
+    assert snapshot.status == TurnSessionStatus.TERMINATED
+    assert snapshot.current_step == 3
+    assert snapshot.completed_scenes == 2
+    assert snapshot.termination_reason_text == "maximum step budget reached"
+
+
+def test_max_scenes_is_an_enforced_hard_limit() -> None:
+    engine = StoryTurnEngine(_runtime_factory(boundaries=("scene", "scene", "none")))
+    created = engine.create_session(
+        _request(
+            ControlPolicy(
+                mode=ControlMode.AUTONOMOUS,
+                pause_after_scene=False,
+                max_steps=3,
+                max_scenes=2,
+            )
+        )
+    )
+
+    snapshot = engine.run(created.session_id, cancellation=Event())
+
+    assert snapshot.status == TurnSessionStatus.TERMINATED
+    assert snapshot.current_step == 2
+    assert snapshot.completed_scenes == 2
+    assert snapshot.termination_reason_text == "maximum scene budget reached"
 
 
 def test_locale_switch_updates_persistent_actor_components_at_boundary() -> None:
@@ -214,6 +307,28 @@ def test_branch_has_only_one_live_session_writer() -> None:
         _request(ControlPolicy(mode=ControlMode.STEP, max_steps=2))
     )
     assert replacement.status == TurnSessionStatus.CREATED
+
+
+def test_user_override_policy_blocks_pause_and_safe_terminate_but_not_cancel() -> None:
+    engine = StoryTurnEngine(_runtime_factory())
+    created = engine.create_session(
+        _request(
+            ControlPolicy(
+                mode=ControlMode.AUTONOMOUS,
+                max_steps=2,
+                allow_user_override=False,
+            )
+        )
+    )
+
+    with pytest.raises(InvalidSessionTransitionError, match="user overrides"):
+        engine.pause(created.session_id)
+    with pytest.raises(InvalidSessionTransitionError, match="user overrides"):
+        engine.terminate(created.session_id, reason_text="safe stop")
+
+    cancelled = engine.cancel(created.session_id, reason_text="emergency stop")
+
+    assert cancelled.status == TurnSessionStatus.CANCELLED
 
 
 def test_model_token_budget_terminates_before_another_step_can_run() -> None:

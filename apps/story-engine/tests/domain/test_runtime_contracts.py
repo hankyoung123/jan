@@ -154,7 +154,7 @@ def test_session_contract_captures_control_and_checkpoint_state() -> None:
         premise_text="港口的灯塔突然熄灭。",
         actor_ids=("chen-mo",),
         content_locale="zh-CN",
-        control=ControlPolicy(mode=ControlMode.STEP, pause_after_step=True),
+        control=ControlPolicy(mode=ControlMode.STEP),
         seed=7,
     )
     now = datetime.now(UTC)
@@ -164,6 +164,7 @@ def test_session_contract_captures_control_and_checkpoint_state() -> None:
         branch_id=request.branch_id,
         status=TurnSessionStatus.CREATED,
         content_locale=request.content_locale,
+        request=request,
         current_step=0,
         actor_states={"chen-mo": {}},
         game_master_states={"gm": {}},

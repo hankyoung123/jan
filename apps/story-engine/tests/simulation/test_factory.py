@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from story_engine.concordia_runtime.memory import deterministic_embedder
 from story_engine.domain.simulation import (
     ControlMode,
     ControlPolicy,
@@ -19,7 +20,11 @@ def test_project_runtime_imports_seed_with_private_memory_isolation(
         ProfileRegistry(tmp_path / "models.json"),
         UnavailableModelTransport(),
     )
-    runtime = ProjectRuntimeFactory(tmp_path, gateway)(
+    runtime = ProjectRuntimeFactory(
+        tmp_path,
+        gateway,
+        embedder=deterministic_embedder,
+    )(
         "session:1",
         TurnSessionRequest(
             project_id="fog-harbor",

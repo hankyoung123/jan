@@ -119,6 +119,57 @@
         "title": "AmendmentCommitResult",
         "type": "object"
       },
+      "BranchComparisonResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "left": {
+            "$ref": "#/components/schemas/BranchManifest"
+          },
+          "only_left_entities": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Only Left Entities",
+            "type": "array"
+          },
+          "only_left_events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Only Left Events",
+            "type": "array"
+          },
+          "only_right_entities": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Only Right Entities",
+            "type": "array"
+          },
+          "only_right_events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Only Right Events",
+            "type": "array"
+          },
+          "right": {
+            "$ref": "#/components/schemas/BranchManifest"
+          }
+        },
+        "required": [
+          "left",
+          "right",
+          "only_left_events",
+          "only_right_events",
+          "only_left_entities",
+          "only_right_entities"
+        ],
+        "title": "BranchComparisonResponse",
+        "type": "object"
+      },
       "BranchCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -503,17 +554,65 @@
             "default": true,
             "title": "Pause After Scene",
             "type": "boolean"
-          },
-          "pause_after_step": {
-            "default": false,
-            "title": "Pause After Step",
-            "type": "boolean"
           }
         },
         "required": [
           "mode"
         ],
         "title": "ControlPolicy",
+        "type": "object"
+      },
+      "DynamicEntityDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "display_name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "entity_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "goal": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Goal",
+            "type": "string"
+          },
+          "identity": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Identity",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          }
+        },
+        "required": [
+          "entity_id",
+          "display_name",
+          "identity",
+          "goal"
+        ],
+        "title": "DynamicEntityDefinition",
         "type": "object"
       },
       "EffectOperation": {
@@ -536,6 +635,75 @@
         ],
         "title": "EffectTarget",
         "type": "string"
+      },
+      "EngineEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Payload",
+            "type": "object"
+          },
+          "project_id": {
+            "minLength": 1,
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sequence": {
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "subject_id": {
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "engine.status",
+              "workspace.changed",
+              "simulation.started",
+              "simulation.step.started",
+              "simulation.stage.started",
+              "simulation.stage.completed",
+              "simulation.stage.failed",
+              "simulation.step.completed",
+              "simulation.pause.requested",
+              "simulation.termination.requested",
+              "simulation.paused",
+              "simulation.checkpointed",
+              "simulation.terminated",
+              "simulation.failed",
+              "stream.resync_required"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "project_id",
+          "subject_id",
+          "timestamp",
+          "sequence",
+          "type",
+          "payload"
+        ],
+        "title": "EngineEvent",
+        "type": "object"
       },
       "EventAmendmentCandidate": {
         "additionalProperties": false,
@@ -936,6 +1104,210 @@
         "title": "Message",
         "type": "object"
       },
+      "ModelCallStatus": {
+        "enum": [
+          "succeeded",
+          "failed",
+          "cancelled",
+          "timed_out"
+        ],
+        "title": "ModelCallStatus",
+        "type": "string"
+      },
+      "ModelCallTrace": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "branch_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch Id"
+          },
+          "call_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "completion_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "component_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Component Ids",
+            "type": "array"
+          },
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "duration_ms": {
+            "minimum": 0.0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "profile_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "prompt_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Prompt Sha256",
+            "type": "string"
+          },
+          "prompt_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provider_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "retry_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Retry Count",
+            "type": "integer"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "source_record_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Source Record Ids",
+            "type": "array"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ModelCallStatus"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "task_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_type": {
+            "$ref": "#/components/schemas/TaskType"
+          },
+          "validation_errors": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Validation Errors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "call_id",
+          "task_id",
+          "task_type",
+          "status",
+          "profile_id",
+          "provider_id",
+          "model_id",
+          "prompt_version",
+          "content_locale",
+          "prompt_sha256",
+          "duration_ms",
+          "started_at"
+        ],
+        "title": "ModelCallTrace",
+        "type": "object"
+      },
       "ModelCatalog": {
         "additionalProperties": false,
         "properties": {
@@ -1195,6 +1567,15 @@
         },
         "title": "ModelUsage",
         "type": "object"
+      },
+      "PendingControl": {
+        "enum": [
+          "none",
+          "pause",
+          "terminate"
+        ],
+        "title": "PendingControl",
+        "type": "string"
       },
       "ProjectCatalogEntry": {
         "additionalProperties": false,
@@ -1870,6 +2251,10 @@
               }
             ]
           },
+          "boundary": {
+            "$ref": "#/components/schemas/SimulationBoundary",
+            "default": "none"
+          },
           "branch_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Branch Id",
@@ -2443,6 +2828,15 @@
         "title": "SceneUpdateRequest",
         "type": "object"
       },
+      "SimulationBoundary": {
+        "enum": [
+          "none",
+          "scene",
+          "chapter"
+        ],
+        "title": "SimulationBoundary",
+        "type": "string"
+      },
       "SimulationLocaleRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2458,6 +2852,62 @@
           "content_locale"
         ],
         "title": "SimulationLocaleRequest",
+        "type": "object"
+      },
+      "SimulationLogRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^checkpoint-[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "result": {
+            "$ref": "#/components/schemas/StepResult"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "state_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "State Hash",
+            "type": "string"
+          },
+          "trace": {
+            "$ref": "#/components/schemas/TurnTrace"
+          }
+        },
+        "required": [
+          "state_hash",
+          "result",
+          "trace"
+        ],
+        "title": "SimulationLogRecord",
+        "type": "object"
+      },
+      "SimulationRestoreRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkpoint_id"
+        ],
+        "title": "SimulationRestoreRequest",
         "type": "object"
       },
       "SimulationStartRequest": {
@@ -2528,6 +2978,178 @@
           "reason_text"
         ],
         "title": "SimulationTerminateRequest",
+        "type": "object"
+      },
+      "StageStatus": {
+        "enum": [
+          "pending",
+          "running",
+          "succeeded",
+          "skipped",
+          "failed",
+          "cancelled"
+        ],
+        "title": "StageStatus",
+        "type": "string"
+      },
+      "StageTrace": {
+        "additionalProperties": false,
+        "properties": {
+          "action_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "completion_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "detail_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail Text"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "input_record_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Input Record Ids",
+            "type": "array"
+          },
+          "model_call_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Model Call Ids",
+            "type": "array"
+          },
+          "output_record_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Output Record Ids",
+            "type": "array"
+          },
+          "prompt_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "stage_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Stage Id",
+            "type": "string"
+          },
+          "stage_type": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Stage Type",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StageStatus"
+          },
+          "visible_to": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Visible To",
+            "type": "array"
+          }
+        },
+        "required": [
+          "stage_id",
+          "stage_type",
+          "started_at",
+          "status"
+        ],
+        "title": "StageTrace",
         "type": "object"
       },
       "StateChange": {
@@ -2701,6 +3323,10 @@
               }
             ],
             "title": "Action Text"
+          },
+          "boundary": {
+            "$ref": "#/components/schemas/SimulationBoundary",
+            "default": "none"
           },
           "branch_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
@@ -3165,6 +3791,80 @@
         "title": "SubmissionPackage",
         "type": "object"
       },
+      "TaskType": {
+        "enum": [
+          "actor",
+          "game_master",
+          "reflection",
+          "memory_consolidation",
+          "projection",
+          "editor",
+          "writer",
+          "embedding"
+        ],
+        "title": "TaskType",
+        "type": "string"
+      },
+      "TurnSessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Actor Ids",
+            "type": "array"
+          },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "control": {
+            "$ref": "#/components/schemas/ControlPolicy"
+          },
+          "premise_text": {
+            "maxLength": 131072,
+            "minLength": 1,
+            "title": "Premise Text",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          }
+        },
+        "required": [
+          "project_id",
+          "branch_id",
+          "premise_text",
+          "content_locale",
+          "control"
+        ],
+        "title": "TurnSessionRequest",
+        "type": "object"
+      },
       "TurnSessionSnapshot": {
         "additionalProperties": false,
         "properties": {
@@ -3179,6 +3879,15 @@
               }
             ],
             "title": "Active Actor Id"
+          },
+          "active_entity_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Active Entity Ids",
+            "type": "array"
           },
           "actor_states": {
             "patternProperties": {
@@ -3209,6 +3918,12 @@
             ],
             "title": "Checkpoint Id"
           },
+          "completed_scenes": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Completed Scenes",
+            "type": "integer"
+          },
           "consecutive_model_failures": {
             "default": 0,
             "minimum": 0.0,
@@ -3237,6 +3952,14 @@
             "title": "Current Step",
             "type": "integer"
           },
+          "dynamic_entities": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DynamicEntityDefinition"
+            },
+            "title": "Dynamic Entities",
+            "type": "array"
+          },
           "game_master_states": {
             "patternProperties": {
               "^[a-z0-9][a-z0-9._:-]{0,127}$": {
@@ -3258,6 +3981,10 @@
             "title": "Memory Snapshots",
             "type": "object"
           },
+          "pending_control": {
+            "$ref": "#/components/schemas/PendingControl",
+            "default": "none"
+          },
           "project_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Project Id",
@@ -3267,6 +3994,9 @@
             "minimum": 0.0,
             "title": "Raw Log Offset",
             "type": "integer"
+          },
+          "request": {
+            "$ref": "#/components/schemas/TurnSessionRequest"
           },
           "session_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
@@ -3315,6 +4045,7 @@
           "branch_id",
           "status",
           "content_locale",
+          "request",
           "current_step",
           "actor_states",
           "game_master_states",
@@ -3338,6 +4069,128 @@
         ],
         "title": "TurnSessionStatus",
         "type": "string"
+      },
+      "TurnTrace": {
+        "additionalProperties": false,
+        "properties": {
+          "acting_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acting Actor Id"
+          },
+          "action_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "model_calls": {
+            "items": {
+              "$ref": "#/components/schemas/ModelCallTrace"
+            },
+            "title": "Model Calls",
+            "type": "array"
+          },
+          "putative_event_record_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Putative Event Record Id"
+          },
+          "resolved_event_record_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Resolved Event Record Ids",
+            "type": "array"
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/StageTrace"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ModelCallStatus"
+          },
+          "step": {
+            "minimum": 0.0,
+            "title": "Step",
+            "type": "integer"
+          },
+          "trace_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "session_id",
+          "branch_id",
+          "step",
+          "content_locale",
+          "stages",
+          "model_calls",
+          "started_at",
+          "status"
+        ],
+        "title": "TurnTrace",
+        "type": "object"
       },
       "UsageTotals": {
         "additionalProperties": false,
@@ -4034,6 +4887,55 @@
       }
     },
     "/projects/{project_id}/branches": {
+      "get": {
+        "operationId": "list_branches_projects__project_id__branches_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BranchManifest"
+                  },
+                  "title": "Response List Branches Projects  Project Id  Branches Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Branches",
+        "tags": [
+          "simulations"
+        ]
+      },
       "post": {
         "operationId": "create_branch_projects__project_id__branches_post",
         "parameters": [
@@ -4085,6 +4987,127 @@
           }
         ],
         "summary": "Create Branch",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/compare": {
+      "get": {
+        "operationId": "compare_branches_projects__project_id__branches_compare_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "left",
+            "required": true,
+            "schema": {
+              "title": "Left",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "right",
+            "required": true,
+            "schema": {
+              "title": "Right",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchComparisonResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Compare Branches",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}": {
+      "get": {
+        "operationId": "get_branch_projects__project_id__branches__branch_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchManifest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Branch",
         "tags": [
           "simulations"
         ]
@@ -4217,6 +5240,76 @@
           }
         ],
         "summary": "Rollback Branch",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}/simulation-trace": {
+      "get": {
+        "operationId": "list_simulation_trace_projects__project_id__branches__branch_id__simulation_trace_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_step",
+            "required": false,
+            "schema": {
+              "default": -1,
+              "title": "After Step",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SimulationLogRecord"
+                  },
+                  "title": "Response List Simulation Trace Projects  Project Id  Branches  Branch Id  Simulation Trace Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Simulation Trace",
         "tags": [
           "simulations"
         ]
@@ -5038,7 +6131,117 @@
         ]
       }
     },
+    "/projects/{project_id}/simulation-events": {
+      "get": {
+        "operationId": "list_simulation_events_projects__project_id__simulation_events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_sequence",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "After Sequence",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EngineEvent"
+                  },
+                  "title": "Response List Simulation Events Projects  Project Id  Simulation Events Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Simulation Events",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
     "/projects/{project_id}/simulations": {
+      "get": {
+        "operationId": "list_simulations_projects__project_id__simulations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TurnSessionSnapshot"
+                  },
+                  "title": "Response List Simulations Projects  Project Id  Simulations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Simulations",
+        "tags": [
+          "simulations"
+        ]
+      },
       "post": {
         "operationId": "start_simulation_projects__project_id__simulations_post",
         "parameters": [
@@ -5095,6 +6298,63 @@
         ]
       }
     },
+    "/projects/{project_id}/simulations/restore": {
+      "post": {
+        "operationId": "restore_simulation_projects__project_id__simulations_restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationRestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Restore Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
     "/projects/{project_id}/simulations/{session_id}": {
       "get": {
         "operationId": "get_simulation_projects__project_id__simulations__session_id__get",
@@ -5146,6 +6406,72 @@
           }
         ],
         "summary": "Get Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/cancel": {
+      "post": {
+        "operationId": "cancel_simulation_projects__project_id__simulations__session_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationTerminateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Cancel Simulation",
         "tags": [
           "simulations"
         ]
@@ -5363,7 +6689,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -5419,7 +6745,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {

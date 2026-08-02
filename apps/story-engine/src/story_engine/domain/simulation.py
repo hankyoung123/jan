@@ -10,7 +10,7 @@ from pydantic import Field, JsonValue
 from story_engine.domain.action import ActionSpec, EntityRole
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 from story_engine.domain.memory import MemoryBank, MemorySnapshot
-from story_engine.domain.projection import ResolvedTurn
+from story_engine.domain.projection import ResolvedTurn, SimulationBoundary
 from story_engine.domain.recipe import AgentRecipe, PerceptionFrame
 from story_engine.domain.trace import TurnTrace
 
@@ -128,7 +128,6 @@ class ControlMode(StrEnum):
 
 class ControlPolicy(RuntimeModel):
     mode: ControlMode
-    pause_after_step: bool = False
     pause_after_scene: bool = True
     max_steps: int = Field(default=40, ge=1, le=10_000)
     max_scenes: int = Field(default=1, ge=1, le=1_000)
@@ -149,6 +148,12 @@ class TurnSessionStatus(StrEnum):
     FAILED = "failed"
 
 
+class PendingControl(StrEnum):
+    NONE = "none"
+    PAUSE = "pause"
+    TERMINATE = "terminate"
+
+
 class TurnSessionRequest(RuntimeModel):
     project_id: Identifier
     branch_id: Identifier
@@ -159,13 +164,27 @@ class TurnSessionRequest(RuntimeModel):
     seed: int | None = None
 
 
+class DynamicEntityDefinition(RuntimeModel):
+    entity_id: Identifier
+    display_name: str = Field(min_length=1, max_length=256)
+    identity: str = Field(min_length=1, max_length=16_384)
+    goal: str = Field(min_length=1, max_length=16_384)
+    location: str | None = Field(default=None, max_length=1_024)
+    active: bool = True
+
+
 class TurnSessionSnapshot(RuntimeModel):
     session_id: Identifier
     project_id: Identifier
     branch_id: Identifier
     status: TurnSessionStatus
+    pending_control: PendingControl = PendingControl.NONE
     content_locale: LocaleCode
+    request: TurnSessionRequest
+    active_entity_ids: tuple[Identifier, ...] = ()
+    dynamic_entities: tuple[DynamicEntityDefinition, ...] = ()
     current_step: int = Field(ge=0)
+    completed_scenes: int = Field(default=0, ge=0)
     active_actor_id: Identifier | None = None
     current_action_spec: ActionSpec | None = None
     actor_states: dict[Identifier, dict[str, JsonValue]]
@@ -190,6 +209,7 @@ class StepResult(RuntimeModel):
     action_text: str | None
     resolved_turn: ResolvedTurn | None
     status: TurnSessionStatus
+    boundary: SimulationBoundary = SimulationBoundary.NONE
     checkpoint_id: Identifier | None = None
 
 
@@ -247,7 +267,14 @@ class CommitResult(RuntimeModel):
 
 
 class CommitKernel(Protocol):
-    def append_step(self, result: StepResult, trace: TurnTrace) -> CommitResult: ...
+    def append_step(
+        self,
+        result: StepResult,
+        snapshot: TurnSessionSnapshot,
+        trace: TurnTrace,
+        *,
+        checkpoint: bool = True,
+    ) -> CommitResult | None: ...
 
     def save_checkpoint(
         self,

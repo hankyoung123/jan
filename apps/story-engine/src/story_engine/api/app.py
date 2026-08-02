@@ -104,8 +104,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
-        simulation_service.checkpoint_inactive_sessions()
-        simulation_engine.cancel_all()
+        simulation_service.shutdown()
         workspace_manager.close_all()
 
     app = FastAPI(

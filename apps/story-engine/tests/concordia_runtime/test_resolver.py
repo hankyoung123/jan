@@ -23,7 +23,7 @@ def _runtime() -> tuple[object, object, ConcordiaMemoryBank]:
             '"options":[],"tag":"action"}',
             "The lock holds, and the noise alerts the guard.",
         ),
-        choice_responses=("actor-a",),
+        choice_responses=("actor-a", "none"),
     )
     factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
     actor = factory.build_actor(

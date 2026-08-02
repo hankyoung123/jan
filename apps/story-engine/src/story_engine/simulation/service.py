@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
-from threading import Event
+from threading import Event, RLock, Thread
 
 from pydantic import JsonValue
 
@@ -12,7 +12,14 @@ from story_engine.domain.simulation import (
     TurnSessionSnapshot,
     TurnSessionStatus,
 )
-from story_engine.domain.trace import ModelCallStatus, TurnTrace
+from story_engine.domain.trace import (
+    ModelCallStatus,
+    SimulationStage,
+    SimulationStageEvent,
+    StageStatus,
+    StageTrace,
+    TurnTrace,
+)
 from story_engine.events.stream import EngineEventBus, EngineEventType
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.simulation.engine import StoryTurnEngine
@@ -30,6 +37,9 @@ class SimulationApplicationService:
         self.engine = engine
         self.event_bus = event_bus
         self._commit_kernel_factory = commit_kernel_factory
+        self._run_threads: dict[str, Thread] = {}
+        self._run_cancellations: dict[str, Event] = {}
+        self._run_lock = RLock()
 
     def _publish(
         self,
@@ -44,8 +54,37 @@ class SimulationApplicationService:
             payload=payload or {"session_id": snapshot.session_id},
         )
 
+    def publish(self, event: SimulationStageEvent) -> None:
+        if (
+            event.stage == SimulationStage.TERMINATION
+            and event.status == StageStatus.RUNNING
+        ):
+            self.event_bus.publish(
+                project_id=event.project_id,
+                subject_id=event.session_id,
+                event_type="simulation.step.started",
+                payload={
+                    "session_id": event.session_id,
+                    "branch_id": event.branch_id,
+                    "step": event.step,
+                },
+            )
+        if event.status == StageStatus.RUNNING:
+            event_type: EngineEventType = "simulation.stage.started"
+        elif event.status == StageStatus.FAILED:
+            event_type = "simulation.stage.failed"
+        else:
+            event_type = "simulation.stage.completed"
+        self.event_bus.publish(
+            project_id=event.project_id,
+            subject_id=event.session_id,
+            event_type=event_type,
+            payload=event.model_dump(mode="json"),
+        )
+
     def start(self, request: TurnSessionRequest) -> TurnSessionSnapshot:
         snapshot = self.engine.create_session(request)
+        self.engine.attach_observer(snapshot.session_id, self)
         if self._commit_kernel_factory is not None:
             try:
                 committed = self._commit_kernel_factory(
@@ -64,6 +103,42 @@ class SimulationApplicationService:
 
     def get(self, session_id: str) -> TurnSessionSnapshot:
         return self.engine.get(session_id)
+
+    def list(self, project_id: str) -> tuple[TurnSessionSnapshot, ...]:
+        return tuple(
+            snapshot
+            for snapshot in self.engine.list_snapshots()
+            if snapshot.project_id == project_id
+        )
+
+    def restore(
+        self,
+        project_id: str,
+        *,
+        checkpoint_id: str,
+    ) -> TurnSessionSnapshot:
+        if self._commit_kernel_factory is None:
+            raise RuntimeError("simulation persistence is not configured")
+        loaded = self._commit_kernel_factory(project_id).load_checkpoint(
+            project_id,
+            checkpoint_id,
+        )
+        snapshot = self.engine.restore(
+            loaded.model_copy(update={"checkpoint_id": checkpoint_id})
+        )
+        self.engine.attach_observer(snapshot.session_id, self)
+        self._publish(
+            snapshot,
+            "simulation.started",
+            payload={
+                "session_id": snapshot.session_id,
+                "checkpoint_id": checkpoint_id,
+                "restored": True,
+                "step": snapshot.current_step,
+                "status": snapshot.status.value,
+            },
+        )
+        return snapshot
 
     def _step_sink(
         self,
@@ -88,16 +163,66 @@ class SimulationApplicationService:
         self,
         result: StepResult,
         snapshot: TurnSessionSnapshot,
+        *,
+        status: ModelCallStatus = ModelCallStatus.SUCCEEDED,
     ) -> TurnTrace:
+        stage_events = self.engine.drain_stage_events(result.session_id)
+        model_calls = self.engine.drain_model_traces(result.session_id)
+        completed_stages = tuple(
+            event for event in stage_events if event.status != StageStatus.RUNNING
+        )
+        stages = tuple(
+            StageTrace(
+                stage_id=(f"stage:{event.session_id}:{event.step}:{event.stage.value}"),
+                stage_type=event.stage.value,
+                started_at=event.started_at,
+                completed_at=event.completed_at,
+                status=event.status,
+                actor_id=event.actor_id,
+                action_spec=event.action_spec,
+                model_call_ids=tuple(
+                    call.call_id
+                    for call in model_calls
+                    if call.step == event.step
+                    and call.started_at >= event.started_at
+                    and (
+                        event.completed_at is None
+                        or call.started_at <= event.completed_at
+                    )
+                ),
+                input_record_ids=event.input_record_ids,
+                output_record_ids=event.output_record_ids,
+                visible_to=event.visible_to,
+                prompt_tokens=event.prompt_tokens,
+                completion_tokens=event.completion_tokens,
+                duration_ms=event.duration_ms,
+                checkpoint_id=event.checkpoint_id,
+                error_code=event.error_code,
+                detail_text=event.summary_text,
+            )
+            for event in completed_stages
+        )
         now = datetime.now(UTC)
+        started_at = min(
+            (event.started_at for event in stage_events),
+            default=now,
+        )
+        completed_at = max(
+            (
+                event.completed_at
+                for event in completed_stages
+                if event.completed_at is not None
+            ),
+            default=now,
+        )
         return TurnTrace(
             trace_id=f"trace:{uuid.uuid4().hex}",
             session_id=result.session_id,
             branch_id=result.branch_id,
             step=result.step,
             content_locale=snapshot.content_locale,
-            stages=(),
-            model_calls=self.engine.drain_model_traces(result.session_id),
+            stages=stages,
+            model_calls=model_calls,
             action_spec=result.action_spec,
             acting_actor_id=result.acting_actor_id,
             putative_event_record_id=(
@@ -110,10 +235,40 @@ class SimulationApplicationService:
                 if result.resolved_turn is not None
                 else ()
             ),
-            started_at=now,
-            completed_at=now,
-            status=ModelCallStatus.SUCCEEDED,
+            started_at=started_at,
+            completed_at=completed_at,
+            status=status,
         )
+
+    def _record_failure(self, session_id: str) -> None:
+        if self._commit_kernel_factory is None:
+            return
+        snapshot = self.engine.get(session_id)
+        result = StepResult(
+            session_id=session_id,
+            branch_id=snapshot.branch_id,
+            step=snapshot.current_step,
+            acting_actor_id=None,
+            action_spec=None,
+            action_text=None,
+            resolved_turn=None,
+            status=TurnSessionStatus.FAILED,
+        )
+        trace = self._trace_for(
+            result,
+            snapshot,
+            status=ModelCallStatus.FAILED,
+        )
+        try:
+            self._commit_kernel_factory(snapshot.project_id).append_step(
+                result,
+                snapshot,
+                trace,
+                checkpoint=False,
+            )
+        except (OSError, ValueError):
+            # The original runtime failure remains authoritative if trace IO fails.
+            return
 
     def _commit_step(
         self,
@@ -125,30 +280,135 @@ class SimulationApplicationService:
         result = result.model_copy(update={"status": snapshot.status})
         if self._commit_kernel_factory is None:
             return result, snapshot, None
+        commit_started = datetime.now(UTC)
+        self.publish(
+            SimulationStageEvent(
+                event_id=f"stage-event:{uuid.uuid4().hex}",
+                project_id=snapshot.project_id,
+                session_id=snapshot.session_id,
+                branch_id=snapshot.branch_id,
+                step=result.step,
+                stage=SimulationStage.COMMIT,
+                status=StageStatus.RUNNING,
+                started_at=commit_started,
+            )
+        )
         try:
+            checkpoint_due = (
+                snapshot.current_step % snapshot.request.control.checkpoint_every_steps
+                == 0
+                or snapshot.status == TurnSessionStatus.TERMINATED
+            )
+            trace = trace.model_copy(
+                update={
+                    "stages": (
+                        *trace.stages,
+                        StageTrace(
+                            stage_id=(
+                                f"stage:{snapshot.session_id}:{result.step}:commit"
+                            ),
+                            stage_type=SimulationStage.COMMIT.value,
+                            started_at=commit_started,
+                            completed_at=datetime.now(UTC),
+                            status=StageStatus.SUCCEEDED,
+                            input_record_ids=(
+                                f"event:{result.session_id}:{result.step}",
+                            )
+                            if result.resolved_turn is not None
+                            else (),
+                            detail_text=(
+                                "Step log and checkpoint commit"
+                                if checkpoint_due
+                                else "Step log commit"
+                            ),
+                            duration_ms=max(
+                                0,
+                                int(
+                                    (datetime.now(UTC) - commit_started).total_seconds()
+                                    * 1000
+                                ),
+                            ),
+                        ),
+                    ),
+                    "completed_at": datetime.now(UTC),
+                }
+            )
             committed = self._commit_kernel_factory(snapshot.project_id).append_step(
                 result,
                 snapshot,
                 trace,
+                checkpoint=checkpoint_due,
             )
-            snapshot = self.engine.attach_checkpoint(
-                snapshot.session_id,
-                committed.checkpoint_id,
+            if committed is not None:
+                snapshot = self.engine.attach_checkpoint(
+                    snapshot.session_id,
+                    committed.checkpoint_id,
+                )
+                result = result.model_copy(
+                    update={"checkpoint_id": committed.checkpoint_id}
+                )
+            else:
+                result = result.model_copy(
+                    update={"checkpoint_id": snapshot.checkpoint_id}
+                )
+            commit_completed = datetime.now(UTC)
+            self.publish(
+                SimulationStageEvent(
+                    event_id=f"stage-event:{uuid.uuid4().hex}",
+                    project_id=snapshot.project_id,
+                    session_id=snapshot.session_id,
+                    branch_id=snapshot.branch_id,
+                    step=result.step,
+                    stage=SimulationStage.COMMIT,
+                    status=StageStatus.SUCCEEDED,
+                    summary_text=(
+                        "Step log and checkpoint committed"
+                        if committed is not None
+                        else "Step log committed; checkpoint interval not reached"
+                    ),
+                    checkpoint_id=(
+                        committed.checkpoint_id if committed is not None else None
+                    ),
+                    duration_ms=max(
+                        0,
+                        int((commit_completed - commit_started).total_seconds() * 1000),
+                    ),
+                    started_at=commit_started,
+                    completed_at=commit_completed,
+                )
             )
-            result = result.model_copy(
-                update={"checkpoint_id": committed.checkpoint_id}
-            )
-            self._publish(
-                snapshot,
-                "simulation.checkpointed",
-                payload={
-                    "session_id": snapshot.session_id,
-                    "checkpoint_id": committed.checkpoint_id,
-                    "step": snapshot.current_step,
-                },
-            )
+            if committed is not None:
+                self._publish(
+                    snapshot,
+                    "simulation.checkpointed",
+                    payload={
+                        "session_id": snapshot.session_id,
+                        "checkpoint_id": committed.checkpoint_id,
+                        "step": snapshot.current_step,
+                    },
+                )
             return result, snapshot, committed
         except Exception as error:
+            commit_completed = datetime.now(UTC)
+            self.publish(
+                SimulationStageEvent(
+                    event_id=f"stage-event:{uuid.uuid4().hex}",
+                    project_id=snapshot.project_id,
+                    session_id=snapshot.session_id,
+                    branch_id=snapshot.branch_id,
+                    step=result.step,
+                    stage=SimulationStage.COMMIT,
+                    status=StageStatus.FAILED,
+                    summary_text=str(error),
+                    duration_ms=max(
+                        0,
+                        int((commit_completed - commit_started).total_seconds() * 1000),
+                    ),
+                    error_code=type(error).__name__.lower(),
+                    started_at=commit_started,
+                    completed_at=commit_completed,
+                )
+            )
             failed = self.engine.fail(snapshot.session_id, reason_text=str(error))
             self._publish(
                 failed,
@@ -158,7 +418,18 @@ class SimulationApplicationService:
             raise
 
     def step(self, session_id: str, *, cancellation: Event) -> StepResult:
-        result = self.engine.step(session_id, cancellation=cancellation)
+        try:
+            result = self.engine.step(session_id, cancellation=cancellation)
+        except Exception as error:
+            snapshot = self.engine.get(session_id)
+            if snapshot.status == TurnSessionStatus.FAILED:
+                self._record_failure(session_id)
+                self._publish(
+                    snapshot,
+                    "simulation.failed",
+                    payload={"session_id": session_id, "reason": str(error)},
+                )
+            raise
         snapshot = self.engine.get(session_id)
         result, snapshot, _ = self._commit_step(result, snapshot)
         self._step_sink(lambda: snapshot)(result)
@@ -170,6 +441,8 @@ class SimulationApplicationService:
 
     def run(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:
         def commit_and_publish(result: StepResult) -> None:
+            if result.status == TurnSessionStatus.CANCELLED:
+                return
             snapshot = self.engine.get(session_id)
             committed_result, committed_snapshot, _ = self._commit_step(
                 result,
@@ -190,42 +463,116 @@ class SimulationApplicationService:
         self._publish(snapshot, event_type)
         return snapshot
 
+    def run_in_background(
+        self,
+        session_id: str,
+        *,
+        resume: bool = False,
+    ) -> TurnSessionSnapshot:
+        with self._run_lock:
+            existing = self._run_threads.get(session_id)
+            if existing is not None and existing.is_alive():
+                raise RuntimeError("session already has a background run")
+            accepted = self.engine.prepare_run(
+                session_id,
+                require_paused=resume,
+            )
+            cancellation = Event()
+
+            def execute() -> None:
+                try:
+                    self.run(session_id, cancellation=cancellation)
+                except Exception as error:
+                    snapshot = self.engine.get(session_id)
+                    if snapshot.status == TurnSessionStatus.CANCELLED:
+                        return
+                    if snapshot.status not in {
+                        TurnSessionStatus.FAILED,
+                        TurnSessionStatus.TERMINATED,
+                    }:
+                        snapshot = self.engine.fail(
+                            session_id,
+                            reason_text=str(error),
+                        )
+                    self._record_failure(session_id)
+                    self._publish(
+                        snapshot,
+                        "simulation.failed",
+                        payload={
+                            "session_id": session_id,
+                            "reason": str(error),
+                        },
+                    )
+                finally:
+                    with self._run_lock:
+                        self._run_threads.pop(session_id, None)
+                        self._run_cancellations.pop(session_id, None)
+
+            thread = Thread(
+                target=execute,
+                name=f"simulation-run-{session_id}",
+            )
+            self._run_threads[session_id] = thread
+            self._run_cancellations[session_id] = cancellation
+            thread.start()
+            return accepted
+
     def pause(self, session_id: str) -> TurnSessionSnapshot:
         snapshot = self.engine.pause(session_id)
-        self._publish(snapshot, "simulation.paused")
-        return snapshot
-
-    def resume(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:
-        def commit_and_publish(result: StepResult) -> None:
-            snapshot = self.engine.get(session_id)
-            committed_result, committed_snapshot, _ = self._commit_step(
-                result,
-                snapshot,
-            )
-            self._step_sink(lambda: committed_snapshot)(committed_result)
-
-        snapshot = self.engine.resume(
-            session_id,
-            cancellation=cancellation,
-            on_step=commit_and_publish,
-        )
         event_type: EngineEventType = (
-            "simulation.paused"
-            if snapshot.status == TurnSessionStatus.PAUSED
-            else "simulation.terminated"
+            "simulation.pause.requested"
+            if snapshot.status == TurnSessionStatus.RUNNING
+            else "simulation.paused"
         )
         self._publish(snapshot, event_type)
         return snapshot
 
     def terminate(self, session_id: str, *, reason_text: str) -> TurnSessionSnapshot:
         snapshot = self.engine.terminate(session_id, reason_text=reason_text)
-        self._publish(snapshot, "simulation.terminated")
+        event_type: EngineEventType = (
+            "simulation.termination.requested"
+            if snapshot.status == TurnSessionStatus.RUNNING
+            else "simulation.terminated"
+        )
+        self._publish(snapshot, event_type)
         return snapshot
+
+    def cancel(self, session_id: str, *, reason_text: str) -> TurnSessionSnapshot:
+        with self._run_lock:
+            cancellation = self._run_cancellations.get(session_id)
+            if cancellation is not None:
+                cancellation.set()
+        snapshot = self.engine.cancel(session_id, reason_text=reason_text)
+        self._publish(
+            snapshot,
+            "simulation.terminated",
+            payload={
+                "session_id": session_id,
+                "status": snapshot.status.value,
+                "reason": reason_text,
+            },
+        )
+        return snapshot
+
+    def shutdown(self) -> None:
+        with self._run_lock:
+            cancellations = tuple(self._run_cancellations.values())
+            threads = tuple(self._run_threads.values())
+        for cancellation in cancellations:
+            cancellation.set()
+        for thread in threads:
+            thread.join(timeout=5)
+        try:
+            self.checkpoint_inactive_sessions()
+        finally:
+            self.engine.cancel_all()
 
     def checkpoint(self, session_id: str, *, reason: str) -> CommitResult:
         if self._commit_kernel_factory is None:
             raise RuntimeError("simulation persistence is not configured")
         snapshot = self.engine.get(session_id)
+        if snapshot.status == TurnSessionStatus.RUNNING:
+            raise RuntimeError("checkpoint requires a completed step boundary")
         committed = self._commit_kernel_factory(snapshot.project_id).save_checkpoint(
             snapshot,
             reason=reason,

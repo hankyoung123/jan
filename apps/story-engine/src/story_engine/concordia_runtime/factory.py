@@ -225,6 +225,15 @@ class ConcordiaActorFactory:
                 f"model profile {recipe.model_profile_id!r} is unavailable"
             ) from error
 
+    def register_model(
+        self,
+        profile_id: str,
+        model: language_model.LanguageModel,
+    ) -> None:
+        if profile_id in self._models:
+            raise ValueError(f"model profile {profile_id!r} already exists")
+        self._models[profile_id] = model
+
     def _claim_name(self, name: str) -> None:
         if name in self._names:
             raise ValueError(f"entity ID {name!r} already exists")

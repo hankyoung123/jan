@@ -40,7 +40,7 @@ describe('Story Engine CI contract', () => {
       'ruff check apps/story-engine/src apps/story-engine/tests',
       'mypy --config-file apps/story-engine/pyproject.toml',
       'pytest -c apps/story-engine/pyproject.toml apps/story-engine/tests',
-      'tests/evolution/test_service.py -k large_project --durations=1',
+      'apps/story-engine/tests/simulation/test_engine.py -k one_hundred --durations=1',
       'python -m build apps/story-engine',
       'uv sync --frozen --project apps/story-engine --extra packaging',
       'apps/story-engine/packaging/story-engine.spec',

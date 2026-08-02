@@ -17,7 +17,10 @@ class SimulationLogRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: int = Field(default=1, ge=1)
-    checkpoint_id: str = Field(pattern=r"^checkpoint-[0-9a-f]{64}$")
+    checkpoint_id: str | None = Field(
+        default=None,
+        pattern=r"^checkpoint-[0-9a-f]{64}$",
+    )
     state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     result: StepResult
     trace: TurnTrace
@@ -47,8 +50,7 @@ class SimulationLogStore:
                 (
                     item
                     for item in existing
-                    if item.result.session_id == record.result.session_id
-                    and item.result.step == record.result.step
+                    if item.trace.trace_id == record.trace.trace_id
                 ),
                 None,
             )
@@ -75,10 +77,18 @@ class SimulationLogStore:
                     records.append(SimulationLogRecord.model_validate(payload))
         except (OSError, ValueError) as error:
             raise ValueError(f"simulation log {branch_id!r} is invalid") from error
-        latest_step_by_session: dict[str, int] = {}
+        latest_by_session: dict[str, SimulationLogRecord] = {}
         for record in records:
-            previous_step = latest_step_by_session.get(record.result.session_id)
-            if previous_step is not None and record.result.step <= previous_step:
-                raise ValueError("simulation log steps must be strictly increasing")
-            latest_step_by_session[record.result.session_id] = record.result.step
+            previous = latest_by_session.get(record.result.session_id)
+            if previous is not None:
+                if record.result.step < previous.result.step:
+                    raise ValueError("simulation log steps cannot move backwards")
+                if (
+                    record.result.step == previous.result.step
+                    and previous.trace.status.value != "failed"
+                ):
+                    raise ValueError(
+                        "a committed simulation step cannot be attempted again"
+                    )
+            latest_by_session[record.result.session_id] = record
         return tuple(records)

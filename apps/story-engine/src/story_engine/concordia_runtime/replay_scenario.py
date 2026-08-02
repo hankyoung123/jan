@@ -34,7 +34,7 @@ def replay_runtime_factory() -> RuntimeFactory:
                 )
             ),
             choice_responses=tuple(
-                value for _ in range(steps) for value in ("No", "actor-a")
+                value for _ in range(steps) for value in ("No", "actor-a", "none")
             ),
         )
         factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
@@ -62,6 +62,7 @@ def replay_runtime_factory() -> RuntimeFactory:
             ),
         )
         return StorySimulationRuntime(
+            project_id=request.project_id,
             session_id=session_id,
             branch_id=request.branch_id,
             content_locale=request.content_locale,

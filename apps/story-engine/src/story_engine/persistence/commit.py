@@ -62,13 +62,18 @@ class SimulationCommitKernel:
         result: StepResult,
         snapshot: TurnSessionSnapshot,
         trace: TurnTrace,
-    ) -> CommitResult:
+        *,
+        checkpoint: bool = True,
+    ) -> CommitResult | None:
         branch = self.branches.ensure(
             branch_id=snapshot.branch_id,
             project_id=snapshot.project_id,
             content_locale=snapshot.content_locale,
         )
-        checkpoint_id, checkpoint_path = self.checkpoints.save(snapshot)
+        checkpoint_id: str | None = None
+        checkpoint_path: Path | None = None
+        if checkpoint:
+            checkpoint_id, checkpoint_path = self.checkpoints.save(snapshot)
         log_path = self.logs.append(
             snapshot.branch_id,
             SimulationLogRecord(
@@ -78,6 +83,8 @@ class SimulationCommitKernel:
                 trace=trace,
             ),
         )
+        if checkpoint_id is None or checkpoint_path is None:
+            return None
         updated = self.branches.advance(
             snapshot.branch_id,
             checkpoint_id=checkpoint_id,

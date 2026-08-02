@@ -3,4 +3,7 @@ export {
   isEngineEvent,
   type EngineEventEnvelope,
   type EngineEventType,
+  type SimulationStage,
+  type SimulationStageEventPayload,
+  type SimulationStageStatus,
 } from "./events";

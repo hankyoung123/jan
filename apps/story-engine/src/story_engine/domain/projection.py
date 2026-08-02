@@ -45,6 +45,12 @@ class EventVisibility(StrEnum):
     GM_ONLY = "gm_only"
 
 
+class SimulationBoundary(StrEnum):
+    NONE = "none"
+    SCENE = "scene"
+    CHAPTER = "chapter"
+
+
 class ResolvedEvent(RuntimeModel):
     """Lightweight projection of a Game Master world event."""
 
@@ -87,5 +93,6 @@ class ResolvedTurn(RuntimeModel):
     effects: tuple[StateEffect, ...] = ()
     action_spec: ActionSpec | None = None
     terminated: bool = False
+    boundary: SimulationBoundary = SimulationBoundary.NONE
     termination_reason_text: str | None = Field(default=None, max_length=16_384)
     content_locale: LocaleCode

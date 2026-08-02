@@ -1,0 +1,136 @@
+{
+  "title": "故事模拟运行台",
+  "workspace": "故事工作区",
+  "loading": "正在加载项目",
+  "noProject": "尚未选择故事项目",
+  "goToSubmission": "前往投稿",
+  "newSession": "新建会话",
+  "step": "步骤",
+  "tokens": "Token",
+  "duration": "耗时",
+  "scenes": "{{count}} 个场景",
+  "actors": "角色",
+  "timeline": "模拟时间线",
+  "timelineEmpty": "已提交的步骤将在这里显示。",
+  "locale": "内容语言",
+  "localeApply": "应用语言",
+  "mode": {
+    "step": "逐步模式",
+    "scene": "场景模式",
+    "chapter": "章节模式",
+    "autonomous": "全自动模式"
+  },
+  "status": {
+    "created": "已创建",
+    "running": "运行中",
+    "paused": "已暂停",
+    "terminated": "已终止",
+    "cancelled": "已取消",
+    "failed": "失败"
+  },
+  "pending": {
+    "none": "无待执行控制",
+    "pause": "正在等待当前步骤完成后暂停……",
+    "terminate": "正在等待当前步骤完成后安全终止……"
+  },
+  "controls": {
+    "step": "单步",
+    "run": "连续运行",
+    "pause": "请求暂停",
+    "resume": "继续",
+    "checkpoint": "保存检查点",
+    "safeTerminate": "安全终止",
+    "cancel": "立即取消"
+  },
+  "setup": {
+    "eyebrow": "会话策略",
+    "title": "启动故事模拟",
+    "premise": "场景目标",
+    "mode": "控制模式",
+    "branch": "分支 ID",
+    "actors": "初始参与角色",
+    "actorsHint": "不勾选角色时，由 Game Master 随场景发展接纳相关的项目角色。",
+    "automaticParticipants": "已启用自动参与角色选择。",
+    "selectedParticipants": "已明确选择 {{count}} 个角色。",
+    "start": "启动会话"
+  },
+  "pipeline": {
+    "eyebrow": "当前步骤运行管线",
+    "waiting": "等待第一个步骤"
+  },
+  "stage": {
+    "termination": "结束判断",
+    "observation": "生成角色观察",
+    "actor_selection": "选择行动角色",
+    "action_spec": "生成 ActionSpec",
+    "actor_action": "角色行动",
+    "resolution": "Game Master 结算",
+    "memory_routing": "分发并写入记忆",
+    "commit": "提交日志与检查点"
+  },
+  "stageStatus": {
+    "pending": "等待",
+    "running": "运行中",
+    "succeeded": "完成",
+    "skipped": "跳过",
+    "failed": "失败",
+    "cancelled": "已取消"
+  },
+  "stepStatus": {
+    "pending": "等待",
+    "running": "运行中",
+    "completed": "已完成",
+    "failed": "失败",
+    "cancelled": "已取消"
+  },
+  "actorRail": { "title": "参与角色状态" },
+  "actorStatus": {
+    "idle": "空闲",
+    "observing": "观察中",
+    "thinking": "思考中",
+    "acting": "行动中"
+  },
+  "actor": {
+    "unknownLocation": "位置未知",
+    "lastObservation": "最近观察",
+    "memories": "{{count}} 条记忆"
+  },
+  "inspector": {
+    "title": "阶段详情",
+    "empty": "选择一个阶段以检查它的因果输入和输出。",
+    "output": "可公开结果摘要",
+    "characterObservations": "按角色区分的私人观察",
+    "actorIntent": "角色企图",
+    "worldResult": "权威世界结算",
+    "actionSpec": "行动规范",
+    "models": "模型",
+    "noModel": "无模型调用",
+    "retryFromCheckpoint": "从最近检查点重试",
+    "sources": "来源",
+    "visibleTo": "可见角色",
+    "inputRecords": "输入记录",
+    "outputRecords": "输出记录",
+    "memoryRouting": "记忆分发",
+    "gmOnly": "仅 Game Master"
+  },
+  "branch": {
+    "title": "分支操作",
+    "navigator": "分支导航",
+    "newId": "新分支 ID",
+    "create": "创建分支",
+    "projection": "重建 Markdown",
+    "compareWith": "比较分支",
+    "compare": "比较"
+  },
+  "restore": {
+    "title": "恢复与语言",
+    "checkpoint": "检查点 ID",
+    "action": "恢复"
+  },
+  "notice": {
+    "branchCreated": "分支 {{branch}} 已创建。",
+    "localeChanged": "内容语言已切换为 {{locale}}。",
+    "projectionBuilt": "Markdown 投影已重建。",
+    "restored": "已从检查点恢复会话。"
+  }
+}

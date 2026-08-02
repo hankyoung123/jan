@@ -1,4 +1,5 @@
 import asyncio
+from collections import deque
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -16,7 +17,13 @@ EngineEventType = Literal[
     "engine.status",
     "workspace.changed",
     "simulation.started",
+    "simulation.step.started",
+    "simulation.stage.started",
+    "simulation.stage.completed",
+    "simulation.stage.failed",
     "simulation.step.completed",
+    "simulation.pause.requested",
+    "simulation.termination.requested",
     "simulation.paused",
     "simulation.checkpointed",
     "simulation.terminated",
@@ -62,14 +69,18 @@ class EngineEventBus:
         *,
         clock: Callable[[], datetime] | None = None,
         queue_size: int = 256,
+        history_size: int = 4_096,
     ) -> None:
         if queue_size < 2:
             raise ValueError("event queue size must be at least two")
+        if history_size < queue_size:
+            raise ValueError("event history must be at least as large as the queue")
         self.clock = clock or (lambda: datetime.now(UTC))
         self.queue_size = queue_size
         self._subscribers: set[_Subscriber] = set()
         self._lock = Lock()
         self._sequence = 0
+        self._history: deque[EngineEvent] = deque(maxlen=history_size)
 
     def subscribe(self, project_id: str | None) -> _Subscriber:
         subscriber = _Subscriber(project_id, self.queue_size)
@@ -101,6 +112,7 @@ class EngineEventBus:
                 type=event_type,
                 payload=payload,
             )
+            self._history.append(event)
             subscribers = tuple(self._subscribers)
         for subscriber in subscribers:
             if subscriber.project_id not in {None, project_id}:
@@ -116,6 +128,21 @@ class EngineEventBus:
     def sequence(self) -> int:
         with self._lock:
             return self._sequence
+
+    def events_after(
+        self,
+        *,
+        project_id: str,
+        after_sequence: int,
+    ) -> tuple[EngineEvent, ...] | None:
+        with self._lock:
+            if self._history and after_sequence < self._history[0].sequence - 1:
+                return None
+            return tuple(
+                event
+                for event in self._history
+                if event.project_id == project_id and event.sequence > after_sequence
+            )
 
     @staticmethod
     def _deliver(subscriber: _Subscriber, event: EngineEvent) -> None:
@@ -163,17 +190,44 @@ async def stream_events(
 ) -> None:
     await websocket.accept(subprotocol="story-engine.v1")
     subscriber = event_bus.subscribe(project_id)
+    last_sequence = after_sequence or 0
     try:
-        if (
+        if after_sequence is not None and project_id is not None:
+            missed = event_bus.events_after(
+                project_id=project_id,
+                after_sequence=after_sequence,
+            )
+            if missed is not None:
+                for event in missed:
+                    await websocket.send_json(event.model_dump(mode="json"))
+                    last_sequence = event.sequence
+            else:
+                timestamp = event_bus.clock()
+                await websocket.send_json(
+                    EngineEvent(
+                        event_id=_ulid(timestamp),
+                        project_id=project_id,
+                        subject_id="stream",
+                        timestamp=timestamp,
+                        sequence=event_bus.sequence,
+                        type="stream.resync_required",
+                        payload={
+                            "reason": "events_outside_replay_window",
+                            "after_sequence": after_sequence,
+                        },
+                    ).model_dump(mode="json")
+                )
+                last_sequence = event_bus.sequence
+        elif (
             after_sequence is not None
-            and project_id is not None
+            and project_id is None
             and after_sequence < event_bus.sequence
         ):
             timestamp = event_bus.clock()
             await websocket.send_json(
                 EngineEvent(
                     event_id=_ulid(timestamp),
-                    project_id=project_id,
+                    project_id="engine",
                     subject_id="stream",
                     timestamp=timestamp,
                     sequence=event_bus.sequence,
@@ -198,7 +252,10 @@ async def stream_events(
             if disconnect_task in done:
                 return
             event = event_task.result()
+            if event.sequence <= last_sequence:
+                continue
             await websocket.send_json(event.model_dump(mode="json"))
+            last_sequence = event.sequence
     except WebSocketDisconnect:
         return
     finally:

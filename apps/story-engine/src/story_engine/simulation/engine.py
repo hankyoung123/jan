@@ -5,16 +5,24 @@ from threading import Event, RLock
 
 from story_engine.concordia_runtime.resolver import SimulationCancelledError
 from story_engine.domain.simulation import (
+    PendingControl,
     StepResult,
     TurnSessionRequest,
     TurnSessionSnapshot,
     TurnSessionStatus,
 )
-from story_engine.domain.trace import ModelCallTrace
-from story_engine.simulation.control import hard_limit_reason, pauses_after_step
+from story_engine.domain.trace import (
+    ModelCallTrace,
+    SimulationObserver,
+    SimulationStageEvent,
+)
+from story_engine.simulation.control import hard_limit_reason, pauses_after_boundary
 from story_engine.simulation.execution import SessionExecutionRegistry
 from story_engine.simulation.runtime import StorySimulationRuntime
-from story_engine.simulation.session import SimulationSession
+from story_engine.simulation.session import (
+    SimulationSession,
+    calculate_snapshot_state_hash,
+)
 
 RuntimeFactory = Callable[[str, TurnSessionRequest], StorySimulationRuntime]
 
@@ -67,6 +75,9 @@ class StoryTurnEngine:
             current_step=(
                 initial_snapshot.current_step if initial_snapshot is not None else 0
             ),
+            completed_scenes=(
+                initial_snapshot.completed_scenes if initial_snapshot is not None else 0
+            ),
             raw_log_offset=(
                 initial_snapshot.raw_log_offset if initial_snapshot is not None else 0
             ),
@@ -108,6 +119,14 @@ class StoryTurnEngine:
             session.checkpoint_id = checkpoint_id
             return session.snapshot()
 
+    def attach_observer(
+        self,
+        session_id: str,
+        observer: SimulationObserver,
+    ) -> None:
+        session = self._get(session_id)
+        session.runtime.set_observer(observer)
+
     def drain_model_traces(self, session_id: str) -> tuple[ModelCallTrace, ...]:
         session = self._get(session_id)
         runtime = session.runtime
@@ -143,6 +162,13 @@ class StoryTurnEngine:
                 )
         return traces
 
+    def drain_stage_events(
+        self,
+        session_id: str,
+    ) -> tuple[SimulationStageEvent, ...]:
+        session = self._get(session_id)
+        return session.runtime.drain_stage_events()
+
     def fail(self, session_id: str, *, reason_text: str) -> TurnSessionSnapshot:
         session = self._get(session_id)
         with session.lock:
@@ -164,6 +190,7 @@ class StoryTurnEngine:
     ) -> TurnSessionSnapshot:
         session = self._get(session_id)
         with session.lock:
+            self._ensure_user_override(session)
             if session.status not in {
                 TurnSessionStatus.CREATED,
                 TurnSessionStatus.PAUSED,
@@ -187,6 +214,13 @@ class StoryTurnEngine:
         }:
             raise InvalidSessionTransitionError(
                 f"session is already {session.status.value}"
+            )
+
+    @staticmethod
+    def _ensure_user_override(session: SimulationSession) -> None:
+        if not session.request.control.allow_user_override:
+            raise InvalidSessionTransitionError(
+                "session control policy does not allow user overrides"
             )
 
     def _execute_one(
@@ -215,8 +249,9 @@ class StoryTurnEngine:
             raise
         except Exception as error:
             with session.lock:
-                session.status = TurnSessionStatus.FAILED
-                session.termination_reason_text = str(error)
+                if session.status != TurnSessionStatus.CANCELLED:
+                    session.status = TurnSessionStatus.FAILED
+                    session.termination_reason_text = str(error)
                 session.touch()
                 self._executions.release(
                     session.request.project_id,
@@ -231,9 +266,12 @@ class StoryTurnEngine:
             else:
                 session.current_step += 1
                 session.raw_log_offset += 1
+                if result.boundary.value != "none":
+                    session.completed_scenes += 1
                 reason = hard_limit_reason(
                     session.request.control,
                     completed_steps=session.current_step,
+                    completed_scenes=session.completed_scenes,
                     elapsed_seconds=0,
                 )
                 if reason is not None:
@@ -253,7 +291,7 @@ class StoryTurnEngine:
         with session.lock:
             self._ensure_active(session)
             session.status = TurnSessionStatus.RUNNING
-            session.pause_requested = False
+            session.pending_control = PendingControl.NONE
             session.touch()
         result = self._execute_one(session, cancellation=cancellation)
         with session.lock:
@@ -273,26 +311,51 @@ class StoryTurnEngine:
         session = self._get(session_id)
         with session.lock:
             self._ensure_active(session)
-            session.status = TurnSessionStatus.RUNNING
-            session.pause_requested = False
+            if session.status != TurnSessionStatus.RUNNING:
+                session.status = TurnSessionStatus.RUNNING
+                session.pending_control = PendingControl.NONE
             session.touch()
             started = time.monotonic()
         while True:
             result = self._execute_one(session, cancellation=cancellation)
             with session.lock:
-                should_pause = session.pause_requested or pauses_after_step(
-                    session.request.control
+                requested_control = session.pending_control
+                should_pause = (
+                    requested_control == PendingControl.PAUSE
+                    or pauses_after_boundary(
+                        session.request.control,
+                        result.boundary,
+                    )
                 )
                 limit_reason = hard_limit_reason(
                     session.request.control,
                     completed_steps=session.current_step,
+                    completed_scenes=session.completed_scenes,
                     elapsed_seconds=time.monotonic() - started,
                 )
                 if limit_reason and session.status == TurnSessionStatus.RUNNING:
                     session.status = TurnSessionStatus.TERMINATED
                     session.termination_reason_text = limit_reason
-                if should_pause and session.status == TurnSessionStatus.RUNNING:
+                if (
+                    requested_control == PendingControl.TERMINATE
+                    and session.status == TurnSessionStatus.RUNNING
+                ):
+                    session.status = TurnSessionStatus.TERMINATED
+                    self._executions.release(
+                        session.request.project_id,
+                        session.request.branch_id,
+                        session.session_id,
+                    )
+                elif should_pause and session.status == TurnSessionStatus.RUNNING:
                     session.status = TurnSessionStatus.PAUSED
+                if session.status != TurnSessionStatus.RUNNING:
+                    session.pending_control = PendingControl.NONE
+                if session.status == TurnSessionStatus.TERMINATED:
+                    self._executions.release(
+                        session.request.project_id,
+                        session.request.branch_id,
+                        session.session_id,
+                    )
                 session.touch()
                 result_for_sink = result.model_copy(update={"status": session.status})
             if on_step is not None:
@@ -302,11 +365,30 @@ class StoryTurnEngine:
                     session.touch()
                     return session.snapshot()
 
+    def prepare_run(
+        self,
+        session_id: str,
+        *,
+        require_paused: bool = False,
+    ) -> TurnSessionSnapshot:
+        session = self._get(session_id)
+        with session.lock:
+            self._ensure_active(session)
+            if require_paused and session.status != TurnSessionStatus.PAUSED:
+                raise InvalidSessionTransitionError("only a paused session can resume")
+            if session.status == TurnSessionStatus.RUNNING:
+                raise InvalidSessionTransitionError("session is already running")
+            session.status = TurnSessionStatus.RUNNING
+            session.pending_control = PendingControl.NONE
+            session.touch()
+            return session.snapshot()
+
     def pause(self, session_id: str) -> TurnSessionSnapshot:
         session = self._get(session_id)
         with session.lock:
             self._ensure_active(session)
-            session.pause_requested = True
+            self._ensure_user_override(session)
+            session.pending_control = PendingControl.PAUSE
             if session.status != TurnSessionStatus.RUNNING:
                 session.status = TurnSessionStatus.PAUSED
             session.touch()
@@ -334,8 +416,28 @@ class StoryTurnEngine:
         session = self._get(session_id)
         with session.lock:
             self._ensure_active(session)
+            self._ensure_user_override(session)
+            session.termination_reason_text = reason_text
+            if session.status == TurnSessionStatus.RUNNING:
+                session.pending_control = PendingControl.TERMINATE
+            else:
+                session.status = TurnSessionStatus.TERMINATED
+                session.pending_control = PendingControl.NONE
+                self._executions.release(
+                    session.request.project_id,
+                    session.request.branch_id,
+                    session.session_id,
+                )
+            session.touch()
+            return session.snapshot()
+
+    def cancel(self, session_id: str, *, reason_text: str) -> TurnSessionSnapshot:
+        session = self._get(session_id)
+        with session.lock:
+            self._ensure_active(session)
             session.runtime.cancellation.set()
-            session.status = TurnSessionStatus.TERMINATED
+            session.status = TurnSessionStatus.CANCELLED
+            session.pending_control = PendingControl.NONE
             session.termination_reason_text = reason_text
             session.touch()
             self._executions.release(
@@ -344,6 +446,75 @@ class StoryTurnEngine:
                 session.session_id,
             )
             return session.snapshot()
+
+    def restore(self, snapshot: TurnSessionSnapshot) -> TurnSessionSnapshot:
+        if calculate_snapshot_state_hash(snapshot) != snapshot.state_hash:
+            raise ValueError("simulation snapshot hash mismatch")
+        if snapshot.status in {
+            TurnSessionStatus.TERMINATED,
+            TurnSessionStatus.CANCELLED,
+            TurnSessionStatus.FAILED,
+        }:
+            raise InvalidSessionTransitionError(
+                f"cannot restore a {snapshot.status.value} session"
+            )
+        with self._lock:
+            existing = self._sessions.get(snapshot.session_id)
+            if existing is not None and existing.status not in {
+                TurnSessionStatus.TERMINATED,
+                TurnSessionStatus.CANCELLED,
+                TurnSessionStatus.FAILED,
+            }:
+                raise InvalidSessionTransitionError(
+                    f"session {snapshot.session_id} is already loaded"
+                )
+        self._executions.claim(
+            snapshot.project_id,
+            snapshot.branch_id,
+            snapshot.session_id,
+        )
+        try:
+            snapshot_factory = getattr(self._runtime_factory, "from_snapshot", None)
+            if snapshot_factory is not None:
+                runtime = snapshot_factory(
+                    snapshot.session_id,
+                    snapshot.request,
+                    snapshot,
+                )
+            else:
+                runtime = self._runtime_factory(snapshot.session_id, snapshot.request)
+                runtime.restore_states(
+                    actor_states=snapshot.actor_states,
+                    game_master_states=snapshot.game_master_states,
+                    memory_snapshots=snapshot.memory_snapshots,
+                )
+                runtime.set_content_locale(snapshot.content_locale)
+            runtime.cancellation.clear()
+            session = SimulationSession(
+                session_id=snapshot.session_id,
+                request=snapshot.request,
+                runtime=runtime,
+                status=TurnSessionStatus.PAUSED,
+                current_step=snapshot.current_step,
+                completed_scenes=snapshot.completed_scenes,
+                raw_log_offset=snapshot.raw_log_offset,
+                total_model_tokens=snapshot.total_model_tokens,
+                consecutive_model_failures=snapshot.consecutive_model_failures,
+                checkpoint_id=snapshot.checkpoint_id,
+                termination_reason_text=None,
+                started_at=snapshot.started_at,
+                updated_at=snapshot.updated_at,
+            )
+        except Exception:
+            self._executions.release(
+                snapshot.project_id,
+                snapshot.branch_id,
+                snapshot.session_id,
+            )
+            raise
+        with self._lock:
+            self._sessions[snapshot.session_id] = session
+        return session.snapshot()
 
     def cancel_all(self) -> None:
         with self._lock:

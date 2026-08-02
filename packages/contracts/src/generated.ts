@@ -178,10 +178,45 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Branches */
+        get: operations["list_branches_projects__project_id__branches_get"];
         put?: never;
         /** Create Branch */
         post: operations["create_branch_projects__project_id__branches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Compare Branches */
+        get: operations["compare_branches_projects__project_id__branches_compare_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Branch */
+        get: operations["get_branch_projects__project_id__branches__branch_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -216,6 +251,23 @@ export interface paths {
         put?: never;
         /** Rollback Branch */
         post: operations["rollback_branch_projects__project_id__branches__branch_id__rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/simulation-trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Simulation Trace */
+        get: operations["list_simulation_trace_projects__project_id__branches__branch_id__simulation_trace_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -461,7 +513,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/simulation-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Simulation Events */
+        get: operations["list_simulation_events_projects__project_id__simulation_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/simulations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Simulations */
+        get: operations["list_simulations_projects__project_id__simulations_get"];
+        put?: never;
+        /** Start Simulation */
+        post: operations["start_simulation_projects__project_id__simulations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/restore": {
         parameters: {
             query?: never;
             header?: never;
@@ -470,8 +557,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Start Simulation */
-        post: operations["start_simulation_projects__project_id__simulations_post"];
+        /** Restore Simulation */
+        post: operations["restore_simulation_projects__project_id__simulations_restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -489,6 +576,23 @@ export interface paths {
         get: operations["get_simulation_projects__project_id__simulations__session_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Simulation */
+        post: operations["cancel_simulation_projects__project_id__simulations__session_id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -710,6 +814,19 @@ export interface components {
             event: components["schemas"]["StoryEvent"];
             scene: components["schemas"]["Scene"];
         };
+        /** BranchComparisonResponse */
+        BranchComparisonResponse: {
+            left: components["schemas"]["BranchManifest"];
+            /** Only Left Entities */
+            only_left_entities: string[];
+            /** Only Left Events */
+            only_left_events: string[];
+            /** Only Right Entities */
+            only_right_entities: string[];
+            /** Only Right Events */
+            only_right_events: string[];
+            right: components["schemas"]["BranchManifest"];
+        };
         /** BranchCreateRequest */
         BranchCreateRequest: {
             /** Branch Id */
@@ -881,11 +998,24 @@ export interface components {
              * @default true
              */
             pause_after_scene: boolean;
+        };
+        /** DynamicEntityDefinition */
+        DynamicEntityDefinition: {
             /**
-             * Pause After Step
-             * @default false
+             * Active
+             * @default true
              */
-            pause_after_step: boolean;
+            active: boolean;
+            /** Display Name */
+            display_name: string;
+            /** Entity Id */
+            entity_id: string;
+            /** Goal */
+            goal: string;
+            /** Identity */
+            identity: string;
+            /** Location */
+            location?: string | null;
         };
         /**
          * EffectOperation
@@ -897,6 +1027,31 @@ export interface components {
          * @enum {string}
          */
         EffectTarget: "world_projection" | "character_projection" | "system";
+        /** EngineEvent */
+        EngineEvent: {
+            /** Event Id */
+            event_id: string;
+            /** Payload */
+            payload: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Project Id */
+            project_id: string;
+            /** Sequence */
+            sequence: number;
+            /** Subject Id */
+            subject_id: string;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "engine.status" | "workspace.changed" | "simulation.started" | "simulation.step.started" | "simulation.stage.started" | "simulation.stage.completed" | "simulation.stage.failed" | "simulation.step.completed" | "simulation.pause.requested" | "simulation.termination.requested" | "simulation.paused" | "simulation.checkpointed" | "simulation.terminated" | "simulation.failed" | "stream.resync_required";
+        };
         /** EventAmendmentCandidate */
         EventAmendmentCandidate: {
             /** Base Workspace Revision */
@@ -1050,6 +1205,81 @@ export interface components {
              */
             role: "system" | "user" | "assistant";
         };
+        /**
+         * ModelCallStatus
+         * @enum {string}
+         */
+        ModelCallStatus: "succeeded" | "failed" | "cancelled" | "timed_out";
+        /** ModelCallTrace */
+        ModelCallTrace: {
+            /** Actor Id */
+            actor_id?: string | null;
+            /** Branch Id */
+            branch_id?: string | null;
+            /** Call Id */
+            call_id: string;
+            /** Completed At */
+            completed_at?: string | null;
+            /**
+             * Completion Tokens
+             * @default 0
+             */
+            completion_tokens: number;
+            /**
+             * Component Ids
+             * @default []
+             */
+            component_ids: string[];
+            /** Content Locale */
+            content_locale: string;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Error Code */
+            error_code?: string | null;
+            /** Model Id */
+            model_id: string;
+            /** Profile Id */
+            profile_id: string;
+            /** Prompt Sha256 */
+            prompt_sha256: string;
+            /**
+             * Prompt Tokens
+             * @default 0
+             */
+            prompt_tokens: number;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Provider Id */
+            provider_id: string;
+            /**
+             * Retry Count
+             * @default 0
+             */
+            retry_count: number;
+            /** Session Id */
+            session_id?: string | null;
+            /**
+             * Source Record Ids
+             * @default []
+             */
+            source_record_ids: string[];
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["ModelCallStatus"];
+            /** Step */
+            step?: number | null;
+            /** Task Id */
+            task_id: string;
+            task_type: components["schemas"]["TaskType"];
+            /**
+             * Validation Errors
+             * @default []
+             */
+            validation_errors: string[];
+        };
         /** ModelCatalog */
         ModelCatalog: {
             /** Profiles */
@@ -1147,6 +1377,11 @@ export interface components {
              */
             total_tokens: number;
         };
+        /**
+         * PendingControl
+         * @enum {string}
+         */
+        PendingControl: "none" | "pause" | "terminate";
         /** ProjectCatalogEntry */
         ProjectCatalogEntry: {
             /** Genre */
@@ -1395,6 +1630,8 @@ export interface components {
             /** Acting Actor Id */
             acting_actor_id?: string | null;
             action_spec?: components["schemas"]["ActionSpec"] | null;
+            /** @default none */
+            boundary: components["schemas"]["SimulationBoundary"];
             /** Branch Id */
             branch_id: string;
             /** Content Locale */
@@ -1595,10 +1832,34 @@ export interface components {
             /** Title */
             title: string;
         };
+        /**
+         * SimulationBoundary
+         * @enum {string}
+         */
+        SimulationBoundary: "none" | "scene" | "chapter";
         /** SimulationLocaleRequest */
         SimulationLocaleRequest: {
             /** Content Locale */
             content_locale: string;
+        };
+        /** SimulationLogRecord */
+        SimulationLogRecord: {
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+            result: components["schemas"]["StepResult"];
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** State Hash */
+            state_hash: string;
+            trace: components["schemas"]["TurnTrace"];
+        };
+        /** SimulationRestoreRequest */
+        SimulationRestoreRequest: {
+            /** Checkpoint Id */
+            checkpoint_id: string;
         };
         /** SimulationStartRequest */
         SimulationStartRequest: {
@@ -1627,6 +1888,67 @@ export interface components {
         SimulationTerminateRequest: {
             /** Reason Text */
             reason_text: string;
+        };
+        /**
+         * StageStatus
+         * @enum {string}
+         */
+        StageStatus: "pending" | "running" | "succeeded" | "skipped" | "failed" | "cancelled";
+        /** StageTrace */
+        StageTrace: {
+            action_spec?: components["schemas"]["ActionSpec"] | null;
+            /** Actor Id */
+            actor_id?: string | null;
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
+            /**
+             * Completion Tokens
+             * @default 0
+             */
+            completion_tokens: number;
+            /** Detail Text */
+            detail_text?: string | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Error Code */
+            error_code?: string | null;
+            /**
+             * Input Record Ids
+             * @default []
+             */
+            input_record_ids: string[];
+            /**
+             * Model Call Ids
+             * @default []
+             */
+            model_call_ids: string[];
+            /**
+             * Output Record Ids
+             * @default []
+             */
+            output_record_ids: string[];
+            /**
+             * Prompt Tokens
+             * @default 0
+             */
+            prompt_tokens: number;
+            /** Stage Id */
+            stage_id: string;
+            /** Stage Type */
+            stage_type: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["StageStatus"];
+            /**
+             * Visible To
+             * @default []
+             */
+            visible_to: string[];
         };
         /** StateChange */
         StateChange: {
@@ -1684,6 +2006,8 @@ export interface components {
             action_spec: components["schemas"]["ActionSpec"] | null;
             /** Action Text */
             action_text: string | null;
+            /** @default none */
+            boundary: components["schemas"]["SimulationBoundary"];
             /** Branch Id */
             branch_id: string;
             /** Checkpoint Id */
@@ -1877,10 +2201,39 @@ export interface components {
             /** World Rules */
             world_rules: string[];
         };
+        /**
+         * TaskType
+         * @enum {string}
+         */
+        TaskType: "actor" | "game_master" | "reflection" | "memory_consolidation" | "projection" | "editor" | "writer" | "embedding";
+        /** TurnSessionRequest */
+        TurnSessionRequest: {
+            /**
+             * Actor Ids
+             * @default []
+             */
+            actor_ids: string[];
+            /** Branch Id */
+            branch_id: string;
+            /** Content Locale */
+            content_locale: string;
+            control: components["schemas"]["ControlPolicy"];
+            /** Premise Text */
+            premise_text: string;
+            /** Project Id */
+            project_id: string;
+            /** Seed */
+            seed?: number | null;
+        };
         /** TurnSessionSnapshot */
         TurnSessionSnapshot: {
             /** Active Actor Id */
             active_actor_id?: string | null;
+            /**
+             * Active Entity Ids
+             * @default []
+             */
+            active_entity_ids: string[];
             /** Actor States */
             actor_states: {
                 [key: string]: {
@@ -1892,6 +2245,11 @@ export interface components {
             /** Checkpoint Id */
             checkpoint_id?: string | null;
             /**
+             * Completed Scenes
+             * @default 0
+             */
+            completed_scenes: number;
+            /**
              * Consecutive Model Failures
              * @default 0
              */
@@ -1901,6 +2259,11 @@ export interface components {
             current_action_spec?: components["schemas"]["ActionSpec"] | null;
             /** Current Step */
             current_step: number;
+            /**
+             * Dynamic Entities
+             * @default []
+             */
+            dynamic_entities: components["schemas"]["DynamicEntityDefinition"][];
             /** Game Master States */
             game_master_states: {
                 [key: string]: {
@@ -1911,10 +2274,13 @@ export interface components {
             memory_snapshots: {
                 [key: string]: components["schemas"]["MemorySnapshot"];
             };
+            /** @default none */
+            pending_control: components["schemas"]["PendingControl"];
             /** Project Id */
             project_id: string;
             /** Raw Log Offset */
             raw_log_offset: number;
+            request: components["schemas"]["TurnSessionRequest"];
             /** Session Id */
             session_id: string;
             /**
@@ -1943,6 +2309,41 @@ export interface components {
          * @enum {string}
          */
         TurnSessionStatus: "created" | "running" | "paused" | "terminated" | "cancelled" | "failed";
+        /** TurnTrace */
+        TurnTrace: {
+            /** Acting Actor Id */
+            acting_actor_id?: string | null;
+            action_spec?: components["schemas"]["ActionSpec"] | null;
+            /** Branch Id */
+            branch_id: string;
+            /** Completed At */
+            completed_at?: string | null;
+            /** Content Locale */
+            content_locale: string;
+            /** Model Calls */
+            model_calls: components["schemas"]["ModelCallTrace"][];
+            /** Putative Event Record Id */
+            putative_event_record_id?: string | null;
+            /**
+             * Resolved Event Record Ids
+             * @default []
+             */
+            resolved_event_record_ids: string[];
+            /** Session Id */
+            session_id: string;
+            /** Stages */
+            stages: components["schemas"]["StageTrace"][];
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["ModelCallStatus"];
+            /** Step */
+            step: number;
+            /** Trace Id */
+            trace_id: string;
+        };
         /** UsageTotals */
         UsageTotals: {
             /**
@@ -2332,6 +2733,37 @@ export interface operations {
             };
         };
     };
+    list_branches_projects__project_id__branches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchManifest"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_branch_projects__project_id__branches_post: {
         parameters: {
             query?: never;
@@ -2349,6 +2781,72 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchManifest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_branches_projects__project_id__branches_compare_get: {
+        parameters: {
+            query: {
+                left: string;
+                right: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchComparisonResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_branch_projects__project_id__branches__branch_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2426,6 +2924,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BranchManifest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_simulation_trace_projects__project_id__branches__branch_id__simulation_trace_get: {
+        parameters: {
+            query?: {
+                after_step?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulationLogRecord"][];
                 };
             };
             /** @description Validation Error */
@@ -2927,6 +3459,70 @@ export interface operations {
             };
         };
     };
+    list_simulation_events_projects__project_id__simulation_events_get: {
+        parameters: {
+            query?: {
+                after_sequence?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineEvent"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_simulations_projects__project_id__simulations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     start_simulation_projects__project_id__simulations_post: {
         parameters: {
             query?: never;
@@ -2962,6 +3558,41 @@ export interface operations {
             };
         };
     };
+    restore_simulation_projects__project_id__simulations_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulationRestoreRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_simulation_projects__project_id__simulations__session_id__get: {
         parameters: {
             query?: never;
@@ -2973,6 +3604,42 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_simulation_projects__project_id__simulations__session_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulationTerminateRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3111,7 +3778,7 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3143,7 +3810,7 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

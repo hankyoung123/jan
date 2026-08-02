@@ -17,8 +17,10 @@ from story_engine.domain.simulation import (
     TurnSessionRequest,
     TurnSessionSnapshot,
 )
+from story_engine.events.stream import EngineEvent
 from story_engine.models.errors import ModelGatewayError
 from story_engine.persistence.commit import SimulationCommitKernel
+from story_engine.persistence.simulation_log import SimulationLogRecord
 from story_engine.simulation.engine import (
     InvalidSessionTransitionError,
     SessionNotFoundError,
@@ -40,6 +42,10 @@ class SimulationStartRequest(RuntimeModel):
 
 class SimulationTerminateRequest(RuntimeModel):
     reason_text: str = Field(min_length=1, max_length=16_384)
+
+
+class SimulationRestoreRequest(RuntimeModel):
+    checkpoint_id: Identifier
 
 
 class SimulationLocaleRequest(RuntimeModel):
@@ -69,6 +75,15 @@ class ProjectionResponse(RuntimeModel):
     branch_id: Identifier
     checkpoint_id: Identifier
     written_paths: tuple[str, ...]
+
+
+class BranchComparisonResponse(RuntimeModel):
+    left: BranchManifest
+    right: BranchManifest
+    only_left_events: tuple[str, ...]
+    only_right_events: tuple[str, ...]
+    only_left_entities: tuple[Identifier, ...]
+    only_right_entities: tuple[Identifier, ...]
 
 
 def _require_project(settings: EngineSettings, project_id: str) -> Path:
@@ -127,8 +142,72 @@ def create_simulations_router(
                     seed=request.seed,
                 )
             )
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
         except (BranchAlreadyActiveError, OSError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.get(
+        "/projects/{project_id}/simulations",
+        response_model=tuple[TurnSessionSnapshot, ...],
+    )
+    async def list_simulations(project_id: str) -> tuple[TurnSessionSnapshot, ...]:
+        _require_project(settings, project_id)
+        return service.list(project_id)
+
+    @router.post(
+        "/projects/{project_id}/simulations/restore",
+        response_model=TurnSessionSnapshot,
+    )
+    async def restore_simulation(
+        project_id: str,
+        request: SimulationRestoreRequest,
+    ) -> TurnSessionSnapshot:
+        _require_project(settings, project_id)
+        try:
+            return service.restore(
+                project_id,
+                checkpoint_id=request.checkpoint_id,
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(
+                status_code=404,
+                detail="Checkpoint not found",
+            ) from error
+        except (InvalidSessionTransitionError, OSError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.get(
+        "/projects/{project_id}/simulation-events",
+        response_model=tuple[EngineEvent, ...],
+    )
+    async def list_simulation_events(
+        project_id: str,
+        after_sequence: int = 0,
+    ) -> tuple[EngineEvent, ...]:
+        _require_project(settings, project_id)
+        events = service.event_bus.events_after(
+            project_id=project_id,
+            after_sequence=max(0, after_sequence),
+        )
+        if events is None:
+            raise HTTPException(
+                status_code=409,
+                detail="event history is outside the replay window",
+            )
+        return events
+
+    @router.get(
+        "/projects/{project_id}/branches/{branch_id}/simulation-trace",
+        response_model=tuple[SimulationLogRecord, ...],
+    )
+    async def list_simulation_trace(
+        project_id: str,
+        branch_id: str,
+        after_step: int = -1,
+    ) -> tuple[SimulationLogRecord, ...]:
+        records = kernel_for(project_id).logs.read(branch_id)
+        return tuple(record for record in records if record.result.step > after_step)
 
     @router.get(
         "/projects/{project_id}/simulations/{session_id}",
@@ -154,12 +233,13 @@ def create_simulations_router(
             )
         except ModelGatewayError as error:
             raise model_http_error(error) from error
-        except (InvalidSessionTransitionError, ValueError) as error:
+        except (InvalidSessionTransitionError, RuntimeError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
         "/projects/{project_id}/simulations/{session_id}/run",
         response_model=TurnSessionSnapshot,
+        status_code=status.HTTP_202_ACCEPTED,
     )
     async def run_simulation(
         project_id: str,
@@ -167,14 +247,10 @@ def create_simulations_router(
     ) -> TurnSessionSnapshot:
         require_matching_session(project_id, session_id)
         try:
-            return await asyncio.to_thread(
-                service.run,
-                session_id,
-                cancellation=Event(),
-            )
+            return service.run_in_background(session_id)
         except ModelGatewayError as error:
             raise model_http_error(error) from error
-        except (InvalidSessionTransitionError, ValueError) as error:
+        except (InvalidSessionTransitionError, RuntimeError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
@@ -194,6 +270,7 @@ def create_simulations_router(
     @router.post(
         "/projects/{project_id}/simulations/{session_id}/resume",
         response_model=TurnSessionSnapshot,
+        status_code=status.HTTP_202_ACCEPTED,
     )
     async def resume_simulation(
         project_id: str,
@@ -201,14 +278,10 @@ def create_simulations_router(
     ) -> TurnSessionSnapshot:
         require_matching_session(project_id, session_id)
         try:
-            return await asyncio.to_thread(
-                service.resume,
-                session_id,
-                cancellation=Event(),
-            )
+            return service.run_in_background(session_id, resume=True)
         except ModelGatewayError as error:
             raise model_http_error(error) from error
-        except (InvalidSessionTransitionError, ValueError) as error:
+        except (InvalidSessionTransitionError, RuntimeError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
@@ -223,6 +296,21 @@ def create_simulations_router(
         require_matching_session(project_id, session_id)
         try:
             return service.terminate(session_id, reason_text=request.reason_text)
+        except InvalidSessionTransitionError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.post(
+        "/projects/{project_id}/simulations/{session_id}/cancel",
+        response_model=TurnSessionSnapshot,
+    )
+    async def cancel_simulation(
+        project_id: str,
+        session_id: str,
+        request: SimulationTerminateRequest,
+    ) -> TurnSessionSnapshot:
+        require_matching_session(project_id, session_id)
+        try:
+            return service.cancel(session_id, reason_text=request.reason_text)
         except InvalidSessionTransitionError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -256,7 +344,12 @@ def create_simulations_router(
         require_matching_session(project_id, session_id)
         try:
             return service.checkpoint(session_id, reason=request.reason)
-        except (OSError, ValueError) as error:
+        except (
+            InvalidSessionTransitionError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
@@ -280,6 +373,93 @@ def create_simulations_router(
             raise HTTPException(status_code=404, detail="Branch not found") from error
         except (FileExistsError, OSError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.get(
+        "/projects/{project_id}/branches",
+        response_model=tuple[BranchManifest, ...],
+    )
+    async def list_branches(project_id: str) -> tuple[BranchManifest, ...]:
+        branches = kernel_for(project_id).branches.list()
+        return tuple(branch for branch in branches if branch.project_id == project_id)
+
+    @router.get(
+        "/projects/{project_id}/branches/compare",
+        response_model=BranchComparisonResponse,
+    )
+    async def compare_branches(
+        project_id: str,
+        left: str,
+        right: str,
+    ) -> BranchComparisonResponse:
+        kernel = kernel_for(project_id)
+        try:
+            left_branch = kernel.branches.load(left)
+            right_branch = kernel.branches.load(right)
+            if (
+                left_branch.project_id != project_id
+                or right_branch.project_id != project_id
+            ):
+                raise FileNotFoundError
+            left_records = kernel.logs.read(left)
+            right_records = kernel.logs.read(right)
+
+            def event_texts(
+                records: tuple[SimulationLogRecord, ...],
+            ) -> tuple[str, ...]:
+                return tuple(
+                    record.result.resolved_turn.raw_resolution_text
+                    for record in records
+                    if record.result.resolved_turn is not None
+                )
+
+            left_events = event_texts(left_records)
+            right_events = event_texts(right_records)
+            common = 0
+            for left_event, right_event in zip(left_events, right_events, strict=False):
+                if left_event != right_event:
+                    break
+                common += 1
+            left_snapshot = (
+                kernel.load_checkpoint(project_id, left_branch.head_checkpoint_id)
+                if left_branch.head_checkpoint_id
+                else None
+            )
+            right_snapshot = (
+                kernel.load_checkpoint(project_id, right_branch.head_checkpoint_id)
+                if right_branch.head_checkpoint_id
+                else None
+            )
+            left_entities = set(
+                left_snapshot.active_entity_ids if left_snapshot else ()
+            )
+            right_entities = set(
+                right_snapshot.active_entity_ids if right_snapshot else ()
+            )
+            return BranchComparisonResponse(
+                left=left_branch,
+                right=right_branch,
+                only_left_events=left_events[common:],
+                only_right_events=right_events[common:],
+                only_left_entities=tuple(sorted(left_entities - right_entities)),
+                only_right_entities=tuple(sorted(right_entities - left_entities)),
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="Branch not found") from error
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.get(
+        "/projects/{project_id}/branches/{branch_id}",
+        response_model=BranchManifest,
+    )
+    async def get_branch(project_id: str, branch_id: str) -> BranchManifest:
+        try:
+            branch = kernel_for(project_id).branches.load(branch_id)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="Branch not found") from error
+        if branch.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Branch not found")
+        return branch
 
     @router.post(
         "/projects/{project_id}/branches/{branch_id}/rollback",

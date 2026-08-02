@@ -83,6 +83,19 @@ class FakeTransport:
             ),
         )
 
+    def embed(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: int,
+    ) -> Mapping[str, Any]:
+        del timeout_seconds
+        self.calls.append(payload)
+        return {
+            "data": [{"embedding": [0.25, 0.5, 0.75]}],
+            "usage": {"prompt_tokens": 2, "total_tokens": 2},
+        }
+
 
 class QueuedContentTransport(FakeTransport):
     def __init__(self, *contents: str) -> None:
@@ -164,6 +177,21 @@ def test_remote_and_local_profiles_use_the_same_jan_bridge_contract(
     ]
     assert remote.provider_id == "openai"
     assert local.provider_id == "llamacpp"
+
+
+def test_embedding_uses_configured_embedding_profile(tmp_path: Path) -> None:
+    transport = FakeTransport("unused")
+    gateway, _ = _gateway(tmp_path, transport)
+
+    vector = gateway.embed("the lighthouse lens")
+
+    assert vector == (0.25, 0.5, 0.75)
+    assert transport.calls[0] == {
+        "model": "bge-m3",
+        "input": "the lighthouse lens",
+        "encoding_format": "float",
+    }
+    assert gateway.usage.totals().prompt_tokens == 2
 
 
 def test_structured_output_is_parsed_and_validated(tmp_path: Path) -> None:
