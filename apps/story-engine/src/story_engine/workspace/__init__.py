@@ -1,2 +1,1 @@
 """Markdown-first project persistence."""
-

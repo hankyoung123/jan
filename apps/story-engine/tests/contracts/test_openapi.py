@@ -10,10 +10,13 @@ def test_openapi_contains_core_paths_and_bearer_security() -> None:
         "/health",
         "/submissions/finalize",
         "/projects/{project_id}",
-        "/projects/{project_id}/turns/generate",
-        "/projects/{project_id}/turns/{turn_id}/request-revision",
-        "/projects/{project_id}/turns/{turn_id}/confirm",
-        "/projects/{project_id}/turns/{turn_id}/discard",
+        "/projects/{project_id}/simulations",
+        "/projects/{project_id}/simulations/{session_id}/step",
+        "/projects/{project_id}/simulations/{session_id}/run",
+        "/projects/{project_id}/simulations/{session_id}/checkpoint",
+        "/projects/{project_id}/branches",
+        "/projects/{project_id}/branches/{branch_id}/rollback",
+        "/projects/{project_id}/branches/{branch_id}/projection",
         "/projects/{project_id}/scenes",
         "/projects/{project_id}/scenes/generate",
         "/projects/{project_id}/scenes/{scene_id}",
@@ -28,8 +31,7 @@ def test_openapi_contains_core_paths_and_bearer_security() -> None:
     } <= set(schema["paths"])
     assert "/models/providers" not in schema["paths"]
     assert "/models/providers/{provider_id}" not in schema["paths"]
-    assert "/projects/{project_id}/turns" not in schema["paths"]
-    assert "/projects/{project_id}/turns/{turn_id}/approve" not in schema["paths"]
+    assert not any("/turns" in path for path in schema["paths"])
     assert schema["components"]["securitySchemes"]["SessionToken"] == {
         "type": "http",
         "scheme": "bearer",

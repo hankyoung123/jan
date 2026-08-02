@@ -65,9 +65,9 @@ def test_model_catalog_contains_profiles_but_no_parallel_provider_surface(
     response = client.get("/models/catalog", headers=HEADERS)
 
     assert response.status_code == 200
-    assert len(response.json()["profiles"]) == 5
+    assert len(response.json()["profiles"]) == 8
     assert "providers" not in response.json()
-    assert len(client.get("/models/profiles", headers=HEADERS).json()) == 5
+    assert len(client.get("/models/profiles", headers=HEADERS).json()) == 8
     assert client.get("/models/providers", headers=HEADERS).status_code == 404
     assert client.put("/models/providers/openai", headers=HEADERS).status_code == 404
 

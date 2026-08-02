@@ -9,9 +9,7 @@ from story_engine.workspace.project_store import ProjectStore
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
-WS_HEADERS = {
-    "Sec-WebSocket-Protocol": f"story-engine.v1, story-engine.token.{TOKEN}"
-}
+WS_HEADERS = {"Sec-WebSocket-Protocol": f"story-engine.v1, story-engine.token.{TOKEN}"}
 
 
 def _app(tmp_path: Path):
@@ -49,9 +47,10 @@ def test_project_lifecycle_lists_opens_and_closes_workspace(tmp_path: Path) -> N
         closed = client.post("/projects/fog-harbor/close", headers=AUTH)
         assert closed.status_code == 200
         assert closed.json() == {"project_id": "fog-harbor", "status": "closed"}
-        assert client.get(
-            "/projects/fog-harbor/workspace", headers=AUTH
-        ).status_code == 409
+        assert (
+            client.get("/projects/fog-harbor/workspace", headers=AUTH).status_code
+            == 409
+        )
 
         reopened = client.post("/projects/fog-harbor/open", headers=AUTH)
         assert reopened.status_code == 200
@@ -75,8 +74,10 @@ def test_external_markdown_change_refreshes_index_and_emits_event(
             headers=WS_HEADERS,
             subprotocols=["story-engine.v1"],
         ) as websocket:
-            world = ProjectStore(root).load().world.model_copy(
-                update={"current_location": "灯塔", "version": 1}
+            world = (
+                ProjectStore(root)
+                .load()
+                .world.model_copy(update={"current_location": "灯塔", "version": 1})
             )
             ProjectStore(root).save_world(world)
             refreshed = app.state.workspace_manager.refresh("fog-harbor")
@@ -84,6 +85,6 @@ def test_external_markdown_change_refreshes_index_and_emits_event(
 
         assert refreshed.index.world_version == 1
         assert event["type"] == "workspace.changed"
-        assert event["turn_id"] == "workspace"
+        assert event["subject_id"] == "workspace"
         assert event["payload"]["changed_paths"] == ["world.md"]
         assert event["payload"]["world_version"] == 1

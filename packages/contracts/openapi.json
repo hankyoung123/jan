@@ -1,6 +1,103 @@
 {
   "components": {
     "schemas": {
+      "ActionOutputType": {
+        "enum": [
+          "free",
+          "choice",
+          "float",
+          "make_observation",
+          "next_acting",
+          "next_action_spec",
+          "resolve",
+          "terminate",
+          "next_game_master",
+          "skip_this_step"
+        ],
+        "title": "ActionOutputType",
+        "type": "string"
+      },
+      "ActionSpec": {
+        "additionalProperties": false,
+        "description": "Serializable project-side equivalent of Concordia's ActionSpec.",
+        "properties": {
+          "action_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoryActionKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "call_to_action": {
+            "maxLength": 32768,
+            "minLength": 1,
+            "title": "Call To Action",
+            "type": "string"
+          },
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Metadata",
+            "type": "object"
+          },
+          "option_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Option Ids",
+            "type": "array"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "output_type": {
+            "$ref": "#/components/schemas/ActionOutputType"
+          },
+          "spec_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Spec Id",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "spec_id",
+          "output_type",
+          "call_to_action",
+          "content_locale"
+        ],
+        "title": "ActionSpec",
+        "type": "object"
+      },
       "AmendmentCommitResult": {
         "additionalProperties": false,
         "properties": {
@@ -20,6 +117,139 @@
           "event"
         ],
         "title": "AmendmentCommitResult",
+        "type": "object"
+      },
+      "BranchCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "content_locale": {
+            "default": "zh-CN",
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "parent_branch_id": {
+            "default": "main",
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Parent Branch Id",
+            "type": "string"
+          },
+          "source_checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Source Checkpoint Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "branch_id",
+          "source_checkpoint_id"
+        ],
+        "title": "BranchCreateRequest",
+        "type": "object"
+      },
+      "BranchManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "fork_checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fork Checkpoint Id"
+          },
+          "head_checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Checkpoint Id"
+          },
+          "head_step": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Head Step",
+            "type": "integer"
+          },
+          "parent_branch_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Branch Id"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "branch_id",
+          "project_id",
+          "content_locale",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "BranchManifest",
+        "type": "object"
+      },
+      "BranchRollbackRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkpoint_id"
+        ],
+        "title": "BranchRollbackRequest",
         "type": "object"
       },
       "Character": {
@@ -144,80 +374,168 @@
         "title": "Character",
         "type": "object"
       },
-      "CharacterIntent": {
+      "CheckpointRequest": {
         "additionalProperties": false,
         "properties": {
-          "action": {
+          "reason": {
+            "default": "user checkpoint",
+            "maxLength": 1024,
             "minLength": 1,
-            "title": "Action",
+            "title": "Reason",
             "type": "string"
-          },
-          "character_id": {
-            "minLength": 1,
-            "title": "Character Id",
-            "type": "string"
-          },
-          "goal": {
-            "minLength": 1,
-            "title": "Goal",
-            "type": "string"
-          },
-          "knowledge_basis": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Knowledge Basis",
-            "type": "array"
-          },
-          "recognized_risk": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Recognized Risk"
-          },
-          "target": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target"
           }
         },
-        "required": [
-          "character_id",
-          "action",
-          "goal",
-          "knowledge_basis"
-        ],
-        "title": "CharacterIntent",
+        "title": "CheckpointRequest",
         "type": "object"
       },
       "CommitResult": {
         "additionalProperties": false,
         "properties": {
-          "candidate": {
-            "$ref": "#/components/schemas/TurnCandidate"
+          "branch": {
+            "$ref": "#/components/schemas/BranchManifest"
           },
-          "event": {
-            "$ref": "#/components/schemas/StoryEvent"
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "state_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "State Hash",
+            "type": "string"
+          },
+          "step": {
+            "minimum": 0.0,
+            "title": "Step",
+            "type": "integer"
+          },
+          "written_paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Written Paths",
+            "type": "array"
           }
         },
         "required": [
-          "event",
-          "candidate"
+          "branch",
+          "checkpoint_id",
+          "session_id",
+          "step",
+          "state_hash",
+          "written_paths"
         ],
         "title": "CommitResult",
         "type": "object"
+      },
+      "ControlMode": {
+        "enum": [
+          "step",
+          "scene",
+          "chapter",
+          "autonomous"
+        ],
+        "title": "ControlMode",
+        "type": "string"
+      },
+      "ControlPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_dynamic_entities": {
+            "default": true,
+            "title": "Allow Dynamic Entities",
+            "type": "boolean"
+          },
+          "allow_user_override": {
+            "default": true,
+            "title": "Allow User Override",
+            "type": "boolean"
+          },
+          "checkpoint_every_steps": {
+            "default": 1,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Checkpoint Every Steps",
+            "type": "integer"
+          },
+          "max_consecutive_model_failures": {
+            "default": 3,
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Max Consecutive Model Failures",
+            "type": "integer"
+          },
+          "max_runtime_seconds": {
+            "default": 3600,
+            "minimum": 1.0,
+            "title": "Max Runtime Seconds",
+            "type": "integer"
+          },
+          "max_scenes": {
+            "default": 1,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Max Scenes",
+            "type": "integer"
+          },
+          "max_steps": {
+            "default": 40,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "max_total_tokens": {
+            "default": 500000,
+            "minimum": 1.0,
+            "title": "Max Total Tokens",
+            "type": "integer"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ControlMode"
+          },
+          "pause_after_scene": {
+            "default": true,
+            "title": "Pause After Scene",
+            "type": "boolean"
+          },
+          "pause_after_step": {
+            "default": false,
+            "title": "Pause After Step",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "ControlPolicy",
+        "type": "object"
+      },
+      "EffectOperation": {
+        "enum": [
+          "set",
+          "append",
+          "remove",
+          "create_entity",
+          "archive_entity",
+          "emit_signal"
+        ],
+        "title": "EffectOperation",
+        "type": "string"
+      },
+      "EffectTarget": {
+        "enum": [
+          "world_projection",
+          "character_projection",
+          "system"
+        ],
+        "title": "EffectTarget",
+        "type": "string"
       },
       "EventAmendmentCandidate": {
         "additionalProperties": false,
@@ -306,6 +624,16 @@
         "title": "EventAmendmentCandidate",
         "type": "object"
       },
+      "EventVisibility": {
+        "enum": [
+          "public",
+          "participants",
+          "restricted",
+          "gm_only"
+        ],
+        "title": "EventVisibility",
+        "type": "string"
+      },
       "Fact": {
         "additionalProperties": false,
         "properties": {
@@ -368,7 +696,43 @@
         "title": "Fact",
         "type": "object"
       },
-      "FactCandidate": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "InitialFact": {
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -417,43 +781,7 @@
           "statement",
           "visibility"
         ],
-        "title": "FactCandidate",
-        "type": "object"
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
-      },
-      "HealthResponse": {
-        "properties": {
-          "service": {
-            "title": "Service",
-            "type": "string"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "version": {
-            "title": "Version",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status",
-          "service",
-          "version"
-        ],
-        "title": "HealthResponse",
+        "title": "InitialFact",
         "type": "object"
       },
       "JsonValue": {},
@@ -532,6 +860,54 @@
           "review"
         ],
         "title": "ManuscriptReviewOutput",
+        "type": "object"
+      },
+      "MemoryScope": {
+        "enum": [
+          "game_master",
+          "character",
+          "shared"
+        ],
+        "title": "MemoryScope",
+        "type": "string"
+      },
+      "MemorySnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "owner_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "record_count": {
+            "minimum": 0.0,
+            "title": "Record Count",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "state": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "State",
+            "type": "object"
+          },
+          "state_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "State Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner_id",
+          "scope",
+          "state",
+          "record_count",
+          "state_hash"
+        ],
+        "title": "MemorySnapshot",
         "type": "object"
       },
       "Message": {
@@ -627,8 +1003,11 @@
           },
           "task_type": {
             "enum": [
-              "character",
-              "resolver",
+              "actor",
+              "game_master",
+              "reflection",
+              "memory_consolidation",
+              "projection",
               "editor",
               "writer",
               "embedding"
@@ -704,8 +1083,11 @@
           },
           "task_type": {
             "enum": [
-              "character",
-              "resolver",
+              "actor",
+              "game_master",
+              "reflection",
+              "memory_consolidation",
+              "projection",
               "editor",
               "writer",
               "embedding"
@@ -812,45 +1194,6 @@
           }
         },
         "title": "ModelUsage",
-        "type": "object"
-      },
-      "NpcCandidate": {
-        "additionalProperties": false,
-        "properties": {
-          "current_goal": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Current Goal"
-          },
-          "id": {
-            "minLength": 1,
-            "pattern": "^[a-z0-9][a-z0-9-]*$",
-            "title": "Id",
-            "type": "string"
-          },
-          "identity": {
-            "minLength": 1,
-            "title": "Identity",
-            "type": "string"
-          },
-          "purpose": {
-            "minLength": 1,
-            "title": "Purpose",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "identity",
-          "purpose"
-        ],
-        "title": "NpcCandidate",
         "type": "object"
       },
       "ProjectCatalogEntry": {
@@ -973,6 +1316,54 @@
           "facts"
         ],
         "title": "ProjectSnapshot",
+        "type": "object"
+      },
+      "ProjectionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          }
+        },
+        "title": "ProjectionRequest",
+        "type": "object"
+      },
+      "ProjectionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "written_paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Written Paths",
+            "type": "array"
+          }
+        },
+        "required": [
+          "branch_id",
+          "checkpoint_id",
+          "written_paths"
+        ],
+        "title": "ProjectionResponse",
         "type": "object"
       },
       "PromotionAssessment": {
@@ -1321,6 +1712,248 @@
         "title": "Relationship",
         "type": "object"
       },
+      "ResolvedEvent": {
+        "additionalProperties": false,
+        "description": "Lightweight projection of a Game Master world event.",
+        "properties": {
+          "actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "confidence": {
+            "default": 1.0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "effects": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StateEffect"
+            },
+            "title": "Effects",
+            "type": "array"
+          },
+          "event_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_text": {
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Event Text",
+            "type": "string"
+          },
+          "importance": {
+            "default": 0.5,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Importance",
+            "type": "number"
+          },
+          "location_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Location Ids",
+            "type": "array"
+          },
+          "observer_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Observer Ids",
+            "type": "array"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "participant_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Participant Ids",
+            "type": "array"
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_intent_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Source Intent Ids",
+            "type": "array"
+          },
+          "source_memory_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Source Memory Ids",
+            "type": "array"
+          },
+          "step": {
+            "minimum": 0.0,
+            "title": "Step",
+            "type": "integer"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/EventVisibility"
+          }
+        },
+        "required": [
+          "event_id",
+          "session_id",
+          "step",
+          "event_text",
+          "visibility",
+          "content_locale",
+          "occurred_at"
+        ],
+        "title": "ResolvedEvent",
+        "type": "object"
+      },
+      "ResolvedTurn": {
+        "additionalProperties": false,
+        "description": "Project-side projection of one Engine step.",
+        "properties": {
+          "acting_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acting Actor Id"
+          },
+          "action_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "effects": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StateEffect"
+            },
+            "title": "Effects",
+            "type": "array"
+          },
+          "events": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResolvedEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "putative_event_text": {
+            "anyOf": [
+              {
+                "maxLength": 65536,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Putative Event Text"
+          },
+          "raw_resolution_text": {
+            "maxLength": 131072,
+            "minLength": 1,
+            "title": "Raw Resolution Text",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "step": {
+            "minimum": 0.0,
+            "title": "Step",
+            "type": "integer"
+          },
+          "terminated": {
+            "default": false,
+            "title": "Terminated",
+            "type": "boolean"
+          },
+          "termination_reason_text": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Termination Reason Text"
+          }
+        },
+        "required": [
+          "session_id",
+          "branch_id",
+          "step",
+          "raw_resolution_text",
+          "content_locale"
+        ],
+        "title": "ResolvedTurn",
+        "type": "object"
+      },
       "RetrievalEvidence": {
         "additionalProperties": false,
         "properties": {
@@ -1488,7 +2121,6 @@
               "submission_review",
               "character_review",
               "world_review",
-              "turn_review",
               "promotion_review",
               "manuscript_review"
             ],
@@ -1511,22 +2143,6 @@
           "summary"
         ],
         "title": "ReviewResult",
-        "type": "object"
-      },
-      "RevisionRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "instruction": {
-            "maxLength": 500,
-            "minLength": 1,
-            "title": "Instruction",
-            "type": "string"
-          }
-        },
-        "required": [
-          "instruction"
-        ],
-        "title": "RevisionRequest",
         "type": "object"
       },
       "Scene": {
@@ -1827,6 +2443,93 @@
         "title": "SceneUpdateRequest",
         "type": "object"
       },
+      "SimulationLocaleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_locale"
+        ],
+        "title": "SimulationLocaleRequest",
+        "type": "object"
+      },
+      "SimulationStartRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Actor Ids",
+            "type": "array"
+          },
+          "branch_id": {
+            "default": "main",
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "content_locale": {
+            "default": "zh-CN",
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "control": {
+            "$ref": "#/components/schemas/ControlPolicy"
+          },
+          "premise_text": {
+            "maxLength": 131072,
+            "minLength": 1,
+            "title": "Premise Text",
+            "type": "string"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          }
+        },
+        "required": [
+          "premise_text",
+          "control"
+        ],
+        "title": "SimulationStartRequest",
+        "type": "object"
+      },
+      "SimulationTerminateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason_text": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Reason Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason_text"
+        ],
+        "title": "SimulationTerminateRequest",
+        "type": "object"
+      },
       "StateChange": {
         "additionalProperties": false,
         "properties": {
@@ -1870,6 +2573,86 @@
         "title": "StateChange",
         "type": "object"
       },
+      "StateEffect": {
+        "additionalProperties": false,
+        "description": "Optional machine projection; natural-language events remain authoritative.",
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "before": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "effect_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Effect Id",
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/EffectOperation"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "reason_text": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Text"
+          },
+          "required": {
+            "default": false,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "source_record_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Source Record Ids",
+            "type": "array"
+          },
+          "target": {
+            "$ref": "#/components/schemas/EffectTarget"
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Id"
+          }
+        },
+        "required": [
+          "effect_id",
+          "operation",
+          "target"
+        ],
+        "title": "StateEffect",
+        "type": "object"
+      },
       "StatusResponse": {
         "properties": {
           "status": {
@@ -1882,6 +2665,109 @@
         ],
         "title": "StatusResponse",
         "type": "object"
+      },
+      "StepResult": {
+        "additionalProperties": false,
+        "properties": {
+          "acting_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acting Actor Id"
+          },
+          "action_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "action_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Text"
+          },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "resolved_turn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedTurn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TurnSessionStatus"
+          },
+          "step": {
+            "minimum": 0.0,
+            "title": "Step",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "branch_id",
+          "step",
+          "acting_actor_id",
+          "action_spec",
+          "action_text",
+          "resolved_turn",
+          "status"
+        ],
+        "title": "StepResult",
+        "type": "object"
+      },
+      "StoryActionKind": {
+        "enum": [
+          "free_action",
+          "dialogue",
+          "reaction",
+          "internal_decision",
+          "choice",
+          "wait",
+          "scene_proposal"
+        ],
+        "title": "StoryActionKind",
+        "type": "string"
       },
       "StoryEvent": {
         "additionalProperties": false,
@@ -1936,9 +2822,9 @@
             "title": "Sequence",
             "type": "integer"
           },
-          "source_turn_id": {
+          "source_record_id": {
             "minLength": 1,
-            "title": "Source Turn Id",
+            "title": "Source Record Id",
             "type": "string"
           },
           "summary": {
@@ -1961,7 +2847,7 @@
           "occurred_at",
           "summary",
           "participants",
-          "source_turn_id",
+          "source_record_id",
           "approved_by_user"
         ],
         "title": "StoryEvent",
@@ -2116,7 +3002,7 @@
           "facts": {
             "default": [],
             "items": {
-              "$ref": "#/components/schemas/FactCandidate"
+              "$ref": "#/components/schemas/InitialFact"
             },
             "title": "Facts",
             "type": "array"
@@ -2199,7 +3085,7 @@
           },
           "facts": {
             "items": {
-              "$ref": "#/components/schemas/FactCandidate"
+              "$ref": "#/components/schemas/InitialFact"
             },
             "minItems": 1,
             "title": "Facts",
@@ -2279,134 +3165,179 @@
         "title": "SubmissionPackage",
         "type": "object"
       },
-      "TurnCancellationResult": {
+      "TurnSessionSnapshot": {
         "additionalProperties": false,
         "properties": {
-          "cancel_requested": {
-            "default": true,
-            "title": "Cancel Requested",
-            "type": "boolean"
-          },
-          "project_id": {
-            "minLength": 1,
-            "title": "Project Id",
-            "type": "string"
-          },
-          "turn_id": {
+          "active_actor_id": {
             "anyOf": [
               {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Turn Id"
-          }
-        },
-        "required": [
-          "project_id"
-        ],
-        "title": "TurnCancellationResult",
-        "type": "object"
-      },
-      "TurnCandidate": {
-        "additionalProperties": false,
-        "properties": {
-          "base_character_versions": {
-            "additionalProperties": {
-              "type": "integer"
+            "title": "Active Actor Id"
+          },
+          "actor_states": {
+            "patternProperties": {
+              "^[a-z0-9][a-z0-9._:-]{0,127}$": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              }
             },
-            "title": "Base Character Versions",
+            "title": "Actor States",
             "type": "object"
           },
-          "base_workspace_revision": {
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
             "anyOf": [
               {
-                "pattern": "^[0-9a-f]{64}$",
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Base Workspace Revision"
+            "title": "Checkpoint Id"
           },
-          "base_world_version": {
+          "consecutive_model_failures": {
+            "default": 0,
             "minimum": 0.0,
-            "title": "Base World Version",
+            "title": "Consecutive Model Failures",
             "type": "integer"
           },
-          "id": {
-            "minLength": 1,
-            "title": "Id",
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
             "type": "string"
           },
-          "intents": {
-            "items": {
-              "$ref": "#/components/schemas/CharacterIntent"
-            },
-            "minItems": 1,
-            "title": "Intents",
-            "type": "array"
-          },
-          "outcome": {
-            "$ref": "#/components/schemas/WorldOutcome"
-          },
-          "project_id": {
-            "minLength": 1,
-            "title": "Project Id",
-            "type": "string"
-          },
-          "review": {
+          "current_action_spec": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReviewResult"
+                "$ref": "#/components/schemas/ActionSpec"
               },
               {
                 "type": "null"
               }
             ]
           },
+          "current_step": {
+            "minimum": 0.0,
+            "title": "Current Step",
+            "type": "integer"
+          },
+          "game_master_states": {
+            "patternProperties": {
+              "^[a-z0-9][a-z0-9._:-]{0,127}$": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              }
+            },
+            "title": "Game Master States",
+            "type": "object"
+          },
+          "memory_snapshots": {
+            "patternProperties": {
+              "^[a-z0-9][a-z0-9._:-]{0,127}$": {
+                "$ref": "#/components/schemas/MemorySnapshot"
+              }
+            },
+            "title": "Memory Snapshots",
+            "type": "object"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "raw_log_offset": {
+            "minimum": 0.0,
+            "title": "Raw Log Offset",
+            "type": "integer"
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "state_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "State Hash",
+            "type": "string"
+          },
           "status": {
-            "default": "draft",
-            "enum": [
-              "draft",
-              "reviewed",
-              "needs_revision",
-              "approved",
-              "discarded",
-              "committed"
+            "$ref": "#/components/schemas/TurnSessionStatus"
+          },
+          "termination_reason_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Status",
+            "title": "Termination Reason Text"
+          },
+          "total_model_tokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Total Model Tokens",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
             "type": "string"
           }
         },
         "required": [
-          "id",
+          "session_id",
           "project_id",
-          "base_world_version",
-          "base_character_versions",
-          "intents",
-          "outcome"
+          "branch_id",
+          "status",
+          "content_locale",
+          "current_step",
+          "actor_states",
+          "game_master_states",
+          "memory_snapshots",
+          "raw_log_offset",
+          "started_at",
+          "updated_at",
+          "state_hash"
         ],
-        "title": "TurnCandidate",
+        "title": "TurnSessionSnapshot",
         "type": "object"
       },
-      "TurnGenerationRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "participant_ids": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Participant Ids",
-            "type": "array"
-          }
-        },
-        "title": "TurnGenerationRequest",
-        "type": "object"
+      "TurnSessionStatus": {
+        "enum": [
+          "created",
+          "running",
+          "paused",
+          "terminated",
+          "cancelled",
+          "failed"
+        ],
+        "title": "TurnSessionStatus",
+        "type": "string"
       },
       "UsageTotals": {
         "additionalProperties": false,
@@ -2658,76 +3589,6 @@
           "recovered_transactions"
         ],
         "title": "WorkspaceState",
-        "type": "object"
-      },
-      "WorldOutcome": {
-        "additionalProperties": false,
-        "properties": {
-          "character_changes": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/StateChange"
-            },
-            "maxItems": 16,
-            "title": "Character Changes",
-            "type": "array"
-          },
-          "fact_candidates": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/FactCandidate"
-            },
-            "maxItems": 8,
-            "title": "Fact Candidates",
-            "type": "array"
-          },
-          "knowledge_changes": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/KnowledgeChange"
-            },
-            "maxItems": 16,
-            "title": "Knowledge Changes",
-            "type": "array"
-          },
-          "new_npcs": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/NpcCandidate"
-            },
-            "maxItems": 4,
-            "title": "New Npcs",
-            "type": "array"
-          },
-          "summary": {
-            "maxLength": 1000,
-            "minLength": 1,
-            "title": "Summary",
-            "type": "string"
-          },
-          "unresolved_consequences": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 8,
-            "title": "Unresolved Consequences",
-            "type": "array"
-          },
-          "world_changes": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/StateChange"
-            },
-            "maxItems": 8,
-            "title": "World Changes",
-            "type": "array"
-          }
-        },
-        "required": [
-          "summary"
-        ],
-        "title": "WorldOutcome",
         "type": "object"
       },
       "WorldState": {
@@ -3169,6 +4030,195 @@
         "summary": "Get Project",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches": {
+      "post": {
+        "operationId": "create_branch_projects__project_id__branches_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchManifest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Create Branch",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}/projection": {
+      "post": {
+        "operationId": "rebuild_projection_projects__project_id__branches__branch_id__projection_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Rebuild Projection",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}/rollback": {
+      "post": {
+        "operationId": "rollback_branch_projects__project_id__branches__branch_id__rollback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchRollbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchManifest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Rollback Branch",
+        "tags": [
+          "simulations"
         ]
       }
     },
@@ -3988,6 +5038,541 @@
         ]
       }
     },
+    "/projects/{project_id}/simulations": {
+      "post": {
+        "operationId": "start_simulation_projects__project_id__simulations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Start Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}": {
+      "get": {
+        "operationId": "get_simulation_projects__project_id__simulations__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/checkpoint": {
+      "post": {
+        "operationId": "checkpoint_simulation_projects__project_id__simulations__session_id__checkpoint_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckpointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Checkpoint Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/locale": {
+      "post": {
+        "operationId": "switch_simulation_locale_projects__project_id__simulations__session_id__locale_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationLocaleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Switch Simulation Locale",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/pause": {
+      "post": {
+        "operationId": "pause_simulation_projects__project_id__simulations__session_id__pause_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Pause Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/resume": {
+      "post": {
+        "operationId": "resume_simulation_projects__project_id__simulations__session_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Resume Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/run": {
+      "post": {
+        "operationId": "run_simulation_projects__project_id__simulations__session_id__run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Run Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/step": {
+      "post": {
+        "operationId": "step_simulation_projects__project_id__simulations__session_id__step_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Step Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/terminate": {
+      "post": {
+        "operationId": "terminate_simulation_projects__project_id__simulations__session_id__terminate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationTerminateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Terminate Simulation",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
     "/projects/{project_id}/submission/messages": {
       "post": {
         "operationId": "discuss_submission_projects__project_id__submission_messages_post",
@@ -4040,344 +5625,6 @@
           }
         ],
         "summary": "Discuss Submission",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}/turns/active/cancel": {
-      "post": {
-        "operationId": "cancel_active_turn_projects__project_id__turns_active_cancel_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TurnCancellationResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Cancel Active Turn",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}/turns/generate": {
-      "post": {
-        "operationId": "generate_turn_projects__project_id__turns_generate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TurnGenerationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TurnCandidate"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Generate Turn",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}/turns/{turn_id}": {
-      "get": {
-        "operationId": "get_turn_projects__project_id__turns__turn_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "turn_id",
-            "required": true,
-            "schema": {
-              "title": "Turn Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TurnCandidate"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Get Turn",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}/turns/{turn_id}/confirm": {
-      "post": {
-        "operationId": "confirm_turn_projects__project_id__turns__turn_id__confirm_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "turn_id",
-            "required": true,
-            "schema": {
-              "title": "Turn Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CommitResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Confirm Turn",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}/turns/{turn_id}/discard": {
-      "post": {
-        "operationId": "discard_turn_projects__project_id__turns__turn_id__discard_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "turn_id",
-            "required": true,
-            "schema": {
-              "title": "Turn Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TurnCandidate"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Discard Turn",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}/turns/{turn_id}/request-revision": {
-      "post": {
-        "operationId": "request_turn_revision_projects__project_id__turns__turn_id__request_revision_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "turn_id",
-            "required": true,
-            "schema": {
-              "title": "Turn Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RevisionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TurnCandidate"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Request Turn Revision",
         "tags": [
           "projects"
         ]

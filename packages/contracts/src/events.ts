@@ -1,22 +1,18 @@
 export type EngineEventType =
   | "engine.status"
   | "workspace.changed"
-  | "turn.started"
-  | "character.intent.started"
-  | "character.intent.delta"
-  | "character.intent.completed"
-  | "resolver.started"
-  | "resolver.completed"
-  | "review.started"
-  | "review.completed"
-  | "turn.failed"
-  | "turn.cancelled"
+  | "simulation.started"
+  | "simulation.step.completed"
+  | "simulation.paused"
+  | "simulation.checkpointed"
+  | "simulation.terminated"
+  | "simulation.failed"
   | "stream.resync_required";
 
 export interface EngineEventEnvelope {
   event_id: string;
   project_id: string;
-  turn_id: string;
+  subject_id: string;
   timestamp: string;
   sequence: number;
   type: EngineEventType;
@@ -26,16 +22,12 @@ export interface EngineEventEnvelope {
 const eventTypes: ReadonlySet<string> = new Set<EngineEventType>([
   "engine.status",
   "workspace.changed",
-  "turn.started",
-  "character.intent.started",
-  "character.intent.delta",
-  "character.intent.completed",
-  "resolver.started",
-  "resolver.completed",
-  "review.started",
-  "review.completed",
-  "turn.failed",
-  "turn.cancelled",
+  "simulation.started",
+  "simulation.step.completed",
+  "simulation.paused",
+  "simulation.checkpointed",
+  "simulation.terminated",
+  "simulation.failed",
   "stream.resync_required",
 ]);
 
@@ -45,7 +37,7 @@ export function isEngineEvent(value: unknown): value is EngineEventEnvelope {
   return (
     typeof candidate.event_id === "string" &&
     typeof candidate.project_id === "string" &&
-    typeof candidate.turn_id === "string" &&
+    typeof candidate.subject_id === "string" &&
     typeof candidate.timestamp === "string" &&
     typeof candidate.sequence === "number" &&
     Number.isSafeInteger(candidate.sequence) &&

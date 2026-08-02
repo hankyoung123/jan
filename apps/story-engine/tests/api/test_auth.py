@@ -34,4 +34,3 @@ def test_protected_status_accepts_valid_token() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
-

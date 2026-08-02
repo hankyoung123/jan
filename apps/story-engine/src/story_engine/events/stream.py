@@ -15,16 +15,12 @@ from story_engine.domain.models import DomainModel
 EngineEventType = Literal[
     "engine.status",
     "workspace.changed",
-    "turn.started",
-    "character.intent.started",
-    "character.intent.delta",
-    "character.intent.completed",
-    "resolver.started",
-    "resolver.completed",
-    "review.started",
-    "review.completed",
-    "turn.failed",
-    "turn.cancelled",
+    "simulation.started",
+    "simulation.step.completed",
+    "simulation.paused",
+    "simulation.checkpointed",
+    "simulation.terminated",
+    "simulation.failed",
     "stream.resync_required",
 ]
 
@@ -46,7 +42,7 @@ def _ulid(timestamp: datetime) -> str:
 class EngineEvent(DomainModel):
     event_id: str = Field(pattern=r"^[0-9A-HJKMNP-TV-Z]{26}$")
     project_id: str = Field(min_length=1)
-    turn_id: str = Field(min_length=1)
+    subject_id: str = Field(min_length=1)
     timestamp: datetime
     sequence: int = Field(ge=1)
     type: EngineEventType
@@ -89,7 +85,7 @@ class EngineEventBus:
         self,
         *,
         project_id: str,
-        turn_id: str,
+        subject_id: str,
         event_type: EngineEventType,
         payload: dict[str, JsonValue],
     ) -> EngineEvent:
@@ -99,7 +95,7 @@ class EngineEventBus:
             event = EngineEvent(
                 event_id=_ulid(timestamp),
                 project_id=project_id,
-                turn_id=turn_id,
+                subject_id=subject_id,
                 timestamp=timestamp,
                 sequence=self._sequence,
                 type=event_type,
@@ -178,7 +174,7 @@ async def stream_events(
                 EngineEvent(
                     event_id=_ulid(timestamp),
                     project_id=project_id,
-                    turn_id="stream",
+                    subject_id="stream",
                     timestamp=timestamp,
                     sequence=event_bus.sequence,
                     type="stream.resync_required",

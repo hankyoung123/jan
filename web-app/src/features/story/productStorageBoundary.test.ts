@@ -15,6 +15,7 @@ function trackedFiles(): string[] {
   })
     .split('\0')
     .filter(Boolean)
+    .filter((path) => existsSync(join(workspaceRoot, path)))
 }
 
 describe('Story Engine storage boundary', () => {

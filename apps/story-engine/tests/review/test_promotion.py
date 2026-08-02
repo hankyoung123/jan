@@ -17,7 +17,7 @@ from story_engine.submission.service import SubmissionService, fog_harbor_submis
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.fact_store import FactStore
 from story_engine.workspace.project_store import ProjectStore
-from story_engine.workspace.promotion_store import PromotionCandidateStore
+from story_engine.workspace.promotion_store import PromotionProposalStore
 
 
 class PromotionTransport:
@@ -129,7 +129,7 @@ def test_editor_creates_derived_promotion_candidate_without_promoting_npc(
     assert (root / "characters/npc/temporary-pilot.md").exists()
     assert not (root / "characters/active/temporary-pilot.md").exists()
     assert EventStore(root).list_events() == ()
-    assert PromotionCandidateStore(root).load("temporary-pilot") == assessment.candidate
+    assert PromotionProposalStore(root).load("temporary-pilot") == assessment.candidate
     assert transport.calls[0]["model"] == "gpt-5-mini"
     prompt = transport.calls[0]["messages"][0]["content"]
     assert "promotion_review" in prompt
@@ -179,7 +179,7 @@ def test_only_explicit_confirmation_commits_promotion(tmp_path: Path) -> None:
 
     assert result.character.type == "active"
     assert result.candidate.status == "committed"
-    assert PromotionCandidateStore(root).load("temporary-pilot").status == "committed"
+    assert PromotionProposalStore(root).load("temporary-pilot").status == "committed"
     assert EventStore(root).list_events() == (result.event,)
     with pytest.raises(InvalidTransitionError, match="pending promotion"):
         service.confirm("temporary-pilot", assessment.candidate.id)

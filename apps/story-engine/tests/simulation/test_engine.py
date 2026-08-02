@@ -1,0 +1,265 @@
+from datetime import UTC, datetime
+from threading import Event
+
+import pytest
+
+from story_engine.concordia_runtime.factory import (
+    ConcordiaActorFactory,
+    default_character_recipe,
+    default_game_master_recipe,
+)
+from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
+from story_engine.concordia_runtime.replay import ReplayLanguageModel
+from story_engine.concordia_runtime.resolver import SimulationCancelledError
+from story_engine.domain.action import TaskType
+from story_engine.domain.memory import MemoryScope
+from story_engine.domain.simulation import (
+    ControlMode,
+    ControlPolicy,
+    TurnSessionRequest,
+    TurnSessionStatus,
+)
+from story_engine.domain.trace import ModelCallStatus, ModelCallTrace
+from story_engine.simulation.engine import StoryTurnEngine
+from story_engine.simulation.execution import BranchAlreadyActiveError
+from story_engine.simulation.runtime import StorySimulationRuntime
+
+
+def _runtime_factory(
+    *,
+    semantic_termination: bool = False,
+):
+    def build(session_id: str, request: TurnSessionRequest) -> StorySimulationRuntime:
+        steps = request.control.max_steps
+        gm_choices = (
+            ("Yes",)
+            if semantic_termination
+            else tuple(value for _ in range(steps) for value in ("No", "actor-a"))
+        )
+        gm_text = tuple(
+            value
+            for step in range(steps)
+            for value in (
+                f"Observation {step}",
+                '{"call_to_action":"Act now.","output_type":"free",'
+                '"options":[],"tag":"action"}',
+                f"Resolved event {step}",
+            )
+        )
+        actor_model = ReplayLanguageModel(
+            text_responses=tuple(f"Action {step}" for step in range(steps))
+        )
+        gm_model = ReplayLanguageModel(
+            text_responses=gm_text,
+            choice_responses=gm_choices,
+        )
+        factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
+        actor = factory.build_actor(
+            default_character_recipe(
+                model_profile_id="actor",
+                content_locale=request.content_locale,
+            ),
+            actor_params={"name": "actor-a", "identity": "Investigator"},
+            memory=ConcordiaMemoryBank(
+                owner_id="actor-a",
+                scope=MemoryScope.CHARACTER,
+            ),
+        )
+        gm = factory.build_game_master(
+            default_game_master_recipe(
+                model_profile_id="gm",
+                content_locale=request.content_locale,
+            ),
+            gm_params={"name": "gm", "scene_goal": request.premise_text},
+            actors=(actor,),
+            shared_memory=ConcordiaMemoryBank(
+                owner_id="gm",
+                scope=MemoryScope.GAME_MASTER,
+            ),
+        )
+        return StorySimulationRuntime(
+            session_id=session_id,
+            branch_id=request.branch_id,
+            content_locale=request.content_locale,
+            actors=(actor,),
+            game_master=gm,
+        )
+
+    return build
+
+
+def _request(control: ControlPolicy) -> TurnSessionRequest:
+    return TurnSessionRequest(
+        project_id="fog-harbor",
+        branch_id="main",
+        premise_text="Enter the archive.",
+        actor_ids=("actor-a",),
+        content_locale="en-US",
+        control=control,
+    )
+
+
+def test_autonomous_run_stops_at_hard_step_limit() -> None:
+    engine = StoryTurnEngine(_runtime_factory())
+    created = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.AUTONOMOUS, max_steps=3))
+    )
+    completed_steps = []
+
+    snapshot = engine.run(
+        created.session_id,
+        cancellation=Event(),
+        on_step=completed_steps.append,
+    )
+
+    assert snapshot.status == TurnSessionStatus.TERMINATED
+    assert snapshot.current_step == 3
+    assert snapshot.termination_reason_text == "maximum step budget reached"
+    assert [result.step for result in completed_steps] == [0, 1, 2]
+    assert all(result.resolved_turn is not None for result in completed_steps)
+
+
+def test_replay_runtime_runs_one_hundred_steps_without_state_drift() -> None:
+    engine = StoryTurnEngine(_runtime_factory())
+    created = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.AUTONOMOUS, max_steps=100))
+    )
+    completed = []
+
+    snapshot = engine.run(
+        created.session_id,
+        cancellation=Event(),
+        on_step=completed.append,
+    )
+
+    assert snapshot.status == TurnSessionStatus.TERMINATED
+    assert snapshot.current_step == 100
+    assert snapshot.raw_log_offset == 100
+    assert [result.step for result in completed] == list(range(100))
+    assert snapshot.memory_snapshots["actor-a"].record_count == 100
+    assert snapshot.memory_snapshots["gm"].record_count == 200
+
+
+def test_step_mode_pauses_and_resume_runs_exactly_one_more_step() -> None:
+    engine = StoryTurnEngine(_runtime_factory())
+    created = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.STEP, max_steps=4))
+    )
+
+    first = engine.step(created.session_id, cancellation=Event())
+    after_first = engine.get(created.session_id)
+    after_resume = engine.resume(created.session_id, cancellation=Event())
+
+    assert first.status == TurnSessionStatus.PAUSED
+    assert after_first.current_step == 1
+    assert after_resume.status == TurnSessionStatus.PAUSED
+    assert after_resume.current_step == 2
+
+
+def test_locale_switch_updates_persistent_actor_components_at_boundary() -> None:
+    engine = StoryTurnEngine(_runtime_factory())
+    created = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.STEP, max_steps=2))
+    )
+
+    switched = engine.switch_locale(created.session_id, content_locale="zh-CN")
+
+    actor_state = switched.actor_states["actor-a"]
+    components = actor_state["context_components"]
+    assert isinstance(components, dict)
+    assert components["locale"] == {"content_locale": "zh-CN"}
+    assert switched.content_locale == "zh-CN"
+
+
+def test_game_master_can_end_session_before_actor_action() -> None:
+    engine = StoryTurnEngine(_runtime_factory(semantic_termination=True))
+    created = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.AUTONOMOUS, max_steps=5))
+    )
+
+    snapshot = engine.run(created.session_id, cancellation=Event())
+
+    assert snapshot.status == TurnSessionStatus.TERMINATED
+    assert snapshot.current_step == 0
+    assert snapshot.termination_reason_text == "Game Master ended the session"
+
+
+def test_precancelled_step_marks_session_cancelled() -> None:
+    engine = StoryTurnEngine(_runtime_factory())
+    created = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.STEP, max_steps=2))
+    )
+    cancellation = Event()
+    cancellation.set()
+
+    with pytest.raises(SimulationCancelledError):
+        engine.step(created.session_id, cancellation=cancellation)
+
+    assert engine.get(created.session_id).status == TurnSessionStatus.CANCELLED
+
+
+def test_branch_has_only_one_live_session_writer() -> None:
+    engine = StoryTurnEngine(_runtime_factory())
+    first = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.STEP, max_steps=2))
+    )
+
+    with pytest.raises(BranchAlreadyActiveError):
+        engine.create_session(
+            _request(ControlPolicy(mode=ControlMode.STEP, max_steps=2))
+        )
+
+    engine.terminate(first.session_id, reason_text="release branch")
+    replacement = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.STEP, max_steps=2))
+    )
+    assert replacement.status == TurnSessionStatus.CREATED
+
+
+def test_model_token_budget_terminates_before_another_step_can_run() -> None:
+    captured: list[StorySimulationRuntime] = []
+    base_factory = _runtime_factory()
+
+    def build(session_id: str, request: TurnSessionRequest) -> StorySimulationRuntime:
+        runtime = base_factory(session_id, request)
+        captured.append(runtime)
+        return runtime
+
+    engine = StoryTurnEngine(build)
+    created = engine.create_session(
+        _request(
+            ControlPolicy(
+                mode=ControlMode.AUTONOMOUS,
+                max_steps=10,
+                max_total_tokens=1,
+            )
+        )
+    )
+    now = datetime.now(UTC)
+    captured[0]._model_traces.append(
+        ModelCallTrace(
+            call_id="call:one",
+            task_id="task:one",
+            task_type=TaskType.ACTOR,
+            status=ModelCallStatus.SUCCEEDED,
+            session_id=created.session_id,
+            branch_id="main",
+            profile_id="actor",
+            provider_id="local",
+            model_id="replay",
+            prompt_version="v1",
+            content_locale="en-US",
+            prompt_sha256="a" * 64,
+            prompt_tokens=1,
+            duration_ms=0,
+            started_at=now,
+            completed_at=now,
+        )
+    )
+
+    engine.drain_model_traces(created.session_id)
+    snapshot = engine.get(created.session_id)
+
+    assert snapshot.status == TurnSessionStatus.TERMINATED
+    assert snapshot.total_model_tokens == 1
+    assert snapshot.termination_reason_text == "maximum token budget reached"

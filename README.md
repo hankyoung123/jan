@@ -1,10 +1,14 @@
 # AI Story Evolution Engine Next
 
-AI Story Evolution Engine Next is a local-first desktop system for evolving
-long-form stories from character-limited knowledge, independent intent, world
-resolution, editorial review, and explicit user approval.
+AI Story Evolution Engine Next is a local-first desktop system for running
+long-form story simulations with character-limited knowledge, persistent
+Concordia actors, Game Master resolution, branches, checkpoints, and optional
+manuscript editing.
 
-The canonical requirements are in [docs/product-plan.md](docs/product-plan.md).
+The product vision is in [docs/product-plan.md](docs/product-plan.md). The
+current runtime contract is defined by [the architecture](docs/architecture.md)
+and [ADR-0005](docs/adr/0005-concordia-native-runtime.md), which supersede the
+product plan's original candidate-and-approval turn pipeline.
 
 ## Upstream foundation
 
@@ -16,7 +20,8 @@ being replaced while the reusable local-model infrastructure remains intact.
 
 Concordia is locked to `v2.4.0` at
 `702998f57da71f87bf4e607abc1325ee51cca21f` and will be consumed as an
-unmodified Python dependency behind `concordia_adapter`.
+unmodified Python dependency. It is the persistent simulation kernel behind
+the project-owned `concordia_runtime`, recipe, persistence, and API layers.
 
 ## Workspace
 

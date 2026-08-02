@@ -154,9 +154,7 @@ class RagService:
             else ()
         )
         fact_visibility = (
-            cast(Any, metadata.get("visibility"))
-            if source_type == "fact"
-            else None
+            cast(Any, metadata.get("visibility")) if source_type == "fact" else None
         )
         fact_known_by_value = metadata.get("known_by", ())
         fact_known_by = (
@@ -211,9 +209,7 @@ class RagService:
             for part, content in enumerate(_split_content(section), start=1):
                 chunks.append(
                     RagChunk(
-                        chunk_id=(
-                            f"{source_id}#{section_key}-{occurrence}-{part}"
-                        ),
+                        chunk_id=(f"{source_id}#{section_key}-{occurrence}-{part}"),
                         source_type=source_type,
                         source_id=source_id,
                         source_path=relative,
@@ -231,14 +227,10 @@ class RagService:
     def rebuild_index(self) -> RagIndex:
         with ProjectLock(self.root):
             paths = self._document_paths()
-            project, _body = load_document(
-                self.root / "project.md", ProjectDocument
-            )
+            project, _body = load_document(self.root / "project.md", ProjectDocument)
             signatures = self._signatures(paths)
             document_hashes = self._document_hashes(paths)
-            chunks = tuple(
-                chunk for path in paths for chunk in self._chunks_for(path)
-            )
+            chunks = tuple(chunk for path in paths for chunk in self._chunks_for(path))
             index = RagIndex(
                 project_id=project.id,
                 fingerprint=self._fingerprint(document_hashes),
@@ -314,9 +306,7 @@ class RagService:
         )
         project_id = index.project_id
         if "project.md" in changed:
-            project, _body = load_document(
-                self.root / "project.md", ProjectDocument
-            )
+            project, _body = load_document(self.root / "project.md", ProjectDocument)
             project_id = project.id
         updated = RagIndex(
             project_id=project_id,
@@ -358,8 +348,7 @@ class RagService:
         character_id = scope.character_id
         if chunk.source_type == "fact":
             return not chunk.front_matter and (
-                chunk.fact_visibility == "public"
-                or character_id in chunk.fact_known_by
+                chunk.fact_visibility == "public" or character_id in chunk.fact_known_by
             )
         if chunk.source_type == "character":
             return chunk.character_id == character_id

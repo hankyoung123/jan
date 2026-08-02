@@ -105,8 +105,7 @@ def create_manuscript_router(
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
-        "/projects/{project_id}/scenes/{scene_id}/amendments/"
-        "{amendment_id}/confirm",
+        "/projects/{project_id}/scenes/{scene_id}/amendments/{amendment_id}/confirm",
         response_model=AmendmentCommitResult,
     )
     async def confirm_amendment(

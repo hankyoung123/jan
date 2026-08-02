@@ -64,9 +64,7 @@ class ManuscriptTransport:
         return {
             "choices": [
                 {
-                    "message": {
-                        "content": json.dumps(content, ensure_ascii=False)
-                    },
+                    "message": {"content": json.dumps(content, ensure_ascii=False)},
                     "finish_reason": "stop",
                 }
             ]
@@ -94,7 +92,7 @@ def _client(tmp_path: Path) -> tuple[TestClient, ManuscriptTransport]:
             occurred_at=datetime(2026, 7, 31, 4, 0, tzinfo=UTC),
             summary="陈默抵达灯塔并发现灯芯槽上的新鲜刮痕。",
             participants=("chen-mo",),
-            source_turn_id="turn-000001",
+            source_record_id="session:one",
             approved_by_user=True,
         )
     )
@@ -127,8 +125,7 @@ def test_scene_api_generates_lists_and_saves_reviewed_markdown(tmp_path: Path) -
         "editor",
     }
     assert all(
-        item["chunk_id"] and item["source_path"]
-        for item in draft["retrieval_evidence"]
+        item["chunk_id"] and item["source_path"] for item in draft["retrieval_evidence"]
     )
     assert "event-000001" in transport.prompts[0]
     assert "林岚保留了一份未归档的值班表" not in transport.prompts[0]
@@ -136,9 +133,7 @@ def test_scene_api_generates_lists_and_saves_reviewed_markdown(tmp_path: Path) -
     assert all('"chunk_id"' in prompt for prompt in transport.prompts[:2])
 
     listed = client.get("/projects/fog-harbor/scenes", headers=AUTH)
-    loaded = client.get(
-        "/projects/fog-harbor/scenes/scene-000001", headers=AUTH
-    )
+    loaded = client.get("/projects/fog-harbor/scenes/scene-000001", headers=AUTH)
     assert listed.status_code == loaded.status_code == 200
     assert [item["id"] for item in listed.json()] == ["scene-000001"]
     assert loaded.json()["body"] == draft["body"]
@@ -159,9 +154,7 @@ def test_scene_api_generates_lists_and_saves_reviewed_markdown(tmp_path: Path) -
     assert saved.json()["draft"]["base_scene_version"] == 1
     assert saved.json()["draft"]["revision"] == 0
 
-    exported = client.get(
-        "/projects/fog-harbor/manuscript/export", headers=AUTH
-    )
+    exported = client.get("/projects/fog-harbor/manuscript/export", headers=AUTH)
     assert exported.status_code == 200
     assert exported.json()["filename"] == "fog-harbor-manuscript.md"
     assert "## 灯芯槽的刮痕" in exported.json()["markdown"]
@@ -180,7 +173,7 @@ def test_scene_api_requires_explicit_amendment_confirmation(tmp_path: Path) -> N
         headers=AUTH,
         json={
             "title": draft["title"],
-            "body": f'{draft["body"]} 刮痕末端沾着黑色纤维。',
+            "body": f"{draft['body']} 刮痕末端沾着黑色纤维。",
             "expected_revision": draft["revision"],
             "expected_scene_version": draft["base_scene_version"],
         },
@@ -195,7 +188,7 @@ def test_scene_api_requires_explicit_amendment_confirmation(tmp_path: Path) -> N
 
     mismatched = client.post(
         "/projects/fog-harbor/scenes/scene-999999/amendments/"
-        f'{result["amendment"]["id"]}/confirm',
+        f"{result['amendment']['id']}/confirm",
         headers=AUTH,
     )
     assert mismatched.status_code == 409
@@ -204,7 +197,7 @@ def test_scene_api_requires_explicit_amendment_confirmation(tmp_path: Path) -> N
 
     confirmed = client.post(
         "/projects/fog-harbor/scenes/scene-000001/amendments/"
-        f'{result["amendment"]["id"]}/confirm',
+        f"{result['amendment']['id']}/confirm",
         headers=AUTH,
     )
     assert confirmed.status_code == 200

@@ -66,8 +66,10 @@ def test_watcher_refreshes_memory_index_after_external_markdown_change(
     )
     try:
         opened = manager.open("fog-harbor")
-        world = ProjectStore(root).load().world.model_copy(
-            update={"current_time": "暴风雨前夜稍晚", "version": 1}
+        world = (
+            ProjectStore(root)
+            .load()
+            .world.model_copy(update={"current_time": "暴风雨前夜稍晚", "version": 1})
         )
 
         ProjectStore(root).save_world(world)

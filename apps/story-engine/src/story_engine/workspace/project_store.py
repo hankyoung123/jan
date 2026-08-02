@@ -85,7 +85,6 @@ class ProjectStore:
             "facts",
             "scenes",
             "sources",
-            ".story-engine/turns",
             ".story-engine/reviews",
             ".story-engine/scenes",
             ".story-engine/amendments",

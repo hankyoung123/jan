@@ -84,7 +84,7 @@ describe('Story Engine client', () => {
       })
     )
 
-    await expect(engineRequest('/projects/fog-harbor/turns/1/confirm')).rejects.toThrow(
+    await expect(engineRequest('/projects/fog-harbor/simulations/missing')).rejects.toThrow(
       '版本冲突'
     )
   })
@@ -175,7 +175,7 @@ describe('Story Engine client', () => {
       data: JSON.stringify({
         event_id: '01J00000000000000000000000',
         project_id: 'fog-harbor',
-        turn_id: 'workspace',
+        subject_id: 'workspace',
         timestamp: '2026-07-31T12:00:00Z',
         sequence: 1,
         type: 'workspace.changed',

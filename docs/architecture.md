@@ -1,286 +1,85 @@
 # Architecture
 
-## System boundary
+AI Story Evolution Engine runs as a local desktop system: Jan owns model
+providers and execution, the Python sidecar owns story simulation and durable
+state, and React provides project, simulation, branch, and manuscript views.
 
-The product has three runtime boundaries:
+## Runtime boundary
 
-1. React renders views and collects user decisions. It never writes project
-   Markdown or commits domain state.
-2. Tauri owns the desktop lifecycle, starts the Python sidecar, protects its
-   session token, and exposes operating-system capabilities.
-3. The FastAPI story engine owns all story-domain behavior, model calls,
-   retrieval, validation, review, and persistence.
+`gdm-concordia==2.4.0` is the only Entity/Component/Engine implementation.
+Story-specific code supplies Prefabs, recipes, locale/pacing components,
+memory codecs, persistence, and HTTP application services.
 
-React communicates with the story engine over loopback HTTP and WebSocket.
-Every request except the unauthenticated liveness probe must include the
-per-process session token. Production builds package Python as an onedir
-sidecar.
-
-Inside the Python boundary, unmodified Concordia 2.4.0 is the character and
-Game Master engine. It is a library used by the Story Engine, not a second
-desktop process or model runtime. The concrete stack is therefore Tauri shell,
-React UI, Python Story Engine, and original Concordia.
-
-## UI foundation
-
-Jan's original desktop shell is the primary UI template: application layout,
-navigation, theme, spacing, model center, and chat presentation are adapted
-from Jan instead of being reimplemented beside it. Reusable controls are built
-from the repository's shadcn/ui primitives so story views do not create a
-parallel component library.
-
-Long-form world and manuscript editing use a shared Novel/Tiptap integration.
-The chapter workspace composes that editor between the chapter/scene navigator
-and the source-event inspector; raw `contentEditable` or a bespoke rich-text
-engine is not a production editor boundary.
-
-Story pages are split by workflow boundary. Shared framing controls live under
-`features/story/components`, while evolution and event-history state live in
-their own modules. `StoryViews.tsx` re-exports those views so route modules keep
-one stable import surface without concentrating their request state in one
-component file.
-
-## Source of truth
-
-Canonical project state is Markdown:
-
-```text
-project.md
-world.md
-characters/
-events/
-facts/
-scenes/
+```mermaid
+flowchart LR
+  UI["React simulation console"] --> API["FastAPI sidecar"]
+  API --> SVC["SimulationApplicationService"]
+  SVC --> ENG["StoryTurnEngine"]
+  ENG --> SEQ["Concordia Sequential"]
+  SEQ --> ACT["Persistent character actors"]
+  SEQ --> GM["Persistent Game Master"]
+  ACT --> MB1["Private associative memories"]
+  GM --> MB2["Shared world memory"]
+  ACT --> GW["ModelGateway"]
+  GM --> GW
+  GW --> JAN["Jan provider/runtime authority"]
 ```
 
-Derived state lives below `.story-engine/` and must be rebuildable. Models,
-retrieval indexes, caches, UI stores, and Concordia objects are never canonical
-story state.
+Every step asks the Game Master whether to terminate, produces observations,
+selects the next actor with `NEXT_ACTING`, creates a dynamic
+`NEXT_ACTION_SPEC`, obtains an actor action, and resolves that putative action
+into a world event. Actor text never becomes world truth without Game Master
+resolution.
 
-## Workspace lifecycle
+## Durable state
 
-Opening a project validates every canonical Markdown document, rolls back any
-prepared multi-file transaction left below `.story-engine/recovery`, recreates
-missing derived directories, and builds one process-local `WorkspaceIndex`.
-The index records canonical file hashes, world and character versions, Event
-IDs, and Scene IDs. Its SHA-256 `revision` covers the ordered canonical paths
-and file hashes; the revision is the optimistic boundary for every derived
-candidate. Its JSON copy below `.story-engine/index` is diagnostic and may be
-deleted at any time.
+The branch head checkpoint is canonical for a running simulation. A checkpoint
+contains actor/component state, Game Master state, private/shared memory
+snapshots, current step, raw-log offset, locale, status, and a canonical SHA-256
+state hash.
 
-An open workspace owns a cross-platform polling watcher. Idle polls compare
-file metadata only and do not re-read or hash every Markdown document. Stable
-changes are debounced before validation. A valid external Markdown change
-rebuilds the in-memory index and emits `workspace.changed` over
-the existing authenticated WebSocket. An invalid external edit preserves the
-last valid in-memory snapshot and emits an error state so React can require the
-user to repair or reload it. Closing a project stops its watcher and drops only
-derived process state; it never deletes project Markdown.
+The commit order is:
 
-## Write path
+1. Write and verify the content-addressed checkpoint.
+2. Append the step result and trace to the branch JSONL log.
+3. Compare-and-swap the branch manifest head under the project lock.
 
-All formal mutations flow through `EventCommitService`:
+A failure before step 3 can leave unreachable data, but never a branch head
+that references a missing checkpoint. Model calls occur outside filesystem
+locks. One live writer is allowed per project branch.
 
-```text
-candidate -> schema validation -> editor review -> user approval
-          -> optimistic version and workspace-revision checks
-          -> atomic Markdown writes
-          -> event append -> index refresh
-```
+Markdown under `.story-engine/projections/<branch>/` is a disposable human
+view. World, timeline, and character projections can be deleted and rebuilt
+from a selected checkpoint without affecting recovery. Project Markdown still
+provides editable seed material and manuscript export.
 
-An unapproved turn may write only to `.story-engine/turns` and
-`.story-engine/reviews`.
+## Privacy and locale
 
-API-owned canonical writes refresh the open workspace immediately after the
-atomic commit. The watcher is the fallback for edits made by an external text
-editor and for changes originating outside the active API process. Turn,
-manuscript, amendment, and promotion candidates retain the canonical revision
-seen at review time; a later external edit is rejected even when it preserves
-the document's semantic version number.
+Each character owns a separate memory bank. The Game Master sees world truth
+and all project seed facts; characters receive only public seed facts, their
+own restricted facts, and observations routed to them. Memory snapshots retain
+owner and scope metadata and are hash-verified.
 
-`SubmissionService` validates the runnable initial package before creating a
-project directory. During evolution, `CharacterContextAssembler` combines
-public world facts with only the selected character's private facts. Its
-serialized `CharacterPerception` is a whitelist of time, perceived location,
-pressures, rules, sensory context, and full visible Fact statements; it has no
-`WorldState` or `world_variables` field.
-`EvolutionService` generates each intent from one such context, performs one
-unified resolution, and obtains an Editor review before exposing a candidate
-to React. Other characters' private facts and current-turn intents are absent
-from every character context. Character entities are invoked concurrently;
-the Concordia Game Master runs only after all selected intents complete.
+`content_locale` controls generated prose and prompts. IDs, enums, tags,
+references, paths, and hashes remain locale-independent. UI locale remains a
+front-end concern.
 
-The turn Editor does not serialize the full Project, World, and Character
-snapshot into its prompt. It derives explicit claims from intents, proposed
-Facts, knowledge propagation, the outcome summary, and state changes. Each
-claim is searched through editorial-scope RAG; canonical world sections are
-included as governing evidence, exact Fact IDs are resolved before BM25, and
-the final evidence set is deduplicated and bounded. The semantic Editor decides
-whether an intent asserts an outcome in any language. Deterministic review does
-not use a small keyword blacklist as a proxy for meaning.
+## Control and recovery
 
-Every generated candidate snapshots the version of every Character currently
-in the project, not only the participants. Review and commit both require a
-baseline version for each participant or modified Character, so a Resolver
-cannot smuggle an unchecked non-participant state change into a passing
-candidate.
+The session API supports start, get, step, run, pause, resume, terminate, and
+explicit checkpoint operations. Control policies expose step, scene, chapter,
+and autonomous modes plus hard step, runtime, token, and failure budgets.
+Branch APIs create a branch from any project checkpoint, roll a branch head
+back, and rebuild projections.
 
-The Game Master also receives a minimal roster of existing characters so it
-can reuse a plausible person before proposing a new NPC. The roster contains
-identity and public state needed for resolution, not the complete private
-knowledge held by active Character entities. A proposed `NpcCandidate` remains
-derived turn data and is shown to the user before confirmation. Confirming the
-turn creates its `characters/npc/{id}.md` document in the same atomic batch as
-the World, participant Character, and immutable Event writes. NPCs are never
-included in `CharacterContextAssembler`; they become Character Agents only
-through a later explicit promotion workflow.
+WebSocket events report simulation start, step completion, pause, checkpoint,
+termination, failure, and resynchronization. HTTP state remains authoritative
+when an event is missed.
 
-Requesting a revision preserves the original Character intents but sends the
-current world, Character roster, previous outcome, and the user's instruction
-back through the Concordia Resolver. The replacement `WorldOutcome` invalidates
-the old review and is reviewed again before it can be confirmed. A failed
-Resolver call leaves the previous candidate unchanged.
+## Model access and observability
 
-Every semantic fact is an immutable `facts/*.md` document with statement,
-visibility, initial knowers, source Event, introduction time, and optional
-supersession. `WorldOutcome` proposes `FactCandidate` and `KnowledgeChange`
-values instead of loose public/hidden result strings. Confirmation creates
-Fact documents, updates public and Character knowledge references, and appends
-the Event in one project-locked `AtomicBatch`.
-
-NPC promotion is a separate two-step boundary. The Editor first performs a
-`promotion_review` and may write a derived `PromotionCandidate` below
-`.story-engine/reviews`; this never changes the Character or appends an Event.
-Only an explicit user confirmation can pass that exact candidate to
-`EventCommitService`. Commit rechecks the NPC version, writes the active
-Character document, deletes the NPC document, and appends the approval Event in
-one recoverable `AtomicBatch`. Rejected, stale, or already committed candidates
-cannot promote a Character.
-
-One process-local `TurnExecutionRegistry` owns the single active generation
-for each project. A cancellation request sets a thread-safe signal shared by
-the parallel Concordia calls; the synchronous language-model bridge converts
-that signal into asyncio task cancellation so the in-flight Jan HTTP request
-is closed. Completion and cancellation race through one registry lock: a
-successful cancellation can never leave a candidate file, while a generation
-that has already claimed completion rejects the late cancellation. Retrying
-uses the same generation boundary after the previous execution has finished.
-
-## Dependency direction
-
-```text
-api -> application services -> domain
-                            -> workspace ports
-                            -> model/retrieval ports
-infrastructure adapters ----^
-```
-
-The domain package has no FastAPI, filesystem, Concordia, or provider imports.
-Concordia remains behind `concordia_adapter` and only returns candidate intent
-or outcome values.
-
-The adapter builds original Concordia entities from one authorized
-`CharacterContext` at a time and a Concordia Game Master from the world plus
-all completed intents. Concordia's language-model interface is backed only by
-the existing Python `ModelGateway`, which reaches Jan's private runtime bridge;
-the adapter contains no Provider SDK, credential store, or canonical write
-path.
-
-FastAPI injects its single process-level `ModelGateway` into the Concordia
-adapter. Since Concordia's entity API is synchronous, turn generation runs in
-a worker thread rather than blocking the API event loop. A missing Tauri model
-bridge fails before a candidate is saved and leaves canonical Markdown
-byte-identical.
-
-## Failure handling
-
-- Invalid or missing tokens return `401` without leaking configuration.
-- Provider errors are normalized before crossing the API boundary.
-- Candidate edits invalidate existing review state.
-- Resolver revision regenerates the outcome and reruns review; it never edits a
-  reviewed summary in place.
-- Resolver-proposed NPCs remain non-canonical until user confirmation.
-- NPC identifiers cannot collide with an existing Character or another NPC in
-  the same outcome.
-- Promotion review remains derived until the user confirms the matching
-  versioned `PromotionCandidate`.
-- Cancelled or failed turn generation never writes a candidate or Canonical Markdown.
-- Version conflicts return `409` and never partially write canonical files.
-- `.story-engine/project.lock` serializes canonical state access across
-  threads, Sidecars, CLI tools, and independent Python processes.
-- Atomic writes use a sibling temporary file, flush, `fsync`, and `os.replace`.
-- Event envelopes carry a monotonic sequence; queue overflow and reconnect
-  gaps emit `stream.resync_required` so React reloads canonical HTTP state.
-- Sidecar startup is gated by a controlled port announcement and `/health`;
-  crashes surface a restart action.
-
-## Desktop Sidecar lifecycle
-
-Python binds `127.0.0.1:0` itself and writes the selected port to a unique,
-one-use file below application data before Uvicorn begins serving. Tauri reads
-and removes that announcement before publishing the base URL, so no released
-listener creates a port-selection TOCTOU window. Tauri also generates a
-process-local 64-character token and injects it into the Sidecar environment.
-The token is absent from command-line arguments, project files, port files,
-status events, and captured logs. React obtains the current base URL and token
-through a Tauri command and retains neither in persistent browser storage.
-
-The desktop runtime retains the last 200 redacted log lines, waits up to 30
-seconds by default for port announcement and health, monitors the child
-process, and emits a status event on startup, readiness, stop, or crash. The
-budget is configurable from 5 to 120 seconds with
-`STORY_ENGINE_STARTUP_TIMEOUT_SECONDS`. The UI exposes explicit start, stop,
-and restart controls; start is idempotent while the Sidecar is starting or
-ready. Development uses `uv`; packaged builds resolve the onedir Sidecar from
-application resources. Sidecar stdout, stderr, and crash lifecycle messages
-are redacted before they enter Jan's persistent `app.log`. They remain
-available through normal application restarts until Jan's configured log
-rotation or the existing desktop log reset removes them.
-
-## Long-project verification
-
-`apps/story-engine/benchmarks/long_project.py` is an opt-in, reproducible
-benchmark separate from the unit suite. Its default dataset contains 10,000
-Events, 500 Scenes, and 50 active Characters. It measures seeding, workspace
-open with the watcher enabled, RAG rebuild/search, a delayed mock model call,
-turn generation, atomic commit, and an externally edited Markdown refresh.
-
-## Upstream maintenance
-
-Dependabot opens weekly Cargo, npm, Python, and GitHub Actions updates. A
-scheduled workflow compares the locked Jan v0.8.4 commit with upstream main and
-categorizes desktop/runtime, model/provider, and dependency/security changes.
-Accepted and security-relevant rejected patches are recorded in
-[`UPSTREAM_PATCHES.md`](../UPSTREAM_PATCHES.md); upstream main is never merged
-wholesale.
-
-## Model boundary
-
-Jan owns model discovery, download, loading, Provider configuration UI, and the
-local llama.cpp process. Domain calls cross into Python through `ModelGateway`,
-which resolves Character, Resolver, Editor, Writer, and Embedding profiles from
-one application-level registry. Every profile invokes a private Jan
-OpenAI-compatible proxy, which routes the selected model to a remote Provider,
-llama.cpp, or MLX. Python does not implement a second Provider stack.
-
-Task profile data is written atomically under application data, not inside
-story projects. Jan owns Provider URLs and operating-system keychain entries.
-The desktop passes only a random loopback proxy URL and process-local bearer
-token to the Sidecar through environment variables; neither appears in status
-events or command-line arguments.
-
-The React task-profile surface is mounted at the top of Jan's existing Model
-Center. It reads the five profiles and aggregate usage from Python, but obtains
-its selectable Provider and model IDs from Jan's hydrated Provider store. The
-form submits only task routing, enablement, temperature, output-token, and
-timeout values. Provider creation, activation, model discovery, credentials,
-and local model lifecycle continue to use Jan's existing settings and services.
-
-The gateway enforces request and response byte ceilings, one total Deadline and
-output-token limits, retries only network failures and explicit 429/5xx within
-that Deadline, respects `Retry-After`, and performs final JSON Schema
-validation for structured responses.
-
-See [ADR-0001](adr/0001-platform-and-upstream-locks.md),
-[ADR-0002](adr/0002-markdown-canonical-state.md), and
-[ADR-0004](adr/0004-jan-model-runtime-bridge.md).
+`ModelGateway` is the only provider boundary. Runtime model tasks are `actor`,
+`game_master`, `reflection`, `memory_consolidation`, `projection`, `editor`,
+`writer`, and `embedding`. Every Concordia bridge call can record profile,
+provider, model, prompt version/hash, components, memory sources, token counts,
+duration, retries, and structured errors in the step trace.

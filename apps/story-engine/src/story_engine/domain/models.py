@@ -7,20 +7,11 @@ from story_engine.domain.errors import InvalidTransitionError
 
 JsonScalar = str | int | float | bool | None
 CharacterType = Literal["active", "npc", "retired"]
-TurnStatus = Literal[
-    "draft",
-    "reviewed",
-    "needs_revision",
-    "approved",
-    "discarded",
-    "committed",
-]
 PromotionStatus = Literal["pending", "committed"]
 ReviewMode = Literal[
     "submission_review",
     "character_review",
     "world_review",
-    "turn_review",
     "promotion_review",
     "manuscript_review",
 ]
@@ -72,7 +63,7 @@ class Fact(DomainModel):
         return self
 
 
-class FactCandidate(DomainModel):
+class InitialFact(DomainModel):
     id: str = Field(min_length=1)
     statement: str = Field(min_length=1)
     visibility: FactVisibility = Field(
@@ -93,11 +84,11 @@ class FactCandidate(DomainModel):
     @model_validator(mode="after")
     def visibility_has_valid_owners(self) -> Self:
         if self.visibility == "public" and self.known_by:
-            raise ValueError("public fact candidate must not have known_by owners")
+            raise ValueError("public initial fact must not have known_by owners")
         if self.visibility != "public" and not self.known_by:
-            raise ValueError("non-public fact candidate requires a knowing character")
+            raise ValueError("non-public initial fact requires a knowing character")
         if len(self.known_by) != len(set(self.known_by)):
-            raise ValueError("fact candidate known_by ids must be unique")
+            raise ValueError("initial fact known_by ids must be unique")
         return self
 
 
@@ -138,42 +129,6 @@ class WorldState(DomainModel):
     public_fact_ids: tuple[str, ...] = ()
     world_variables: dict[str, JsonScalar] = Field(default_factory=dict)
     version: int = Field(default=0, ge=0)
-
-
-class CharacterIntent(DomainModel):
-    character_id: str = Field(min_length=1)
-    action: str = Field(min_length=1)
-    target: str | None = None
-    goal: str = Field(min_length=1)
-    knowledge_basis: tuple[str, ...] = Field(min_length=1)
-    recognized_risk: str | None = None
-
-
-class NpcCandidate(DomainModel):
-    id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9-]*$")
-    identity: str = Field(min_length=1)
-    purpose: str = Field(min_length=1)
-    current_goal: str | None = None
-
-
-class WorldOutcome(DomainModel):
-    summary: str = Field(min_length=1, max_length=1000)
-    fact_candidates: tuple[FactCandidate, ...] = Field(default=(), max_length=8)
-    knowledge_changes: tuple[KnowledgeChange, ...] = Field(default=(), max_length=16)
-    character_changes: tuple[StateChange, ...] = Field(default=(), max_length=16)
-    world_changes: tuple[StateChange, ...] = Field(default=(), max_length=8)
-    new_npcs: tuple[NpcCandidate, ...] = Field(default=(), max_length=4)
-    unresolved_consequences: tuple[str, ...] = Field(default=(), max_length=8)
-
-    @model_validator(mode="after")
-    def npc_ids_are_unique(self) -> Self:
-        npc_ids = [npc.id for npc in self.new_npcs]
-        if len(npc_ids) != len(set(npc_ids)):
-            raise ValueError("NPC IDs must be unique within one outcome")
-        fact_ids = [fact.id for fact in self.fact_candidates]
-        if len(fact_ids) != len(set(fact_ids)):
-            raise ValueError("Fact candidate IDs must be unique within one outcome")
-        return self
 
 
 class ReviewIssue(DomainModel):
@@ -231,7 +186,7 @@ class StoryEvent(DomainModel):
     knowledge_changes: tuple[KnowledgeChange, ...] = ()
     character_changes: tuple[StateChange, ...] = ()
     world_changes: tuple[StateChange, ...] = ()
-    source_turn_id: str = Field(min_length=1)
+    source_record_id: str = Field(min_length=1)
     approved_by_user: bool
 
     @model_validator(mode="after")
@@ -241,62 +196,3 @@ class StoryEvent(DomainModel):
         if self.occurred_at.tzinfo is None:
             raise ValueError("occurred_at must include a timezone")
         return self
-
-
-class TurnCandidate(DomainModel):
-    id: str = Field(min_length=1)
-    project_id: str = Field(min_length=1)
-    base_world_version: int = Field(ge=0)
-    base_character_versions: dict[str, int]
-    base_workspace_revision: str | None = Field(
-        default=None,
-        pattern=r"^[0-9a-f]{64}$",
-    )
-    intents: tuple[CharacterIntent, ...] = Field(min_length=1)
-    outcome: WorldOutcome
-    review: ReviewResult | None = None
-    status: TurnStatus = "draft"
-
-    @model_validator(mode="after")
-    def lifecycle_state_is_consistent(self) -> Self:
-        if self.status == "reviewed" and self.review is None:
-            raise ValueError("reviewed candidate requires a review")
-        if self.status == "approved" and (
-            self.review is None or not self.review.passed
-        ):
-            raise ValueError("approved candidate requires a passing review")
-        return self
-
-    def with_review(self, review: ReviewResult) -> Self:
-        if self.status in {"discarded", "committed"}:
-            raise InvalidTransitionError(
-                f"cannot review a candidate with status {self.status}"
-            )
-        status: TurnStatus = "reviewed" if review.passed else "needs_revision"
-        return self.model_copy(update={"review": review, "status": status})
-
-    def with_outcome(self, outcome: WorldOutcome) -> Self:
-        if self.status in {"discarded", "committed"}:
-            raise InvalidTransitionError(
-                f"cannot edit a candidate with status {self.status}"
-            )
-        return self.model_copy(
-            update={"outcome": outcome, "review": None, "status": "draft"}
-        )
-
-    def approve(self) -> Self:
-        if self.status != "reviewed" or self.review is None or not self.review.passed:
-            raise InvalidTransitionError(
-                "candidate approval requires a passing current review"
-            )
-        return self.model_copy(update={"status": "approved"})
-
-    def discard(self) -> Self:
-        if self.status == "committed":
-            raise InvalidTransitionError("a committed candidate cannot be discarded")
-        return self.model_copy(update={"status": "discarded"})
-
-    def mark_committed(self) -> Self:
-        if self.status != "approved":
-            raise InvalidTransitionError("only an approved candidate can be committed")
-        return self.model_copy(update={"status": "committed"})

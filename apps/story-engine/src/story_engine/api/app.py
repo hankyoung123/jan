@@ -14,13 +14,13 @@ from story_engine.api.routes.manuscript import create_manuscript_router
 from story_engine.api.routes.models import create_models_router
 from story_engine.api.routes.projects import create_projects_router
 from story_engine.api.routes.rag import create_rag_router
+from story_engine.api.routes.simulations import create_simulations_router
 from story_engine.config import EngineSettings
 from story_engine.events.stream import (
     EngineEventBus,
     stream_events,
     websocket_token_is_valid,
 )
-from story_engine.evolution.execution import TurnExecutionRegistry
 from story_engine.models.gateway import (
     ModelGateway,
     ModelTransport,
@@ -28,6 +28,10 @@ from story_engine.models.gateway import (
     UnavailableModelTransport,
 )
 from story_engine.models.registry import ProfileRegistry
+from story_engine.persistence.commit import SimulationCommitKernel
+from story_engine.simulation.engine import RuntimeFactory, StoryTurnEngine
+from story_engine.simulation.factory import ProjectRuntimeFactory
+from story_engine.simulation.service import SimulationApplicationService
 from story_engine.workspace.session import WorkspaceChange, WorkspaceSessionManager
 
 
@@ -78,6 +82,7 @@ def create_app(
     *,
     model_registry: ProfileRegistry | None = None,
     model_transport: ModelTransport | None = None,
+    simulation_runtime_factory: RuntimeFactory | None = None,
 ) -> FastAPI:
     runtime_settings = settings or EngineSettings()
     require_session_token = _auth_dependency(runtime_settings)
@@ -86,7 +91,7 @@ def create_app(
     def publish_workspace_change(change: WorkspaceChange) -> None:
         event_bus.publish(
             project_id=change.project_id,
-            turn_id="workspace",
+            subject_id="workspace",
             event_type="workspace.changed",
             payload=change.model_dump(mode="json"),
         )
@@ -95,12 +100,12 @@ def create_app(
         runtime_settings.projects_root,
         on_change=publish_workspace_change,
     )
-    turn_executions = TurnExecutionRegistry()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
-        turn_executions.cancel_all()
+        simulation_service.checkpoint_inactive_sessions()
+        simulation_engine.cancel_all()
         workspace_manager.close_all()
 
     app = FastAPI(
@@ -120,11 +125,24 @@ def create_app(
             runtime_settings.model_api_key,
         )
     gateway = ModelGateway(registry, transport or UnavailableModelTransport())
+    runtime_factory = simulation_runtime_factory or ProjectRuntimeFactory(
+        runtime_settings.projects_root,
+        gateway,
+    )
+    simulation_engine = StoryTurnEngine(runtime_factory)
+    simulation_service = SimulationApplicationService(
+        simulation_engine,
+        event_bus,
+        commit_kernel_factory=lambda project_id: SimulationCommitKernel(
+            runtime_settings.projects_root / project_id
+        ),
+    )
     app.state.model_registry = registry
     app.state.model_gateway = gateway
     app.state.event_bus = event_bus
     app.state.workspace_manager = workspace_manager
-    app.state.turn_executions = turn_executions
+    app.state.simulation_engine = simulation_engine
+    app.state.simulation_service = simulation_service
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(runtime_settings.allowed_origins),
@@ -169,10 +187,8 @@ def create_app(
     app.include_router(
         create_projects_router(
             runtime_settings,
-            event_bus,
             gateway,
             workspace_manager,
-            turn_executions,
         ),
         dependencies=[Depends(require_session_token)],
     )
@@ -190,6 +206,10 @@ def create_app(
     )
     app.include_router(
         create_rag_router(runtime_settings, workspace_manager),
+        dependencies=[Depends(require_session_token)],
+    )
+    app.include_router(
+        create_simulations_router(runtime_settings, simulation_service),
         dependencies=[Depends(require_session_token)],
     )
 

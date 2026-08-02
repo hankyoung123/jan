@@ -59,9 +59,7 @@ class DeterministicManuscriptAgent:
         self.reviewed_bodies.append(body)
         self.reviewed_evidence.append(evidence)
         if "黑色纤维" in body:
-            return ManuscriptReviewOutput.with_new_facts(
-                ("刮痕末端沾着黑色纤维",)
-            )
+            return ManuscriptReviewOutput.with_new_facts(("刮痕末端沾着黑色纤维",))
         return ManuscriptReviewOutput.passed()
 
 
@@ -96,7 +94,7 @@ def _project(tmp_path: Path) -> Path:
             summary="陈默抵达灯塔并发现灯芯槽上的新鲜刮痕。",
             participants=("chen-mo",),
             fact_ids=(fact.id,),
-            source_turn_id="turn-000001",
+            source_record_id="session:one",
             approved_by_user=True,
         )
     )
@@ -133,10 +131,7 @@ def test_writer_uses_only_confirmed_events_and_creates_derived_draft(
     assert agent.reviewed_evidence[0]
     assert {item.task for item in draft.retrieval_evidence} == {"writer", "editor"}
     assert all(
-        item.chunk_id
-        and item.source_id
-        and item.source_path
-        and item.permission_scope
+        item.chunk_id and item.source_id and item.source_path and item.permission_scope
         for item in draft.retrieval_evidence
     )
     assert _formal_bytes(root) == before
@@ -152,9 +147,7 @@ def test_writer_rejects_unknown_or_unconfirmed_event_sources(
     before = _formal_bytes(root)
 
     with pytest.raises(ValueError, match="confirmed events"):
-        asyncio.run(
-            service.generate_scene(("event-999999",), chapter_id="chapter-03")
-        )
+        asyncio.run(service.generate_scene(("event-999999",), chapter_id="chapter-03"))
 
     assert _formal_bytes(root) == before
 
@@ -247,12 +240,10 @@ def test_new_user_fact_requires_amendment_before_atomic_formal_commit(
     assert committed.scene.version == 1
     assert committed.event.fact_ids == committed.amendment.fact_ids
     assert committed.event.approved_by_user is True
-    assert committed.event.source_turn_id == result.amendment.id
+    assert committed.event.source_record_id == result.amendment.id
     assert committed.amendment.fact_ids[0] in snapshot.world.public_fact_ids
     committed_fact = next(
-        fact
-        for fact in snapshot.facts
-        if fact.id == committed.amendment.fact_ids[0]
+        fact for fact in snapshot.facts if fact.id == committed.amendment.fact_ids[0]
     )
     assert committed_fact.statement == "刮痕末端沾着黑色纤维"
     assert snapshot.world.version == 1

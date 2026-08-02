@@ -30,7 +30,6 @@ from story_engine.workspace.transaction import recover_incomplete_transactions
 
 _PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _DERIVED_DIRECTORIES = (
-    ".story-engine/turns",
     ".story-engine/reviews",
     ".story-engine/scenes",
     ".story-engine/amendments",
@@ -469,9 +468,7 @@ class WorkspaceSessionManager:
         if not self.projects_root.exists():
             return ()
         projects: list[ProjectCatalogEntry] = []
-        roots = sorted(
-            path for path in self.projects_root.iterdir() if path.is_dir()
-        )
+        roots = sorted(path for path in self.projects_root.iterdir() if path.is_dir())
         for root in roots:
             invalid = (
                 not _PROJECT_ID.fullmatch(root.name)

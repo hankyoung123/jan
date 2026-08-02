@@ -7,7 +7,7 @@ from story_engine.workspace.atomic import atomic_write_text
 _CHARACTER_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
-class PromotionCandidateStore:
+class PromotionProposalStore:
     def __init__(self, root: Path) -> None:
         self.root = root
 

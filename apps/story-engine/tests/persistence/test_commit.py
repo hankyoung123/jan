@@ -1,0 +1,219 @@
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
+from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
+from story_engine.domain.simulation import (
+    StepResult,
+    TurnSessionSnapshot,
+    TurnSessionStatus,
+)
+from story_engine.domain.trace import ModelCallStatus, TurnTrace
+from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.persistence.commit import SimulationCommitKernel
+from story_engine.simulation.session import calculate_snapshot_state_hash
+
+
+def _snapshot(
+    *,
+    step: int,
+    branch_id: str = "main",
+    status: TurnSessionStatus = TurnSessionStatus.PAUSED,
+) -> TurnSessionSnapshot:
+    now = datetime.now(UTC)
+    provisional = TurnSessionSnapshot(
+        session_id="session:1",
+        project_id="fog-harbor",
+        branch_id=branch_id,
+        status=status,
+        content_locale="en-US",
+        current_step=step,
+        actor_states={"actor-a": {"step": step}},
+        game_master_states={"gm": {"step": step}},
+        memory_snapshots={},
+        raw_log_offset=step,
+        started_at=now,
+        updated_at=now,
+        state_hash="0" * 64,
+    )
+    return provisional.model_copy(
+        update={"state_hash": calculate_snapshot_state_hash(provisional)}
+    )
+
+
+def _result(step: int) -> StepResult:
+    return StepResult(
+        session_id="session:1",
+        branch_id="main",
+        step=step,
+        acting_actor_id="actor-a",
+        action_spec=None,
+        action_text=f"action {step}",
+        resolved_turn=None,
+        status=TurnSessionStatus.PAUSED,
+    )
+
+
+def _trace(step: int) -> TurnTrace:
+    now = datetime.now(UTC)
+    return TurnTrace(
+        trace_id=f"trace:session-1:{step}",
+        session_id="session:1",
+        branch_id="main",
+        step=step,
+        content_locale="en-US",
+        stages=(),
+        model_calls=(),
+        acting_actor_id="actor-a",
+        started_at=now,
+        completed_at=now,
+        status=ModelCallStatus.SUCCEEDED,
+    )
+
+
+def test_checkpoint_round_trip_verifies_state_hash(tmp_path: Path) -> None:
+    store = CheckpointStore(tmp_path)
+    checkpoint_id, path = store.save(_snapshot(step=2))
+
+    loaded = store.load(checkpoint_id)
+
+    assert loaded.current_step == 2
+    assert loaded.checkpoint_id == checkpoint_id
+    assert loaded.state_hash == checkpoint_id.removeprefix("checkpoint-")
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["snapshot"]["current_step"] = 999
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="state hash"):
+        store.load(checkpoint_id)
+
+
+def test_commit_writes_checkpoint_log_then_advances_branch(tmp_path: Path) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="session created")
+    committed = kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
+
+    branch = kernel.branches.load("main")
+    records = kernel.logs.read("main")
+
+    assert initial.branch.head_step == 0
+    assert branch.head_checkpoint_id == committed.checkpoint_id
+    assert branch.head_step == 1
+    assert records[0].checkpoint_id == committed.checkpoint_id
+    loaded = kernel.load_checkpoint("fog-harbor", committed.checkpoint_id)
+    assert loaded.current_step == 1
+
+
+def test_failed_head_advance_leaves_old_head_valid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="session created")
+
+    def fail_advance(*args, **kwargs):
+        del args, kwargs
+        raise OSError("simulated manifest failure")
+
+    monkeypatch.setattr(kernel.branches, "advance", fail_advance)
+    with pytest.raises(OSError, match="manifest failure"):
+        kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
+
+    branch = kernel.branches.load("main")
+    assert branch.head_checkpoint_id == initial.checkpoint_id
+    assert kernel.checkpoints.exists(initial.checkpoint_id)
+    assert len(kernel.logs.read("main")) == 1
+
+
+def test_branch_fork_and_rollback_keep_independent_heads(tmp_path: Path) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    first = kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    second = kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
+    fork = kernel.create_branch(
+        "fog-harbor",
+        source_checkpoint_id=first.checkpoint_id,
+        branch_id="branch-b",
+        parent_branch_id="main",
+        content_locale="en-US",
+    )
+
+    rolled_back = kernel.rollback_branch(
+        "fog-harbor",
+        "main",
+        checkpoint_id=first.checkpoint_id,
+    )
+
+    assert fork.head_checkpoint_id == first.checkpoint_id
+    assert fork.parent_branch_id == "main"
+    assert rolled_back.head_checkpoint_id == first.checkpoint_id
+    assert kernel.branches.load("branch-b").head_checkpoint_id == first.checkpoint_id
+    assert second.checkpoint_id != first.checkpoint_id
+
+
+def test_markdown_projection_is_disposable_and_rebuildable(tmp_path: Path) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    committed = kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
+
+    paths = kernel.project_markdown("fog-harbor", "main")
+    contents = tuple(path.read_text(encoding="utf-8") for path in paths)
+    for path in paths:
+        path.unlink()
+
+    rebuilt = kernel.project_markdown(
+        "fog-harbor",
+        "main",
+        checkpoint_id=committed.checkpoint_id,
+    )
+
+    assert tuple(path.read_text(encoding="utf-8") for path in rebuilt) == contents
+    timeline = tmp_path / ".story-engine/projections/main/timeline.md"
+    assert "action 0" in timeline.read_text(encoding="utf-8")
+    restored = kernel.load_checkpoint("fog-harbor", committed.checkpoint_id)
+    assert restored.current_step == 1
+
+
+def test_fork_projection_recovers_inherited_events_from_checkpoint(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(UTC)
+    memory = ConcordiaMemoryBank(owner_id="gm", scope=MemoryScope.GAME_MASTER)
+    memory.add(
+        MemoryRecord(
+            record_id="event:session-1:0",
+            record_type=MemoryRecordType.WORLD_EVENT,
+            scope=MemoryScope.GAME_MASTER,
+            owner_id="gm",
+            session_id="session:1",
+            branch_id="main",
+            step=0,
+            text="The lighthouse beam returns.",
+            content_locale="en-US",
+            created_at=now,
+        )
+    )
+    provisional = _snapshot(step=1).model_copy(
+        update={"memory_snapshots": {"gm": memory.snapshot()}}
+    )
+    snapshot = provisional.model_copy(
+        update={"state_hash": calculate_snapshot_state_hash(provisional)}
+    )
+    kernel = SimulationCommitKernel(tmp_path)
+    committed = kernel.save_checkpoint(snapshot, reason="fork point")
+    kernel.create_branch(
+        "fog-harbor",
+        source_checkpoint_id=committed.checkpoint_id,
+        branch_id="branch-b",
+        parent_branch_id="main",
+        content_locale="en-US",
+    )
+
+    kernel.project_markdown("fog-harbor", "branch-b")
+
+    timeline = tmp_path / ".story-engine/projections/branch-b/timeline.md"
+    world = tmp_path / ".story-engine/projections/branch-b/world.md"
+    assert "event:session-1:0" in timeline.read_text(encoding="utf-8")
+    assert "The lighthouse beam returns." in world.read_text(encoding="utf-8")

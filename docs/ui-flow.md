@@ -4,71 +4,64 @@ The desktop navigation contains Workbench, Evolve, Characters, World, Events,
 Manuscript, Model Center, and Project Settings. Global settings remain separate
 from project settings.
 
-The primary evolution flow is linear and visible:
+## Simulation console
+
+Evolve is a control surface for one branch-local simulation session:
 
 ```text
-Current situation -> Character intents -> World resolution
--> Editorial review -> User approval -> Manuscript
+Choose branch and actors -> Start session -> Step or run
+-> Pause/checkpoint -> Resume, fork, roll back, project, or terminate
 ```
 
-The user can confirm, request revision, or discard. Any candidate edit visibly
-invalidates its prior review. Internal implementation terms such as Concordia
-components are not exposed in product copy.
+Starting a session sends the selected actor IDs, premise, content locale, and
+control policy to the Python Story Engine. The page then renders the server
+snapshot and never maintains a second browser-owned copy of actor, Game Master,
+memory, step, or branch state.
 
-The desktop UI persists only the selected Story Engine project identifier. On
-entry to Evolve it loads the canonical project snapshot from the Python
-sidecar, derives the active participants and display names from that snapshot,
-and renders the current world version, time, location, incident, and pressures.
-It does not keep a second browser-owned copy of world or character state.
+Step executes exactly one Concordia step and returns to a paused boundary. Run
+and resume use the same engine with scene, chapter, or autonomous control
+policies. Pause takes effect at a safe step boundary. Terminate ends the
+session; checkpoint persists a restorable branch head. Events do not require
+per-event approval.
 
-After a turn candidate exists, generation is locked until the user chooses one
-of the three V1 decisions: request revision, discard, or confirm. Confirmation
-writes through the Story Engine and then reloads the canonical project snapshot
-before the UI displays the new world version. When no project is selected, the
-page links back to Submission instead of assuming a bundled example project.
-Revision keeps the displayed Character intents, replaces the Resolver outcome,
-and shows only the newly generated Editor review.
+The console can fork from a checkpoint and rebuild disposable Markdown views
+for a branch. Rollback remains a server operation and changes only the selected
+branch head. Deleting `world.md`, `timeline.md`, or `characters.md` does not
+delete simulation state.
 
-The Characters workspace always loads the canonical project snapshot. Selecting
-an NPC exposes an Editor assessment action. A passing assessment displays its
-proposed goal but keeps the Character visibly marked as an NPC; promotion
-requires a separate confirmation action. After confirmation the UI reloads the
-project snapshot and displays the Character as active. The browser never edits
-the Character type or stores a second canonical copy.
+The content-locale control is available only at created or paused boundaries.
+It changes subsequent actor, Game Master, observation, event, and Writer prose;
+historical content and machine identifiers are not translated.
 
-Submission begins with an empty, non-canonical setting draft. The discussion
-panel sends user/assistant history and that draft to the Python Editor profile;
-the adjacent inspector shows the returned creative direction, world rules,
-characters, initial situation, review summary, and missing runnable
-requirements. Project creation stays locked until the server marks the package
-runnable. Discussion never writes canonical Markdown, and successful
-finalization selects the created project before linking to the first turn.
+When no project is selected, the page links back to Submission instead of
+assuming a bundled example. The UI shows stable Story Engine errors and does
+not expose Concordia component internals, prompts, credentials, or provider
+SDK details.
 
-The discussion panel is an adaptation of Jan's original thread UI, not a second
-chat implementation. It directly composes Jan's `Conversation`,
-`ConversationContent`, `ConversationScrollButton`, and `MessageItem`, together
-with a controlled composer extracted from the visual and keyboard interaction
-layer of Jan's `ChatInput`. Only the transport and message adapter are replaced:
-submission history goes to the Python Story Engine and returns as Jan
-`UIMessage` display data. Jan thread persistence, chat stores, and direct
-Provider inference are intentionally not mounted in this flow.
+## Other workspaces
 
-This flow remains inside the Jan-based React application. Tauri owns desktop
-lifecycle and the Jan model bridge, while the Python Story Engine owns story
-domain state and delegates candidate generation to original Concordia through
-that bridge. The UI does not add another provider, model runtime, or desktop
-shell.
+Characters, World, and Events load server-owned project or projection data.
+NPC promotion remains an explicit editorial workflow separate from simulation
+world-event validity. Manuscript changes and amendments retain their own review
+and commit semantics; they do not gate the Game Master's world resolution.
+
+Submission starts from a non-canonical setting draft. Its discussion panel
+sends history and the draft to the Python Editor profile, shows the returned
+creative direction and runnable requirements, and writes project seed files
+only when finalization succeeds.
+
+The discussion panel reuses Jan's conversation and composer components. Jan
+thread persistence and direct provider inference are not mounted in this flow.
+Tauri owns desktop lifecycle and the model bridge; the Python sidecar owns
+story-domain state and simulation.
+
+## Model Center and Workbench
 
 Model Center keeps Jan's catalog, download, Provider, and local-runtime
-workflows. A collapsible task-model band above the catalog exposes Character,
-Resolver, Editor, Writer, and Embedding routes. Each route selects an enabled
-Jan Provider and one of its known models, can accept an explicit model ID, and
-owns enablement plus advanced temperature, output-token, and timeout limits.
-Saving updates the Python application-level profile registry; the form contains
-no credential field and links back to Jan's Provider settings for configuration.
-Local and remote Providers use the same profile controls.
+workflows. The task-model band configures Actor, Game Master, Reflection,
+Memory Consolidation, Projection, Editor, Writer, and Embedding profiles. It
+contains no credential fields and links to Jan Provider settings.
 
-Workbench is a compact operational view: current world state, pending work,
-latest event, active characters, and one primary "Advance next turn" action.
-The right inspector is collapsible. Green means confirmed, amber means pending
-or risky, and red means blocked or failed.
+Workbench is a compact operational overview of the active project, current
+branch/session state, recent events, and active characters. HTTP snapshots are
+authoritative; WebSocket events provide ordered live updates and resync hints.

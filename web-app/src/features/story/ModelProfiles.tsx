@@ -45,8 +45,11 @@ type ModelProfile = components['schemas']['ModelProfile']
 type UsageTotals = components['schemas']['UsageTotals']
 
 const taskLabels: Record<ModelProfile['task_type'], string> = {
-  character: '角色',
-  resolver: '裁决',
+  actor: '角色',
+  game_master: '世界主持人',
+  reflection: '反思',
+  memory_consolidation: '记忆整理',
+  projection: '投影',
   editor: '审核',
   writer: '写作',
   embedding: '嵌入',

@@ -171,6 +171,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Branch */
+        post: operations["create_branch_projects__project_id__branches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/projection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rebuild Projection */
+        post: operations["rebuild_projection_projects__project_id__branches__branch_id__projection_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rollback Branch */
+        post: operations["rollback_branch_projects__project_id__branches__branch_id__rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/characters": {
         parameters: {
             query?: never;
@@ -410,6 +461,159 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/simulations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Simulation */
+        post: operations["start_simulation_projects__project_id__simulations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Simulation */
+        get: operations["get_simulation_projects__project_id__simulations__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/checkpoint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Checkpoint Simulation */
+        post: operations["checkpoint_simulation_projects__project_id__simulations__session_id__checkpoint_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/locale": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Switch Simulation Locale */
+        post: operations["switch_simulation_locale_projects__project_id__simulations__session_id__locale_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause Simulation */
+        post: operations["pause_simulation_projects__project_id__simulations__session_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume Simulation */
+        post: operations["resume_simulation_projects__project_id__simulations__session_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Simulation */
+        post: operations["run_simulation_projects__project_id__simulations__session_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Step Simulation */
+        post: operations["step_simulation_projects__project_id__simulations__session_id__step_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/terminate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Terminate Simulation */
+        post: operations["terminate_simulation_projects__project_id__simulations__session_id__terminate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/submission/messages": {
         parameters: {
             query?: never;
@@ -421,108 +625,6 @@ export interface paths {
         put?: never;
         /** Discuss Submission */
         post: operations["discuss_submission_projects__project_id__submission_messages_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/turns/active/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cancel Active Turn */
-        post: operations["cancel_active_turn_projects__project_id__turns_active_cancel_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/turns/generate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Generate Turn */
-        post: operations["generate_turn_projects__project_id__turns_generate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/turns/{turn_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Turn */
-        get: operations["get_turn_projects__project_id__turns__turn_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/turns/{turn_id}/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Confirm Turn */
-        post: operations["confirm_turn_projects__project_id__turns__turn_id__confirm_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/turns/{turn_id}/discard": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Discard Turn */
-        post: operations["discard_turn_projects__project_id__turns__turn_id__discard_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/turns/{turn_id}/request-revision": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Request Turn Revision */
-        post: operations["request_turn_revision_projects__project_id__turns__turn_id__request_revision_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -567,11 +669,98 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActionOutputType
+         * @enum {string}
+         */
+        ActionOutputType: "free" | "choice" | "float" | "make_observation" | "next_acting" | "next_action_spec" | "resolve" | "terminate" | "next_game_master" | "skip_this_step";
+        /**
+         * ActionSpec
+         * @description Serializable project-side equivalent of Concordia's ActionSpec.
+         */
+        ActionSpec: {
+            action_kind?: components["schemas"]["StoryActionKind"] | null;
+            /** Call To Action */
+            call_to_action: string;
+            /** Content Locale */
+            content_locale: string;
+            /** Metadata */
+            metadata?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Option Ids
+             * @default []
+             */
+            option_ids: string[];
+            /**
+             * Options
+             * @default []
+             */
+            options: string[];
+            output_type: components["schemas"]["ActionOutputType"];
+            /** Spec Id */
+            spec_id: string;
+            /** Tag */
+            tag?: string | null;
+        };
         /** AmendmentCommitResult */
         AmendmentCommitResult: {
             amendment: components["schemas"]["EventAmendmentCandidate"];
             event: components["schemas"]["StoryEvent"];
             scene: components["schemas"]["Scene"];
+        };
+        /** BranchCreateRequest */
+        BranchCreateRequest: {
+            /** Branch Id */
+            branch_id: string;
+            /**
+             * Content Locale
+             * @default zh-CN
+             */
+            content_locale: string;
+            /**
+             * Parent Branch Id
+             * @default main
+             */
+            parent_branch_id: string;
+            /** Source Checkpoint Id */
+            source_checkpoint_id: string;
+        };
+        /** BranchManifest */
+        BranchManifest: {
+            /** Branch Id */
+            branch_id: string;
+            /** Content Locale */
+            content_locale: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Fork Checkpoint Id */
+            fork_checkpoint_id?: string | null;
+            /** Head Checkpoint Id */
+            head_checkpoint_id?: string | null;
+            /**
+             * Head Step
+             * @default 0
+             */
+            head_step: number;
+            /** Parent Branch Id */
+            parent_branch_id?: string | null;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** BranchRollbackRequest */
+        BranchRollbackRequest: {
+            /** Checkpoint Id */
+            checkpoint_id: string;
         };
         /** Character */
         Character: {
@@ -617,26 +806,97 @@ export interface components {
              */
             version: number;
         };
-        /** CharacterIntent */
-        CharacterIntent: {
-            /** Action */
-            action: string;
-            /** Character Id */
-            character_id: string;
-            /** Goal */
-            goal: string;
-            /** Knowledge Basis */
-            knowledge_basis: string[];
-            /** Recognized Risk */
-            recognized_risk?: string | null;
-            /** Target */
-            target?: string | null;
+        /** CheckpointRequest */
+        CheckpointRequest: {
+            /**
+             * Reason
+             * @default user checkpoint
+             */
+            reason: string;
         };
         /** CommitResult */
         CommitResult: {
-            candidate: components["schemas"]["TurnCandidate"];
-            event: components["schemas"]["StoryEvent"];
+            branch: components["schemas"]["BranchManifest"];
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Session Id */
+            session_id: string;
+            /** State Hash */
+            state_hash: string;
+            /** Step */
+            step: number;
+            /** Written Paths */
+            written_paths: string[];
         };
+        /**
+         * ControlMode
+         * @enum {string}
+         */
+        ControlMode: "step" | "scene" | "chapter" | "autonomous";
+        /** ControlPolicy */
+        ControlPolicy: {
+            /**
+             * Allow Dynamic Entities
+             * @default true
+             */
+            allow_dynamic_entities: boolean;
+            /**
+             * Allow User Override
+             * @default true
+             */
+            allow_user_override: boolean;
+            /**
+             * Checkpoint Every Steps
+             * @default 1
+             */
+            checkpoint_every_steps: number;
+            /**
+             * Max Consecutive Model Failures
+             * @default 3
+             */
+            max_consecutive_model_failures: number;
+            /**
+             * Max Runtime Seconds
+             * @default 3600
+             */
+            max_runtime_seconds: number;
+            /**
+             * Max Scenes
+             * @default 1
+             */
+            max_scenes: number;
+            /**
+             * Max Steps
+             * @default 40
+             */
+            max_steps: number;
+            /**
+             * Max Total Tokens
+             * @default 500000
+             */
+            max_total_tokens: number;
+            mode: components["schemas"]["ControlMode"];
+            /**
+             * Pause After Scene
+             * @default true
+             */
+            pause_after_scene: boolean;
+            /**
+             * Pause After Step
+             * @default false
+             */
+            pause_after_step: boolean;
+        };
+        /**
+         * EffectOperation
+         * @enum {string}
+         */
+        EffectOperation: "set" | "append" | "remove" | "create_entity" | "archive_entity" | "emit_signal";
+        /**
+         * EffectTarget
+         * @enum {string}
+         */
+        EffectTarget: "world_projection" | "character_projection" | "system";
         /** EventAmendmentCandidate */
         EventAmendmentCandidate: {
             /** Base Workspace Revision */
@@ -664,6 +924,11 @@ export interface components {
              */
             status: "pending" | "committed";
         };
+        /**
+         * EventVisibility
+         * @enum {string}
+         */
+        EventVisibility: "public" | "participants" | "restricted" | "gm_only";
         /** Fact */
         Fact: {
             /** Id */
@@ -690,8 +955,22 @@ export interface components {
              */
             visibility: "public" | "private" | "secret";
         };
-        /** FactCandidate */
-        FactCandidate: {
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HealthResponse */
+        HealthResponse: {
+            /** Service */
+            service: string;
+            /** Status */
+            status: string;
+            /** Version */
+            version: string;
+        };
+        /** InitialFact */
+        InitialFact: {
             /** Id */
             id: string;
             /**
@@ -710,20 +989,6 @@ export interface components {
              * @enum {string}
              */
             visibility: "public" | "private" | "secret";
-        };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
-        /** HealthResponse */
-        HealthResponse: {
-            /** Service */
-            service: string;
-            /** Status */
-            status: string;
-            /** Version */
-            version: string;
         };
         JsonValue: unknown;
         /** KnowledgeChange */
@@ -755,6 +1020,25 @@ export interface components {
              */
             new_facts: string[];
             review: components["schemas"]["ReviewResult"];
+        };
+        /**
+         * MemoryScope
+         * @enum {string}
+         */
+        MemoryScope: "game_master" | "character" | "shared";
+        /** MemorySnapshot */
+        MemorySnapshot: {
+            /** Owner Id */
+            owner_id: string;
+            /** Record Count */
+            record_count: number;
+            scope: components["schemas"]["MemoryScope"];
+            /** State */
+            state: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** State Hash */
+            state_hash: string;
         };
         /** Message */
         Message: {
@@ -801,7 +1085,7 @@ export interface components {
              * Task Type
              * @enum {string}
              */
-            task_type: "character" | "resolver" | "editor" | "writer" | "embedding";
+            task_type: "actor" | "game_master" | "reflection" | "memory_consolidation" | "projection" | "editor" | "writer" | "embedding";
             /** Temperature */
             temperature?: number | null;
             /**
@@ -824,7 +1108,7 @@ export interface components {
              * Task Type
              * @enum {string}
              */
-            task_type: "character" | "resolver" | "editor" | "writer" | "embedding";
+            task_type: "actor" | "game_master" | "reflection" | "memory_consolidation" | "projection" | "editor" | "writer" | "embedding";
             /** Temperature */
             temperature?: number | null;
             /** Timeout Seconds */
@@ -862,17 +1146,6 @@ export interface components {
              * @default 0
              */
             total_tokens: number;
-        };
-        /** NpcCandidate */
-        NpcCandidate: {
-            /** Current Goal */
-            current_goal?: string | null;
-            /** Id */
-            id: string;
-            /** Identity */
-            identity: string;
-            /** Purpose */
-            purpose: string;
         };
         /** ProjectCatalogEntry */
         ProjectCatalogEntry: {
@@ -919,6 +1192,20 @@ export interface components {
             facts: components["schemas"]["Fact"][];
             project: components["schemas"]["ProjectDocument"];
             world: components["schemas"]["WorldState"];
+        };
+        /** ProjectionRequest */
+        ProjectionRequest: {
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+        };
+        /** ProjectionResponse */
+        ProjectionResponse: {
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Written Paths */
+            written_paths: string[];
         };
         /** PromotionAssessment */
         PromotionAssessment: {
@@ -1036,6 +1323,108 @@ export interface components {
             /** Description */
             description: string;
         };
+        /**
+         * ResolvedEvent
+         * @description Lightweight projection of a Game Master world event.
+         */
+        ResolvedEvent: {
+            /** Actor Id */
+            actor_id?: string | null;
+            /**
+             * Confidence
+             * @default 1
+             */
+            confidence: number;
+            /** Content Locale */
+            content_locale: string;
+            /**
+             * Effects
+             * @default []
+             */
+            effects: components["schemas"]["StateEffect"][];
+            /** Event Id */
+            event_id: string;
+            /** Event Text */
+            event_text: string;
+            /**
+             * Importance
+             * @default 0.5
+             */
+            importance: number;
+            /**
+             * Location Ids
+             * @default []
+             */
+            location_ids: string[];
+            /**
+             * Observer Ids
+             * @default []
+             */
+            observer_ids: string[];
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Participant Ids
+             * @default []
+             */
+            participant_ids: string[];
+            /** Session Id */
+            session_id: string;
+            /**
+             * Source Intent Ids
+             * @default []
+             */
+            source_intent_ids: string[];
+            /**
+             * Source Memory Ids
+             * @default []
+             */
+            source_memory_ids: string[];
+            /** Step */
+            step: number;
+            visibility: components["schemas"]["EventVisibility"];
+        };
+        /**
+         * ResolvedTurn
+         * @description Project-side projection of one Engine step.
+         */
+        ResolvedTurn: {
+            /** Acting Actor Id */
+            acting_actor_id?: string | null;
+            action_spec?: components["schemas"]["ActionSpec"] | null;
+            /** Branch Id */
+            branch_id: string;
+            /** Content Locale */
+            content_locale: string;
+            /**
+             * Effects
+             * @default []
+             */
+            effects: components["schemas"]["StateEffect"][];
+            /**
+             * Events
+             * @default []
+             */
+            events: components["schemas"]["ResolvedEvent"][];
+            /** Putative Event Text */
+            putative_event_text?: string | null;
+            /** Raw Resolution Text */
+            raw_resolution_text: string;
+            /** Session Id */
+            session_id: string;
+            /** Step */
+            step: number;
+            /**
+             * Terminated
+             * @default false
+             */
+            terminated: boolean;
+            /** Termination Reason Text */
+            termination_reason_text?: string | null;
+        };
         /** RetrievalEvidence */
         RetrievalEvidence: {
             /** Chunk Id */
@@ -1106,16 +1495,11 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "submission_review" | "character_review" | "world_review" | "turn_review" | "promotion_review" | "manuscript_review";
+            mode: "submission_review" | "character_review" | "world_review" | "promotion_review" | "manuscript_review";
             /** Passed */
             passed: boolean;
             /** Summary */
             summary: string;
-        };
-        /** RevisionRequest */
-        RevisionRequest: {
-            /** Instruction */
-            instruction: string;
         };
         /** Scene */
         Scene: {
@@ -1211,6 +1595,39 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** SimulationLocaleRequest */
+        SimulationLocaleRequest: {
+            /** Content Locale */
+            content_locale: string;
+        };
+        /** SimulationStartRequest */
+        SimulationStartRequest: {
+            /**
+             * Actor Ids
+             * @default []
+             */
+            actor_ids: string[];
+            /**
+             * Branch Id
+             * @default main
+             */
+            branch_id: string;
+            /**
+             * Content Locale
+             * @default zh-CN
+             */
+            content_locale: string;
+            control: components["schemas"]["ControlPolicy"];
+            /** Premise Text */
+            premise_text: string;
+            /** Seed */
+            seed?: number | null;
+        };
+        /** SimulationTerminateRequest */
+        SimulationTerminateRequest: {
+            /** Reason Text */
+            reason_text: string;
+        };
         /** StateChange */
         StateChange: {
             /** Field */
@@ -1227,11 +1644,62 @@ export interface components {
              */
             target_type: "character" | "world";
         };
+        /**
+         * StateEffect
+         * @description Optional machine projection; natural-language events remain authoritative.
+         */
+        StateEffect: {
+            after?: components["schemas"]["JsonValue"];
+            before?: components["schemas"]["JsonValue"];
+            /** Effect Id */
+            effect_id: string;
+            operation: components["schemas"]["EffectOperation"];
+            /** Path */
+            path?: string | null;
+            /** Reason Text */
+            reason_text?: string | null;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Source Record Ids
+             * @default []
+             */
+            source_record_ids: string[];
+            target: components["schemas"]["EffectTarget"];
+            /** Target Id */
+            target_id?: string | null;
+        };
         /** StatusResponse */
         StatusResponse: {
             /** Status */
             status: string;
         };
+        /** StepResult */
+        StepResult: {
+            /** Acting Actor Id */
+            acting_actor_id: string | null;
+            action_spec: components["schemas"]["ActionSpec"] | null;
+            /** Action Text */
+            action_text: string | null;
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+            resolved_turn: components["schemas"]["ResolvedTurn"] | null;
+            /** Session Id */
+            session_id: string;
+            status: components["schemas"]["TurnSessionStatus"];
+            /** Step */
+            step: number;
+        };
+        /**
+         * StoryActionKind
+         * @enum {string}
+         */
+        StoryActionKind: "free_action" | "dialogue" | "reaction" | "internal_decision" | "choice" | "wait" | "scene_proposal";
         /** StoryEvent */
         StoryEvent: {
             /** Approved By User */
@@ -1262,8 +1730,8 @@ export interface components {
             participants: string[];
             /** Sequence */
             sequence: number;
-            /** Source Turn Id */
-            source_turn_id: string;
+            /** Source Record Id */
+            source_record_id: string;
             /** Summary */
             summary: string;
             /**
@@ -1330,7 +1798,7 @@ export interface components {
              * Facts
              * @default []
              */
-            facts: components["schemas"]["FactCandidate"][];
+            facts: components["schemas"]["InitialFact"][];
             /**
              * Genre
              * @default
@@ -1384,7 +1852,7 @@ export interface components {
             /** Characters */
             characters: components["schemas"]["SubmissionCharacter"][];
             /** Facts */
-            facts: components["schemas"]["FactCandidate"][];
+            facts: components["schemas"]["InitialFact"][];
             /** Genre */
             genre: string;
             /** Id */
@@ -1409,51 +1877,72 @@ export interface components {
             /** World Rules */
             world_rules: string[];
         };
-        /** TurnCancellationResult */
-        TurnCancellationResult: {
-            /**
-             * Cancel Requested
-             * @default true
-             */
-            cancel_requested: boolean;
-            /** Project Id */
-            project_id: string;
-            /** Turn Id */
-            turn_id?: string | null;
-        };
-        /** TurnCandidate */
-        TurnCandidate: {
-            /** Base Character Versions */
-            base_character_versions: {
-                [key: string]: number;
+        /** TurnSessionSnapshot */
+        TurnSessionSnapshot: {
+            /** Active Actor Id */
+            active_actor_id?: string | null;
+            /** Actor States */
+            actor_states: {
+                [key: string]: {
+                    [key: string]: components["schemas"]["JsonValue"];
+                };
             };
-            /** Base Workspace Revision */
-            base_workspace_revision?: string | null;
-            /** Base World Version */
-            base_world_version: number;
-            /** Id */
-            id: string;
-            /** Intents */
-            intents: components["schemas"]["CharacterIntent"][];
-            outcome: components["schemas"]["WorldOutcome"];
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+            /**
+             * Consecutive Model Failures
+             * @default 0
+             */
+            consecutive_model_failures: number;
+            /** Content Locale */
+            content_locale: string;
+            current_action_spec?: components["schemas"]["ActionSpec"] | null;
+            /** Current Step */
+            current_step: number;
+            /** Game Master States */
+            game_master_states: {
+                [key: string]: {
+                    [key: string]: components["schemas"]["JsonValue"];
+                };
+            };
+            /** Memory Snapshots */
+            memory_snapshots: {
+                [key: string]: components["schemas"]["MemorySnapshot"];
+            };
             /** Project Id */
             project_id: string;
-            review?: components["schemas"]["ReviewResult"] | null;
+            /** Raw Log Offset */
+            raw_log_offset: number;
+            /** Session Id */
+            session_id: string;
             /**
-             * Status
-             * @default draft
-             * @enum {string}
+             * Started At
+             * Format: date-time
              */
-            status: "draft" | "reviewed" | "needs_revision" | "approved" | "discarded" | "committed";
-        };
-        /** TurnGenerationRequest */
-        TurnGenerationRequest: {
+            started_at: string;
+            /** State Hash */
+            state_hash: string;
+            status: components["schemas"]["TurnSessionStatus"];
+            /** Termination Reason Text */
+            termination_reason_text?: string | null;
             /**
-             * Participant Ids
-             * @default []
+             * Total Model Tokens
+             * @default 0
              */
-            participant_ids: string[];
+            total_model_tokens: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
+        /**
+         * TurnSessionStatus
+         * @enum {string}
+         */
+        TurnSessionStatus: "created" | "running" | "paused" | "terminated" | "cancelled" | "failed";
         /** UsageTotals */
         UsageTotals: {
             /**
@@ -1552,41 +2041,6 @@ export interface components {
              * @constant
              */
             status: "open";
-        };
-        /** WorldOutcome */
-        WorldOutcome: {
-            /**
-             * Character Changes
-             * @default []
-             */
-            character_changes: components["schemas"]["StateChange"][];
-            /**
-             * Fact Candidates
-             * @default []
-             */
-            fact_candidates: components["schemas"]["FactCandidate"][];
-            /**
-             * Knowledge Changes
-             * @default []
-             */
-            knowledge_changes: components["schemas"]["KnowledgeChange"][];
-            /**
-             * New Npcs
-             * @default []
-             */
-            new_npcs: components["schemas"]["NpcCandidate"][];
-            /** Summary */
-            summary: string;
-            /**
-             * Unresolved Consequences
-             * @default []
-             */
-            unresolved_consequences: string[];
-            /**
-             * World Changes
-             * @default []
-             */
-            world_changes: components["schemas"]["StateChange"][];
         };
         /** WorldState */
         WorldState: {
@@ -1865,6 +2319,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_branch_projects__project_id__branches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BranchCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchManifest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rebuild_projection_projects__project_id__branches__branch_id__projection_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rollback_branch_projects__project_id__branches__branch_id__rollback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BranchRollbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchManifest"];
                 };
             };
             /** @description Validation Error */
@@ -2366,6 +2927,309 @@ export interface operations {
             };
         };
     };
+    start_simulation_projects__project_id__simulations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulationStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_simulation_projects__project_id__simulations__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    checkpoint_simulation_projects__project_id__simulations__session_id__checkpoint_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckpointRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommitResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    switch_simulation_locale_projects__project_id__simulations__session_id__locale_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulationLocaleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pause_simulation_projects__project_id__simulations__session_id__pause_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_simulation_projects__project_id__simulations__session_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_simulation_projects__project_id__simulations__session_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    step_simulation_projects__project_id__simulations__session_id__step_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    terminate_simulation_projects__project_id__simulations__session_id__terminate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulationTerminateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     discuss_submission_projects__project_id__submission_messages_post: {
         parameters: {
             query?: never;
@@ -2388,204 +3252,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubmissionConversationResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cancel_active_turn_projects__project_id__turns_active_cancel_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TurnCancellationResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    generate_turn_projects__project_id__turns_generate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TurnGenerationRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TurnCandidate"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_turn_projects__project_id__turns__turn_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                turn_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TurnCandidate"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    confirm_turn_projects__project_id__turns__turn_id__confirm_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                turn_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CommitResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    discard_turn_projects__project_id__turns__turn_id__discard_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                turn_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TurnCandidate"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    request_turn_revision_projects__project_id__turns__turn_id__request_revision_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                turn_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RevisionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TurnCandidate"];
                 };
             };
             /** @description Validation Error */

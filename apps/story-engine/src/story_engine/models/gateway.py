@@ -415,8 +415,7 @@ class ModelGateway:
                 },
             )
         thinking_enabled = (
-            profile.provider_id == "deepseek"
-            and profile.reasoning_effort != "disabled"
+            profile.provider_id == "deepseek" and profile.reasoning_effort != "disabled"
         )
         max_output_tokens = request.max_output_tokens
         if thinking_enabled:
@@ -529,10 +528,7 @@ class ModelGateway:
                         timeout_seconds=request.timeout_seconds,
                     )
                     content, finish_reason, usage = self._parse_content(raw)
-                    if (
-                        schema is not None
-                        and finish_reason in TRUNCATED_FINISH_REASONS
-                    ):
+                    if schema is not None and finish_reason in TRUNCATED_FINISH_REASONS:
                         message = "model JSON output was truncated at max_tokens"
                         reasoning_tokens = _reasoning_tokens(raw)
                         if reasoning_tokens is not None:

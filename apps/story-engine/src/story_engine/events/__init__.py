@@ -1,2 +1,1 @@
 """Canonical event commit boundary."""
-

@@ -89,15 +89,15 @@ def test_submission_conversation_accepts_only_user_and_assistant_history() -> No
 
 def test_submission_schema_exposes_fact_knowledge_boundaries() -> None:
     schema = SubmissionModelOutput.model_json_schema()
-    fact_schema = schema["$defs"]["FactCandidate"]
+    fact_schema = schema["$defs"]["InitialFact"]
     character_schema = schema["$defs"]["SubmissionCharacter"]
 
-    assert "known to everyone" in fact_schema["properties"]["visibility"][
-        "description"
-    ]
-    assert "Must be empty when visibility is public" in fact_schema["properties"][
-        "known_by"
-    ]["description"]
-    assert "never include public fact ids" in character_schema["properties"][
-        "known_fact_ids"
-    ]["description"]
+    assert "known to everyone" in fact_schema["properties"]["visibility"]["description"]
+    assert (
+        "Must be empty when visibility is public"
+        in fact_schema["properties"]["known_by"]["description"]
+    )
+    assert (
+        "never include public fact ids"
+        in character_schema["properties"]["known_fact_ids"]["description"]
+    )

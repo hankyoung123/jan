@@ -142,55 +142,6 @@ const projectSnapshot = {
   ],
 }
 
-const candidate = {
-  id: 'turn-04',
-  project_id: 'north-star',
-  base_world_version: 4,
-  base_character_versions: { ara: 2, bo: 1 },
-  intents: [
-    {
-      character_id: 'ara',
-      action: '检查主天线的异常频谱',
-      target: '主天线',
-      goal: '修复主天线',
-      knowledge_basis: ['secret:ara-signal'],
-      recognized_risk: '极光可能再次过载',
-    },
-    {
-      character_id: 'bo',
-      action: '隔离损坏的氧气循环支路',
-      target: '生命支持系统',
-      goal: '恢复氧气循环',
-      knowledge_basis: ['secret:bo-oxygen'],
-      recognized_risk: '隔离会降低其他舱室供氧',
-    },
-  ],
-  outcome: {
-    summary: '观测站暂时恢复一条低带宽通信链路。',
-    fact_candidates: [
-      {
-        id: 'fact:calibration-response',
-        statement: '外界回应了一段校验信号。',
-        visibility: 'public',
-        known_by: [],
-        supersedes_fact_id: null,
-      },
-    ],
-    knowledge_changes: [],
-    character_changes: [],
-    world_changes: [],
-    new_npcs: [],
-    unresolved_consequences: ['氧气压力仍在下降'],
-  },
-  review: {
-    mode: 'turn_review',
-    passed: true,
-    summary: '知识边界、世界规则和状态来源检查通过。',
-    issues: [],
-  },
-  status: 'reviewed',
-}
-
 const manuscriptReview = {
   review: {
     mode: 'manuscript_review',
@@ -205,7 +156,7 @@ const storyEvents = [
   {
     id: 'event-000004',
     sequence: 4,
-    source_turn_id: 'turn-04',
+    source_record_id: 'turn-04',
     occurred_at: '2026-07-31T12:00:00Z',
     summary: '阿岚在主天线里找到烧蚀的校验模块。',
     participants: ['ara'],
@@ -218,7 +169,7 @@ const storyEvents = [
   {
     id: 'event-000005',
     sequence: 5,
-    source_turn_id: 'turn-05',
+    source_record_id: 'turn-05',
     occurred_at: '2026-07-31T12:05:00Z',
     summary: '柏舟启用了最后一套备用氧气循环。',
     participants: ['bo'],
@@ -391,16 +342,6 @@ describe('Story workspace lifecycle', () => {
     })
   })
 })
-
-function mockLoadedProject() {
-  h.engineRequest.mockImplementation((path: string) => {
-    if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
-    if (path === '/projects/north-star/turns/generate') {
-      return Promise.resolve(candidate)
-    }
-    throw new Error(`Unexpected request: ${path}`)
-  })
-}
 
 describe('Story submission', () => {
   beforeEach(() => {
@@ -632,13 +573,13 @@ describe('Story submission', () => {
   })
 })
 
-describe('Story evolution', () => {
+describe('Story simulation', () => {
   beforeEach(() => {
     h.engineRequest.mockReset()
     clearActiveStoryProject()
   })
 
-  it('requires an active story project instead of assuming the fog-harbor fixture', () => {
+  it('requires an active story project', () => {
     render(<EvolutionView />)
 
     expect(screen.getByText('尚未选择故事项目')).toBeInTheDocument()
@@ -646,234 +587,58 @@ describe('Story evolution', () => {
       'href',
       '/submission'
     )
-    expect(h.engineRequest).not.toHaveBeenCalled()
   })
 
-  it('loads canonical project state and derives participants and names from it', async () => {
+  it('starts and advances a persistent simulation session', async () => {
     setActiveStoryProjectId('north-star')
-    mockLoadedProject()
-    render(<EvolutionView />)
-
-    expect(await screen.findByText('主天线在极光中失效')).toBeInTheDocument()
-    expect(screen.getByText('北境观测站')).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: '选择 阿岚' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '选择 柏舟' })).not.toBeChecked()
-    fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
-
-    expect(
-      await screen.findByText(candidate.outcome.summary)
-    ).toBeInTheDocument()
-    expect(screen.getAllByText('阿岚').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('柏舟').length).toBeGreaterThan(0)
-    expect(h.engineRequest).toHaveBeenCalledWith('/projects/north-star')
-    expect(h.engineRequest).toHaveBeenCalledWith(
-      '/projects/north-star/turns/generate',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ participant_ids: ['ara'] }),
-      })
-    )
-    expect(screen.getByRole('button', { name: '要求修改' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: '放弃本轮' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: '确认本轮' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: '本轮待确认' })).toBeDisabled()
-    expect(
-      screen.queryByRole('button', { name: '重新生成角色行动' })
-    ).not.toBeInTheDocument()
-  })
-
-  it('shows the office activity panel with locations and current actions', async () => {
-    setActiveStoryProjectId('north-star')
-    mockLoadedProject()
-    render(<EvolutionView />)
-
-    expect(await screen.findByText('角色行动中')).toBeInTheDocument()
-    expect(screen.getAllByText('天线塔').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('生命支持舱').length).toBeGreaterThan(0)
-    expect(screen.getByText('等待行动')).toBeInTheDocument()
-    expect(screen.getAllByText('尚未行动').length).toBeGreaterThan(0)
-
-    fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
-
-    expect(
-      (await screen.findAllByText('检查主天线的异常频谱')).length
-    ).toBeGreaterThan(0)
-    expect(
-      screen.getAllByText('隔离损坏的氧气循环支路').length
-    ).toBeGreaterThan(0)
-    expect(screen.getByText('本轮已完成')).toBeInTheDocument()
-  })
-
-  it('shows a resolver-proposed NPC as an unconfirmed candidate', async () => {
-    setActiveStoryProjectId('north-star')
-    const candidateWithNpc = {
-      ...candidate,
-      outcome: {
-        ...candidate.outcome,
-        new_npcs: [
-          {
-            id: 'temporary-pilot',
-            identity: '赶到观测站的临时导航员',
-            purpose: '协助校准备用通信阵列',
-            current_goal: null,
-          },
-        ],
-      },
+    const session = {
+      session_id: 'session:one',
+      project_id: 'north-star',
+      branch_id: 'main',
+      status: 'created',
+      content_locale: 'zh-CN',
+      current_step: 0,
+      actor_states: {},
+      game_master_states: {},
+      memory_snapshots: {},
+      raw_log_offset: 0,
+      checkpoint_id: 'checkpoint-' + 'a'.repeat(64),
+      started_at: '2026-08-02T00:00:00Z',
+      updated_at: '2026-08-02T00:00:00Z',
+      termination_reason_text: null,
+      state_hash: 'a'.repeat(64),
+      active_actor_id: null,
+      current_action_spec: null,
     }
     h.engineRequest.mockImplementation((path: string) => {
-      if (path === '/projects/north-star')
-        return Promise.resolve(projectSnapshot)
-      if (path.endsWith('/turns/generate'))
-        return Promise.resolve(candidateWithNpc)
-      throw new Error(`Unexpected request: ${path}`)
-    })
-    render(<EvolutionView />)
-    await screen.findByText('主天线在极光中失效')
-
-    fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
-
-    expect(
-      await screen.findByText('赶到观测站的临时导航员')
-    ).toBeInTheDocument()
-    expect(screen.getByText('协助校准备用通信阵列')).toBeInTheDocument()
-    expect(screen.getByText('待用户确认后创建普通人物')).toBeInTheDocument()
-  })
-
-  it('cancels an in-flight turn and retries it through the same generation boundary', async () => {
-    setActiveStoryProjectId('north-star')
-    let rejectGeneration: ((reason: Error) => void) | null = null
-    let generationAttempts = 0
-    h.engineRequest.mockImplementation((path: string) => {
-      if (path === '/projects/north-star')
-        return Promise.resolve(projectSnapshot)
-      if (path.endsWith('/turns/generate')) {
-        generationAttempts += 1
-        if (generationAttempts === 1) {
-          return new Promise((_resolve, reject) => {
-            rejectGeneration = reject
-          })
-        }
-        return Promise.resolve(candidate)
-      }
-      if (path.endsWith('/turns/active/cancel')) {
-        rejectGeneration?.(new Error('turn generation was cancelled'))
+      if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
+      if (path === '/projects/north-star/simulations') return Promise.resolve(session)
+      if (path.endsWith('/step')) {
         return Promise.resolve({
-          project_id: 'north-star',
-          turn_id: 'turn-04',
-          cancel_requested: true,
+          session_id: session.session_id,
+          branch_id: 'main',
+          step: 0,
+          acting_actor_id: 'ara',
+          action_spec: null,
+          action_text: '检查天线',
+          resolved_turn: null,
+          status: 'paused',
+          checkpoint_id: session.checkpoint_id,
         })
       }
       throw new Error(`Unexpected request: ${path}`)
     })
     render(<EvolutionView />)
-    await screen.findByText('主天线在极光中失效')
 
-    fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
-    fireEvent.click(await screen.findByRole('button', { name: '取消生成' }))
-
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      '本轮生成已取消，正式状态未改变'
-    )
+    await screen.findByDisplayValue('主天线在极光中失效')
+    fireEvent.click(screen.getByRole('button', { name: '启动会话' }))
+    expect(await screen.findByText('Step 0')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '单步' }))
+    expect(await screen.findByText('Step 1')).toBeInTheDocument()
     expect(h.engineRequest).toHaveBeenCalledWith(
-      '/projects/north-star/turns/active/cancel',
-      { method: 'POST' }
+      '/projects/north-star/simulations',
+      expect.objectContaining({ method: 'POST' })
     )
-    fireEvent.click(screen.getByRole('button', { name: '重试本轮' }))
-
-    expect(
-      await screen.findByText(candidate.outcome.summary)
-    ).toBeInTheDocument()
-    expect(generationAttempts).toBe(2)
-  })
-
-  it('uses only revision, discard, and confirm as active-candidate decisions', async () => {
-    setActiveStoryProjectId('north-star')
-    const revised = {
-      ...candidate,
-      outcome: {
-        ...candidate.outcome,
-        summary: '通信链路以更克制的方式恢复。',
-      },
-    }
-    const discarded = { ...revised, status: 'discarded' }
-    h.engineRequest.mockImplementation((path: string) => {
-      if (path === '/projects/north-star')
-        return Promise.resolve(projectSnapshot)
-      if (path.endsWith('/turns/generate')) return Promise.resolve(candidate)
-      if (path.endsWith('/request-revision')) return Promise.resolve(revised)
-      if (path.endsWith('/discard')) return Promise.resolve(discarded)
-      throw new Error(`Unexpected request: ${path}`)
-    })
-    render(<EvolutionView />)
-    await screen.findByText('主天线在极光中失效')
-    fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
-    await screen.findByText(candidate.outcome.summary)
-
-    fireEvent.change(screen.getByRole('textbox', { name: '修改要求' }), {
-      target: { value: '降低结果强度' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: '要求修改' }))
-
-    expect(await screen.findByText(revised.outcome.summary)).toBeInTheDocument()
-    expect(h.engineRequest).toHaveBeenCalledWith(
-      '/projects/north-star/turns/turn-04/request-revision',
-      expect.objectContaining({
-        body: JSON.stringify({ instruction: '降低结果强度' }),
-      })
-    )
-    fireEvent.click(screen.getByRole('button', { name: '放弃本轮' }))
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      '本轮已放弃，正式状态未改变'
-    )
-  })
-
-  it('confirms through the commit endpoint and reloads canonical project state', async () => {
-    setActiveStoryProjectId('north-star')
-    const committedProject = {
-      ...projectSnapshot,
-      world: { ...projectSnapshot.world, version: 5 },
-    }
-    let projectReads = 0
-    h.engineRequest.mockImplementation((path: string) => {
-      if (path === '/projects/north-star') {
-        projectReads += 1
-        return Promise.resolve(
-          projectReads === 1 ? projectSnapshot : committedProject
-        )
-      }
-      if (path.endsWith('/turns/generate')) return Promise.resolve(candidate)
-      if (path.endsWith('/confirm')) {
-        return Promise.resolve({
-          candidate: { ...candidate, status: 'committed' },
-          event: { id: 'event-000005' },
-        })
-      }
-      throw new Error(`Unexpected request: ${path}`)
-    })
-    render(<EvolutionView />)
-    await screen.findByText('主天线在极光中失效')
-    fireEvent.click(screen.getByRole('button', { name: '生成角色行动' }))
-    await screen.findByText(candidate.outcome.summary)
-    fireEvent.click(screen.getByRole('button', { name: '确认本轮' }))
-
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'event-000005 已写入正式 Markdown'
-    )
-    expect(h.engineRequest).toHaveBeenCalledWith(
-      '/projects/north-star/turns/turn-04/confirm',
-      { method: 'POST' }
-    )
-    await waitFor(() => expect(projectReads).toBe(2))
-    expect(screen.getByText('北辰 / 世界版本 5')).toBeInTheDocument()
-  })
-
-  it('shows project loading failures as a recoverable page error', async () => {
-    setActiveStoryProjectId('north-star')
-    h.engineRequest.mockRejectedValue(new Error('项目目录不可读'))
-    render(<EvolutionView />)
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('项目目录不可读')
-    expect(screen.getByRole('button', { name: '重试加载' })).toBeEnabled()
   })
 })
 
@@ -1466,7 +1231,7 @@ describe('Event history views', () => {
       {
         id: 'event-000006',
         sequence: 6,
-        source_turn_id: 'turn-06',
+        source_record_id: 'turn-06',
         occurred_at: '2026-07-31T12:10:00Z',
         summary: '备用氧气循环触发世界状态变更。',
         participants: ['bo'],

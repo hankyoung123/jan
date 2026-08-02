@@ -7,14 +7,10 @@ import pytest
 
 from story_engine.domain.models import (
     Character,
-    CharacterIntent,
     Fact,
     StoryEvent,
-    TurnCandidate,
-    WorldOutcome,
     WorldState,
 )
-from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectSeed, ProjectStore
 
@@ -82,25 +78,6 @@ def _seed() -> ProjectSeed:
     )
 
 
-def _candidate() -> TurnCandidate:
-    return TurnCandidate(
-        id="turn-000001",
-        project_id="fog-harbor",
-        base_world_version=0,
-        base_character_versions={"chen-mo": 0},
-        intents=(
-            CharacterIntent(
-                character_id="chen-mo",
-                action="检查灯芯槽",
-                target="灯塔照明装置",
-                goal="判断灯塔是否被人为关闭",
-                knowledge_basis=("fact:lighthouse-never-off-at-night",),
-            ),
-        ),
-        outcome=WorldOutcome(summary="陈默发现了新鲜刮痕。"),
-    )
-
-
 def _event() -> StoryEvent:
     return StoryEvent(
         id="event-000001",
@@ -108,17 +85,9 @@ def _event() -> StoryEvent:
         occurred_at=datetime(2026, 7, 31, 4, 0, tzinfo=UTC),
         summary="陈默发现了新鲜刮痕。",
         participants=("chen-mo",),
-        source_turn_id="turn-000001",
+        source_record_id="session:one",
         approved_by_user=True,
     )
-
-
-def _formal_bytes(root: Path) -> dict[str, bytes]:
-    return {
-        path.relative_to(root).as_posix(): path.read_bytes()
-        for path in sorted(root.rglob("*.md"))
-        if ".story-engine" not in path.parts
-    }
 
 
 def test_project_store_creates_and_loads_markdown_workspace(tmp_path: Path) -> None:
@@ -138,19 +107,6 @@ def test_project_store_creates_and_loads_markdown_workspace(tmp_path: Path) -> N
     assert (root / "characters/active/chen-mo.md").exists()
     assert (root / "events").is_dir()
     assert (root / "scenes").is_dir()
-
-
-def test_candidate_store_never_changes_formal_markdown(tmp_path: Path) -> None:
-    root = tmp_path / "fog-harbor"
-    ProjectStore(root).create(_seed())
-    before = _formal_bytes(root)
-
-    CandidateStore(root).save(_candidate())
-
-    assert _formal_bytes(root) == before
-    candidate_path = root / ".story-engine/turns/turn-000001.json"
-    assert candidate_path.exists()
-    assert json.loads(candidate_path.read_text(encoding="utf-8"))["status"] == "draft"
 
 
 def test_event_store_is_append_only(tmp_path: Path) -> None:

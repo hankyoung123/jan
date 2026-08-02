@@ -14,7 +14,7 @@ from story_engine.workspace.atomic import atomic_write_text
 
 
 class RegistryState(DomainModel):
-    schema_version: int = Field(default=2, ge=2)
+    schema_version: int = Field(default=3, ge=3)
     profiles: tuple[ModelProfile, ...]
 
     @model_validator(mode="after")
@@ -28,20 +28,44 @@ class RegistryState(DomainModel):
 def default_registry() -> RegistryState:
     profiles = (
         ModelProfile(
-            id="character",
-            name="Character",
-            task_type="character",
+            id="actor",
+            name="Actor",
+            task_type="actor",
             provider_id="llamacpp",
             model="qwen3-8b",
             temperature=0.7,
         ),
         ModelProfile(
-            id="resolver",
-            name="Resolver",
-            task_type="resolver",
+            id="game-master",
+            name="Game Master",
+            task_type="game_master",
             provider_id="openai",
             model="gpt-5-mini",
             temperature=0.2,
+        ),
+        ModelProfile(
+            id="reflection",
+            name="Reflection",
+            task_type="reflection",
+            provider_id="openai",
+            model="gpt-5-mini",
+            temperature=0.2,
+        ),
+        ModelProfile(
+            id="memory-consolidation",
+            name="Memory Consolidation",
+            task_type="memory_consolidation",
+            provider_id="openai",
+            model="gpt-5-mini",
+            temperature=0.1,
+        ),
+        ModelProfile(
+            id="projection",
+            name="Projection",
+            task_type="projection",
+            provider_id="openai",
+            model="gpt-5-mini",
+            temperature=0.1,
         ),
         ModelProfile(
             id="editor",
@@ -83,11 +107,6 @@ class ProfileRegistry:
                 return default_registry()
             try:
                 payload = json.loads(self.path.read_text(encoding="utf-8"))
-                if isinstance(payload, dict) and payload.get("schema_version") == 1:
-                    payload = {
-                        "schema_version": 2,
-                        "profiles": payload.get("profiles", []),
-                    }
                 return RegistryState.model_validate(payload)
             except (OSError, ValueError) as error:
                 raise ModelConfigurationError("model registry is invalid") from error

@@ -29,7 +29,5 @@ def test_health_allows_only_configured_desktop_origin() -> None:
         headers={"Origin": "https://untrusted.example"},
     )
 
-    assert allowed.headers["access-control-allow-origin"] == (
-        "http://127.0.0.1:1420"
-    )
+    assert allowed.headers["access-control-allow-origin"] == ("http://127.0.0.1:1420")
     assert "access-control-allow-origin" not in unknown.headers

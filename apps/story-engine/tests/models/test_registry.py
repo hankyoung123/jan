@@ -1,7 +1,10 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from story_engine.models.contracts import ModelProfile
+from story_engine.models.errors import ModelConfigurationError
 from story_engine.models.registry import ProfileRegistry
 
 
@@ -11,8 +14,11 @@ def test_default_registry_has_each_required_task_profile(tmp_path: Path) -> None
     state = registry.load()
 
     assert {profile.task_type for profile in state.profiles} == {
-        "character",
-        "resolver",
+        "actor",
+        "game_master",
+        "reflection",
+        "memory_consolidation",
+        "projection",
         "editor",
         "writer",
         "embedding",
@@ -40,14 +46,14 @@ def test_registry_persists_only_task_profiles_atomically(tmp_path: Path) -> None
     assert ProfileRegistry(path).get_profile(profile.id) == profile
     serialized = path.read_text(encoding="utf-8")
     payload = json.loads(serialized)
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert "providers" not in payload
     assert "base_url" not in serialized
     assert "api_key" not in serialized
     assert not list(path.parent.glob("*.tmp"))
 
 
-def test_v1_registry_migration_drops_parallel_provider_configuration(
+def test_old_registry_schema_is_rejected_without_legacy_migration(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "model-registry.json"
@@ -78,26 +84,23 @@ def test_v1_registry_migration_drops_parallel_provider_configuration(
         encoding="utf-8",
     )
 
-    migrated = ProfileRegistry(path).load()
-
-    assert migrated.schema_version == 2
-    assert migrated.profiles[0].provider_id == "openai"
-    assert not hasattr(migrated, "providers")
+    with pytest.raises(ModelConfigurationError, match="registry is invalid"):
+        ProfileRegistry(path).load()
 
 
-def test_legacy_profiles_default_reasoning_effort_to_disabled(
+def test_current_profiles_default_reasoning_effort_to_disabled(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "model-registry.json"
     path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "profiles": [
                     {
-                        "id": "resolver",
-                        "name": "Resolver",
-                        "task_type": "resolver",
+                        "id": "game-master",
+                        "name": "Game Master",
+                        "task_type": "game_master",
                         "provider_id": "deepseek",
                         "model": "deepseek-v4-flash",
                     }

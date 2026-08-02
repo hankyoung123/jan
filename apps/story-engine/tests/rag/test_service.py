@@ -86,7 +86,7 @@ def _project(tmp_path: Path) -> Path:
             summary="陈默抵达灯塔并发现灯芯槽上的新鲜刮痕。",
             participants=("chen-mo",),
             fact_ids=("fact:fresh-scratches", "secret:spare-key-scratches"),
-            source_turn_id="turn-000001",
+            source_record_id="session:one",
             approved_by_user=True,
         )
     )
@@ -98,7 +98,7 @@ def _project(tmp_path: Path) -> Path:
             summary="林岚独自检查了北侧防波堤。",
             participants=("lin-lan",),
             fact_ids=("fact:north-breakwater-stable", "secret:north-door-code"),
-            source_turn_id="turn-000002",
+            source_record_id="session:two",
             approved_by_user=True,
         )
     )

@@ -10,7 +10,7 @@ from story_engine.domain.models import (
     Character,
     DomainModel,
     Fact,
-    FactCandidate,
+    InitialFact,
     ReviewIssue,
     ReviewResult,
     WorldState,
@@ -54,7 +54,7 @@ class SubmissionPackage(DomainModel):
     theme: str = Field(min_length=1)
     tone: str = Field(min_length=1)
     world_rules: tuple[str, ...] = Field(min_length=1)
-    facts: tuple[FactCandidate, ...] = Field(min_length=1)
+    facts: tuple[InitialFact, ...] = Field(min_length=1)
     characters: tuple[SubmissionCharacter, ...] = Field(min_length=2, max_length=4)
     initial_time: str = Field(min_length=1)
     initial_location: str = Field(min_length=1)
@@ -108,7 +108,7 @@ class SubmissionDraft(DomainModel):
     theme: str = ""
     tone: str = ""
     world_rules: tuple[str, ...] = ()
-    facts: tuple[FactCandidate, ...] = ()
+    facts: tuple[InitialFact, ...] = ()
     characters: tuple[SubmissionCharacter, ...] = Field(default=(), max_length=4)
     initial_time: str = ""
     initial_location: str = ""
@@ -211,12 +211,12 @@ class SubmissionDiscussionService:
     ) -> SubmissionConversationResponse:
         fact_boundary_example = {
             "facts": [
-                FactCandidate(
+                InitialFact(
                     id="fact:public-example",
                     statement="所有角色都知道的公共事实。",
                     visibility="public",
                 ).model_dump(mode="json"),
-                FactCandidate(
+                InitialFact(
                     id="fact:secret-example",
                     statement="只有示例角色甲知道的秘密。",
                     visibility="secret",
@@ -381,23 +381,23 @@ def fog_harbor_submission() -> SubmissionPackage:
             "暴风雨时港口必须依赖灯塔或备用航标",
         ),
         facts=(
-            FactCandidate(
+            InitialFact(
                 id="fact:lighthouse-controls-night-navigation",
                 statement="灯塔控制雾港的夜间航行。",
                 visibility="public",
             ),
-            FactCandidate(
+            InitialFact(
                 id="fact:storm-requires-navigation-light",
                 statement="暴风雨时船只必须依赖灯塔或备用航标。",
                 visibility="public",
             ),
-            FactCandidate(
+            InitialFact(
                 id="secret:chen-father-disappearance",
                 statement="陈默的父亲在灯塔附近失踪。",
                 visibility="secret",
                 known_by=("chen-mo",),
             ),
-            FactCandidate(
+            InitialFact(
                 id="secret:lin-unfiled-duty-roster",
                 statement="林岚保留了一份未归档的值班表。",
                 visibility="secret",

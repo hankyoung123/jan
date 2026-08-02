@@ -61,7 +61,9 @@ class SceneDraftStore:
     def list_drafts(self) -> tuple[SceneDraft, ...]:
         drafts = []
         for path in sorted((self.root / ".story-engine/scenes").glob("*.json")):
-            drafts.append(SceneDraft.model_validate_json(path.read_text(encoding="utf-8")))
+            drafts.append(
+                SceneDraft.model_validate_json(path.read_text(encoding="utf-8"))
+            )
         return tuple(drafts)
 
 

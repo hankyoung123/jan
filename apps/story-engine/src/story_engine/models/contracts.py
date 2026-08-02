@@ -4,7 +4,16 @@ from pydantic import Field, JsonValue
 
 from story_engine.domain.models import DomainModel
 
-ModelTask = Literal["character", "resolver", "editor", "writer", "embedding"]
+ModelTask = Literal[
+    "actor",
+    "game_master",
+    "reflection",
+    "memory_consolidation",
+    "projection",
+    "editor",
+    "writer",
+    "embedding",
+]
 MessageRole = Literal["system", "user", "assistant"]
 
 

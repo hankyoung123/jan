@@ -15,35 +15,42 @@ PROTOCOLS = ["story-engine.v1", f"story-engine.token.{TOKEN}"]
 
 
 def _app(tmp_path: Path):
-    return create_app(
-        EngineSettings(session_token=TOKEN, projects_root=tmp_path)
-    )
+    return create_app(EngineSettings(session_token=TOKEN, projects_root=tmp_path))
 
 
 def test_websocket_rejects_missing_or_invalid_session_token(tmp_path: Path) -> None:
     client = TestClient(_app(tmp_path))
 
-    with pytest.raises(WebSocketDisconnect) as missing, client.websocket_connect(
-        "/ws/events",
-        subprotocols=["story-engine.v1"],
+    with (
+        pytest.raises(WebSocketDisconnect) as missing,
+        client.websocket_connect(
+            "/ws/events",
+            subprotocols=["story-engine.v1"],
+        ),
     ):
         pass
     assert missing.value.code == 1008
 
-    with pytest.raises(WebSocketDisconnect) as invalid, client.websocket_connect(
-        "/ws/events",
-        subprotocols=["story-engine.v1", "story-engine.token.wrong"],
+    with (
+        pytest.raises(WebSocketDisconnect) as invalid,
+        client.websocket_connect(
+            "/ws/events",
+            subprotocols=["story-engine.v1", "story-engine.token.wrong"],
+        ),
     ):
         pass
     assert invalid.value.code == 1008
 
-    with pytest.raises(WebSocketDisconnect) as duplicate, client.websocket_connect(
-        "/ws/events",
-        subprotocols=[
-            "story-engine.v1",
-            f"story-engine.token.{TOKEN}",
-            f"story-engine.token.{TOKEN}",
-        ],
+    with (
+        pytest.raises(WebSocketDisconnect) as duplicate,
+        client.websocket_connect(
+            "/ws/events",
+            subprotocols=[
+                "story-engine.v1",
+                f"story-engine.token.{TOKEN}",
+                f"story-engine.token.{TOKEN}",
+            ],
+        ),
     ):
         pass
     assert duplicate.value.code == 1008
@@ -60,15 +67,15 @@ def test_websocket_delivers_filtered_typed_event_envelopes(tmp_path: Path) -> No
         assert socket.accepted_subprotocol == "story-engine.v1"
         app.state.event_bus.publish(
             project_id="other-project",
-            turn_id="turn-000001",
-            event_type="turn.started",
+            subject_id="session:one",
+            event_type="simulation.started",
             payload={},
         )
         expected = app.state.event_bus.publish(
             project_id="fog-harbor",
-            turn_id="turn-000001",
-            event_type="character.intent.completed",
-            payload={"character_id": "chen-mo"},
+            subject_id="session:one",
+            event_type="simulation.step.completed",
+            payload={"acting_actor_id": "chen-mo"},
         )
         received = socket.receive_json()
 
@@ -77,9 +84,9 @@ def test_websocket_delivers_filtered_typed_event_envelopes(tmp_path: Path) -> No
     assert received["timestamp"].endswith("Z")
     assert received["sequence"] == expected.sequence
     assert received["project_id"] == "fog-harbor"
-    assert received["turn_id"] == "turn-000001"
-    assert received["type"] == "character.intent.completed"
-    assert received["payload"] == {"character_id": "chen-mo"}
+    assert received["subject_id"] == "session:one"
+    assert received["type"] == "simulation.step.completed"
+    assert received["payload"] == {"acting_actor_id": "chen-mo"}
 
 
 def test_event_sequence_is_monotonic_and_queue_overflow_requires_resync() -> None:
@@ -90,8 +97,8 @@ def test_event_sequence_is_monotonic_and_queue_overflow_requires_resync() -> Non
             published = [
                 bus.publish(
                     project_id="fog-harbor",
-                    turn_id="turn-000001",
-                    event_type="turn.started",
+                    subject_id="session:one",
+                    event_type="simulation.started",
                     payload={"index": index},
                 )
                 for index in range(3)

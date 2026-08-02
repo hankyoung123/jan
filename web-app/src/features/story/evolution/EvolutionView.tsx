@@ -1,16 +1,6 @@
 import type { components } from '@story-engine/contracts'
 import { Link } from '@tanstack/react-router'
-import {
-  ArrowRight,
-  Check,
-  CheckCircle2,
-  MapPin,
-  RotateCcw,
-  ShieldCheck,
-  Sparkles,
-  Square,
-  Trash2,
-} from 'lucide-react'
+import { ArrowRight, GitBranch, Pause, Play, Save, Square } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -26,128 +16,35 @@ import {
 import { engineRequest } from '../engine'
 
 type ProjectSnapshot = components['schemas']['ProjectSnapshot']
-type StoryCharacter = components['schemas']['Character']
-type TurnCandidate = components['schemas']['TurnCandidate']
-type TurnCancellationResult = components['schemas']['TurnCancellationResult']
+type SessionSnapshot = components['schemas']['TurnSessionSnapshot']
+type StepResult = components['schemas']['StepResult']
 type CommitResult = components['schemas']['CommitResult']
-
-function OfficeActivityPanel({
-  characters,
-  intents,
-  generating,
-}: {
-  characters: StoryCharacter[]
-  intents: Array<{ character_id: string; action: string }>
-  generating: boolean
-}) {
-  if (characters.length === 0) return null
-  const actionByCharacter = new Map(
-    intents.map((intent) => [intent.character_id, intent.action])
-  )
-  return (
-    <section aria-label="办公室活动" className="mb-5 border bg-background">
-      <div className="flex items-center justify-between border-b px-5 py-4">
-        <div>
-          <p className="text-xs text-muted-foreground">办公室活动</p>
-          <h2 className="font-medium">角色行动中</h2>
-        </div>
-        <StatusPill
-          tone={
-            generating
-              ? 'warning'
-              : intents.length > 0
-                ? 'success'
-                : 'neutral'
-          }
-        >
-          {generating
-            ? '生成中'
-            : intents.length > 0
-              ? '本轮已完成'
-              : '等待行动'}
-        </StatusPill>
-      </div>
-      <div className="grid gap-px border-t bg-border sm:grid-cols-2 lg:grid-cols-4">
-        {characters.map((character) => {
-          const action = actionByCharacter.get(character.id)
-          return (
-            <div className="bg-background p-4" key={character.id}>
-              <div className="flex items-center gap-3">
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-xs font-medium">
-                  {(character.display_name || character.id).slice(0, 1)}
-                </span>
-                <div className="min-w-0">
-                  <strong className="block truncate text-sm">
-                    {character.display_name || character.id}
-                  </strong>
-                  <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                    <MapPin size={12} />
-                    {character.location || '未指定'}
-                  </p>
-                </div>
-                <span
-                  className={`ml-auto size-2 shrink-0 rounded-full ${
-                    action ? 'animate-pulse bg-emerald-500' : 'bg-secondary'
-                  }`}
-                  title={action ? '行动中' : '等待行动'}
-                />
-              </div>
-              <p className="mt-3 min-h-10 text-sm text-muted-foreground">
-                {action ?? (generating ? '正在形成行动…' : '尚未行动')}
-              </p>
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-function recommendedParticipantIds(project: ProjectSnapshot): string[] {
-  const active = project.characters.filter(
-    (character) => character.type === 'active'
-  )
-  const recommended = active.find(
-    (character) =>
-      character.location !== null &&
-      character.location === project.world.current_location
-  )
-  const recommendedId = recommended?.id ?? active[0]?.id
-  return recommendedId ? [recommendedId] : []
-}
 
 export function EvolutionView() {
   const projectId = useActiveStoryProjectId()
   const [project, setProject] = useState<ProjectSnapshot | null>(null)
-  const [loading, setLoading] = useState(projectId !== null)
-  const [candidate, setCandidate] = useState<TurnCandidate | null>(null)
-  const [committed, setCommitted] = useState<CommitResult | null>(null)
-  const [revision, setRevision] = useState('让结果更克制')
-  const [workingAction, setWorkingAction] = useState<
-    'generate' | 'revise' | 'discard' | 'confirm' | null
-  >(null)
+  const [session, setSession] = useState<SessionSnapshot | null>(null)
+  const [lastStep, setLastStep] = useState<StepResult | null>(null)
+  const [premise, setPremise] = useState('')
+  const [branchId, setBranchId] = useState('main')
+  const [contentLocale, setContentLocale] = useState('zh-CN')
+  const [forkId, setForkId] = useState('alternate')
+  const [selectedActors, setSelectedActors] = useState<string[]>([])
+  const [working, setWorking] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [generationNotice, setGenerationNotice] = useState<string | null>(null)
-  const [retryAvailable, setRetryAvailable] = useState(false)
-  const [selectedParticipantIds, setSelectedParticipantIds] = useState<
-    string[]
-  >([])
-  const working = workingAction !== null
 
   const loadProject = useCallback(async () => {
     if (!projectId) return
-    setLoading(true)
-    setError(null)
     try {
-      const loaded = await engineRequest<ProjectSnapshot>(
-        `/projects/${projectId}`
-      )
-      setSelectedParticipantIds(recommendedParticipantIds(loaded))
+      const loaded = await engineRequest<ProjectSnapshot>(`/projects/${projectId}`)
+      const active = loaded.characters.filter((item) => item.type === 'active')
       setProject(loaded)
+      setSelectedActors(active.map((item) => item.id))
+      const incident = loaded.world.world_variables?.initial_incident
+      setPremise(typeof incident === 'string' ? incident : '')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '项目加载失败')
-    } finally {
-      setLoading(false)
     }
   }, [projectId])
 
@@ -155,135 +52,152 @@ export function EvolutionView() {
     void loadProject()
   }, [loadProject])
 
-  async function act<Response>(
-    action: NonNullable<typeof workingAction>,
-    request: () => Promise<Response>
-  ) {
-    setWorkingAction(action)
+  async function perform<T>(operation: () => Promise<T>): Promise<T | null> {
+    setWorking(true)
     setError(null)
     try {
-      return await request()
+      return await operation()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '引擎请求失败')
       return null
     } finally {
-      setWorkingAction(null)
+      setWorking(false)
     }
   }
-  const activeCharacters =
-    project?.characters.filter((character) => character.type === 'active') ?? []
-  const participants = activeCharacters.filter((character) =>
-    selectedParticipantIds.includes(character.id)
-  )
-  const characterNames = new Map(
-    project?.characters.map((character) => [
-      character.id,
-      character.display_name || character.id,
-    ]) ?? []
-  )
-  const candidatePending =
-    candidate !== null && candidate.status !== 'discarded' && committed === null
 
-  function toggleParticipant(characterId: string) {
-    setSelectedParticipantIds((current) =>
-      current.includes(characterId)
-        ? current.filter((id) => id !== characterId)
-        : [...current, characterId]
+  async function start() {
+    if (!projectId || !premise.trim()) return
+    const created = await perform(() =>
+      engineRequest<SessionSnapshot>(`/projects/${projectId}/simulations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          branch_id: branchId,
+          premise_text: premise,
+          actor_ids: selectedActors,
+          content_locale: contentLocale,
+          control: { mode: 'step', max_steps: 100 },
+        }),
+      })
     )
+    if (created) {
+      setSession(created)
+      setLastStep(null)
+      setNotice(`会话已启动：${created.session_id}`)
+    }
   }
 
-  async function generate() {
-    if (!projectId || participants.length === 0 || candidatePending) return
-    setWorkingAction('generate')
-    setError(null)
-    setGenerationNotice(null)
-    try {
-      const value = await engineRequest<TurnCandidate>(
-        `/projects/${projectId}/turns/generate`,
+  async function step() {
+    if (!projectId || !session) return
+    const result = await perform(() =>
+      engineRequest<StepResult>(
+        `/projects/${projectId}/simulations/${session.session_id}/step`,
+        { method: 'POST' }
+      )
+    )
+    if (result) {
+      setLastStep(result)
+      setSession((current) =>
+        current
+          ? {
+              ...current,
+              current_step: result.step + 1,
+              status: result.status,
+              checkpoint_id: result.checkpoint_id,
+            }
+          : current
+      )
+    }
+  }
+
+  async function control(action: 'run' | 'pause' | 'resume' | 'terminate') {
+    if (!projectId || !session) return
+    const updated = await perform(() =>
+      engineRequest<SessionSnapshot>(
+        `/projects/${projectId}/simulations/${session.session_id}/${action}`,
+        {
+          method: 'POST',
+          body:
+            action === 'terminate'
+              ? JSON.stringify({ reason_text: '用户终止会话' })
+              : undefined,
+        }
+      )
+    )
+    if (updated) setSession(updated)
+  }
+
+  async function checkpoint() {
+    if (!projectId || !session) return
+    const committed = await perform(() =>
+      engineRequest<CommitResult>(
+        `/projects/${projectId}/simulations/${session.session_id}/checkpoint`,
+        { method: 'POST', body: JSON.stringify({ reason: '用户检查点' }) }
+      )
+    )
+    if (committed) {
+      setSession((current) =>
+        current ? { ...current, checkpoint_id: committed.checkpoint_id } : current
+      )
+      setNotice(`检查点已保存：${committed.checkpoint_id}`)
+    }
+  }
+
+  async function fork() {
+    if (!projectId || !session?.checkpoint_id) return
+    const created = await perform(() =>
+      engineRequest<components['schemas']['BranchManifest']>(
+        `/projects/${projectId}/branches`,
         {
           method: 'POST',
           body: JSON.stringify({
-            participant_ids: participants.map((character) => character.id),
+            branch_id: forkId,
+            source_checkpoint_id: session.checkpoint_id,
+            parent_branch_id: session.branch_id,
+            content_locale: session.content_locale,
           }),
         }
       )
-      setCandidate(value)
-      setCommitted(null)
-      setRetryAvailable(false)
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : '本轮生成失败'
-      if (message.includes('cancelled') || message.includes('取消')) {
-        setGenerationNotice('本轮生成已取消，正式状态未改变。')
-      } else {
-        setError(message)
-      }
-      setRetryAvailable(true)
-    } finally {
-      setWorkingAction(null)
-    }
+    )
+    if (created) setNotice(`分支已创建：${created.branch_id}`)
   }
-  async function cancelGeneration() {
-    if (!projectId || workingAction !== 'generate') return
-    setError(null)
-    setGenerationNotice('正在取消本轮生成…')
-    try {
-      await engineRequest<TurnCancellationResult>(
-        `/projects/${projectId}/turns/active/cancel`,
-        { method: 'POST' }
-      )
-    } catch (cause) {
-      setGenerationNotice(null)
-      setError(cause instanceof Error ? cause.message : '取消本轮失败')
-    }
-  }
-  async function revise() {
-    if (!projectId || !candidate) return
-    const value = await act('revise', () =>
-      engineRequest<TurnCandidate>(
-        `/projects/${projectId}/turns/${candidate.id}/request-revision`,
-        { method: 'POST', body: JSON.stringify({ instruction: revision }) }
+
+  async function rebuildProjection() {
+    if (!projectId || !session) return
+    const result = await perform(() =>
+      engineRequest<components['schemas']['ProjectionResponse']>(
+        `/projects/${projectId}/branches/${session.branch_id}/projection`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ checkpoint_id: session.checkpoint_id }),
+        }
       )
     )
-    if (value) setCandidate(value)
+    if (result) setNotice(`Markdown 投影已重建（${result.written_paths.length} 个文件）`)
   }
-  async function discard() {
-    if (!projectId || !candidate) return
-    const value = await act('discard', () =>
-      engineRequest<TurnCandidate>(
-        `/projects/${projectId}/turns/${candidate.id}/discard`,
-        { method: 'POST' }
+
+  async function switchLocale() {
+    if (!projectId || !session) return
+    const updated = await perform(() =>
+      engineRequest<SessionSnapshot>(
+        `/projects/${projectId}/simulations/${session.session_id}/locale`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ content_locale: contentLocale }),
+        }
       )
     )
-    if (value) setCandidate(value)
-  }
-  async function confirm() {
-    if (!projectId || !candidate) return
-    const value = await act('confirm', async () => {
-      const result = await engineRequest<CommitResult>(
-        `/projects/${projectId}/turns/${candidate.id}/confirm`,
-        { method: 'POST' }
-      )
-      const refreshedProject = await engineRequest<ProjectSnapshot>(
-        `/projects/${projectId}`
-      )
-      return { result, refreshedProject }
-    })
-    if (value) {
-      setCandidate(value.result.candidate)
-      setCommitted(value.result)
-      setProject(value.refreshedProject)
+    if (updated) {
+      setSession(updated)
+      setNotice(`内容语言已切换为 ${updated.content_locale}`)
     }
   }
 
   if (!projectId) {
     return (
       <StoryPage>
-        <PageHeader eyebrow="故事工作区" title="推进故事" />
+        <PageHeader eyebrow="故事工作区" title="模拟控制台" />
         <section className="border bg-background p-8">
           <h2 className="font-studio text-xl">尚未选择故事项目</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            先完成投稿，Story Engine 才能建立第一版正式世界状态。
-          </p>
           <Link className={`${primaryButton} mt-5`} to={route.submission}>
             前往投稿 <ArrowRight size={15} />
           </Link>
@@ -292,327 +206,125 @@ export function EvolutionView() {
     )
   }
 
-  if (loading) {
-    return (
-      <StoryPage>
-        <PageHeader eyebrow="正在读取 Story Engine" title="推进故事" />
-        <section className="border bg-background p-8 text-sm text-muted-foreground">
-          正在加载项目…
-        </section>
-      </StoryPage>
-    )
-  }
-
-  if (!project) {
-    return (
-      <StoryPage>
-        <PageHeader eyebrow="项目不可用" title="推进故事" />
-        <section className="border bg-background p-8">
-          <p className="text-sm text-destructive" role="alert">
-            {error || '项目加载失败'}
-          </p>
-          <Button
-            className="mt-5"
-            onClick={() => void loadProject()}
-            variant="outline"
-          >
-            <RotateCcw size={15} /> 重试加载
-          </Button>
-        </section>
-      </StoryPage>
-    )
-  }
-
-  const incident =
-    typeof project.world.world_variables?.initial_incident === 'string'
-      ? project.world.world_variables.initial_incident
-      : '等待角色根据当前世界状态采取行动'
-  const progress = [
-    ['当前局面', true],
-    ['角色行动', candidate !== null],
-    ['世界结算', candidate !== null],
-    ['编辑检查', candidate?.review !== null && candidate?.review !== undefined],
-    ['用户确认', committed !== null],
-    ['正文', committed !== null],
-  ] as const
+  const activeCharacters =
+    project?.characters.filter((character) => character.type === 'active') ?? []
 
   return (
     <StoryPage>
       <PageHeader
-        eyebrow={`${project.project.title} / 世界版本 ${project.world.version}`}
-        title="推进故事"
-        action={
-          <div className="flex items-center gap-2">
-            <Button
-              aria-busy={workingAction === 'generate'}
-              disabled={
-                working || candidatePending || participants.length === 0
-              }
-              onClick={() => void generate()}
-              size="sm"
-              variant="outline"
-            >
-              <Sparkles size={15} />{' '}
-              {workingAction === 'generate'
-                ? '正在生成'
-                : candidatePending
-                  ? '本轮待确认'
-                  : retryAvailable
-                    ? '重试本轮'
-                    : '生成角色行动'}
-            </Button>
-            {workingAction === 'generate' && (
-              <Button
-                onClick={() => void cancelGeneration()}
-                size="sm"
-                variant="destructive"
-              >
-                <Square size={14} /> 取消生成
-              </Button>
-            )}
-          </div>
-        }
+        eyebrow={project ? `${project.project.title} / ${branchId}` : '正在加载项目'}
+        title="模拟控制台"
       />
-      <ol
-        aria-label="故事推进步骤"
-        className="mb-5 grid grid-cols-2 gap-px overflow-hidden border bg-border text-xs sm:grid-cols-3 lg:grid-cols-6"
-      >
-        {progress.map(([label, complete], index) => (
-          <li
-            className="flex items-center gap-2 bg-background px-3 py-3"
-            key={label}
-          >
-            <span
-              className={`grid size-5 shrink-0 place-items-center rounded-full ${complete ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-            >
-              {complete ? <Check size={12} /> : index + 1}
-            </span>
-            <span
-              className={complete ? 'font-medium' : 'text-muted-foreground'}
-            >
-              {label}
-            </span>
-          </li>
-        ))}
-      </ol>
-      <OfficeActivityPanel
-        characters={activeCharacters}
-        generating={workingAction === 'generate'}
-        intents={candidate?.intents ?? []}
-      />
-      {!candidate ? (
-        <section className="border bg-background p-8">
-          <p className="text-xs text-muted-foreground">当前局面</p>
-          <h2 className="my-3 font-studio text-xl">{incident}</h2>
-          <dl className="mb-4 grid max-w-2xl grid-cols-1 gap-px border bg-border text-sm sm:grid-cols-3">
-            {[
-              ['时间', project.world.current_time],
-              ['地点', project.world.current_location || '未指定'],
-              ['压力', project.world.active_pressures.join('；') || '暂无'],
-            ].map(([label, value]) => (
-              <div className="bg-background p-3" key={label}>
-                <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="mt-1">{value}</dd>
-              </div>
-            ))}
-          </dl>
-          <fieldset className="mb-4 max-w-2xl border p-3">
-            <legend className="px-1 text-xs font-medium text-muted-foreground">
-              本轮参与角色
-            </legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {activeCharacters.map((character) => (
-                <label
-                  className="flex items-center gap-3 border px-3 py-2 text-sm"
-                  key={character.id}
-                >
-                  <input
-                    aria-label={`选择 ${character.display_name || character.id}`}
-                    checked={selectedParticipantIds.includes(character.id)}
-                    disabled={working || candidatePending}
-                    onChange={() => toggleParticipant(character.id)}
-                    type="checkbox"
-                  />
-                  <span>
-                    {character.display_name || character.id}
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {character.location || '位置未知'}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <p className="text-muted-foreground">
-            {participants
-              .map((character) => character.display_name || character.id)
-              .join('、')}{' '}
-            将依据各自的私有知识独立行动。
-          </p>
-        </section>
-      ) : (
-        <>
-          <section className="border bg-background">
-            <div className="flex items-center justify-between border-b px-5 py-4">
-              <div>
-                <p className="text-xs text-muted-foreground">
-                  私有上下文已隔离
-                </p>
-                <h2 className="font-medium">角色行动</h2>
-              </div>
-              <StatusPill tone="success">
-                {candidate.intents.length} / {candidate.intents.length} 完成
-              </StatusPill>
-            </div>
-            {candidate.intents.map((intent) => (
-              <div
-                className="grid gap-3 border-b px-5 py-4 md:grid-cols-[22px_160px_1fr_auto] md:items-center"
-                key={intent.character_id}
-              >
-                <CheckCircle2 className="text-emerald-600" size={17} />
-                <div>
-                  <strong className="text-sm">
-                    {characterNames.get(intent.character_id) ||
-                      intent.character_id}
-                  </strong>
-                  <p className="text-xs text-muted-foreground">{intent.goal}</p>
-                </div>
-                <p className="text-sm text-muted-foreground">{intent.action}</p>
-                <StatusPill tone="success">已完成</StatusPill>
-              </div>
-            ))}
-          </section>
-          <section className="mt-5 grid gap-5 border bg-background p-5 md:grid-cols-[1fr_280px]">
-            <div>
-              <p className="text-xs text-muted-foreground">统一结算</p>
-              <h2 className="my-2 font-studio text-lg">
-                {candidate.outcome.summary}
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                {candidate.outcome.fact_candidates
-                  .filter((fact) => fact.visibility === 'public')
-                  .map((fact) => fact.statement)
-                  .join(' · ')}
-              </p>
-            </div>
-            <div className="border-t pt-5 md:border-l md:border-t-0 md:pl-5 md:pt-0">
-              <p className="flex items-center gap-2 text-sm font-medium">
-                <ShieldCheck
-                  className={
-                    candidate.review?.passed
-                      ? 'text-emerald-600'
-                      : 'text-destructive'
-                  }
-                  size={17}
-                />{' '}
-                Editor {candidate.review?.passed ? '检查通过' : '要求修订'}
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {candidate.review?.summary}
-              </p>
-            </div>
-          </section>
-          {candidate.outcome.new_npcs.length > 0 && (
-            <section className="mt-5 border bg-background">
-              <div className="flex items-center justify-between border-b px-5 py-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Resolver 提议</p>
-                  <h2 className="font-medium">新增普通人物</h2>
-                </div>
-                <StatusPill tone="warning">待用户确认后创建普通人物</StatusPill>
-              </div>
-              {candidate.outcome.new_npcs.map((npc) => (
-                <div
-                  className="grid gap-2 border-b px-5 py-4 last:border-0 md:grid-cols-[1fr_1fr]"
-                  key={npc.id}
-                >
-                  <div>
-                    <strong className="text-sm">{npc.identity}</strong>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {npc.id}
-                    </p>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{npc.purpose}</p>
-                </div>
-              ))}
-            </section>
-          )}
-          {!committed && candidate.status !== 'discarded' && (
-            <section
-              aria-busy={working}
-              className="mt-5 grid gap-3 border bg-background p-4 md:grid-cols-[1fr_auto_auto_auto]"
-            >
-              <Input
-                aria-label="修改要求"
-                value={revision}
-                onChange={(event) => setRevision(event.target.value)}
-              />
-              <Button
-                disabled={working || !revision.trim()}
-                onClick={() => void revise()}
-                variant="outline"
-              >
-                <RotateCcw size={15} />{' '}
-                {workingAction === 'revise' ? '正在修改' : '要求修改'}
-              </Button>
-              <Button
-                aria-label={
-                  workingAction === 'discard' ? '正在放弃本轮' : '放弃本轮'
-                }
-                disabled={working}
-                onClick={() => void discard()}
-                size="icon"
-                title="放弃本轮"
-                variant="outline"
-              >
-                <Trash2 size={15} />
-              </Button>
-              <Button
-                disabled={working || !candidate.review?.passed}
-                onClick={() => void confirm()}
-              >
-                <Check size={15} />{' '}
-                {workingAction === 'confirm' ? '正在提交' : '确认本轮'}
-              </Button>
-            </section>
-          )}
-          {committed && (
-            <p
-              className="mt-5 flex items-center gap-2 bg-emerald-500/10 p-3 text-sm text-emerald-700"
-              role="status"
-            >
-              <CheckCircle2 size={16} /> {committed.event.id} 已写入正式
-              Markdown
-            </p>
-          )}
-          {candidate.status === 'discarded' && (
-            <p
-              className="mt-5 bg-muted p-3 text-sm text-muted-foreground"
-              role="status"
-            >
-              本轮已放弃，正式状态未改变。
-            </p>
-          )}
-        </>
-      )}
-      {generationNotice && (
-        <p
-          className="mt-4 bg-muted p-3 text-sm text-muted-foreground"
-          role="status"
-        >
-          {generationNotice}
-        </p>
-      )}
       {error && (
-        <p
-          className="mt-4 bg-destructive/10 p-3 text-sm text-destructive"
-          role="alert"
-        >
+        <p className="mb-4 border border-destructive p-3 text-sm text-destructive" role="alert">
           {error}
         </p>
+      )}
+      {notice && (
+        <p className="mb-4 bg-emerald-500/10 p-3 text-sm text-emerald-700" role="status">
+          {notice}
+        </p>
+      )}
+
+      {!session ? (
+        <section className="space-y-5 border bg-background p-6">
+          <div>
+            <label className="text-sm font-medium" htmlFor="simulation-premise">
+              场景目标
+            </label>
+            <Input
+              id="simulation-premise"
+              onChange={(event) => setPremise(event.target.value)}
+              value={premise}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium" htmlFor="content-locale">
+              内容语言
+            </label>
+            <Input
+              id="content-locale"
+              onChange={(event) => setContentLocale(event.target.value)}
+              value={contentLocale}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium" htmlFor="simulation-branch">
+              分支 ID
+            </label>
+            <Input
+              id="simulation-branch"
+              onChange={(event) => setBranchId(event.target.value)}
+              value={branchId}
+            />
+          </div>
+          <fieldset className="grid gap-2 sm:grid-cols-2">
+            <legend className="mb-2 text-sm font-medium">参与角色</legend>
+            {activeCharacters.map((character) => (
+              <label className="flex items-center gap-2 border p-3 text-sm" key={character.id}>
+                <input
+                  checked={selectedActors.includes(character.id)}
+                  onChange={() =>
+                    setSelectedActors((current) =>
+                      current.includes(character.id)
+                        ? current.filter((id) => id !== character.id)
+                        : [...current, character.id]
+                    )
+                  }
+                  type="checkbox"
+                />
+                {character.display_name || character.id}
+              </label>
+            ))}
+          </fieldset>
+          <Button disabled={working || selectedActors.length === 0} onClick={() => void start()}>
+            <Play size={15} /> 启动会话
+          </Button>
+        </section>
+      ) : (
+        <div className="space-y-5">
+          <section className="border bg-background p-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusPill tone={session.status === 'failed' ? 'danger' : 'success'}>
+                {session.status}
+              </StatusPill>
+              <span className="text-sm">Step {session.current_step}</span>
+              <code className="text-xs text-muted-foreground">{session.checkpoint_id}</code>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button disabled={working} onClick={() => void step()}><Play size={15} /> 单步</Button>
+              <Button disabled={working} onClick={() => void control('run')} variant="outline">连续运行</Button>
+              <Button disabled={working} onClick={() => void control('pause')} variant="outline"><Pause size={15} /> 暂停</Button>
+              <Button disabled={working} onClick={() => void control('resume')} variant="outline">继续</Button>
+              <Button disabled={working} onClick={() => void checkpoint()} variant="outline"><Save size={15} /> 保存检查点</Button>
+              <Button disabled={working} onClick={() => void control('terminate')} variant="destructive"><Square size={15} /> 终止</Button>
+            </div>
+          </section>
+
+          {lastStep?.resolved_turn && (
+            <section className="border bg-background p-6">
+              <p className="text-xs text-muted-foreground">最近世界事件</p>
+              <p className="mt-2">{lastStep.resolved_turn.raw_resolution_text}</p>
+            </section>
+          )}
+
+          <section className="grid gap-3 border bg-background p-6 sm:grid-cols-[1fr_auto_auto]">
+            <Input aria-label="新分支 ID" onChange={(event) => setForkId(event.target.value)} value={forkId} />
+            <Button disabled={working || !session.checkpoint_id} onClick={() => void fork()} variant="outline"><GitBranch size={15} /> 从检查点分支</Button>
+            <Button disabled={working} onClick={() => void rebuildProjection()} variant="outline">重建 Markdown</Button>
+          </section>
+          <section className="flex gap-3 border bg-background p-6">
+            <Input
+              aria-label="内容语言"
+              onChange={(event) => setContentLocale(event.target.value)}
+              value={contentLocale}
+            />
+            <Button disabled={working} onClick={() => void switchLocale()} variant="outline">
+              切换内容语言
+            </Button>
+          </section>
+        </div>
       )}
     </StoryPage>
   )
 }
-
-

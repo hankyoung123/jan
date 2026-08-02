@@ -66,9 +66,9 @@ const configuredProviders = h.providers.map((provider) => ({
 
 const profiles = [
   {
-    id: 'character',
+    id: 'actor',
     name: 'Character',
-    task_type: 'character',
+    task_type: 'actor',
     provider_id: 'llamacpp',
     model: 'qwen3-8b',
     max_output_tokens: 2048,
@@ -77,9 +77,42 @@ const profiles = [
     enabled: true,
   },
   {
-    id: 'resolver',
+    id: 'game-master',
     name: 'Resolver',
-    task_type: 'resolver',
+    task_type: 'game_master',
+    provider_id: 'openai',
+    model: 'gpt-5-mini',
+    max_output_tokens: 2048,
+    timeout_seconds: 60,
+    temperature: 0.2,
+    enabled: true,
+  },
+  {
+    id: 'reflection',
+    name: 'Reflection',
+    task_type: 'reflection',
+    provider_id: 'openai',
+    model: 'gpt-5-mini',
+    max_output_tokens: 2048,
+    timeout_seconds: 60,
+    temperature: 0.2,
+    enabled: true,
+  },
+  {
+    id: 'memory-consolidation',
+    name: 'Memory consolidation',
+    task_type: 'memory_consolidation',
+    provider_id: 'openai',
+    model: 'gpt-5-mini',
+    max_output_tokens: 2048,
+    timeout_seconds: 60,
+    temperature: 0.2,
+    enabled: true,
+  },
+  {
+    id: 'projection',
+    name: 'Projection',
+    task_type: 'projection',
     provider_id: 'openai',
     model: 'gpt-5-mini',
     max_output_tokens: 2048,
@@ -148,11 +181,14 @@ describe('ModelProfiles', () => {
     h.engineRequest.mockImplementation(successfulRequests)
   })
 
-  it('loads all five task routes and usage inside the Jan model center', async () => {
+  it('loads all eight task routes and usage inside the Jan model center', async () => {
     render(<ModelProfiles />)
 
     expect(await screen.findByText('角色')).toBeInTheDocument()
-    expect(screen.getByText('裁决')).toBeInTheDocument()
+    expect(screen.getByText('世界主持人')).toBeInTheDocument()
+    expect(screen.getByText('反思')).toBeInTheDocument()
+    expect(screen.getByText('记忆整理')).toBeInTheDocument()
+    expect(screen.getByText('投影')).toBeInTheDocument()
     expect(screen.getByText('审核')).toBeInTheDocument()
     expect(screen.getByText('写作')).toBeInTheDocument()
     expect(screen.getByText('嵌入')).toBeInTheDocument()
@@ -168,7 +204,7 @@ describe('ModelProfiles', () => {
     render(<ModelProfiles />)
     await screen.findByText('写作')
 
-    fireEvent.change(screen.getAllByLabelText('模型')[3], {
+    fireEvent.change(screen.getAllByLabelText('模型')[6], {
       target: { value: 'gpt-5.1' },
     })
     fireEvent.click(
@@ -275,12 +311,12 @@ describe('ModelProfiles', () => {
     await screen.findByText('写作')
 
     const modelInputs = screen.getAllByLabelText('模型')
-    expect(modelInputs).toHaveLength(5)
+    expect(modelInputs).toHaveLength(8)
     expect(modelInputs.every((input) => !input.hasAttribute('disabled'))).toBe(
       true
     )
 
-    fireEvent.change(modelInputs[3], { target: { value: 'gpt-5.1' } })
+    fireEvent.change(modelInputs[6], { target: { value: 'gpt-5.1' } })
     expect(
       screen.getByRole('button', { name: '保存写作配置' })
     ).toBeEnabled()

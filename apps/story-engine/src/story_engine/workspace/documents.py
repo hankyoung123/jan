@@ -105,7 +105,7 @@ class EventDocument(DomainModel):
     knowledge_changes: tuple[KnowledgeChange, ...] = ()
     character_changes: tuple[StateChange, ...] = ()
     world_changes: tuple[StateChange, ...] = ()
-    source_turn_id: str = Field(min_length=1)
+    source_record_id: str = Field(min_length=1)
     approved_by_user: bool
 
     @classmethod
@@ -196,11 +196,14 @@ def render_world(world: WorldState, facts: tuple[Fact, ...]) -> str:
     rules = "\n".join(f"- {item}" for item in world.rules) or "- None"
     pressures = "\n".join(f"- {item}" for item in world.active_pressures) or "- None"
     facts_by_id = {fact.id: fact for fact in facts}
-    public_facts = "\n".join(
-        f"- [{fact_id}] {facts_by_id[fact_id].statement}"
-        for fact_id in world.public_fact_ids
-        if fact_id in facts_by_id
-    ) or "- None"
+    public_facts = (
+        "\n".join(
+            f"- [{fact_id}] {facts_by_id[fact_id].statement}"
+            for fact_id in world.public_fact_ids
+            if fact_id in facts_by_id
+        )
+        or "- None"
+    )
     variables = (
         "\n".join(f"- {key}: {value}" for key, value in world.world_variables.items())
         or "- None"
@@ -234,11 +237,14 @@ def render_world(world: WorldState, facts: tuple[Fact, ...]) -> str:
 def render_character(character: Character, facts: tuple[Fact, ...]) -> str:
     document = CharacterDocument.from_domain(character)
     facts_by_id = {fact.id: fact for fact in facts}
-    known_facts = "\n".join(
-        f"- [{fact_id}] {facts_by_id[fact_id].statement}"
-        for fact_id in character.known_fact_ids
-        if fact_id in facts_by_id
-    ) or "- None"
+    known_facts = (
+        "\n".join(
+            f"- [{fact_id}] {facts_by_id[fact_id].statement}"
+            for fact_id in character.known_fact_ids
+            if fact_id in facts_by_id
+        )
+        or "- None"
+    )
     relationships = (
         "\n".join(
             f"- {relationship.character_id}: {relationship.description}"
@@ -287,11 +293,14 @@ def render_fact(fact: Fact) -> str:
 
 def render_event(event: StoryEvent, facts: tuple[Fact, ...] = ()) -> str:
     document = EventDocument.from_domain(event)
-    public = "\n".join(
-        f"- [{fact.id}] {fact.statement}"
-        for fact in facts
-        if fact.visibility == "public"
-    ) or "- None"
+    public = (
+        "\n".join(
+            f"- [{fact.id}] {fact.statement}"
+            for fact in facts
+            if fact.visibility == "public"
+        )
+        or "- None"
+    )
     body = f"""# Event {event.sequence:06d}
 
 {event.summary}

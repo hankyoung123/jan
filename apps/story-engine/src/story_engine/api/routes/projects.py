@@ -1,32 +1,13 @@
-import asyncio
 import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import JsonValue
 
 from story_engine.api.model_errors import model_http_error
-from story_engine.concordia_adapter import ConcordiaStoryAdapter
 from story_engine.config import EngineSettings
-from story_engine.domain.errors import DomainError, InvalidTransitionError
-from story_engine.domain.models import TurnCandidate
-from story_engine.events.commit import CommitResult
-from story_engine.events.stream import EngineEventBus, EngineEventType
-from story_engine.evolution.execution import (
-    TurnAlreadyRunningError,
-    TurnCancellationResult,
-    TurnCancelledError,
-    TurnExecutionRegistry,
-    TurnNotRunningError,
-)
-from story_engine.evolution.service import (
-    EvolutionService,
-    RevisionRequest,
-    TurnGenerationRequest,
-)
+from story_engine.domain.errors import DomainError
 from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
-from story_engine.review.service import EditorReviewService
 from story_engine.submission.service import (
     SubmissionConversationRequest,
     SubmissionConversationResponse,
@@ -34,7 +15,6 @@ from story_engine.submission.service import (
     SubmissionPackage,
     SubmissionService,
 )
-from story_engine.workspace.candidate_store import CandidateStore
 from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectSnapshot
 from story_engine.workspace.session import (
@@ -63,10 +43,8 @@ def _require_project(settings: EngineSettings, project_id: str) -> Path:
 
 def create_projects_router(
     settings: EngineSettings,
-    event_bus: EngineEventBus,
     model_gateway: ModelGateway,
     workspace_manager: WorkspaceSessionManager,
-    turn_executions: TurnExecutionRegistry,
 ) -> APIRouter:
     router = APIRouter(tags=["projects"])
 
@@ -148,175 +126,6 @@ def create_projects_router(
         try:
             return workspace_manager.open(project_id).project
         except (OSError, ValueError) as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @router.post(
-        "/projects/{project_id}/turns/generate",
-        response_model=TurnCandidate,
-        status_code=status.HTTP_201_CREATED,
-    )
-    async def generate_turn(
-        project_id: str,
-        request: TurnGenerationRequest,
-    ) -> TurnCandidate:
-        root = _require_project(settings, project_id)
-        workspace_manager.open(project_id)
-        active_turn_id: str | None = None
-        try:
-            execution = turn_executions.begin(project_id)
-        except TurnAlreadyRunningError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        try:
-            participants = request.participant_ids or None
-
-            def emit(
-                event_type: EngineEventType,
-                payload: dict[str, JsonValue],
-            ) -> None:
-                nonlocal active_turn_id
-                active_turn_id = str(payload["turn_id"])
-                turn_executions.identify(project_id, execution, active_turn_id)
-                event_bus.publish(
-                    project_id=project_id,
-                    turn_id=active_turn_id,
-                    event_type=event_type,
-                    payload=payload,
-                )
-
-            service = EvolutionService(
-                root,
-                generator=ConcordiaStoryAdapter(
-                    model_gateway,
-                    cancellation=execution.cancellation,
-                ),
-                reviewer=EditorReviewService(
-                    model_gateway,
-                    root=root,
-                    cancellation=execution.cancellation,
-                ),
-            )
-            return await asyncio.to_thread(
-                service.generate_turn,
-                participants,
-                event_sink=emit,
-                cancellation=execution.cancellation,
-                completion_gate=lambda: turn_executions.claim_completion(
-                    project_id,
-                    execution,
-                ),
-            )
-        except TurnCancelledError as error:
-            if active_turn_id is not None:
-                event_bus.publish(
-                    project_id=project_id,
-                    turn_id=active_turn_id,
-                    event_type="turn.cancelled",
-                    payload={"turn_id": active_turn_id},
-                )
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        except (ModelGatewayError, DomainError, ValueError) as error:
-            if active_turn_id is not None:
-                event_bus.publish(
-                    project_id=project_id,
-                    turn_id=active_turn_id,
-                    event_type="turn.failed",
-                    payload={"turn_id": active_turn_id, "reason": str(error)},
-                )
-            if isinstance(error, ModelGatewayError):
-                raise model_http_error(error) from error
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        finally:
-            turn_executions.finish(project_id, execution)
-
-    @router.post(
-        "/projects/{project_id}/turns/active/cancel",
-        response_model=TurnCancellationResult,
-    )
-    async def cancel_active_turn(project_id: str) -> TurnCancellationResult:
-        _require_project(settings, project_id)
-        try:
-            return turn_executions.cancel(project_id)
-        except TurnNotRunningError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @router.get(
-        "/projects/{project_id}/turns/{turn_id}",
-        response_model=TurnCandidate,
-    )
-    async def get_turn(project_id: str, turn_id: str) -> TurnCandidate:
-        root = _require_project(settings, project_id)
-        try:
-            return CandidateStore(root).load(turn_id)
-        except FileNotFoundError as error:
-            raise HTTPException(status_code=404, detail="Turn not found") from error
-
-    @router.post(
-        "/projects/{project_id}/turns/{turn_id}/confirm",
-        response_model=CommitResult,
-    )
-    async def confirm_turn(project_id: str, turn_id: str) -> CommitResult:
-        root = _require_project(settings, project_id)
-        try:
-            result = EvolutionService(
-                root,
-                generator=ConcordiaStoryAdapter(model_gateway),
-            ).confirm(turn_id)
-            workspace_manager.refresh(project_id)
-            return result
-        except FileNotFoundError as error:
-            raise HTTPException(status_code=404, detail="Turn not found") from error
-        except (DomainError, InvalidTransitionError) as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @router.post(
-        "/projects/{project_id}/turns/{turn_id}/request-revision",
-        response_model=TurnCandidate,
-    )
-    async def request_turn_revision(
-        project_id: str,
-        turn_id: str,
-        request: RevisionRequest,
-    ) -> TurnCandidate:
-        root = _require_project(settings, project_id)
-        try:
-            service = EvolutionService(
-                root,
-                generator=ConcordiaStoryAdapter(model_gateway),
-                reviewer=EditorReviewService(model_gateway, root=root),
-            )
-            return await asyncio.to_thread(
-                service.request_revision,
-                turn_id,
-                request.instruction,
-            )
-        except FileNotFoundError as error:
-            raise HTTPException(status_code=404, detail="Turn not found") from error
-        except ModelGatewayError as error:
-            raise model_http_error(error) from error
-        except (DomainError, InvalidTransitionError) as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @router.post(
-        "/projects/{project_id}/turns/{turn_id}/discard",
-        response_model=TurnCandidate,
-    )
-    async def discard_turn(project_id: str, turn_id: str) -> TurnCandidate:
-        root = _require_project(settings, project_id)
-        try:
-            candidate = EvolutionService(
-                root,
-                generator=ConcordiaStoryAdapter(model_gateway),
-            ).discard(turn_id)
-            event_bus.publish(
-                project_id=project_id,
-                turn_id=turn_id,
-                event_type="turn.cancelled",
-                payload={"turn_id": turn_id},
-            )
-            return candidate
-        except FileNotFoundError as error:
-            raise HTTPException(status_code=404, detail="Turn not found") from error
-        except InvalidTransitionError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.get("/projects/{project_id}/events")

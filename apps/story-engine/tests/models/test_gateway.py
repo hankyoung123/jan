@@ -246,9 +246,7 @@ def test_deepseek_json_object_prompt_requires_single_line_output(
     gateway, _ = _deepseek_gateway(tmp_path, transport)
 
     asyncio.run(
-        gateway.complete(
-            _request(profile_id="deepseek-writer", output_schema=schema)
-        )
+        gateway.complete(_request(profile_id="deepseek-writer", output_schema=schema))
     )
 
     system_message = transport.calls[0]["messages"][0]
@@ -341,9 +339,7 @@ def test_non_deepseek_profiles_do_not_retry_invalid_json(tmp_path: Path) -> None
 
     with pytest.raises(StructuredOutputError, match="not valid JSON"):
         asyncio.run(
-            gateway.complete(
-                _request(output_schema=json.dumps({"type": "object"}))
-            )
+            gateway.complete(_request(output_schema=json.dumps({"type": "object"})))
         )
 
     assert len(transport.calls) == 1
@@ -366,7 +362,7 @@ def test_deepseek_disabled_thinking_is_sent_without_reasoning_effort(
         ModelProfile(
             id="deepseek-resolver",
             name="DeepSeek Resolver",
-            task_type="resolver",
+            task_type="game_master",
             provider_id="deepseek",
             model="deepseek-v4-flash",
             reasoning_effort="disabled",
@@ -377,7 +373,7 @@ def test_deepseek_disabled_thinking_is_sent_without_reasoning_effort(
         gateway.complete(
             _request(
                 profile_id="deepseek-resolver",
-                task_type="resolver",
+                task_type="game_master",
                 output_schema=schema,
             )
         )
@@ -403,7 +399,7 @@ def test_deepseek_reasoning_effort_levels_are_sent(tmp_path: Path, level: str) -
         ModelProfile(
             id="deepseek-resolver",
             name="DeepSeek Resolver",
-            task_type="resolver",
+            task_type="game_master",
             provider_id="deepseek",
             model="deepseek-v4-flash",
             reasoning_effort=level,  # type: ignore[arg-type]
@@ -414,7 +410,7 @@ def test_deepseek_reasoning_effort_levels_are_sent(tmp_path: Path, level: str) -
         gateway.complete(
             _request(
                 profile_id="deepseek-resolver",
-                task_type="resolver",
+                task_type="game_master",
                 output_schema=schema,
             )
         )
@@ -454,9 +450,7 @@ def test_deepseek_thinking_expands_token_budget_and_omits_temperature(
                 profile_id="deepseek-editor",
                 task_type="editor",
                 output_schema=schema,
-            ).model_copy(
-                update={"max_output_tokens": 2048, "temperature": 0.1}
-            )
+            ).model_copy(update={"max_output_tokens": 2048, "temperature": 0.1})
         )
     )
 
@@ -497,9 +491,7 @@ def test_deepseek_disabled_thinking_keeps_budget_and_temperature(
                 profile_id="deepseek-editor",
                 task_type="editor",
                 output_schema=schema,
-            ).model_copy(
-                update={"max_output_tokens": 2048, "temperature": 0.1}
-            )
+            ).model_copy(update={"max_output_tokens": 2048, "temperature": 0.1})
         )
     )
 
@@ -646,9 +638,7 @@ def test_transport_preserves_provider_error_message() -> None:
         return httpx.Response(
             400,
             json={
-                "error": {
-                    "message": "response_format.type must be text or json_object"
-                }
+                "error": {"message": "response_format.type must be text or json_object"}
             },
         )
 

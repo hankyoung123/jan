@@ -198,9 +198,7 @@ class ManuscriptService:
 
     def _facts_for_events(self, events: tuple[StoryEvent, ...]) -> tuple[Fact, ...]:
         fact_ids = {fact_id for event in events for fact_id in event.fact_ids}
-        return tuple(
-            fact for fact in self.projects.load().facts if fact.id in fact_ids
-        )
+        return tuple(fact for fact in self.projects.load().facts if fact.id in fact_ids)
 
     @staticmethod
     def _as_evidence(
@@ -265,9 +263,7 @@ class ManuscriptService:
             )
         )
         ranked = self._as_evidence(
-            self.rag.search(
-                RagSearchRequest(query=query, scope=scope, limit=8)
-            ).hits,
+            self.rag.search(RagSearchRequest(query=query, scope=scope, limit=8)).hits,
             task="writer",
         )
         return self._deduplicate_evidence(exact + ranked)
@@ -430,9 +426,10 @@ class ManuscriptService:
             ),
             evidence=editor_evidence,
         )
-        retrieval_evidence = tuple(
-            item for item in updated.retrieval_evidence if item.task == "writer"
-        ) + editor_evidence
+        retrieval_evidence = (
+            tuple(item for item in updated.retrieval_evidence if item.task == "writer")
+            + editor_evidence
+        )
         if review.new_facts:
             amendment_id = f"amendment-{updated.id}-{updated.revision:06d}"
             amendment = EventAmendmentCandidate(
