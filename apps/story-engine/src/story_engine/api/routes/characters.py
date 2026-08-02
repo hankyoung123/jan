@@ -9,10 +9,12 @@ from story_engine.api.routes.projects import _require_project
 from story_engine.config import EngineSettings
 from story_engine.domain.errors import DomainError, InvalidTransitionError
 from story_engine.domain.models import Character, DomainModel
-from story_engine.events.commit import PromotionCommitResult
 from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
-from story_engine.promotion.service import CharacterPromotionService
+from story_engine.promotion.service import (
+    CharacterPromotionService,
+    PromotionCommitResult,
+)
 from story_engine.review.promotion import EditorPromotionReviewer, PromotionAssessment
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.session import WorkspaceSessionManager
@@ -65,12 +67,14 @@ def create_characters_router(
     async def review_promotion(
         project_id: str,
         character_id: str,
+        branch_id: str,
     ) -> PromotionAssessment:
         root = _require_project(settings, project_id)
         try:
             return await asyncio.to_thread(
                 _promotion_service(root, model_gateway).review,
                 character_id,
+                branch_id,
             )
         except FileNotFoundError as error:
             raise HTTPException(

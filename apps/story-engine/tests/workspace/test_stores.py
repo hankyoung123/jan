@@ -3,15 +3,11 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
 from story_engine.domain.models import (
     Character,
     Fact,
-    StoryEvent,
     WorldState,
 )
-from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectSeed, ProjectStore
 
 
@@ -78,18 +74,6 @@ def _seed() -> ProjectSeed:
     )
 
 
-def _event() -> StoryEvent:
-    return StoryEvent(
-        id="event-000001",
-        sequence=1,
-        occurred_at=datetime(2026, 7, 31, 4, 0, tzinfo=UTC),
-        summary="陈默发现了新鲜刮痕。",
-        participants=("chen-mo",),
-        source_record_id="session:one",
-        approved_by_user=True,
-    )
-
-
 def test_project_store_creates_and_loads_markdown_workspace(tmp_path: Path) -> None:
     root = tmp_path / "fog-harbor"
     store = ProjectStore(root)
@@ -105,23 +89,11 @@ def test_project_store_creates_and_loads_markdown_workspace(tmp_path: Path) -> N
     ]
     assert (root / "project.md").read_text(encoding="utf-8").startswith("---\n")
     assert (root / "characters/active/chen-mo.md").exists()
-    assert (root / "events").is_dir()
-    assert (root / "scenes").is_dir()
-
-
-def test_event_store_is_append_only(tmp_path: Path) -> None:
-    root = tmp_path / "fog-harbor"
-    ProjectStore(root).create(_seed())
-    store = EventStore(root)
-
-    event_path = store.append(_event())
-    original = event_path.read_bytes()
-
-    with pytest.raises(FileExistsError):
-        store.append(_event())
-
-    assert event_path.read_bytes() == original
-    assert store.list_events() == (_event(),)
+    assert not (root / "events").exists()
+    assert not (root / "scenes").exists()
+    assert (root / ".story-engine/runtime/sessions").is_dir()
+    assert (root / ".story-engine/manuscript").is_dir()
+    assert (root / ".story-engine/projections").is_dir()
 
 
 def test_project_load_does_not_depend_on_derived_index(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from threading import Event, RLock, Thread
 
 from pydantic import JsonValue
 
+from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     CommitResult,
     StepResult,
@@ -22,9 +23,12 @@ from story_engine.domain.trace import (
 )
 from story_engine.events.stream import EngineEventBus, EngineEventType
 from story_engine.persistence.commit import SimulationCommitKernel
-from story_engine.simulation.engine import StoryTurnEngine
+from story_engine.simulation.engine import SessionNotFoundError, StoryTurnEngine
+from story_engine.simulation.output import BoundaryOutputCoordinator
+from story_engine.simulation.session import calculate_snapshot_state_hash
 
 CommitKernelFactory = Callable[[str], SimulationCommitKernel]
+BoundaryOutputFactory = Callable[[str], BoundaryOutputCoordinator]
 
 
 class SimulationApplicationService:
@@ -33,13 +37,37 @@ class SimulationApplicationService:
         engine: StoryTurnEngine,
         event_bus: EngineEventBus,
         commit_kernel_factory: CommitKernelFactory | None = None,
+        boundary_output_factory: BoundaryOutputFactory | None = None,
     ) -> None:
         self.engine = engine
         self.event_bus = event_bus
         self._commit_kernel_factory = commit_kernel_factory
+        self._boundary_output_factory = boundary_output_factory
         self._run_threads: dict[str, Thread] = {}
         self._run_cancellations: dict[str, Event] = {}
         self._run_lock = RLock()
+
+    def _kernel(self, project_id: str) -> SimulationCommitKernel:
+        if self._commit_kernel_factory is None:
+            raise RuntimeError("simulation persistence is not configured")
+        return self._commit_kernel_factory(project_id)
+
+    def _persist(
+        self,
+        snapshot: TurnSessionSnapshot,
+        *,
+        status: TurnSessionStatus | None = None,
+        restoration_notice_text: str | None = None,
+    ) -> SessionManifest | None:
+        if self._commit_kernel_factory is None:
+            return None
+        manifest = SessionManifest.from_snapshot(
+            snapshot,
+            status=status,
+            restoration_notice_text=restoration_notice_text,
+        )
+        self._kernel(snapshot.project_id).sessions.save(manifest)
+        return manifest
 
     def _publish(
         self,
@@ -47,6 +75,7 @@ class SimulationApplicationService:
         event_type: EngineEventType,
         payload: dict[str, JsonValue] | None = None,
     ) -> None:
+        self._persist(snapshot)
         self.event_bus.publish(
             project_id=snapshot.project_id,
             subject_id=snapshot.session_id,
@@ -104,12 +133,112 @@ class SimulationApplicationService:
     def get(self, session_id: str) -> TurnSessionSnapshot:
         return self.engine.get(session_id)
 
-    def list(self, project_id: str) -> tuple[TurnSessionSnapshot, ...]:
-        return tuple(
-            snapshot
-            for snapshot in self.engine.list_snapshots()
-            if snapshot.project_id == project_id
+    def get_durable(
+        self,
+        project_id: str,
+        session_id: str,
+    ) -> TurnSessionSnapshot | SessionManifest:
+        try:
+            snapshot = self.engine.get(session_id)
+        except SessionNotFoundError:
+            pass
+        else:
+            if snapshot.project_id != project_id:
+                raise FileNotFoundError(session_id)
+            return snapshot
+
+        manifest = self._kernel(project_id).sessions.load(session_id)
+        if manifest.project_id != project_id:
+            raise FileNotFoundError(session_id)
+        if manifest.head_checkpoint_id is None:
+            interrupted = manifest.model_copy(
+                update={
+                    "status": TurnSessionStatus.INTERRUPTED,
+                    "restoration_notice_text": (
+                        f"上一次运行在 Step {manifest.current_step} 被中断, "
+                        "且没有可恢复的检查点。"
+                    ),
+                }
+            )
+            self._kernel(project_id).sessions.save(interrupted)
+            return interrupted
+
+        loaded = self._kernel(project_id).load_checkpoint(
+            project_id,
+            manifest.head_checkpoint_id,
         )
+        if manifest.status in {
+            TurnSessionStatus.TERMINATED,
+            TurnSessionStatus.CANCELLED,
+            TurnSessionStatus.FAILED,
+        }:
+            archived = loaded.model_copy(
+                update={
+                    "status": manifest.status,
+                    "checkpoint_id": manifest.head_checkpoint_id,
+                    "updated_at": manifest.updated_at,
+                    "termination_reason_text": manifest.termination_reason_text,
+                    "restoration_notice_text": manifest.restoration_notice_text,
+                    "state_hash": "0" * 64,
+                }
+            )
+            return archived.model_copy(
+                update={"state_hash": calculate_snapshot_state_hash(archived)}
+            )
+        interrupted_step = manifest.current_step
+        checkpoint_step = loaded.current_step
+        notice = (
+            f"上一次运行在 Step {interrupted_step} 被中断, "
+            f"已恢复到 Step {checkpoint_step} 的检查点。"
+        )
+        snapshot = self.engine.restore(loaded)
+        self.engine.attach_observer(snapshot.session_id, self)
+        snapshot = self.engine.set_restoration_notice(snapshot.session_id, notice)
+        self._publish(
+            snapshot,
+            "simulation.started",
+            payload={
+                "session_id": snapshot.session_id,
+                "checkpoint_id": manifest.head_checkpoint_id,
+                "restored": True,
+                "step": snapshot.current_step,
+                "status": snapshot.status.value,
+                "restoration_notice_text": notice,
+            },
+        )
+        return snapshot
+
+    def list(self, project_id: str) -> tuple[SessionManifest, ...]:
+        if self._commit_kernel_factory is None:
+            return tuple(
+                SessionManifest.from_snapshot(snapshot)
+                for snapshot in self.engine.list_snapshots()
+                if snapshot.project_id == project_id
+            )
+        store = self._kernel(project_id).sessions
+        live_session_ids: set[str] = set()
+        for snapshot in self.engine.list_snapshots():
+            if snapshot.project_id == project_id:
+                live_session_ids.add(snapshot.session_id)
+                store.save(SessionManifest.from_snapshot(snapshot))
+        manifests = []
+        for manifest in store.list(project_id):
+            if (
+                manifest.status == TurnSessionStatus.RUNNING
+                and manifest.session_id not in live_session_ids
+            ):
+                manifest = manifest.model_copy(
+                    update={
+                        "status": TurnSessionStatus.INTERRUPTED,
+                        "restoration_notice_text": (
+                            f"上一次运行在 Step {manifest.current_step} 被中断; "
+                            "打开会话后将恢复最后检查点。"
+                        ),
+                    }
+                )
+                store.save(manifest)
+            manifests.append(manifest)
+        return tuple(manifests)
 
     def restore(
         self,
@@ -127,6 +256,10 @@ class SimulationApplicationService:
             loaded.model_copy(update={"checkpoint_id": checkpoint_id})
         )
         self.engine.attach_observer(snapshot.session_id, self)
+        snapshot = self.engine.set_restoration_notice(
+            snapshot.session_id,
+            f"已恢复到 Step {snapshot.current_step} 的检查点。",
+        )
         self._publish(
             snapshot,
             "simulation.started",
@@ -298,6 +431,7 @@ class SimulationApplicationService:
                 snapshot.current_step % snapshot.request.control.checkpoint_every_steps
                 == 0
                 or snapshot.status == TurnSessionStatus.TERMINATED
+                or result.boundary.value != "none"
             )
             trace = trace.model_copy(
                 update={
@@ -432,6 +566,7 @@ class SimulationApplicationService:
             raise
         snapshot = self.engine.get(session_id)
         result, snapshot, _ = self._commit_step(result, snapshot)
+        self._process_boundary_outputs(result, snapshot)
         self._step_sink(lambda: snapshot)(result)
         if snapshot.status == TurnSessionStatus.PAUSED:
             self._publish(snapshot, "simulation.paused")
@@ -448,6 +583,7 @@ class SimulationApplicationService:
                 result,
                 snapshot,
             )
+            self._process_boundary_outputs(committed_result, committed_snapshot)
             self._step_sink(lambda: committed_snapshot)(committed_result)
 
         snapshot = self.engine.run(
@@ -478,6 +614,7 @@ class SimulationApplicationService:
                 require_paused=resume,
             )
             cancellation = Event()
+            self._persist(accepted)
 
             def execute() -> None:
                 try:
@@ -556,6 +693,7 @@ class SimulationApplicationService:
 
     def shutdown(self) -> None:
         with self._run_lock:
+            interrupted_session_ids = tuple(self._run_threads)
             cancellations = tuple(self._run_cancellations.values())
             threads = tuple(self._run_threads.values())
         for cancellation in cancellations:
@@ -566,6 +704,22 @@ class SimulationApplicationService:
             self.checkpoint_inactive_sessions()
         finally:
             self.engine.cancel_all()
+            for session_id in (
+                interrupted_session_ids
+                if self._commit_kernel_factory is not None
+                else ()
+            ):
+                snapshot = self.engine.get(session_id)
+                notice = (
+                    f"上一次运行在 Step {snapshot.current_step} 被中断; "
+                    "打开会话后将恢复最后检查点。"
+                )
+                manifest = SessionManifest.from_snapshot(
+                    snapshot,
+                    status=TurnSessionStatus.INTERRUPTED,
+                    restoration_notice_text=notice,
+                ).model_copy(update={"termination_reason_text": None})
+                self._kernel(snapshot.project_id).sessions.save(manifest)
 
     def checkpoint(self, session_id: str, *, reason: str) -> CommitResult:
         if self._commit_kernel_factory is None:
@@ -627,3 +781,12 @@ class SimulationApplicationService:
                 self.checkpoint(snapshot.session_id, reason="application shutdown")
             )
         return tuple(committed)
+
+    def _process_boundary_outputs(
+        self,
+        result: StepResult,
+        snapshot: TurnSessionSnapshot,
+    ) -> None:
+        if self._boundary_output_factory is None or result.boundary.value == "none":
+            return
+        self._boundary_output_factory(snapshot.project_id).process(result, snapshot)

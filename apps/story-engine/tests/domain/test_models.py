@@ -1,9 +1,7 @@
-from datetime import UTC, datetime
-
 import pytest
 from pydantic import ValidationError
 
-from story_engine.domain.models import Character, InitialFact, StoryEvent
+from story_engine.domain.models import Character, InitialFact
 
 
 def test_active_character_requires_current_goal() -> None:
@@ -36,29 +34,3 @@ def test_initial_fact_enforces_knowledge_boundary() -> None:
             visibility="public",
             known_by=("chen-mo",),
         )
-
-
-def test_story_event_requires_approval_and_is_immutable() -> None:
-    with pytest.raises(ValidationError, match="formal story event requires"):
-        StoryEvent(
-            id="event-000001",
-            sequence=1,
-            occurred_at=datetime.now(UTC),
-            summary="灯塔熄灭。",
-            participants=("chen-mo",),
-            source_record_id="session:one",
-            approved_by_user=False,
-        )
-
-    event = StoryEvent(
-        id="event-000001",
-        sequence=1,
-        occurred_at=datetime.now(UTC),
-        summary="灯塔熄灭。",
-        participants=("chen-mo",),
-        source_record_id="session:one",
-        approved_by_user=True,
-    )
-
-    with pytest.raises(ValidationError, match="frozen"):
-        event.summary = "被原地改写"  # type: ignore[misc]

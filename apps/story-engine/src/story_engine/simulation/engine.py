@@ -119,6 +119,17 @@ class StoryTurnEngine:
             session.checkpoint_id = checkpoint_id
             return session.snapshot()
 
+    def set_restoration_notice(
+        self,
+        session_id: str,
+        notice_text: str | None,
+    ) -> TurnSessionSnapshot:
+        session = self._get(session_id)
+        with session.lock:
+            session.restoration_notice_text = notice_text
+            session.touch()
+            return session.snapshot()
+
     def attach_observer(
         self,
         session_id: str,
@@ -502,6 +513,7 @@ class StoryTurnEngine:
                 consecutive_model_failures=snapshot.consecutive_model_failures,
                 checkpoint_id=snapshot.checkpoint_id,
                 termination_reason_text=None,
+                restoration_notice_text=snapshot.restoration_notice_text,
                 started_at=snapshot.started_at,
                 updated_at=snapshot.updated_at,
             )

@@ -15,7 +15,6 @@ from story_engine.submission.service import (
     SubmissionPackage,
     SubmissionService,
 )
-from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.project_store import ProjectSnapshot
 from story_engine.workspace.session import (
     ProjectCatalogEntry,
@@ -127,11 +126,5 @@ def create_projects_router(
             return workspace_manager.open(project_id).project
         except (OSError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @router.get("/projects/{project_id}/events")
-    async def list_events(project_id: str) -> tuple[object, ...]:
-        root = _require_project(settings, project_id)
-        workspace_manager.open(project_id)
-        return EventStore(root).list_events()
 
     return router

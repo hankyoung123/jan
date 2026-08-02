@@ -17,10 +17,8 @@ from story_engine.domain.models import DomainModel
 from story_engine.workspace.atomic import atomic_write_text
 from story_engine.workspace.documents import (
     CharacterDocument,
-    EventDocument,
     FactDocument,
     ProjectDocument,
-    SceneDocument,
     WorldDocument,
     load_document,
 )
@@ -31,16 +29,15 @@ from story_engine.workspace.transaction import recover_incomplete_transactions
 _PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _DERIVED_DIRECTORIES = (
     ".story-engine/reviews",
-    ".story-engine/scenes",
-    ".story-engine/amendments",
+    ".story-engine/manuscript",
+    ".story-engine/projections",
+    ".story-engine/runtime/sessions",
     ".story-engine/cache",
     ".story-engine/index",
     ".story-engine/recovery",
 )
 
-WorkspaceDocumentKind = Literal[
-    "project", "world", "character", "event", "fact", "scene"
-]
+WorkspaceDocumentKind = Literal["project", "world", "character", "fact"]
 
 
 class WorkspaceNotOpenError(DomainError):
@@ -60,9 +57,7 @@ class WorkspaceIndex(DomainModel):
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     world_version: int = Field(ge=0)
     character_versions: dict[str, int]
-    event_ids: tuple[str, ...]
     fact_ids: tuple[str, ...]
-    scene_ids: tuple[str, ...]
     documents: tuple[WorkspaceDocumentEntry, ...] = Field(min_length=2)
 
 
@@ -111,7 +106,7 @@ def _sha256(path: Path) -> str:
 
 def _canonical_paths(root: Path) -> tuple[Path, ...]:
     paths = [root / "project.md", root / "world.md"]
-    for directory in ("characters", "events", "facts", "scenes"):
+    for directory in ("characters", "facts"):
         paths.extend((root / directory).rglob("*.md"))
     return tuple(
         sorted(
@@ -207,26 +202,6 @@ def _build_workspace_index_locked(
                 )
             )
 
-    event_ids: list[str] = []
-    event_sequences: set[int] = set()
-    for path in sorted((root / "events").glob("*.md")):
-        event, _ = load_document(path, EventDocument)
-        if event.id in event_ids or event.sequence in event_sequences:
-            raise ValueError(f"duplicate event identity: {event.id}")
-        if path.stem != f"{event.sequence:06d}":
-            raise ValueError(f"event filename does not match sequence: {event.id}")
-        event_ids.append(event.id)
-        event_sequences.add(event.sequence)
-        documents.append(
-            _document(
-                root,
-                path,
-                kind="event",
-                document_id=event.id,
-                version=None,
-            )
-        )
-
     fact_ids: list[str] = []
     for path in sorted((root / "facts").glob("*.md")):
         fact, _ = load_document(path, FactDocument)
@@ -243,28 +218,6 @@ def _build_workspace_index_locked(
             )
         )
 
-    scene_ids: list[str] = []
-    scene_sequences: set[int] = set()
-    for path in sorted((root / "scenes").glob("*.md")):
-        scene, _ = load_document(path, SceneDocument)
-        if scene.project_id != project.id:
-            raise ValueError(f"scene project does not match workspace: {scene.id}")
-        if scene.id in scene_ids or scene.sequence in scene_sequences:
-            raise ValueError(f"duplicate scene identity: {scene.id}")
-        if path.stem != f"{scene.sequence:06d}":
-            raise ValueError(f"scene filename does not match sequence: {scene.id}")
-        scene_ids.append(scene.id)
-        scene_sequences.add(scene.sequence)
-        documents.append(
-            _document(
-                root,
-                path,
-                kind="scene",
-                document_id=scene.id,
-                version=scene.version,
-            )
-        )
-
     revision_input = "".join(
         f"{item.relative_path}\0{item.sha256}\n" for item in documents
     ).encode()
@@ -274,9 +227,7 @@ def _build_workspace_index_locked(
         revision=revision,
         world_version=world.version,
         character_versions=character_versions,
-        event_ids=tuple(event_ids),
         fact_ids=tuple(fact_ids),
-        scene_ids=tuple(scene_ids),
         documents=tuple(documents),
     )
 

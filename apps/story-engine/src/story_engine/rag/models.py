@@ -4,9 +4,7 @@ from pydantic import Field, model_validator
 
 from story_engine.domain.models import DomainModel
 
-RagSourceType = Literal[
-    "project", "world", "character", "event", "fact", "scene", "source"
-]
+RagSourceType = Literal["project", "world", "character", "fact", "source"]
 RagScopeKind = Literal["editorial", "writer", "character"]
 RagRetrievalMode = Literal["exact", "bm25"]
 RagTask = Literal["writer", "editor"]

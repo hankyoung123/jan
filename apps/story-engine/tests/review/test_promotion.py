@@ -14,7 +14,6 @@ from story_engine.models.registry import ProfileRegistry
 from story_engine.promotion.service import CharacterPromotionService
 from story_engine.review.promotion import EditorPromotionReviewer
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
-from story_engine.workspace.event_store import EventStore
 from story_engine.workspace.fact_store import FactStore
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.promotion_store import PromotionProposalStore
@@ -115,7 +114,7 @@ def test_editor_creates_derived_promotion_candidate_without_promoting_npc(
     root = _root(tmp_path)
     transport = PromotionTransport(_recommended_output())
 
-    assessment = _service(root, tmp_path, transport).review("temporary-pilot")
+    assessment = _service(root, tmp_path, transport).review("temporary-pilot", "main")
     snapshot = ProjectStore(root).load()
     character = next(
         item for item in snapshot.characters if item.id == "temporary-pilot"
@@ -128,7 +127,6 @@ def test_editor_creates_derived_promotion_candidate_without_promoting_npc(
     assert character.type == "npc"
     assert (root / "characters/npc/temporary-pilot.md").exists()
     assert not (root / "characters/active/temporary-pilot.md").exists()
-    assert EventStore(root).list_events() == ()
     assert PromotionProposalStore(root).load("temporary-pilot") == assessment.candidate
     assert transport.calls[0]["model"] == "gpt-5-mini"
     prompt = transport.calls[0]["messages"][0]["content"]
@@ -143,7 +141,7 @@ def test_rejected_reassessment_removes_stale_derived_suggestion(
     root = _root(tmp_path)
     transport = PromotionTransport(_recommended_output())
     service = _service(root, tmp_path, transport)
-    service.review("temporary-pilot")
+    service.review("temporary-pilot", "main")
     transport.output = {
         "review": {
             "mode": "promotion_review",
@@ -154,7 +152,7 @@ def test_rejected_reassessment_removes_stale_derived_suggestion(
         "proposed_goal": None,
     }
 
-    assessment = service.review("temporary-pilot")
+    assessment = service.review("temporary-pilot", "main")
 
     assert assessment.candidate is None
     assert not (root / ".story-engine/reviews/promotion-temporary-pilot.json").exists()
@@ -172,7 +170,7 @@ def test_only_explicit_confirmation_commits_promotion(tmp_path: Path) -> None:
     root = _root(tmp_path)
     transport = PromotionTransport(_recommended_output())
     service = _service(root, tmp_path, transport)
-    assessment = service.review("temporary-pilot")
+    assessment = service.review("temporary-pilot", "main")
     assert assessment.candidate is not None
 
     result = service.confirm("temporary-pilot", assessment.candidate.id)
@@ -180,6 +178,6 @@ def test_only_explicit_confirmation_commits_promotion(tmp_path: Path) -> None:
     assert result.character.type == "active"
     assert result.candidate.status == "committed"
     assert PromotionProposalStore(root).load("temporary-pilot").status == "committed"
-    assert EventStore(root).list_events() == (result.event,)
+    assert not (root / "events").exists()
     with pytest.raises(InvalidTransitionError, match="pending promotion"):
         service.confirm("temporary-pilot", assessment.candidate.id)

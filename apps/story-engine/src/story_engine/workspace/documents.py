@@ -11,10 +11,7 @@ from story_engine.domain.models import (
     DomainModel,
     Fact,
     FactVisibility,
-    KnowledgeChange,
     Relationship,
-    StateChange,
-    StoryEvent,
     WorldState,
 )
 from story_engine.manuscript.models import Scene
@@ -77,7 +74,6 @@ class CharacterDocument(DomainModel):
     location: str | None = None
     emotional_state: str | None = None
     resources: tuple[str, ...] = ()
-    last_event_id: str | None = None
     version: int = Field(default=0, ge=0)
 
     @classmethod
@@ -86,34 +82,6 @@ class CharacterDocument(DomainModel):
 
     def to_domain(self) -> Character:
         return Character.model_validate(
-            self.model_dump(exclude={"schema_name"}),
-        )
-
-
-class EventDocument(DomainModel):
-    schema_name: Literal["story-event/v1"] = Field(
-        default="story-event/v1",
-        serialization_alias="schema",
-        validation_alias="schema",
-    )
-    id: str = Field(min_length=1)
-    sequence: int = Field(ge=1)
-    occurred_at: datetime
-    summary: str = Field(min_length=1)
-    participants: tuple[str, ...]
-    fact_ids: tuple[str, ...] = ()
-    knowledge_changes: tuple[KnowledgeChange, ...] = ()
-    character_changes: tuple[StateChange, ...] = ()
-    world_changes: tuple[StateChange, ...] = ()
-    source_record_id: str = Field(min_length=1)
-    approved_by_user: bool
-
-    @classmethod
-    def from_domain(cls, event: StoryEvent) -> "EventDocument":
-        return cls.model_validate(event.model_dump())
-
-    def to_domain(self) -> StoryEvent:
-        return StoryEvent.model_validate(
             self.model_dump(exclude={"schema_name"}),
         )
 
@@ -141,17 +109,23 @@ class FactDocument(DomainModel):
 
 
 class SceneDocument(DomainModel):
-    schema_name: Literal["scene/v1"] = Field(
-        default="scene/v1",
+    schema_name: Literal["scene/v2"] = Field(
+        default="scene/v2",
         serialization_alias="schema",
         validation_alias="schema",
     )
     id: str = Field(pattern=r"^scene-[0-9]{6}$")
     project_id: str = Field(min_length=1)
+    branch_id: str = Field(min_length=1)
     sequence: int = Field(ge=1)
     chapter_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
     source_event_ids: tuple[str, ...] = Field(min_length=1)
+    source_checkpoint_id: str = Field(min_length=1)
+    source_from_step: int = Field(ge=0)
+    source_to_step: int = Field(ge=0)
+    source_memory_ids: tuple[str, ...] = ()
+    viewpoint_actor_id: str | None = None
     version: int = Field(ge=1)
 
     @classmethod
@@ -288,27 +262,6 @@ def render_character(character: Character, facts: tuple[Fact, ...]) -> str:
 def render_fact(fact: Fact) -> str:
     document = FactDocument.from_domain(fact)
     body = f"# Fact\n\n{fact.statement}\n"
-    return dump_document(document, body)
-
-
-def render_event(event: StoryEvent, facts: tuple[Fact, ...] = ()) -> str:
-    document = EventDocument.from_domain(event)
-    public = (
-        "\n".join(
-            f"- [{fact.id}] {fact.statement}"
-            for fact in facts
-            if fact.visibility == "public"
-        )
-        or "- None"
-    )
-    body = f"""# Event {event.sequence:06d}
-
-{event.summary}
-
-## Public Facts
-
-{public}
-"""
     return dump_document(document, body)
 
 

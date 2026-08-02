@@ -98,7 +98,7 @@ def test_character_routes_review_then_explicitly_confirm_promotion(
         headers=AUTH,
     )
     reviewed = client.post(
-        "/projects/fog-harbor/characters/temporary-pilot/promotion-review",
+        "/projects/fog-harbor/characters/temporary-pilot/promotion-review?branch_id=main",
         headers=AUTH,
     )
 
@@ -127,7 +127,7 @@ def test_character_routes_review_then_explicitly_confirm_promotion(
     assert promoted.status_code == 200
     assert promoted.json()["candidate"]["status"] == "committed"
     assert promoted.json()["character"]["type"] == "active"
-    assert promoted.json()["event"]["approved_by_user"] is True
+    assert "event" not in promoted.json()
     assert (
         client.get(
             "/projects/fog-harbor/characters/temporary-pilot",
@@ -153,7 +153,7 @@ def test_active_character_cannot_receive_promotion_review(tmp_path: Path) -> Non
     client, transport = _client(tmp_path)
 
     response = client.post(
-        "/projects/fog-harbor/characters/chen-mo/promotion-review",
+        "/projects/fog-harbor/characters/chen-mo/promotion-review?branch_id=main",
         headers=AUTH,
     )
 

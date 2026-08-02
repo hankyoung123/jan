@@ -9,11 +9,17 @@ from story_engine.domain.simulation import (
 from story_engine.domain.trace import TurnTrace
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.persistence.session_store import SessionStore
 from story_engine.persistence.simulation_log import (
     SimulationLogRecord,
     SimulationLogStore,
 )
 from story_engine.projection.markdown import MarkdownProjector
+from story_engine.projection.world_bible import (
+    WorldBibleProjector,
+    WorldBibleStore,
+    read_branch_records,
+)
 
 
 class SimulationCommitKernel:
@@ -24,6 +30,7 @@ class SimulationCommitKernel:
         self.checkpoints = CheckpointStore(root)
         self.branches = BranchStore(root)
         self.logs = SimulationLogStore(root)
+        self.sessions = SessionStore(root)
         self.projector = MarkdownProjector(root)
 
     def save_checkpoint(
@@ -119,13 +126,30 @@ class SimulationCommitKernel:
         parent_branch_id: str,
         content_locale: str,
     ) -> BranchManifest:
-        return self.branches.create(
+        branch = self.branches.create(
             branch_id=branch_id,
             project_id=project_id,
             source_checkpoint_id=source_checkpoint_id,
             parent_branch_id=parent_branch_id,
             content_locale=content_locale,
         )
+        if (self.root / "project.md").is_file():
+            source = self.checkpoints.load(source_checkpoint_id)
+            fork_snapshot = source.model_copy(
+                update={
+                    "branch_id": branch_id,
+                    "request": source.request.model_copy(
+                        update={"branch_id": branch_id}
+                    ),
+                    "checkpoint_id": source_checkpoint_id,
+                }
+            )
+            WorldBibleProjector(self.root).rebuild_sync(
+                fork_snapshot,
+                read_branch_records(self.root, branch_id),
+                previous=None,
+            )
+        return branch
 
     def rollback_branch(
         self,
@@ -153,6 +177,28 @@ class SimulationCommitKernel:
         if selected is None:
             raise ValueError("branch has no checkpoint")
         snapshot = self.load_checkpoint(project_id, selected)
+        if (self.root / "project.md").is_file():
+            projection_snapshot = snapshot.model_copy(
+                update={
+                    "branch_id": branch_id,
+                    "request": snapshot.request.model_copy(
+                        update={"branch_id": branch_id}
+                    ),
+                    "checkpoint_id": selected,
+                }
+            )
+            WorldBibleProjector(self.root).rebuild_sync(
+                projection_snapshot,
+                read_branch_records(self.root, branch_id),
+                previous=None,
+            )
+            store = WorldBibleStore(self.root, branch_id)
+            return (
+                store.path,
+                store.directory / "world.md",
+                store.directory / "timeline.md",
+                store.directory / "characters.md",
+            )
         return self.projector.render(
             snapshot,
             self.logs.read(branch_id),

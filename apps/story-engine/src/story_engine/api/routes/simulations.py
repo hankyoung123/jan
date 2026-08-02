@@ -9,10 +9,12 @@ from pydantic import Field
 from story_engine.api.model_errors import model_http_error
 from story_engine.config import EngineSettings
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
+from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     BranchManifest,
     CommitResult,
     ControlPolicy,
+    OutputPolicy,
     StepResult,
     TurnSessionRequest,
     TurnSessionSnapshot,
@@ -37,6 +39,7 @@ class SimulationStartRequest(RuntimeModel):
     actor_ids: tuple[Identifier, ...] = ()
     content_locale: LocaleCode = "zh-CN"
     control: ControlPolicy
+    output: OutputPolicy = OutputPolicy()
     seed: int | None = None
 
 
@@ -101,21 +104,26 @@ def create_simulations_router(
 ) -> APIRouter:
     router = APIRouter(tags=["simulations"])
 
-    def require_matching_session(
+    def require_live_session(
         project_id: str,
         session_id: str,
     ) -> TurnSessionSnapshot:
         _require_project(settings, project_id)
         try:
-            snapshot = service.get(session_id)
-        except SessionNotFoundError as error:
+            state = service.get_durable(project_id, session_id)
+        except (FileNotFoundError, SessionNotFoundError) as error:
             raise HTTPException(
                 status_code=404,
                 detail="Simulation not found",
             ) from error
-        if snapshot.project_id != project_id:
+        if isinstance(state, SessionManifest):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Simulation is {state.status.value} and is read-only",
+            )
+        if state.project_id != project_id:
             raise HTTPException(status_code=404, detail="Simulation not found")
-        return snapshot
+        return state
 
     def kernel_for(project_id: str) -> SimulationCommitKernel:
         return SimulationCommitKernel(_require_project(settings, project_id))
@@ -139,6 +147,7 @@ def create_simulations_router(
                     actor_ids=request.actor_ids,
                     content_locale=request.content_locale,
                     control=request.control,
+                    output=request.output,
                     seed=request.seed,
                 )
             )
@@ -149,9 +158,9 @@ def create_simulations_router(
 
     @router.get(
         "/projects/{project_id}/simulations",
-        response_model=tuple[TurnSessionSnapshot, ...],
+        response_model=tuple[SessionManifest, ...],
     )
-    async def list_simulations(project_id: str) -> tuple[TurnSessionSnapshot, ...]:
+    async def list_simulations(project_id: str) -> tuple[SessionManifest, ...]:
         _require_project(settings, project_id)
         return service.list(project_id)
 
@@ -211,20 +220,27 @@ def create_simulations_router(
 
     @router.get(
         "/projects/{project_id}/simulations/{session_id}",
-        response_model=TurnSessionSnapshot,
+        response_model=TurnSessionSnapshot | SessionManifest,
     )
     async def get_simulation(
         project_id: str,
         session_id: str,
-    ) -> TurnSessionSnapshot:
-        return require_matching_session(project_id, session_id)
+    ) -> TurnSessionSnapshot | SessionManifest:
+        _require_project(settings, project_id)
+        try:
+            return service.get_durable(project_id, session_id)
+        except (FileNotFoundError, SessionNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="Simulation not found",
+            ) from error
 
     @router.post(
         "/projects/{project_id}/simulations/{session_id}/step",
         response_model=StepResult,
     )
     async def step_simulation(project_id: str, session_id: str) -> StepResult:
-        require_matching_session(project_id, session_id)
+        require_live_session(project_id, session_id)
         try:
             return await asyncio.to_thread(
                 service.step,
@@ -245,7 +261,7 @@ def create_simulations_router(
         project_id: str,
         session_id: str,
     ) -> TurnSessionSnapshot:
-        require_matching_session(project_id, session_id)
+        require_live_session(project_id, session_id)
         try:
             return service.run_in_background(session_id)
         except ModelGatewayError as error:
@@ -261,7 +277,7 @@ def create_simulations_router(
         project_id: str,
         session_id: str,
     ) -> TurnSessionSnapshot:
-        require_matching_session(project_id, session_id)
+        require_live_session(project_id, session_id)
         try:
             return service.pause(session_id)
         except InvalidSessionTransitionError as error:
@@ -276,7 +292,7 @@ def create_simulations_router(
         project_id: str,
         session_id: str,
     ) -> TurnSessionSnapshot:
-        require_matching_session(project_id, session_id)
+        require_live_session(project_id, session_id)
         try:
             return service.run_in_background(session_id, resume=True)
         except ModelGatewayError as error:
@@ -293,7 +309,7 @@ def create_simulations_router(
         session_id: str,
         request: SimulationTerminateRequest,
     ) -> TurnSessionSnapshot:
-        require_matching_session(project_id, session_id)
+        require_live_session(project_id, session_id)
         try:
             return service.terminate(session_id, reason_text=request.reason_text)
         except InvalidSessionTransitionError as error:
@@ -308,7 +324,7 @@ def create_simulations_router(
         session_id: str,
         request: SimulationTerminateRequest,
     ) -> TurnSessionSnapshot:
-        require_matching_session(project_id, session_id)
+        require_live_session(project_id, session_id)
         try:
             return service.cancel(session_id, reason_text=request.reason_text)
         except InvalidSessionTransitionError as error:
@@ -323,7 +339,7 @@ def create_simulations_router(
         session_id: str,
         request: SimulationLocaleRequest,
     ) -> TurnSessionSnapshot:
-        require_matching_session(project_id, session_id)
+        require_live_session(project_id, session_id)
         try:
             return service.switch_locale(
                 session_id,
@@ -341,7 +357,7 @@ def create_simulations_router(
         session_id: str,
         request: CheckpointRequest,
     ) -> CommitResult:
-        require_matching_session(project_id, session_id)
+        require_live_session(project_id, session_id)
         try:
             return service.checkpoint(session_id, reason=request.reason)
         except (

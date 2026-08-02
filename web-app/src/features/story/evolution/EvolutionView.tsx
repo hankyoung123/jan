@@ -28,10 +28,12 @@ const CONTROL_MODES: ControlMode[] = ['step', 'scene', 'chapter', 'autonomous']
 
 function SessionSetup({
   project,
+  initialBranch,
   pending,
   onStart,
 }: {
   project: ProjectSnapshot
+  initialBranch: string
   pending: boolean
   onStart: (options: {
     branchId: string
@@ -46,7 +48,7 @@ function SessionSetup({
   const [premise, setPremise] = useState(
     typeof initialIncident === 'string' ? initialIncident : ''
   )
-  const [branchId, setBranchId] = useState('main')
+  const [branchId, setBranchId] = useState(initialBranch)
   const [contentLocale, setContentLocale] = useState('zh-CN')
   const [mode, setMode] = useState<ControlMode>('scene')
   const [selectedActors, setSelectedActors] = useState<string[]>([])
@@ -183,8 +185,14 @@ export function EvolutionView() {
       ? simulation.session?.checkpoint_id ?? undefined
       : undefined
   const ended = simulation.session
-    ? ['terminated', 'cancelled', 'failed'].includes(simulation.session.status)
+    ? ['terminated', 'cancelled', 'failed', 'interrupted'].includes(
+        simulation.session.status
+      )
     : false
+  const urlBranch =
+    typeof window === 'undefined'
+      ? 'main'
+      : new URLSearchParams(window.location.search).get('branch') || 'main'
 
   useEffect(() => {
     if (simulation.error) setNotice(null)
@@ -222,11 +230,29 @@ export function EvolutionView() {
   return (
     <StoryPage wide>
       <PageHeader
-        action={ended ? (
-          <Button onClick={simulation.startNew} variant="outline">
-            <RotateCcw size={14} /> {t('newSession')}
-          </Button>
-        ) : undefined}
+        action={
+          <div className="flex items-center gap-2">
+            {simulation.sessions.length > 0 && (
+              <select
+                aria-label="历史会话"
+                className="h-9 max-w-56 border bg-background px-2 font-mono text-xs"
+                onChange={(event) => void simulation.selectSession(event.target.value)}
+                value={simulation.session?.session_id ?? ''}
+              >
+                {simulation.sessions.map((item) => (
+                  <option key={item.session_id} value={item.session_id}>
+                    {item.branch_id} · S{item.current_step} · {item.status}
+                  </option>
+                ))}
+              </select>
+            )}
+            {ended && (
+              <Button onClick={simulation.startNew} variant="outline">
+                <RotateCcw size={14} /> {t('newSession')}
+              </Button>
+            )}
+          </div>
+        }
         eyebrow={eyebrow}
         title={t('title')}
       />
@@ -243,13 +269,19 @@ export function EvolutionView() {
       {!simulation.session ? (
         simulation.project && (
           <SessionSetup
+            initialBranch={urlBranch}
             onStart={(options) => void simulation.start(options)}
             pending={simulation.isPending('start')}
             project={simulation.project}
           />
         )
       ) : (
-        <div className="space-y-4">
+          <div className="space-y-4">
+          {simulation.session.restoration_notice_text && (
+            <p className="border-l-2 border-amber-500 bg-amber-500/8 p-3 text-sm text-amber-800">
+              {simulation.session.restoration_notice_text}
+            </p>
+          )}
           <div>
             <SimulationHeader session={simulation.session} />
             <SimulationControls

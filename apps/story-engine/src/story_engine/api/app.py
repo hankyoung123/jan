@@ -15,12 +15,14 @@ from story_engine.api.routes.models import create_models_router
 from story_engine.api.routes.projects import create_projects_router
 from story_engine.api.routes.rag import create_rag_router
 from story_engine.api.routes.simulations import create_simulations_router
+from story_engine.api.routes.world_bible import create_world_bible_router
 from story_engine.config import EngineSettings
 from story_engine.events.stream import (
     EngineEventBus,
     stream_events,
     websocket_token_is_valid,
 )
+from story_engine.manuscript.service import GatewayManuscriptAgent
 from story_engine.models.gateway import (
     ModelGateway,
     ModelTransport,
@@ -31,6 +33,7 @@ from story_engine.models.registry import ProfileRegistry
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.simulation.engine import RuntimeFactory, StoryTurnEngine
 from story_engine.simulation.factory import ProjectRuntimeFactory
+from story_engine.simulation.output import BoundaryOutputCoordinator
 from story_engine.simulation.service import SimulationApplicationService
 from story_engine.workspace.session import WorkspaceChange, WorkspaceSessionManager
 
@@ -135,6 +138,10 @@ def create_app(
         commit_kernel_factory=lambda project_id: SimulationCommitKernel(
             runtime_settings.projects_root / project_id
         ),
+        boundary_output_factory=lambda project_id: BoundaryOutputCoordinator(
+            runtime_settings.projects_root / project_id,
+            manuscript_agent=GatewayManuscriptAgent(gateway),
+        ),
     )
     app.state.model_registry = registry
     app.state.model_gateway = gateway
@@ -209,6 +216,10 @@ def create_app(
     )
     app.include_router(
         create_simulations_router(runtime_settings, simulation_service),
+        dependencies=[Depends(require_session_token)],
+    )
+    app.include_router(
+        create_world_bible_router(runtime_settings),
         dependencies=[Depends(require_session_token)],
     )
 

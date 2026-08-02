@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { route } from '@/constants/routes'
-import { WorldView } from '@/features/story/StoryViews'
+import { WorldView } from '@/features/story/world/WorldView'
 
 export const Route = createFileRoute(route.world)({
   component: WorldView,

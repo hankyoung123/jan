@@ -27,6 +27,7 @@ from story_engine.domain.trace import ModelCallTrace
 from story_engine.models.gateway import ModelGateway
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.projection.world_bible import WorldBibleStore
 from story_engine.simulation.runtime import StorySimulationRuntime
 from story_engine.workspace.project_store import ProjectStore
 
@@ -422,13 +423,39 @@ class ProjectRuntimeFactory:
             available_actors=tuple(actors),
             roster_planner=roster_planner,
         )
-        if restored is None:
-            return runtime
-        runtime.restore_states(
-            actor_states=restored.actor_states,
-            game_master_states=restored.game_master_states,
-            memory_snapshots=restored.memory_snapshots,
-        )
-        runtime.set_content_locale(request.content_locale)
-        runtime.initial_snapshot = restored
+        if restored is not None:
+            runtime.restore_states(
+                actor_states=restored.actor_states,
+                game_master_states=restored.game_master_states,
+                memory_snapshots=restored.memory_snapshots,
+            )
+            runtime.set_content_locale(request.content_locale)
+            runtime.initial_snapshot = restored
+        existing_memory_ids = {
+            record.record_id
+            for record in runtime.game_master.memory.scan(lambda _record: True)
+        }
+        for instruction in WorldBibleStore(
+            project_root,
+            request.branch_id,
+        ).list_instructions():
+            if instruction.instruction_id in existing_memory_ids:
+                continue
+            runtime.game_master.memory.add(
+                MemoryRecord(
+                    record_id=instruction.instruction_id,
+                    record_type=MemoryRecordType.SYSTEM,
+                    scope=MemoryScope.GAME_MASTER,
+                    owner_id=runtime.game_master.name,
+                    session_id=session_id,
+                    branch_id=request.branch_id,
+                    step=restored.current_step if restored is not None else 0,
+                    text=instruction.text,
+                    content_locale=request.content_locale,
+                    created_at=instruction.created_at,
+                    source_record_ids=(instruction.applies_from_checkpoint_id,),
+                    tags=("director_instruction",),
+                    importance=1,
+                )
+            )
         return runtime

@@ -223,6 +223,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/branches/{branch_id}/director-instructions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Director Instructions */
+        get: operations["list_director_instructions_projects__project_id__branches__branch_id__director_instructions_get"];
+        put?: never;
+        /** Add Director Instruction */
+        post: operations["add_director_instruction_projects__project_id__branches__branch_id__director_instructions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/manuscript/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Manuscript */
+        get: operations["export_manuscript_projects__project_id__branches__branch_id__manuscript_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/manuscript/scenes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Scenes */
+        get: operations["list_scenes_projects__project_id__branches__branch_id__manuscript_scenes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Scene */
+        post: operations["generate_scene_projects__project_id__branches__branch_id__manuscript_scenes_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/{scene_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Scene */
+        get: operations["get_scene_projects__project_id__branches__branch_id__manuscript_scenes__scene_id__get"];
+        /** Update Scene */
+        put: operations["update_scene_projects__project_id__branches__branch_id__manuscript_scenes__scene_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/narrative-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Narrative Sources */
+        get: operations["list_narrative_sources_projects__project_id__branches__branch_id__narrative_sources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/branches/{branch_id}/projection": {
         parameters: {
             query?: never;
@@ -268,6 +372,40 @@ export interface paths {
         get: operations["list_simulation_trace_projects__project_id__branches__branch_id__simulation_trace_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/world-bible": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get World Bible */
+        get: operations["get_world_bible_projects__project_id__branches__branch_id__world_bible_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/world-bible/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rebuild World Bible */
+        post: operations["rebuild_world_bible_projects__project_id__branches__branch_id__world_bible_rebuild_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -359,40 +497,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Events */
-        get: operations["list_events_projects__project_id__events_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/manuscript/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Export Manuscript */
-        get: operations["export_manuscript_projects__project_id__manuscript_export_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/projects/{project_id}/open": {
         parameters: {
             query?: never;
@@ -438,75 +542,6 @@ export interface paths {
         put?: never;
         /** Search */
         post: operations["search_projects__project_id__rag_search_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/scenes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Scenes */
-        get: operations["list_scenes_projects__project_id__scenes_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/scenes/generate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Generate Scene */
-        post: operations["generate_scene_projects__project_id__scenes_generate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/scenes/{scene_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Scene */
-        get: operations["get_scene_projects__project_id__scenes__scene_id__get"];
-        /** Update Scene */
-        put: operations["update_scene_projects__project_id__scenes__scene_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/scenes/{scene_id}/amendments/{amendment_id}/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Confirm Amendment */
-        post: operations["confirm_amendment_projects__project_id__scenes__scene_id__amendments__amendment_id__confirm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -808,12 +843,6 @@ export interface components {
             /** Tag */
             tag?: string | null;
         };
-        /** AmendmentCommitResult */
-        AmendmentCommitResult: {
-            amendment: components["schemas"]["EventAmendmentCandidate"];
-            event: components["schemas"]["StoryEvent"];
-            scene: components["schemas"]["Scene"];
-        };
         /** BranchComparisonResponse */
         BranchComparisonResponse: {
             left: components["schemas"]["BranchManifest"];
@@ -898,8 +927,6 @@ export interface components {
              * @default []
              */
             known_fact_ids: string[];
-            /** Last Event Id */
-            last_event_id?: string | null;
             /** Location */
             location?: string | null;
             /**
@@ -999,6 +1026,27 @@ export interface components {
              */
             pause_after_scene: boolean;
         };
+        /** DirectorInstruction */
+        DirectorInstruction: {
+            /** Applies From Checkpoint Id */
+            applies_from_checkpoint_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Instruction Id */
+            instruction_id: string;
+            /** Text */
+            text: string;
+        };
+        /** DirectorInstructionRequest */
+        DirectorInstructionRequest: {
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Text */
+            text: string;
+        };
         /** DynamicEntityDefinition */
         DynamicEntityDefinition: {
             /**
@@ -1051,33 +1099,6 @@ export interface components {
              * @enum {string}
              */
             type: "engine.status" | "workspace.changed" | "simulation.started" | "simulation.step.started" | "simulation.stage.started" | "simulation.stage.completed" | "simulation.stage.failed" | "simulation.step.completed" | "simulation.pause.requested" | "simulation.termination.requested" | "simulation.paused" | "simulation.checkpointed" | "simulation.terminated" | "simulation.failed" | "stream.resync_required";
-        };
-        /** EventAmendmentCandidate */
-        EventAmendmentCandidate: {
-            /** Base Workspace Revision */
-            base_workspace_revision?: string | null;
-            /** Base World Version */
-            base_world_version: number;
-            /** Draft Revision */
-            draft_revision: number;
-            /** Fact Ids */
-            fact_ids: string[];
-            /** Id */
-            id: string;
-            /** Project Id */
-            project_id: string;
-            /** Proposed Facts */
-            proposed_facts: string[];
-            /** Scene Id */
-            scene_id: string;
-            /** Source Event Ids */
-            source_event_ids: string[];
-            /**
-             * Status
-             * @default pending
-             * @enum {string}
-             */
-            status: "pending" | "committed";
         };
         /**
          * EventVisibility
@@ -1146,35 +1167,32 @@ export interface components {
             visibility: "public" | "private" | "secret";
         };
         JsonValue: unknown;
-        /** KnowledgeChange */
-        KnowledgeChange: {
-            /**
-             * Action
-             * @enum {string}
-             */
-            action: "learn" | "forget";
-            /** Character Id */
-            character_id: string;
-            /** Fact Id */
-            fact_id: string;
-            /** Reason */
-            reason: string;
-        };
         /** ManuscriptExport */
         ManuscriptExport: {
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id: string | null;
             /** Filename */
             filename: string;
             /** Markdown */
             markdown: string;
+            /** Project Id */
+            project_id: string;
         };
+        /**
+         * ManuscriptGenerationMode
+         * @enum {string}
+         */
+        ManuscriptGenerationMode: "manual" | "after_scene" | "after_chapter";
         /** ManuscriptReviewOutput */
         ManuscriptReviewOutput: {
+            review: components["schemas"]["ReviewResult"];
             /**
-             * New Facts
+             * Unsupported Facts
              * @default []
              */
-            new_facts: string[];
-            review: components["schemas"]["ReviewResult"];
+            unsupported_facts: string[];
         };
         /**
          * MemoryScope
@@ -1377,6 +1395,35 @@ export interface components {
              */
             total_tokens: number;
         };
+        /** NarrativeSourceSummary */
+        NarrativeSourceSummary: {
+            /** Already Written */
+            already_written: boolean;
+            /** Available Viewpoint Ids */
+            available_viewpoint_ids: string[];
+            boundary: components["schemas"]["SimulationBoundary"];
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Event Summary Text */
+            event_summary_text: string;
+            /** From Step */
+            from_step: number;
+            /** Source Id */
+            source_id: string;
+            /** Title Hint */
+            title_hint: string;
+            /** To Step */
+            to_step: number;
+        };
+        /** OutputPolicy */
+        OutputPolicy: {
+            /** @default manual */
+            manuscript_mode: components["schemas"]["ManuscriptGenerationMode"];
+            /** @default after_scene */
+            world_projection_mode: components["schemas"]["WorldProjectionMode"];
+        };
         /**
          * PendingControl
          * @enum {string}
@@ -1477,7 +1524,6 @@ export interface components {
         PromotionCommitResult: {
             candidate: components["schemas"]["PromotionCandidate"];
             character: components["schemas"]["Character"];
-            event: components["schemas"]["StoryEvent"];
         };
         /** PromotionConfirmationRequest */
         PromotionConfirmationRequest: {
@@ -1509,7 +1555,7 @@ export interface components {
              * Source Type
              * @enum {string}
              */
-            source_type: "project" | "world" | "character" | "event" | "fact" | "scene" | "source";
+            source_type: "project" | "world" | "character" | "fact" | "source";
         };
         /** RagIndexSummary */
         RagIndexSummary: {
@@ -1662,38 +1708,6 @@ export interface components {
             /** Termination Reason Text */
             termination_reason_text?: string | null;
         };
-        /** RetrievalEvidence */
-        RetrievalEvidence: {
-            /** Chunk Id */
-            chunk_id: string;
-            /** Content */
-            content: string;
-            /** Heading */
-            heading: string;
-            /** Permission Scope */
-            permission_scope: string;
-            /**
-             * Retrieval Mode
-             * @enum {string}
-             */
-            retrieval_mode: "exact" | "bm25";
-            /** Score */
-            score: number;
-            /** Source Id */
-            source_id: string;
-            /** Source Path */
-            source_path: string;
-            /**
-             * Source Type
-             * @enum {string}
-             */
-            source_type: "project" | "world" | "character" | "event" | "fact" | "scene" | "source";
-            /**
-             * Task
-             * @enum {string}
-             */
-            task: "writer" | "editor";
-        };
         /** RetrievalScope */
         RetrievalScope: {
             /** Character Id */
@@ -1742,6 +1756,8 @@ export interface components {
         Scene: {
             /** Body */
             body: string;
+            /** Branch Id */
+            branch_id: string;
             /** Chapter Id */
             chapter_id: string;
             /** Id */
@@ -1750,39 +1766,40 @@ export interface components {
             project_id: string;
             /** Sequence */
             sequence: number;
+            /** Source Checkpoint Id */
+            source_checkpoint_id: string;
             /** Source Event Ids */
             source_event_ids: string[];
+            /** Source From Step */
+            source_from_step: number;
+            /** Source Memory Ids */
+            source_memory_ids: string[];
+            /** Source To Step */
+            source_to_step: number;
             /** Title */
             title: string;
             /** Version */
             version: number;
+            /** Viewpoint Actor Id */
+            viewpoint_actor_id?: string | null;
         };
         /** SceneDraft */
         SceneDraft: {
-            /** Amendment Id */
-            amendment_id?: string | null;
             /**
              * Base Scene Version
              * @default 0
              */
             base_scene_version: number;
-            /** Base Workspace Revision */
-            base_workspace_revision?: string | null;
-            /** Base World Version */
-            base_world_version: number;
             /** Body */
             body: string;
+            /** Branch Id */
+            branch_id: string;
             /** Chapter Id */
             chapter_id: string;
             /** Id */
             id: string;
             /** Project Id */
             project_id: string;
-            /**
-             * Retrieval Evidence
-             * @default []
-             */
-            retrieval_evidence: components["schemas"]["RetrievalEvidence"][];
             review?: components["schemas"]["ManuscriptReviewOutput"] | null;
             /**
              * Revision
@@ -1791,27 +1808,42 @@ export interface components {
             revision: number;
             /** Sequence */
             sequence: number;
+            /** Source Checkpoint Id */
+            source_checkpoint_id: string;
             /** Source Event Ids */
             source_event_ids: string[];
+            /** Source From Step */
+            source_from_step: number;
+            /** Source Memory Ids */
+            source_memory_ids: string[];
+            /** Source To Step */
+            source_to_step: number;
             /**
              * Status
              * @default draft
              * @enum {string}
              */
-            status: "draft" | "reviewed" | "needs_revision" | "amendment_required" | "saved";
+            status: "draft" | "reviewed" | "needs_revision" | "saved";
             /** Title */
             title: string;
+            /** Viewpoint Actor Id */
+            viewpoint_actor_id?: string | null;
         };
         /** SceneGenerationRequest */
         SceneGenerationRequest: {
             /** Chapter Id */
             chapter_id: string;
-            /** Event Ids */
-            event_ids: string[];
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** From Step */
+            from_step: number;
+            /** To Step */
+            to_step: number;
+            /** Viewpoint Actor Id */
+            viewpoint_actor_id?: string | null;
         };
         /** SceneMutationResult */
         SceneMutationResult: {
-            amendment?: components["schemas"]["EventAmendmentCandidate"] | null;
             draft: components["schemas"]["SceneDraft"];
             review: components["schemas"]["ManuscriptReviewOutput"];
             scene?: components["schemas"]["Scene"] | null;
@@ -1819,7 +1851,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "saved" | "amendment_required" | "rejected";
+            status: "saved" | "rejected";
         };
         /** SceneUpdateRequest */
         SceneUpdateRequest: {
@@ -1831,6 +1863,36 @@ export interface components {
             expected_scene_version: number;
             /** Title */
             title: string;
+        };
+        /** SessionManifest */
+        SessionManifest: {
+            /** Branch Id */
+            branch_id: string;
+            /** Completed Scenes */
+            completed_scenes: number;
+            /** Current Step */
+            current_step: number;
+            /** Head Checkpoint Id */
+            head_checkpoint_id: string | null;
+            /** Project Id */
+            project_id: string;
+            /** Restoration Notice Text */
+            restoration_notice_text?: string | null;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["TurnSessionStatus"];
+            /** Termination Reason Text */
+            termination_reason_text?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /**
          * SimulationBoundary
@@ -1879,6 +1941,13 @@ export interface components {
              */
             content_locale: string;
             control: components["schemas"]["ControlPolicy"];
+            /**
+             * @default {
+             *       "manuscript_mode": "manual",
+             *       "world_projection_mode": "after_scene"
+             *     }
+             */
+            output: components["schemas"]["OutputPolicy"];
             /** Premise Text */
             premise_text: string;
             /** Seed */
@@ -1950,22 +2019,6 @@ export interface components {
              */
             visible_to: string[];
         };
-        /** StateChange */
-        StateChange: {
-            /** Field */
-            field: string;
-            new_value: components["schemas"]["JsonValue"];
-            old_value?: components["schemas"]["JsonValue"];
-            /** Reason */
-            reason: string;
-            /** Target Id */
-            target_id: string;
-            /**
-             * Target Type
-             * @enum {string}
-             */
-            target_type: "character" | "world";
-        };
         /**
          * StateEffect
          * @description Optional machine projection; natural-language events remain authoritative.
@@ -2024,46 +2077,6 @@ export interface components {
          * @enum {string}
          */
         StoryActionKind: "free_action" | "dialogue" | "reaction" | "internal_decision" | "choice" | "wait" | "scene_proposal";
-        /** StoryEvent */
-        StoryEvent: {
-            /** Approved By User */
-            approved_by_user: boolean;
-            /**
-             * Character Changes
-             * @default []
-             */
-            character_changes: components["schemas"]["StateChange"][];
-            /**
-             * Fact Ids
-             * @default []
-             */
-            fact_ids: string[];
-            /** Id */
-            id: string;
-            /**
-             * Knowledge Changes
-             * @default []
-             */
-            knowledge_changes: components["schemas"]["KnowledgeChange"][];
-            /**
-             * Occurred At
-             * Format: date-time
-             */
-            occurred_at: string;
-            /** Participants */
-            participants: string[];
-            /** Sequence */
-            sequence: number;
-            /** Source Record Id */
-            source_record_id: string;
-            /** Summary */
-            summary: string;
-            /**
-             * World Changes
-             * @default []
-             */
-            world_changes: components["schemas"]["StateChange"][];
-        };
         /** SubmissionCharacter */
         SubmissionCharacter: {
             /** Core Desire */
@@ -2218,6 +2231,13 @@ export interface components {
             /** Content Locale */
             content_locale: string;
             control: components["schemas"]["ControlPolicy"];
+            /**
+             * @default {
+             *       "manuscript_mode": "manual",
+             *       "world_projection_mode": "after_scene"
+             *     }
+             */
+            output: components["schemas"]["OutputPolicy"];
             /** Premise Text */
             premise_text: string;
             /** Project Id */
@@ -2281,6 +2301,8 @@ export interface components {
             /** Raw Log Offset */
             raw_log_offset: number;
             request: components["schemas"]["TurnSessionRequest"];
+            /** Restoration Notice Text */
+            restoration_notice_text?: string | null;
             /** Session Id */
             session_id: string;
             /**
@@ -2308,7 +2330,7 @@ export interface components {
          * TurnSessionStatus
          * @enum {string}
          */
-        TurnSessionStatus: "created" | "running" | "paused" | "terminated" | "cancelled" | "failed";
+        TurnSessionStatus: "created" | "running" | "paused" | "terminated" | "cancelled" | "failed" | "interrupted";
         /** TurnTrace */
         TurnTrace: {
             /** Acting Actor Id */
@@ -2399,7 +2421,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "project" | "world" | "character" | "event" | "fact" | "scene";
+            kind: "project" | "world" | "character" | "fact";
             /** Relative Path */
             relative_path: string;
             /** Sha256 */
@@ -2415,16 +2437,12 @@ export interface components {
             };
             /** Documents */
             documents: components["schemas"]["WorkspaceDocumentEntry"][];
-            /** Event Ids */
-            event_ids: string[];
             /** Fact Ids */
             fact_ids: string[];
             /** Project Id */
             project_id: string;
             /** Revision */
             revision: string;
-            /** Scene Ids */
-            scene_ids: string[];
             /** World Version */
             world_version: number;
         };
@@ -2443,6 +2461,76 @@ export interface components {
              */
             status: "open";
         };
+        /**
+         * WorldBibleCategory
+         * @enum {string}
+         */
+        WorldBibleCategory: "rule" | "location" | "organization" | "history" | "established_fact" | "unresolved_thread";
+        /** WorldBibleEntry */
+        WorldBibleEntry: {
+            category: components["schemas"]["WorldBibleCategory"];
+            /** Confidence */
+            confidence: number;
+            /** Content Text */
+            content_text: string;
+            /** Entry Id */
+            entry_id: string;
+            /** First Seen Step */
+            first_seen_step: number;
+            /** Last Updated Step */
+            last_updated_step: number;
+            /** Source Event Ids */
+            source_event_ids: string[];
+            /** Source Record Ids */
+            source_record_ids: string[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "historical" | "uncertain";
+            /** Title */
+            title: string;
+        };
+        /** WorldBibleRebuildRequest */
+        WorldBibleRebuildRequest: {
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+        };
+        /** WorldBibleSnapshot */
+        WorldBibleSnapshot: {
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Creative Direction Text */
+            creative_direction_text: string;
+            /** Current World State Text */
+            current_world_state_text: string;
+            /** Established Facts */
+            established_facts: components["schemas"]["WorldBibleEntry"][];
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** History */
+            history: components["schemas"]["WorldBibleEntry"][];
+            /** Locations */
+            locations: components["schemas"]["WorldBibleEntry"][];
+            /** Organizations */
+            organizations: components["schemas"]["WorldBibleEntry"][];
+            /** Project Id */
+            project_id: string;
+            /** Rules */
+            rules: components["schemas"]["WorldBibleEntry"][];
+            /** Unresolved Threads */
+            unresolved_threads: components["schemas"]["WorldBibleEntry"][];
+        };
+        /**
+         * WorldProjectionMode
+         * @enum {string}
+         */
+        WorldProjectionMode: "manual" | "after_scene" | "after_chapter";
         /** WorldState */
         WorldState: {
             /**
@@ -2865,6 +2953,278 @@ export interface operations {
             };
         };
     };
+    list_director_instructions_projects__project_id__branches__branch_id__director_instructions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectorInstruction"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_director_instruction_projects__project_id__branches__branch_id__director_instructions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DirectorInstructionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectorInstruction"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_manuscript_projects__project_id__branches__branch_id__manuscript_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManuscriptExport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_scenes_projects__project_id__branches__branch_id__manuscript_scenes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDraft"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_scene_projects__project_id__branches__branch_id__manuscript_scenes_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SceneGenerationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDraft"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_scene_projects__project_id__branches__branch_id__manuscript_scenes__scene_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDraft"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_scene_projects__project_id__branches__branch_id__manuscript_scenes__scene_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+                scene_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SceneUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneMutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_narrative_sources_projects__project_id__branches__branch_id__narrative_sources_get: {
+        parameters: {
+            query?: {
+                after_step?: number | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NarrativeSourceSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     rebuild_projection_projects__project_id__branches__branch_id__projection_post: {
         parameters: {
             query?: never;
@@ -2958,6 +3318,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SimulationLogRecord"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_world_bible_projects__project_id__branches__branch_id__world_bible_get: {
+        parameters: {
+            query?: {
+                checkpoint_id?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldBibleSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rebuild_world_bible_projects__project_id__branches__branch_id__world_bible_rebuild_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorldBibleRebuildRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldBibleSnapshot"];
                 };
             };
             /** @description Validation Error */
@@ -3072,7 +3502,9 @@ export interface operations {
     };
     review_promotion_projects__project_id__characters__character_id__promotion_review_post: {
         parameters: {
-            query?: never;
+            query: {
+                branch_id: string;
+            };
             header?: never;
             path: {
                 project_id: string;
@@ -3120,68 +3552,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceClosedState"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_events_projects__project_id__events_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown[];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    export_manuscript_projects__project_id__manuscript_export_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ManuscriptExport"];
                 };
             };
             /** @description Validation Error */
@@ -3292,173 +3662,6 @@ export interface operations {
             };
         };
     };
-    list_scenes_projects__project_id__scenes_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneDraft"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    generate_scene_projects__project_id__scenes_generate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SceneGenerationRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneDraft"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_scene_projects__project_id__scenes__scene_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                scene_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneDraft"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_scene_projects__project_id__scenes__scene_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                scene_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SceneUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SceneMutationResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    confirm_amendment_projects__project_id__scenes__scene_id__amendments__amendment_id__confirm_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                scene_id: string;
-                amendment_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AmendmentCommitResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_simulation_events_projects__project_id__simulation_events_get: {
         parameters: {
             query?: {
@@ -3509,7 +3712,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TurnSessionSnapshot"][];
+                    "application/json": components["schemas"]["SessionManifest"][];
                 };
             };
             /** @description Validation Error */
@@ -3611,7 +3814,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                    "application/json": components["schemas"]["TurnSessionSnapshot"] | components["schemas"]["SessionManifest"];
                 };
             };
             /** @description Validation Error */

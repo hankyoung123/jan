@@ -10,8 +10,8 @@ from story_engine.domain.models import (
     DomainModel,
     PromotionCandidate,
     ReviewResult,
-    StoryEvent,
 )
+from story_engine.domain.projection import ResolvedEvent
 from story_engine.models.contracts import Message, ModelRequest
 from story_engine.models.gateway import ModelGateway
 from story_engine.workspace.project_store import ProjectSnapshot
@@ -49,7 +49,7 @@ class EditorPromotionReviewer:
         self,
         character: Character,
         snapshot: ProjectSnapshot,
-        events: tuple[StoryEvent, ...],
+        events: tuple[ResolvedEvent, ...],
     ) -> PromotionAssessment:
         if character.type != "npc":
             raise InvalidTransitionError("only an NPC can receive a promotion review")
@@ -67,12 +67,8 @@ class EditorPromotionReviewer:
             "related_events": [
                 event.model_dump(mode="json")
                 for event in events
-                if character.id in event.participants
-                or character.id in event.summary
-                or any(
-                    change.target_id == character.id
-                    for change in event.character_changes
-                )
+                if character.id in event.participant_ids
+                or character.id in event.event_text
             ],
         }
         prompt = (

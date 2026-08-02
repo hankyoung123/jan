@@ -17,6 +17,7 @@ from story_engine.domain.models import (
 )
 from story_engine.models.contracts import Message, ModelRequest
 from story_engine.models.gateway import ModelGateway
+from story_engine.projection.world_bible import WorldBibleProjector
 from story_engine.workspace.project_store import (
     ProjectSeed,
     ProjectSnapshot,
@@ -357,7 +358,10 @@ class SubmissionService:
                 for fact in package.facts
             ),
         )
-        return ProjectStore(self.projects_root / package.id).create(seed)
+        root = self.projects_root / package.id
+        snapshot = ProjectStore(root).create(seed)
+        WorldBibleProjector(root).initialize(snapshot)
+        return snapshot
 
     @staticmethod
     def _ensure_runnable(package: SubmissionPackage) -> None:

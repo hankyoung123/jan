@@ -77,7 +77,7 @@ class RagService:
 
     def _document_paths(self) -> tuple[Path, ...]:
         candidates = [self.root / "project.md", self.root / "world.md"]
-        for directory in ("characters", "events", "facts", "scenes", "sources"):
+        for directory in ("characters", "facts", "sources"):
             candidates.extend(sorted((self.root / directory).rglob("*.md")))
         return tuple(
             path
@@ -120,9 +120,7 @@ class RagService:
         directory = relative.parts[0]
         mapping: dict[str, RagSourceType] = {
             "characters": "character",
-            "events": "event",
             "facts": "fact",
-            "scenes": "scene",
             "sources": "source",
         }
         return mapping[directory]
@@ -327,7 +325,7 @@ class RagService:
         if scope.kind == "writer":
             if chunk.source_type == "fact":
                 return chunk.fact_visibility == "public" and not chunk.front_matter
-            if chunk.source_type in {"project", "scene"}:
+            if chunk.source_type == "project":
                 return True
             if chunk.source_type == "source":
                 return chunk.source_id == "source:style"
@@ -339,11 +337,7 @@ class RagService:
                     "active-pressures",
                     "public-facts",
                 }
-            return (
-                chunk.source_type == "event"
-                and not chunk.front_matter
-                and chunk.section_key != "hidden-results"
-            )
+            return False
 
         character_id = scope.character_id
         if chunk.source_type == "fact":
@@ -361,11 +355,6 @@ class RagService:
                 "rules",
                 "public-facts",
             }
-        if chunk.source_type == "event":
-            return (
-                character_id in chunk.participant_ids
-                and chunk.section_key != "hidden-results"
-            )
         return False
 
     @staticmethod

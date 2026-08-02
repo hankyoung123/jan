@@ -44,6 +44,7 @@ class SimulationSession:
     consecutive_model_failures: int = 0
     checkpoint_id: str | None = None
     termination_reason_text: str | None = None
+    restoration_notice_text: str | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     pending_control: PendingControl = PendingControl.NONE
@@ -88,6 +89,7 @@ class SimulationSession:
             started_at=self.started_at,
             updated_at=self.updated_at,
             termination_reason_text=self.termination_reason_text,
+            restoration_notice_text=self.restoration_notice_text,
             state_hash="0" * 64,
         )
         return provisional.model_copy(

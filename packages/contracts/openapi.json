@@ -98,27 +98,6 @@
         "title": "ActionSpec",
         "type": "object"
       },
-      "AmendmentCommitResult": {
-        "additionalProperties": false,
-        "properties": {
-          "amendment": {
-            "$ref": "#/components/schemas/EventAmendmentCandidate"
-          },
-          "event": {
-            "$ref": "#/components/schemas/StoryEvent"
-          },
-          "scene": {
-            "$ref": "#/components/schemas/Scene"
-          }
-        },
-        "required": [
-          "scene",
-          "amendment",
-          "event"
-        ],
-        "title": "AmendmentCommitResult",
-        "type": "object"
-      },
       "BranchComparisonResponse": {
         "additionalProperties": false,
         "properties": {
@@ -362,17 +341,6 @@
             "title": "Known Fact Ids",
             "type": "array"
           },
-          "last_event_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Event Id"
-          },
           "location": {
             "anyOf": [
               {
@@ -562,6 +530,62 @@
         "title": "ControlPolicy",
         "type": "object"
       },
+      "DirectorInstruction": {
+        "additionalProperties": false,
+        "properties": {
+          "applies_from_checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Applies From Checkpoint Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "instruction_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Instruction Id",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instruction_id",
+          "text",
+          "created_at",
+          "applies_from_checkpoint_id"
+        ],
+        "title": "DirectorInstruction",
+        "type": "object"
+      },
+      "DirectorInstructionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkpoint_id",
+          "text"
+        ],
+        "title": "DirectorInstructionRequest",
+        "type": "object"
+      },
       "DynamicEntityDefinition": {
         "additionalProperties": false,
         "properties": {
@@ -703,93 +727,6 @@
           "payload"
         ],
         "title": "EngineEvent",
-        "type": "object"
-      },
-      "EventAmendmentCandidate": {
-        "additionalProperties": false,
-        "properties": {
-          "base_workspace_revision": {
-            "anyOf": [
-              {
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Base Workspace Revision"
-          },
-          "base_world_version": {
-            "minimum": 0.0,
-            "title": "Base World Version",
-            "type": "integer"
-          },
-          "draft_revision": {
-            "minimum": 1.0,
-            "title": "Draft Revision",
-            "type": "integer"
-          },
-          "fact_ids": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Fact Ids",
-            "type": "array"
-          },
-          "id": {
-            "pattern": "^amendment-scene-[0-9]{6}-[0-9]{6}$",
-            "title": "Id",
-            "type": "string"
-          },
-          "project_id": {
-            "minLength": 1,
-            "title": "Project Id",
-            "type": "string"
-          },
-          "proposed_facts": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Proposed Facts",
-            "type": "array"
-          },
-          "scene_id": {
-            "pattern": "^scene-[0-9]{6}$",
-            "title": "Scene Id",
-            "type": "string"
-          },
-          "source_event_ids": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Source Event Ids",
-            "type": "array"
-          },
-          "status": {
-            "default": "pending",
-            "enum": [
-              "pending",
-              "committed"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "project_id",
-          "scene_id",
-          "source_event_ids",
-          "proposed_facts",
-          "fact_ids",
-          "base_world_version",
-          "draft_revision"
-        ],
-        "title": "EventAmendmentCandidate",
         "type": "object"
       },
       "EventVisibility": {
@@ -953,45 +890,26 @@
         "type": "object"
       },
       "JsonValue": {},
-      "KnowledgeChange": {
-        "additionalProperties": false,
-        "properties": {
-          "action": {
-            "enum": [
-              "learn",
-              "forget"
-            ],
-            "title": "Action",
-            "type": "string"
-          },
-          "character_id": {
-            "minLength": 1,
-            "title": "Character Id",
-            "type": "string"
-          },
-          "fact_id": {
-            "minLength": 1,
-            "title": "Fact Id",
-            "type": "string"
-          },
-          "reason": {
-            "minLength": 1,
-            "title": "Reason",
-            "type": "string"
-          }
-        },
-        "required": [
-          "character_id",
-          "fact_id",
-          "action",
-          "reason"
-        ],
-        "title": "KnowledgeChange",
-        "type": "object"
-      },
       "ManuscriptExport": {
         "additionalProperties": false,
         "properties": {
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
           "filename": {
             "minLength": 1,
             "title": "Filename",
@@ -1000,28 +918,45 @@
           "markdown": {
             "title": "Markdown",
             "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Project Id",
+            "type": "string"
           }
         },
         "required": [
+          "project_id",
+          "branch_id",
+          "checkpoint_id",
           "filename",
           "markdown"
         ],
         "title": "ManuscriptExport",
         "type": "object"
       },
+      "ManuscriptGenerationMode": {
+        "enum": [
+          "manual",
+          "after_scene",
+          "after_chapter"
+        ],
+        "title": "ManuscriptGenerationMode",
+        "type": "string"
+      },
       "ManuscriptReviewOutput": {
         "additionalProperties": false,
         "properties": {
-          "new_facts": {
+          "review": {
+            "$ref": "#/components/schemas/ReviewResult"
+          },
+          "unsupported_facts": {
             "default": [],
             "items": {
               "type": "string"
             },
-            "title": "New Facts",
+            "title": "Unsupported Facts",
             "type": "array"
-          },
-          "review": {
-            "$ref": "#/components/schemas/ReviewResult"
           }
         },
         "required": [
@@ -1568,6 +1503,92 @@
         "title": "ModelUsage",
         "type": "object"
       },
+      "NarrativeSourceSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "already_written": {
+            "title": "Already Written",
+            "type": "boolean"
+          },
+          "available_viewpoint_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Available Viewpoint Ids",
+            "type": "array"
+          },
+          "boundary": {
+            "$ref": "#/components/schemas/SimulationBoundary"
+          },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "event_summary_text": {
+            "maxLength": 32768,
+            "minLength": 1,
+            "title": "Event Summary Text",
+            "type": "string"
+          },
+          "from_step": {
+            "minimum": 0.0,
+            "title": "From Step",
+            "type": "integer"
+          },
+          "source_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "title_hint": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Title Hint",
+            "type": "string"
+          },
+          "to_step": {
+            "minimum": 0.0,
+            "title": "To Step",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_id",
+          "branch_id",
+          "checkpoint_id",
+          "from_step",
+          "to_step",
+          "boundary",
+          "title_hint",
+          "event_summary_text",
+          "available_viewpoint_ids",
+          "already_written"
+        ],
+        "title": "NarrativeSourceSummary",
+        "type": "object"
+      },
+      "OutputPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "manuscript_mode": {
+            "$ref": "#/components/schemas/ManuscriptGenerationMode",
+            "default": "manual"
+          },
+          "world_projection_mode": {
+            "$ref": "#/components/schemas/WorldProjectionMode",
+            "default": "after_scene"
+          }
+        },
+        "title": "OutputPolicy",
+        "type": "object"
+      },
       "PendingControl": {
         "enum": [
           "none",
@@ -1852,13 +1873,9 @@
           },
           "character": {
             "$ref": "#/components/schemas/Character"
-          },
-          "event": {
-            "$ref": "#/components/schemas/StoryEvent"
           }
         },
         "required": [
-          "event",
           "character",
           "candidate"
         ],
@@ -1931,9 +1948,7 @@
               "project",
               "world",
               "character",
-              "event",
               "fact",
-              "scene",
               "source"
             ],
             "title": "Source Type",
@@ -2339,89 +2354,6 @@
         "title": "ResolvedTurn",
         "type": "object"
       },
-      "RetrievalEvidence": {
-        "additionalProperties": false,
-        "properties": {
-          "chunk_id": {
-            "minLength": 1,
-            "title": "Chunk Id",
-            "type": "string"
-          },
-          "content": {
-            "minLength": 1,
-            "title": "Content",
-            "type": "string"
-          },
-          "heading": {
-            "minLength": 1,
-            "title": "Heading",
-            "type": "string"
-          },
-          "permission_scope": {
-            "minLength": 1,
-            "title": "Permission Scope",
-            "type": "string"
-          },
-          "retrieval_mode": {
-            "enum": [
-              "exact",
-              "bm25"
-            ],
-            "title": "Retrieval Mode",
-            "type": "string"
-          },
-          "score": {
-            "exclusiveMinimum": 0.0,
-            "title": "Score",
-            "type": "number"
-          },
-          "source_id": {
-            "minLength": 1,
-            "title": "Source Id",
-            "type": "string"
-          },
-          "source_path": {
-            "minLength": 1,
-            "title": "Source Path",
-            "type": "string"
-          },
-          "source_type": {
-            "enum": [
-              "project",
-              "world",
-              "character",
-              "event",
-              "fact",
-              "scene",
-              "source"
-            ],
-            "title": "Source Type",
-            "type": "string"
-          },
-          "task": {
-            "enum": [
-              "writer",
-              "editor"
-            ],
-            "title": "Task",
-            "type": "string"
-          }
-        },
-        "required": [
-          "chunk_id",
-          "source_type",
-          "source_id",
-          "source_path",
-          "heading",
-          "permission_scope",
-          "score",
-          "retrieval_mode",
-          "content",
-          "task"
-        ],
-        "title": "RetrievalEvidence",
-        "type": "object"
-      },
       "RetrievalScope": {
         "additionalProperties": false,
         "properties": {
@@ -2539,6 +2471,11 @@
             "title": "Body",
             "type": "string"
           },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
           "chapter_id": {
             "maxLength": 100,
             "minLength": 1,
@@ -2551,7 +2488,7 @@
             "type": "string"
           },
           "project_id": {
-            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Project Id",
             "type": "string"
           },
@@ -2560,13 +2497,37 @@
             "title": "Sequence",
             "type": "integer"
           },
+          "source_checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Source Checkpoint Id",
+            "type": "string"
+          },
           "source_event_ids": {
             "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
               "type": "string"
             },
             "minItems": 1,
             "title": "Source Event Ids",
             "type": "array"
+          },
+          "source_from_step": {
+            "minimum": 0.0,
+            "title": "Source From Step",
+            "type": "integer"
+          },
+          "source_memory_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Source Memory Ids",
+            "type": "array"
+          },
+          "source_to_step": {
+            "minimum": 0.0,
+            "title": "Source To Step",
+            "type": "integer"
           },
           "title": {
             "maxLength": 200,
@@ -2578,16 +2539,33 @@
             "minimum": 1.0,
             "title": "Version",
             "type": "integer"
+          },
+          "viewpoint_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Viewpoint Actor Id"
           }
         },
         "required": [
           "id",
           "project_id",
+          "branch_id",
           "sequence",
           "chapter_id",
           "title",
           "body",
+          "source_checkpoint_id",
+          "source_from_step",
+          "source_to_step",
           "source_event_ids",
+          "source_memory_ids",
           "version"
         ],
         "title": "Scene",
@@ -2596,44 +2574,21 @@
       "SceneDraft": {
         "additionalProperties": false,
         "properties": {
-          "amendment_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Amendment Id"
-          },
           "base_scene_version": {
             "default": 0,
             "minimum": 0.0,
             "title": "Base Scene Version",
             "type": "integer"
           },
-          "base_workspace_revision": {
-            "anyOf": [
-              {
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Base Workspace Revision"
-          },
-          "base_world_version": {
-            "minimum": 0.0,
-            "title": "Base World Version",
-            "type": "integer"
-          },
           "body": {
             "maxLength": 262144,
             "minLength": 1,
             "title": "Body",
+            "type": "string"
+          },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
             "type": "string"
           },
           "chapter_id": {
@@ -2648,17 +2603,9 @@
             "type": "string"
           },
           "project_id": {
-            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Project Id",
             "type": "string"
-          },
-          "retrieval_evidence": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/RetrievalEvidence"
-            },
-            "title": "Retrieval Evidence",
-            "type": "array"
           },
           "review": {
             "anyOf": [
@@ -2681,13 +2628,37 @@
             "title": "Sequence",
             "type": "integer"
           },
+          "source_checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Source Checkpoint Id",
+            "type": "string"
+          },
           "source_event_ids": {
             "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
               "type": "string"
             },
             "minItems": 1,
             "title": "Source Event Ids",
             "type": "array"
+          },
+          "source_from_step": {
+            "minimum": 0.0,
+            "title": "Source From Step",
+            "type": "integer"
+          },
+          "source_memory_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Source Memory Ids",
+            "type": "array"
+          },
+          "source_to_step": {
+            "minimum": 0.0,
+            "title": "Source To Step",
+            "type": "integer"
           },
           "status": {
             "default": "draft",
@@ -2695,7 +2666,6 @@
               "draft",
               "reviewed",
               "needs_revision",
-              "amendment_required",
               "saved"
             ],
             "title": "Status",
@@ -2706,17 +2676,33 @@
             "minLength": 1,
             "title": "Title",
             "type": "string"
+          },
+          "viewpoint_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Viewpoint Actor Id"
           }
         },
         "required": [
           "id",
           "project_id",
+          "branch_id",
           "sequence",
           "chapter_id",
           "title",
           "body",
+          "source_checkpoint_id",
+          "source_from_step",
+          "source_to_step",
           "source_event_ids",
-          "base_world_version"
+          "source_memory_ids"
         ],
         "title": "SceneDraft",
         "type": "object"
@@ -2730,17 +2716,38 @@
             "title": "Chapter Id",
             "type": "string"
           },
-          "event_ids": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Event Ids",
-            "type": "array"
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "from_step": {
+            "minimum": 0.0,
+            "title": "From Step",
+            "type": "integer"
+          },
+          "to_step": {
+            "minimum": 0.0,
+            "title": "To Step",
+            "type": "integer"
+          },
+          "viewpoint_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Viewpoint Actor Id"
           }
         },
         "required": [
-          "event_ids",
+          "checkpoint_id",
+          "from_step",
+          "to_step",
           "chapter_id"
         ],
         "title": "SceneGenerationRequest",
@@ -2749,16 +2756,6 @@
       "SceneMutationResult": {
         "additionalProperties": false,
         "properties": {
-          "amendment": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/EventAmendmentCandidate"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "draft": {
             "$ref": "#/components/schemas/SceneDraft"
           },
@@ -2778,7 +2775,6 @@
           "status": {
             "enum": [
               "saved",
-              "amendment_required",
               "rejected"
             ],
             "title": "Status",
@@ -2826,6 +2822,96 @@
           "expected_scene_version"
         ],
         "title": "SceneUpdateRequest",
+        "type": "object"
+      },
+      "SessionManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "completed_scenes": {
+            "minimum": 0.0,
+            "title": "Completed Scenes",
+            "type": "integer"
+          },
+          "current_step": {
+            "minimum": 0.0,
+            "title": "Current Step",
+            "type": "integer"
+          },
+          "head_checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Checkpoint Id"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "restoration_notice_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restoration Notice Text"
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TurnSessionStatus"
+          },
+          "termination_reason_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Termination Reason Text"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "project_id",
+          "branch_id",
+          "status",
+          "current_step",
+          "completed_scenes",
+          "head_checkpoint_id",
+          "started_at",
+          "updated_at"
+        ],
+        "title": "SessionManifest",
         "type": "object"
       },
       "SimulationBoundary": {
@@ -2938,6 +3024,13 @@
           },
           "control": {
             "$ref": "#/components/schemas/ControlPolicy"
+          },
+          "output": {
+            "$ref": "#/components/schemas/OutputPolicy",
+            "default": {
+              "manuscript_mode": "manual",
+              "world_projection_mode": "after_scene"
+            }
           },
           "premise_text": {
             "maxLength": 131072,
@@ -3152,49 +3245,6 @@
         "title": "StageTrace",
         "type": "object"
       },
-      "StateChange": {
-        "additionalProperties": false,
-        "properties": {
-          "field": {
-            "minLength": 1,
-            "title": "Field",
-            "type": "string"
-          },
-          "new_value": {
-            "$ref": "#/components/schemas/JsonValue"
-          },
-          "old_value": {
-            "$ref": "#/components/schemas/JsonValue"
-          },
-          "reason": {
-            "minLength": 1,
-            "title": "Reason",
-            "type": "string"
-          },
-          "target_id": {
-            "minLength": 1,
-            "title": "Target Id",
-            "type": "string"
-          },
-          "target_type": {
-            "enum": [
-              "character",
-              "world"
-            ],
-            "title": "Target Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "target_type",
-          "target_id",
-          "field",
-          "new_value",
-          "reason"
-        ],
-        "title": "StateChange",
-        "type": "object"
-      },
       "StateEffect": {
         "additionalProperties": false,
         "description": "Optional machine projection; natural-language events remain authoritative.",
@@ -3394,90 +3444,6 @@
         ],
         "title": "StoryActionKind",
         "type": "string"
-      },
-      "StoryEvent": {
-        "additionalProperties": false,
-        "properties": {
-          "approved_by_user": {
-            "title": "Approved By User",
-            "type": "boolean"
-          },
-          "character_changes": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/StateChange"
-            },
-            "title": "Character Changes",
-            "type": "array"
-          },
-          "fact_ids": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Fact Ids",
-            "type": "array"
-          },
-          "id": {
-            "minLength": 1,
-            "title": "Id",
-            "type": "string"
-          },
-          "knowledge_changes": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/KnowledgeChange"
-            },
-            "title": "Knowledge Changes",
-            "type": "array"
-          },
-          "occurred_at": {
-            "format": "date-time",
-            "title": "Occurred At",
-            "type": "string"
-          },
-          "participants": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Participants",
-            "type": "array"
-          },
-          "sequence": {
-            "minimum": 1.0,
-            "title": "Sequence",
-            "type": "integer"
-          },
-          "source_record_id": {
-            "minLength": 1,
-            "title": "Source Record Id",
-            "type": "string"
-          },
-          "summary": {
-            "minLength": 1,
-            "title": "Summary",
-            "type": "string"
-          },
-          "world_changes": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/StateChange"
-            },
-            "title": "World Changes",
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "sequence",
-          "occurred_at",
-          "summary",
-          "participants",
-          "source_record_id",
-          "approved_by_user"
-        ],
-        "title": "StoryEvent",
-        "type": "object"
       },
       "SubmissionCharacter": {
         "additionalProperties": false,
@@ -3832,6 +3798,13 @@
           "control": {
             "$ref": "#/components/schemas/ControlPolicy"
           },
+          "output": {
+            "$ref": "#/components/schemas/OutputPolicy",
+            "default": {
+              "manuscript_mode": "manual",
+              "world_projection_mode": "after_scene"
+            }
+          },
           "premise_text": {
             "maxLength": 131072,
             "minLength": 1,
@@ -3998,6 +3971,17 @@
           "request": {
             "$ref": "#/components/schemas/TurnSessionRequest"
           },
+          "restoration_notice_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restoration Notice Text"
+          },
           "session_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Session Id",
@@ -4065,7 +4049,8 @@
           "paused",
           "terminated",
           "cancelled",
-          "failed"
+          "failed",
+          "interrupted"
         ],
         "title": "TurnSessionStatus",
         "type": "string"
@@ -4297,9 +4282,7 @@
               "project",
               "world",
               "character",
-              "event",
-              "fact",
-              "scene"
+              "fact"
             ],
             "title": "Kind",
             "type": "string"
@@ -4354,13 +4337,6 @@
             "title": "Documents",
             "type": "array"
           },
-          "event_ids": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Event Ids",
-            "type": "array"
-          },
           "fact_ids": {
             "items": {
               "type": "string"
@@ -4378,13 +4354,6 @@
             "title": "Revision",
             "type": "string"
           },
-          "scene_ids": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Scene Ids",
-            "type": "array"
-          },
           "world_version": {
             "minimum": 0.0,
             "title": "World Version",
@@ -4396,9 +4365,7 @@
           "revision",
           "world_version",
           "character_versions",
-          "event_ids",
           "fact_ids",
-          "scene_ids",
           "documents"
         ],
         "title": "WorkspaceIndex",
@@ -4443,6 +4410,217 @@
         ],
         "title": "WorkspaceState",
         "type": "object"
+      },
+      "WorldBibleCategory": {
+        "enum": [
+          "rule",
+          "location",
+          "organization",
+          "history",
+          "established_fact",
+          "unresolved_thread"
+        ],
+        "title": "WorldBibleCategory",
+        "type": "string"
+      },
+      "WorldBibleEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/WorldBibleCategory"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "content_text": {
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Content Text",
+            "type": "string"
+          },
+          "entry_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "first_seen_step": {
+            "minimum": 0.0,
+            "title": "First Seen Step",
+            "type": "integer"
+          },
+          "last_updated_step": {
+            "minimum": 0.0,
+            "title": "Last Updated Step",
+            "type": "integer"
+          },
+          "source_event_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Source Event Ids",
+            "type": "array"
+          },
+          "source_record_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Source Record Ids",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "historical",
+              "uncertain"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "category",
+          "title",
+          "content_text",
+          "source_record_ids",
+          "source_event_ids",
+          "first_seen_step",
+          "last_updated_step",
+          "confidence",
+          "status"
+        ],
+        "title": "WorldBibleEntry",
+        "type": "object"
+      },
+      "WorldBibleRebuildRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          }
+        },
+        "title": "WorldBibleRebuildRequest",
+        "type": "object"
+      },
+      "WorldBibleSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "creative_direction_text": {
+            "title": "Creative Direction Text",
+            "type": "string"
+          },
+          "current_world_state_text": {
+            "title": "Current World State Text",
+            "type": "string"
+          },
+          "established_facts": {
+            "items": {
+              "$ref": "#/components/schemas/WorldBibleEntry"
+            },
+            "title": "Established Facts",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/WorldBibleEntry"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "locations": {
+            "items": {
+              "$ref": "#/components/schemas/WorldBibleEntry"
+            },
+            "title": "Locations",
+            "type": "array"
+          },
+          "organizations": {
+            "items": {
+              "$ref": "#/components/schemas/WorldBibleEntry"
+            },
+            "title": "Organizations",
+            "type": "array"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/WorldBibleEntry"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "unresolved_threads": {
+            "items": {
+              "$ref": "#/components/schemas/WorldBibleEntry"
+            },
+            "title": "Unresolved Threads",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "branch_id",
+          "checkpoint_id",
+          "creative_direction_text",
+          "current_world_state_text",
+          "rules",
+          "locations",
+          "organizations",
+          "history",
+          "established_facts",
+          "unresolved_threads",
+          "generated_at"
+        ],
+        "title": "WorldBibleSnapshot",
+        "type": "object"
+      },
+      "WorldProjectionMode": {
+        "enum": [
+          "manual",
+          "after_scene",
+          "after_chapter"
+        ],
+        "title": "WorldProjectionMode",
+        "type": "string"
       },
       "WorldState": {
         "additionalProperties": false,
@@ -5113,6 +5291,526 @@
         ]
       }
     },
+    "/projects/{project_id}/branches/{branch_id}/director-instructions": {
+      "get": {
+        "operationId": "list_director_instructions_projects__project_id__branches__branch_id__director_instructions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DirectorInstruction"
+                  },
+                  "title": "Response List Director Instructions Projects  Project Id  Branches  Branch Id  Director Instructions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Director Instructions",
+        "tags": [
+          "world-bible"
+        ]
+      },
+      "post": {
+        "operationId": "add_director_instruction_projects__project_id__branches__branch_id__director_instructions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectorInstructionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectorInstruction"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Add Director Instruction",
+        "tags": [
+          "world-bible"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}/manuscript/export": {
+      "get": {
+        "operationId": "export_manuscript_projects__project_id__branches__branch_id__manuscript_export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManuscriptExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Export Manuscript",
+        "tags": [
+          "manuscript"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}/manuscript/scenes": {
+      "get": {
+        "operationId": "list_scenes_projects__project_id__branches__branch_id__manuscript_scenes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SceneDraft"
+                  },
+                  "title": "Response List Scenes Projects  Project Id  Branches  Branch Id  Manuscript Scenes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Scenes",
+        "tags": [
+          "manuscript"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/generate": {
+      "post": {
+        "operationId": "generate_scene_projects__project_id__branches__branch_id__manuscript_scenes_generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SceneGenerationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SceneDraft"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Generate Scene",
+        "tags": [
+          "manuscript"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/{scene_id}": {
+      "get": {
+        "operationId": "get_scene_projects__project_id__branches__branch_id__manuscript_scenes__scene_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scene_id",
+            "required": true,
+            "schema": {
+              "title": "Scene Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SceneDraft"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Scene",
+        "tags": [
+          "manuscript"
+        ]
+      },
+      "put": {
+        "operationId": "update_scene_projects__project_id__branches__branch_id__manuscript_scenes__scene_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scene_id",
+            "required": true,
+            "schema": {
+              "title": "Scene Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SceneUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SceneMutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Update Scene",
+        "tags": [
+          "manuscript"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}/narrative-sources": {
+      "get": {
+        "operationId": "list_narrative_sources_projects__project_id__branches__branch_id__narrative_sources_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_step",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After Step"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NarrativeSourceSummary"
+                  },
+                  "title": "Response List Narrative Sources Projects  Project Id  Branches  Branch Id  Narrative Sources Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Narrative Sources",
+        "tags": [
+          "manuscript"
+        ]
+      }
+    },
     "/projects/{project_id}/branches/{branch_id}/projection": {
       "post": {
         "operationId": "rebuild_projection_projects__project_id__branches__branch_id__projection_post",
@@ -5315,6 +6013,144 @@
         ]
       }
     },
+    "/projects/{project_id}/branches/{branch_id}/world-bible": {
+      "get": {
+        "operationId": "get_world_bible_projects__project_id__branches__branch_id__world_bible_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "checkpoint_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Checkpoint Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorldBibleSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get World Bible",
+        "tags": [
+          "world-bible"
+        ]
+      }
+    },
+    "/projects/{project_id}/branches/{branch_id}/world-bible/rebuild": {
+      "post": {
+        "operationId": "rebuild_world_bible_projects__project_id__branches__branch_id__world_bible_rebuild_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorldBibleRebuildRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorldBibleSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Rebuild World Bible",
+        "tags": [
+          "world-bible"
+        ]
+      }
+    },
     "/projects/{project_id}/characters": {
       "get": {
         "operationId": "list_characters_projects__project_id__characters_get",
@@ -5509,6 +6345,15 @@
               "title": "Character Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5588,102 +6433,6 @@
         "summary": "Close Project",
         "tags": [
           "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}/events": {
-      "get": {
-        "operationId": "list_events_projects__project_id__events_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {},
-                  "title": "Response List Events Projects  Project Id  Events Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "List Events",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}/manuscript/export": {
-      "get": {
-        "operationId": "export_manuscript_projects__project_id__manuscript_export_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ManuscriptExport"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Export Manuscript",
-        "tags": [
-          "manuscript"
         ]
       }
     },
@@ -5838,299 +6587,6 @@
         ]
       }
     },
-    "/projects/{project_id}/scenes": {
-      "get": {
-        "operationId": "list_scenes_projects__project_id__scenes_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SceneDraft"
-                  },
-                  "title": "Response List Scenes Projects  Project Id  Scenes Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "List Scenes",
-        "tags": [
-          "manuscript"
-        ]
-      }
-    },
-    "/projects/{project_id}/scenes/generate": {
-      "post": {
-        "operationId": "generate_scene_projects__project_id__scenes_generate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SceneGenerationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SceneDraft"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Generate Scene",
-        "tags": [
-          "manuscript"
-        ]
-      }
-    },
-    "/projects/{project_id}/scenes/{scene_id}": {
-      "get": {
-        "operationId": "get_scene_projects__project_id__scenes__scene_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "scene_id",
-            "required": true,
-            "schema": {
-              "title": "Scene Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SceneDraft"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Get Scene",
-        "tags": [
-          "manuscript"
-        ]
-      },
-      "put": {
-        "operationId": "update_scene_projects__project_id__scenes__scene_id__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "scene_id",
-            "required": true,
-            "schema": {
-              "title": "Scene Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SceneUpdateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SceneMutationResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Update Scene",
-        "tags": [
-          "manuscript"
-        ]
-      }
-    },
-    "/projects/{project_id}/scenes/{scene_id}/amendments/{amendment_id}/confirm": {
-      "post": {
-        "operationId": "confirm_amendment_projects__project_id__scenes__scene_id__amendments__amendment_id__confirm_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "scene_id",
-            "required": true,
-            "schema": {
-              "title": "Scene Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "amendment_id",
-            "required": true,
-            "schema": {
-              "title": "Amendment Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AmendmentCommitResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Confirm Amendment",
-        "tags": [
-          "manuscript"
-        ]
-      }
-    },
     "/projects/{project_id}/simulation-events": {
       "get": {
         "operationId": "list_simulation_events_projects__project_id__simulation_events_get",
@@ -6212,7 +6668,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/TurnSessionSnapshot"
+                    "$ref": "#/components/schemas/SessionManifest"
                   },
                   "title": "Response List Simulations Projects  Project Id  Simulations Get",
                   "type": "array"
@@ -6383,7 +6839,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TurnSessionSnapshot"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionManifest"
+                    }
+                  ],
+                  "title": "Response Get Simulation Projects  Project Id  Simulations  Session Id  Get"
                 }
               }
             },

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from story_engine.domain.errors import InvalidTransitionError
 
@@ -16,7 +16,6 @@ ReviewMode = Literal[
     "manuscript_review",
 ]
 FactVisibility = Literal["public", "private", "secret"]
-KnowledgeAction = Literal["learn", "forget"]
 
 
 class DomainModel(BaseModel):
@@ -30,15 +29,6 @@ class DomainModel(BaseModel):
 class Relationship(DomainModel):
     character_id: str = Field(min_length=1)
     description: str = Field(min_length=1)
-
-
-class StateChange(DomainModel):
-    target_type: Literal["character", "world"]
-    target_id: str = Field(min_length=1)
-    field: str = Field(min_length=1)
-    old_value: JsonValue = None
-    new_value: JsonValue
-    reason: str = Field(min_length=1)
 
 
 class Fact(DomainModel):
@@ -92,13 +82,6 @@ class InitialFact(DomainModel):
         return self
 
 
-class KnowledgeChange(DomainModel):
-    character_id: str = Field(min_length=1)
-    fact_id: str = Field(min_length=1)
-    action: KnowledgeAction
-    reason: str = Field(min_length=1)
-
-
 class Character(DomainModel):
     id: str = Field(min_length=1)
     display_name: str | None = None
@@ -111,7 +94,6 @@ class Character(DomainModel):
     location: str | None = None
     emotional_state: str | None = None
     resources: tuple[str, ...] = ()
-    last_event_id: str | None = None
     version: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
@@ -174,25 +156,3 @@ class PromotionCandidate(DomainModel):
         if self.status != "pending":
             raise InvalidTransitionError("only a pending promotion can be committed")
         return self.model_copy(update={"status": "committed"})
-
-
-class StoryEvent(DomainModel):
-    id: str = Field(min_length=1)
-    sequence: int = Field(ge=1)
-    occurred_at: datetime
-    summary: str = Field(min_length=1)
-    participants: tuple[str, ...]
-    fact_ids: tuple[str, ...] = ()
-    knowledge_changes: tuple[KnowledgeChange, ...] = ()
-    character_changes: tuple[StateChange, ...] = ()
-    world_changes: tuple[StateChange, ...] = ()
-    source_record_id: str = Field(min_length=1)
-    approved_by_user: bool
-
-    @model_validator(mode="after")
-    def formal_event_is_approved_and_timezone_aware(self) -> Self:
-        if not self.approved_by_user:
-            raise ValueError("formal story event requires user approval")
-        if self.occurred_at.tzinfo is None:
-            raise ValueError("occurred_at must include a timezone")
-        return self

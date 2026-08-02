@@ -139,6 +139,23 @@ class ControlPolicy(RuntimeModel):
     checkpoint_every_steps: int = Field(default=1, ge=1, le=1_000)
 
 
+class ManuscriptGenerationMode(StrEnum):
+    MANUAL = "manual"
+    AFTER_SCENE = "after_scene"
+    AFTER_CHAPTER = "after_chapter"
+
+
+class WorldProjectionMode(StrEnum):
+    MANUAL = "manual"
+    AFTER_SCENE = "after_scene"
+    AFTER_CHAPTER = "after_chapter"
+
+
+class OutputPolicy(RuntimeModel):
+    manuscript_mode: ManuscriptGenerationMode = ManuscriptGenerationMode.MANUAL
+    world_projection_mode: WorldProjectionMode = WorldProjectionMode.AFTER_SCENE
+
+
 class TurnSessionStatus(StrEnum):
     CREATED = "created"
     RUNNING = "running"
@@ -146,6 +163,7 @@ class TurnSessionStatus(StrEnum):
     TERMINATED = "terminated"
     CANCELLED = "cancelled"
     FAILED = "failed"
+    INTERRUPTED = "interrupted"
 
 
 class PendingControl(StrEnum):
@@ -161,6 +179,7 @@ class TurnSessionRequest(RuntimeModel):
     actor_ids: tuple[Identifier, ...] = ()
     content_locale: LocaleCode
     control: ControlPolicy
+    output: OutputPolicy = OutputPolicy()
     seed: int | None = None
 
 
@@ -197,6 +216,7 @@ class TurnSessionSnapshot(RuntimeModel):
     started_at: datetime
     updated_at: datetime
     termination_reason_text: str | None = None
+    restoration_notice_text: str | None = None
     state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
