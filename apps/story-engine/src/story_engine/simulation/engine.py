@@ -4,7 +4,9 @@ from collections.abc import Callable
 from threading import Event, RLock
 
 from story_engine.concordia_runtime.resolver import SimulationCancelledError
+from story_engine.domain.projection import SimulationBoundary
 from story_engine.domain.simulation import (
+    MaintenanceStatus,
     PendingControl,
     StepResult,
     TurnSessionRequest,
@@ -193,6 +195,45 @@ class StoryTurnEngine:
             )
             return session.snapshot()
 
+    def begin_maintenance(
+        self,
+        session_id: str,
+        *,
+        step: int,
+        boundary: SimulationBoundary,
+    ) -> TurnSessionSnapshot:
+        session = self._get(session_id)
+        with session.lock:
+            session.maintenance_status = MaintenanceStatus.PENDING
+            session.maintenance_error_text = None
+            session.maintenance_step = step
+            session.maintenance_boundary = boundary
+            session.touch()
+            return session.snapshot()
+
+    def fail_maintenance(
+        self,
+        session_id: str,
+        *,
+        error_text: str,
+    ) -> TurnSessionSnapshot:
+        session = self._get(session_id)
+        with session.lock:
+            session.status = TurnSessionStatus.PAUSED
+            session.pending_control = PendingControl.NONE
+            session.maintenance_status = MaintenanceStatus.FAILED
+            session.maintenance_error_text = error_text
+            session.touch()
+            return session.snapshot()
+
+    def complete_maintenance(self, session_id: str) -> TurnSessionSnapshot:
+        session = self._get(session_id)
+        with session.lock:
+            session.maintenance_status = MaintenanceStatus.SUCCEEDED
+            session.maintenance_error_text = None
+            session.touch()
+            return session.snapshot()
+
     def switch_locale(
         self,
         session_id: str,
@@ -225,6 +266,14 @@ class StoryTurnEngine:
         }:
             raise InvalidSessionTransitionError(
                 f"session is already {session.status.value}"
+            )
+
+    @classmethod
+    def _ensure_can_advance(cls, session: SimulationSession) -> None:
+        cls._ensure_active(session)
+        if session.maintenance_status == MaintenanceStatus.FAILED:
+            raise InvalidSessionTransitionError(
+                "Wiki maintenance failed; retry maintenance before continuing"
             )
 
     @staticmethod
@@ -300,7 +349,7 @@ class StoryTurnEngine:
     def step(self, session_id: str, *, cancellation: Event) -> StepResult:
         session = self._get(session_id)
         with session.lock:
-            self._ensure_active(session)
+            self._ensure_can_advance(session)
             session.status = TurnSessionStatus.RUNNING
             session.pending_control = PendingControl.NONE
             session.touch()
@@ -321,7 +370,7 @@ class StoryTurnEngine:
     ) -> TurnSessionSnapshot:
         session = self._get(session_id)
         with session.lock:
-            self._ensure_active(session)
+            self._ensure_can_advance(session)
             if session.status != TurnSessionStatus.RUNNING:
                 session.status = TurnSessionStatus.RUNNING
                 session.pending_control = PendingControl.NONE
@@ -384,7 +433,7 @@ class StoryTurnEngine:
     ) -> TurnSessionSnapshot:
         session = self._get(session_id)
         with session.lock:
-            self._ensure_active(session)
+            self._ensure_can_advance(session)
             if require_paused and session.status != TurnSessionStatus.PAUSED:
                 raise InvalidSessionTransitionError("only a paused session can resume")
             if session.status == TurnSessionStatus.RUNNING:
@@ -514,6 +563,10 @@ class StoryTurnEngine:
                 checkpoint_id=snapshot.checkpoint_id,
                 termination_reason_text=None,
                 restoration_notice_text=snapshot.restoration_notice_text,
+                maintenance_status=snapshot.maintenance_status,
+                maintenance_error_text=snapshot.maintenance_error_text,
+                maintenance_step=snapshot.maintenance_step,
+                maintenance_boundary=snapshot.maintenance_boundary,
                 started_at=snapshot.started_at,
                 updated_at=snapshot.updated_at,
             )

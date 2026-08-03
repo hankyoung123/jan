@@ -48,7 +48,7 @@ class WikiKnowledgeContext(action_spec_ignored.ActionSpecIgnored):  # type: igno
             Path(self._project_root),
             self._branch_id,
             recent_memory_limit=min(8, max(4, self._limit)),
-        ).actor(self._subject_id, memories)
+        ).actor(self._subject_id, memories).content
 
     def get_state(self) -> entity_component.ComponentState:
         return {
@@ -72,7 +72,9 @@ class WorldWikiContext(action_spec_ignored.ActionSpecIgnored):  # type: ignore[m
         self._branch_id = branch_id
 
     def _make_pre_act_value(self) -> str:
-        return WikiContextBuilder(Path(self._project_root), self._branch_id).world()
+        return WikiContextBuilder(
+            Path(self._project_root), self._branch_id
+        ).world().content
 
     def get_state(self) -> entity_component.ComponentState:
         return {}

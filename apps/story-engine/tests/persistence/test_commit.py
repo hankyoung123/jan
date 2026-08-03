@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,6 +17,7 @@ from story_engine.domain.trace import ModelCallStatus, TurnTrace
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.simulation.session import calculate_snapshot_state_hash
+from story_engine.workspace.documents import load_json_envelope
 
 
 def _snapshot(
@@ -100,9 +100,15 @@ def test_checkpoint_round_trip_verifies_state_hash(tmp_path: Path) -> None:
     assert loaded.checkpoint_id == checkpoint_id
     assert loaded.state_hash == checkpoint_id.removeprefix("checkpoint-")
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["snapshot"]["current_step"] = 999
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    payload = load_json_envelope(path, schema="story-engine/checkpoint/v1")
+    assert payload["snapshot"]["current_step"] == 2
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            '"current_step": 2',
+            '"current_step": 999',
+        ),
+        encoding="utf-8",
+    )
     with pytest.raises(ValueError, match="state hash"):
         store.load(checkpoint_id)
 
@@ -123,25 +129,56 @@ def test_commit_writes_checkpoint_log_then_advances_branch(tmp_path: Path) -> No
     assert loaded.current_step == 1
 
 
-def test_failed_head_advance_leaves_old_head_valid(
+def test_failed_nth_file_write_rolls_back_the_complete_step(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     kernel = SimulationCommitKernel(tmp_path)
     initial = kernel.save_checkpoint(_snapshot(step=0), reason="session created")
 
-    def fail_advance(*args, **kwargs):
-        del args, kwargs
-        raise OSError("simulated manifest failure")
+    from story_engine.workspace import transaction
 
-    monkeypatch.setattr(kernel.branches, "advance", fail_advance)
-    with pytest.raises(OSError, match="manifest failure"):
-        kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
+    real_replace = transaction._replace
+    replacements = 0
+
+    def fail_third_write(source: Path, destination: Path) -> None:
+        nonlocal replacements
+        replacements += 1
+        if replacements == 3:
+            raise OSError("simulated transaction failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(transaction, "_replace", fail_third_write)
+    next_snapshot = _snapshot(step=1)
+    next_checkpoint_id = f"checkpoint-{next_snapshot.state_hash}"
+    with pytest.raises(OSError, match="transaction failure"):
+        kernel.append_step(_result(0), next_snapshot, _trace(0))
 
     branch = kernel.branches.load("main")
     assert branch.head_checkpoint_id == initial.checkpoint_id
     assert kernel.checkpoints.exists(initial.checkpoint_id)
-    assert len(kernel.logs.read("main")) == 1
+    assert not kernel.checkpoints.exists(next_checkpoint_id)
+    assert kernel.logs.read("main") == ()
+    manifest = kernel.sessions.load("session:1")
+    assert manifest.current_step == 0
+    assert manifest.head_checkpoint_id == initial.checkpoint_id
+    assert not any((tmp_path / ".story-engine/recovery").iterdir())
+
+
+def test_step_authority_uses_only_markdown_files(tmp_path: Path) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
+
+    prohibited = tuple(
+        path
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+        and path.suffix in {".json", ".jsonl"}
+        and ".story-engine/recovery" not in path.as_posix()
+    )
+    assert prohibited == ()
+    assert tuple((tmp_path / "history/turns/main").glob("*.md"))
 
 
 def test_failed_step_trace_can_be_followed_by_successful_checkpoint_retry(

@@ -282,6 +282,20 @@ export function EvolutionView() {
               {simulation.session.restoration_notice_text}
             </p>
           )}
+          {simulation.session.maintenance_status === 'failed' && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border border-destructive p-3 text-sm">
+              <p className="min-w-0 text-destructive">
+                {simulation.session.maintenance_error_text || t('maintenance.failed')}
+              </p>
+              <Button
+                disabled={simulation.isPending('maintenance')}
+                onClick={() => void simulation.retryMaintenance()}
+                variant="outline"
+              >
+                <RotateCcw size={14} /> {t('maintenance.retry')}
+              </Button>
+            </div>
+          )}
           <div>
             <SimulationHeader session={simulation.session} />
             <SimulationControls

@@ -162,6 +162,27 @@ function errorMessage(payload: unknown, status: number): string {
   ) {
     const detail = payload.detail
     if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) {
+      const messages = detail.flatMap((item) => {
+        if (
+          typeof item !== 'object' ||
+          item === null ||
+          !('msg' in item) ||
+          typeof item.msg !== 'string'
+        ) {
+          return []
+        }
+        const location =
+          'loc' in item && Array.isArray(item.loc)
+            ? item.loc
+                .filter((part: unknown) => part !== 'body')
+                .map(String)
+                .join('.')
+            : ''
+        return [location ? `${location}: ${item.msg}` : item.msg]
+      })
+      if (messages.length > 0) return messages.join('; ')
+    }
     if (
       typeof detail === 'object' &&
       detail !== null &&

@@ -87,6 +87,19 @@ class WikiBranchView(RuntimeModel):
     pages: tuple[WikiPageSummary, ...]
 
 
+class WikiContextManifestEntry(RuntimeModel):
+    path: str = Field(min_length=1, max_length=1_024)
+    reason: Identifier
+    permission: str = Field(min_length=1, max_length=256)
+    source_ids: tuple[Identifier, ...] = ()
+    estimated_tokens: int = Field(ge=0)
+
+
+class WikiContextBundle(RuntimeModel):
+    content: str
+    manifest: tuple[WikiContextManifestEntry, ...] = ()
+
+
 class WikiLintSeverity(StrEnum):
     WARNING = "warning"
     ERROR = "error"

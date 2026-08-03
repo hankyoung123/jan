@@ -1,3 +1,6 @@
+import json
+import re
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -15,6 +18,8 @@ from story_engine.domain.models import (
     WorldState,
 )
 from story_engine.manuscript.models import Scene
+
+_JSON_PAYLOAD = re.compile(r"```json\n(?P<payload>.*?)\n```", re.DOTALL)
 
 
 class ProjectDocument(DomainModel):
@@ -151,6 +156,48 @@ def load_document[DocumentT: DomainModel](
     post = frontmatter.load(path)
     metadata: dict[str, Any] = dict(post.metadata)
     return model.model_validate(metadata), str(post.content)
+
+
+def dump_json_envelope(
+    *,
+    schema: str,
+    title: str,
+    payload: Mapping[str, Any],
+    metadata: Mapping[str, Any] | None = None,
+    body: str | None = None,
+) -> str:
+    """Render exact structured state inside an inspectable Markdown document."""
+    front_matter = {"schema": schema, **dict(metadata or {})}
+    structured = json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    )
+    content = body or f"# {title}"
+    post = frontmatter.Post(
+        f"{content.rstrip()}\n\n## Structured Payload\n\n```json\n{structured}\n```",
+        **front_matter,
+    )
+    return f"{frontmatter.dumps(post, sort_keys=False).rstrip()}\n"
+
+
+def load_json_envelope(path: Path, *, schema: str) -> dict[str, Any]:
+    try:
+        post = frontmatter.load(path)
+        if post.metadata.get("schema") != schema:
+            raise ValueError("Markdown envelope schema mismatch")
+        matches = tuple(_JSON_PAYLOAD.finditer(str(post.content)))
+        if not matches:
+            raise ValueError("Markdown envelope has no JSON payload")
+        payload = json.loads(matches[-1].group("payload"))
+    except FileNotFoundError:
+        raise
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError(f"Markdown envelope {path.name!r} is invalid") from error
+    if not isinstance(payload, dict):
+        raise ValueError("Markdown envelope payload must be an object")
+    return payload
 
 
 def render_project(document: ProjectDocument) -> str:

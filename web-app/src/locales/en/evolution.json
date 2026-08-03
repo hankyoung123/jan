@@ -33,6 +33,10 @@
     "pause": "Pausing after the current step…",
     "terminate": "Safely terminating after the current step…"
   },
+  "maintenance": {
+    "failed": "Wiki maintenance failed and the simulation is paused.",
+    "retry": "Retry Wiki maintenance"
+  },
   "controls": {
     "step": "Single step",
     "run": "Run",

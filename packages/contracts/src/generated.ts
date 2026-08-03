@@ -686,6 +686,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/simulations/{session_id}/maintenance/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Simulation Maintenance */
+        post: operations["retry_simulation_maintenance_projects__project_id__simulations__session_id__maintenance_retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/simulations/{session_id}/pause": {
         parameters: {
             query?: never;
@@ -1185,6 +1202,11 @@ export interface components {
             visibility: "public" | "private" | "secret";
         };
         JsonValue: unknown;
+        /**
+         * MaintenanceStatus
+         * @enum {string}
+         */
+        MaintenanceStatus: "not_required" | "pending" | "succeeded" | "failed";
         /** ManuscriptExport */
         ManuscriptExport: {
             /** Branch Id */
@@ -1812,6 +1834,14 @@ export interface components {
             current_step: number;
             /** Head Checkpoint Id */
             head_checkpoint_id: string | null;
+            /** @default none */
+            maintenance_boundary: components["schemas"]["SimulationBoundary"];
+            /** Maintenance Error Text */
+            maintenance_error_text?: string | null;
+            /** @default not_required */
+            maintenance_status: components["schemas"]["MaintenanceStatus"];
+            /** Maintenance Step */
+            maintenance_step?: number | null;
             /** Project Id */
             project_id: string;
             /** Resolved Model Profile Ids */
@@ -2232,6 +2262,14 @@ export interface components {
                     [key: string]: components["schemas"]["JsonValue"];
                 };
             };
+            /** @default none */
+            maintenance_boundary: components["schemas"]["SimulationBoundary"];
+            /** Maintenance Error Text */
+            maintenance_error_text?: string | null;
+            /** @default not_required */
+            maintenance_status: components["schemas"]["MaintenanceStatus"];
+            /** Maintenance Step */
+            maintenance_step?: number | null;
             /** Memory Snapshots */
             memory_snapshots: {
                 [key: string]: components["schemas"]["MemorySnapshot"];
@@ -3953,6 +3991,38 @@ export interface operations {
                 "application/json": components["schemas"]["SimulationLocaleRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_simulation_maintenance_projects__project_id__simulations__session_id__maintenance_retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

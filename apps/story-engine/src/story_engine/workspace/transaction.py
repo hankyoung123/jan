@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from secrets import token_hex
@@ -67,11 +68,13 @@ class AtomicBatch:
         self._ensure_unique(relative)
         self._operations.append(_PendingDelete(relative))
 
-    def commit(self) -> None:
+    def commit(self, *, precondition: Callable[[], None] | None = None) -> None:
         if not self._operations:
             return
 
         with ProjectLock(self.root):
+            if precondition is not None:
+                precondition()
             self._commit_locked()
 
     def _commit_locked(self) -> None:

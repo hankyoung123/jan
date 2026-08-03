@@ -3,7 +3,10 @@ from pathlib import Path
 import pytest
 
 from story_engine.workspace.atomic import atomic_write_text
-from story_engine.workspace.transaction import AtomicBatch
+from story_engine.workspace.transaction import (
+    AtomicBatch,
+    recover_incomplete_transactions,
+)
 
 
 def test_atomic_write_replaces_content_without_temp_files(tmp_path: Path) -> None:
@@ -76,3 +79,24 @@ def test_atomic_batch_restores_deleted_document_after_late_failure(
     assert not (tmp_path / "characters/active/pilot.md").exists()
     assert not (tmp_path / "events/000001.md").exists()
     assert not any((tmp_path / ".story-engine/recovery").iterdir())
+
+
+def test_project_open_recovers_a_prepared_transaction(tmp_path: Path) -> None:
+    target = tmp_path / "runtime/session.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("partially committed", encoding="utf-8")
+    transaction_root = tmp_path / ".story-engine/recovery/transaction-crash"
+    backup = transaction_root / "backup/runtime/session.md"
+    backup.parent.mkdir(parents=True)
+    backup.write_text("before", encoding="utf-8")
+    (transaction_root / "manifest.json").write_text(
+        '{"state":"prepared","items":['
+        '{"path":"runtime/session.md","existed":true,"operation":"write"}'
+        "]}\n",
+        encoding="utf-8",
+    )
+
+    assert recover_incomplete_transactions(tmp_path) == 1
+
+    assert target.read_text(encoding="utf-8") == "before"
+    assert not transaction_root.exists()

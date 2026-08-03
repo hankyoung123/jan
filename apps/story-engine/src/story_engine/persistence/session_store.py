@@ -1,10 +1,9 @@
-import json
 import re
 from pathlib import Path
-from typing import Any
 
 from story_engine.domain.session_manifest import SessionManifest
 from story_engine.workspace.atomic import atomic_write_text
+from story_engine.workspace.documents import dump_json_envelope, load_json_envelope
 from story_engine.workspace.lock import ProjectLock
 
 _SESSION_ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
@@ -20,19 +19,24 @@ class SessionStore:
     def _path(self, session_id: str) -> Path:
         if not _SESSION_ID.fullmatch(session_id):
             raise ValueError("invalid session ID")
-        return self.directory / f"{session_id.replace(':', '__')}.json"
+        return self.directory / f"{session_id.replace(':', '__')}.md"
 
     @staticmethod
     def _content(manifest: SessionManifest) -> str:
-        return (
-            json.dumps(
-                manifest.model_dump(mode="json"),
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
+        return dump_json_envelope(
+            schema="story-engine/session/v1",
+            title=f"Simulation Session {manifest.session_id}",
+            metadata={
+                "session_id": manifest.session_id,
+                "branch_id": manifest.branch_id,
+                "step": manifest.current_step,
+                "status": manifest.status.value,
+            },
+            payload=manifest.model_dump(mode="json"),
         )
+
+    def prepare(self, manifest: SessionManifest) -> tuple[Path, str]:
+        return self._path(manifest.session_id), self._content(manifest)
 
     def save(self, manifest: SessionManifest) -> Path:
         path = self._path(manifest.session_id)
@@ -42,8 +46,9 @@ class SessionStore:
 
     def load(self, session_id: str) -> SessionManifest:
         try:
-            payload: Any = json.loads(
-                self._path(session_id).read_text(encoding="utf-8")
+            payload = load_json_envelope(
+                self._path(session_id),
+                schema="story-engine/session/v1",
             )
             manifest = SessionManifest.model_validate(payload)
         except FileNotFoundError:
@@ -58,9 +63,12 @@ class SessionStore:
         if not self.directory.exists():
             return ()
         manifests: list[SessionManifest] = []
-        for path in self.directory.glob("*.json"):
+        for path in self.directory.glob("*.md"):
             try:
-                payload: Any = json.loads(path.read_text(encoding="utf-8"))
+                payload = load_json_envelope(
+                    path,
+                    schema="story-engine/session/v1",
+                )
                 manifest = SessionManifest.model_validate(payload)
             except (OSError, ValueError) as error:
                 raise ValueError(

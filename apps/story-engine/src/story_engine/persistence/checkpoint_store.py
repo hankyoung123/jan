@@ -1,12 +1,11 @@
-import json
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from story_engine.domain.simulation import TurnSessionSnapshot
 from story_engine.simulation.session import calculate_snapshot_state_hash
 from story_engine.workspace.atomic import atomic_write_text
+from story_engine.workspace.documents import dump_json_envelope, load_json_envelope
 
 
 class CheckpointEnvelope(BaseModel):
@@ -25,9 +24,9 @@ class CheckpointStore:
     def path_for(self, checkpoint_id: str) -> Path:
         if not checkpoint_id.startswith("checkpoint-") or len(checkpoint_id) != 75:
             raise ValueError("invalid checkpoint ID")
-        return self.directory / f"{checkpoint_id}.json"
+        return self.directory / f"{checkpoint_id}.md"
 
-    def save(self, snapshot: TurnSessionSnapshot) -> tuple[str, Path]:
+    def prepare(self, snapshot: TurnSessionSnapshot) -> tuple[str, Path, str]:
         calculated = calculate_snapshot_state_hash(snapshot)
         if calculated != snapshot.state_hash:
             raise ValueError("snapshot state hash mismatch")
@@ -37,25 +36,35 @@ class CheckpointStore:
             checkpoint_id=checkpoint_id,
             snapshot=persisted,
         )
-        content = json.dumps(
-            envelope.model_dump(mode="json"),
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
+        content = dump_json_envelope(
+            schema="story-engine/checkpoint/v1",
+            title=f"Checkpoint {checkpoint_id}",
+            metadata={
+                "checkpoint_id": checkpoint_id,
+                "branch_id": snapshot.branch_id,
+                "step": snapshot.current_step,
+            },
+            payload=envelope.model_dump(mode="json"),
         )
-        path = self.path_for(checkpoint_id)
+        return checkpoint_id, self.path_for(checkpoint_id), content
+
+    def save(self, snapshot: TurnSessionSnapshot) -> tuple[str, Path]:
+        checkpoint_id, path, content = self.prepare(snapshot)
         if path.exists():
             existing = path.read_text(encoding="utf-8")
-            if existing != f"{content}\n":
+            if existing != content:
                 raise ValueError("checkpoint content hash collision")
             return checkpoint_id, path
-        atomic_write_text(path, f"{content}\n", overwrite=False)
+        atomic_write_text(path, content, overwrite=False)
         return checkpoint_id, path
 
     def load(self, checkpoint_id: str) -> TurnSessionSnapshot:
         path = self.path_for(checkpoint_id)
         try:
-            payload: Any = json.loads(path.read_text(encoding="utf-8"))
+            payload = load_json_envelope(
+                path,
+                schema="story-engine/checkpoint/v1",
+            )
             envelope = CheckpointEnvelope.model_validate(payload)
         except (OSError, ValueError) as error:
             raise ValueError(f"checkpoint {checkpoint_id!r} is invalid") from error

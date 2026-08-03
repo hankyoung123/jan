@@ -306,6 +306,22 @@ def create_simulations_router(
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
+        "/projects/{project_id}/simulations/{session_id}/maintenance/retry",
+        response_model=TurnSessionSnapshot,
+    )
+    async def retry_simulation_maintenance(
+        project_id: str,
+        session_id: str,
+    ) -> TurnSessionSnapshot:
+        require_live_session(project_id, session_id)
+        try:
+            return await asyncio.to_thread(service.retry_maintenance, session_id)
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
+        except (InvalidSessionTransitionError, RuntimeError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.post(
         "/projects/{project_id}/simulations/{session_id}/terminate",
         response_model=TurnSessionSnapshot,
     )

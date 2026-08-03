@@ -1,10 +1,14 @@
 # ADR-0005: Adopt a persistent Concordia-native simulation runtime
 
-- Status: Accepted
+- Status: Partially superseded by ADR-0006
 - Date: 2026-08-02
 - Supersedes: the per-step Markdown authority and mandatory approval portions
   of ADR-0002
 - Relates to: ADR-0001, ADR-0003, ADR-0004
+
+ADR-0006 supersedes this record's JSON authority, partial commit, optional RAG,
+and local-model statements. The persistent Concordia and Game Master decisions
+remain accepted.
 
 ## Context
 

@@ -890,6 +890,16 @@
         "type": "object"
       },
       "JsonValue": {},
+      "MaintenanceStatus": {
+        "enum": [
+          "not_required",
+          "pending",
+          "succeeded",
+          "failed"
+        ],
+        "title": "MaintenanceStatus",
+        "type": "string"
+      },
       "ManuscriptExport": {
         "additionalProperties": false,
         "properties": {
@@ -2644,6 +2654,37 @@
             ],
             "title": "Head Checkpoint Id"
           },
+          "maintenance_boundary": {
+            "$ref": "#/components/schemas/SimulationBoundary",
+            "default": "none"
+          },
+          "maintenance_error_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintenance Error Text"
+          },
+          "maintenance_status": {
+            "$ref": "#/components/schemas/MaintenanceStatus",
+            "default": "not_required"
+          },
+          "maintenance_step": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintenance Step"
+          },
           "project_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Project Id",
@@ -3741,6 +3782,37 @@
             },
             "title": "Game Master States",
             "type": "object"
+          },
+          "maintenance_boundary": {
+            "$ref": "#/components/schemas/SimulationBoundary",
+            "default": "none"
+          },
+          "maintenance_error_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintenance Error Text"
+          },
+          "maintenance_status": {
+            "$ref": "#/components/schemas/MaintenanceStatus",
+            "default": "not_required"
+          },
+          "maintenance_step": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintenance Step"
           },
           "memory_snapshots": {
             "patternProperties": {
@@ -7049,6 +7121,62 @@
           }
         ],
         "summary": "Switch Simulation Locale",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/maintenance/retry": {
+      "post": {
+        "operationId": "retry_simulation_maintenance_projects__project_id__simulations__session_id__maintenance_retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSessionSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Retry Simulation Maintenance",
         "tags": [
           "simulations"
         ]

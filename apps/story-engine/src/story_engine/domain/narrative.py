@@ -3,6 +3,7 @@ from pydantic import Field, model_validator
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 from story_engine.domain.memory import MemoryRecord
 from story_engine.domain.projection import ResolvedEvent, SimulationBoundary
+from story_engine.domain.wiki import WikiContextManifestEntry
 
 
 class NarrativeSource(RuntimeModel):
@@ -47,6 +48,7 @@ class NarrativeContext(RuntimeModel):
     game_master_memories: tuple[MemoryRecord, ...]
     viewpoint_memories: tuple[MemoryRecord, ...] = ()
     world_wiki_context: str = ""
+    wiki_context_manifest: tuple[WikiContextManifestEntry, ...] = ()
 
     @model_validator(mode="after")
     def source_ids_match_loaded_context(self) -> "NarrativeContext":

@@ -3,7 +3,12 @@ from datetime import datetime
 from pydantic import Field, model_validator
 
 from story_engine.domain.base import Identifier, RuntimeModel
-from story_engine.domain.simulation import TurnSessionSnapshot, TurnSessionStatus
+from story_engine.domain.projection import SimulationBoundary
+from story_engine.domain.simulation import (
+    MaintenanceStatus,
+    TurnSessionSnapshot,
+    TurnSessionStatus,
+)
 
 
 class SessionManifest(RuntimeModel):
@@ -21,6 +26,10 @@ class SessionManifest(RuntimeModel):
     updated_at: datetime
     termination_reason_text: str | None = None
     restoration_notice_text: str | None = None
+    maintenance_status: MaintenanceStatus = MaintenanceStatus.NOT_REQUIRED
+    maintenance_error_text: str | None = None
+    maintenance_step: int | None = Field(default=None, ge=0)
+    maintenance_boundary: SimulationBoundary = SimulationBoundary.NONE
 
     @model_validator(mode="after")
     def timestamps_are_valid(self) -> "SessionManifest":
@@ -53,4 +62,8 @@ class SessionManifest(RuntimeModel):
             restoration_notice_text=(
                 restoration_notice_text or snapshot.restoration_notice_text
             ),
+            maintenance_status=snapshot.maintenance_status,
+            maintenance_error_text=snapshot.maintenance_error_text,
+            maintenance_step=snapshot.maintenance_step,
+            maintenance_boundary=snapshot.maintenance_boundary,
         )

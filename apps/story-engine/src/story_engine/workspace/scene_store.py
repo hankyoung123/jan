@@ -5,7 +5,9 @@ from story_engine.manuscript.models import Scene, SceneDraft
 from story_engine.workspace.atomic import atomic_write_text
 from story_engine.workspace.documents import (
     SceneDocument,
+    dump_json_envelope,
     load_document,
+    load_json_envelope,
     render_scene,
 )
 
@@ -50,7 +52,7 @@ class SceneStore:
     def next_identifier(self) -> tuple[str, int]:
         sequences = [scene.sequence for scene in self.list_scenes()]
         draft_directory = _branch_directory(self.root, self.branch_id) / "drafts"
-        for path in draft_directory.glob("scene-*.json"):
+        for path in draft_directory.glob("scene-*.md"):
             suffix = path.stem.removeprefix("scene-")
             if suffix.isdigit():
                 sequences.append(int(suffix))
@@ -67,25 +69,40 @@ class SceneDraftStore:
     def save(self, draft: SceneDraft, *, overwrite: bool = True) -> Path:
         if draft.branch_id != self.branch_id:
             raise ValueError("scene draft belongs to another branch")
-        path = self.directory / f"{draft.id}.json"
+        path = self.directory / f"{draft.id}.md"
         atomic_write_text(
             path,
-            f"{draft.model_dump_json(indent=2)}\n",
+            dump_json_envelope(
+                schema="story-engine/scene-draft/v1",
+                title=f"Scene Draft {draft.id}",
+                metadata={
+                    "scene_id": draft.id,
+                    "branch_id": draft.branch_id,
+                    "sequence": draft.sequence,
+                    "status": str(draft.status),
+                },
+                body=f"# {draft.title}\n\n{draft.body}",
+                payload=draft.model_dump(mode="json"),
+            ),
             overwrite=overwrite,
         )
         return path
 
     def load(self, scene_id: str) -> SceneDraft:
-        path = self.directory / f"{scene_id}.json"
-        draft = SceneDraft.model_validate_json(path.read_text(encoding="utf-8"))
+        path = self.directory / f"{scene_id}.md"
+        draft = SceneDraft.model_validate(
+            load_json_envelope(path, schema="story-engine/scene-draft/v1")
+        )
         if draft.branch_id != self.branch_id:
             raise ValueError("scene draft belongs to another branch")
         return draft
 
     def list_drafts(self) -> tuple[SceneDraft, ...]:
         drafts = []
-        for path in sorted(self.directory.glob("*.json")):
-            draft = SceneDraft.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in sorted(self.directory.glob("*.md")):
+            draft = SceneDraft.model_validate(
+                load_json_envelope(path, schema="story-engine/scene-draft/v1")
+            )
             if draft.branch_id != self.branch_id:
                 raise ValueError("scene draft belongs to another branch")
             drafts.append(draft)

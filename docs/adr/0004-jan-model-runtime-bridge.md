@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Partially superseded by ADR-0006
 
 ## Context
 
@@ -105,3 +105,6 @@ loopback channel.
 - `docs/product-plan.md`, sections 3.2, 3.4, and 9
 - `docs/adr/0003-jan-fork-integration.md`
 - `docs/upstream/jan-v0.8.4-migration-map.md`
+- [ADR-0006](0006-cloud-only-markdown-first-wiki-runtime.md) supersedes local
+  model download, llama.cpp, and MLX clauses while retaining the remote
+  Provider/keychain bridge.

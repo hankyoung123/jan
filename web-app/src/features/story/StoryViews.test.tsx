@@ -484,6 +484,61 @@ describe('Story submission', () => {
   })
 })
 
+const baseSimulationSession = {
+  session_id: 'session:one',
+  project_id: 'north-star',
+  branch_id: 'main',
+  status: 'created',
+  pending_control: 'none',
+  content_locale: 'zh-CN',
+  request: {
+    project_id: 'north-star',
+    branch_id: 'main',
+    premise_text: '主天线在极光中失效',
+    actor_ids: [],
+    content_locale: 'zh-CN',
+    control: {
+      mode: 'scene',
+      pause_after_scene: true,
+      max_steps: 100,
+      max_scenes: 12,
+      max_total_tokens: 500000,
+      max_runtime_seconds: 3600,
+      max_consecutive_model_failures: 3,
+      allow_dynamic_entities: true,
+      allow_user_override: true,
+      checkpoint_every_steps: 5,
+    },
+    output: {
+      manuscript_mode: 'manual',
+      wiki_mode: 'after_scene',
+    },
+    seed: null,
+  },
+  current_step: 0,
+  completed_scenes: 0,
+  active_entity_ids: ['ara', 'bo'],
+  dynamic_entities: [],
+  actor_states: {},
+  game_master_states: {},
+  memory_snapshots: {},
+  raw_log_offset: 0,
+  total_model_tokens: 0,
+  consecutive_model_failures: 0,
+  checkpoint_id: 'checkpoint-' + 'a'.repeat(64),
+  started_at: '2026-08-02T00:00:00Z',
+  updated_at: '2026-08-02T00:00:00Z',
+  termination_reason_text: null,
+  restoration_notice_text: null,
+  maintenance_status: 'not_required',
+  maintenance_error_text: null,
+  maintenance_step: null,
+  maintenance_boundary: 'none',
+  state_hash: 'a'.repeat(64),
+  active_actor_id: null,
+  current_action_spec: null,
+}
+
 describe('Story simulation', () => {
   beforeEach(() => {
     h.engineRequest.mockReset()
@@ -503,51 +558,7 @@ describe('Story simulation', () => {
 
   it('starts and advances a persistent simulation session', async () => {
     setActiveStoryProjectId('north-star')
-    const session = {
-      session_id: 'session:one',
-      project_id: 'north-star',
-      branch_id: 'main',
-      status: 'created',
-      pending_control: 'none',
-      content_locale: 'zh-CN',
-      request: {
-        project_id: 'north-star',
-        branch_id: 'main',
-        premise_text: '主天线在极光中失效',
-        actor_ids: [],
-        content_locale: 'zh-CN',
-        control: {
-          mode: 'scene',
-          pause_after_scene: true,
-          max_steps: 100,
-          max_scenes: 12,
-          max_total_tokens: 500000,
-          max_runtime_seconds: 3600,
-          max_consecutive_model_failures: 3,
-          allow_dynamic_entities: true,
-          allow_user_override: true,
-          checkpoint_every_steps: 5,
-        },
-        seed: null,
-      },
-      current_step: 0,
-      completed_scenes: 0,
-      active_entity_ids: ['ara', 'bo'],
-      dynamic_entities: [],
-      actor_states: {},
-      game_master_states: {},
-      memory_snapshots: {},
-      raw_log_offset: 0,
-      total_model_tokens: 0,
-      consecutive_model_failures: 0,
-      checkpoint_id: 'checkpoint-' + 'a'.repeat(64),
-      started_at: '2026-08-02T00:00:00Z',
-      updated_at: '2026-08-02T00:00:00Z',
-      termination_reason_text: null,
-      state_hash: 'a'.repeat(64),
-      active_actor_id: null,
-      current_action_spec: null,
-    }
+    const session = baseSimulationSession
     let currentSession = session
     h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
       if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
@@ -602,6 +613,102 @@ describe('Story simulation', () => {
     expect(h.engineRequest).toHaveBeenCalledWith(
       '/projects/north-star/simulations',
       expect.objectContaining({ method: 'POST' })
+    )
+    const startRequest = h.engineRequest.mock.calls.find(
+      ([path, init]) =>
+        path === '/projects/north-star/simulations' && init?.method === 'POST'
+    )?.[1] as RequestInit
+    expect(JSON.parse(startRequest.body as string)).toEqual({
+      branch_id: 'main',
+      premise_text: '主天线在极光中失效',
+      actor_ids: [],
+      content_locale: 'zh-CN',
+      control: {
+        mode: 'scene',
+        max_steps: 100,
+        max_scenes: 12,
+        max_total_tokens: 500000,
+        max_runtime_seconds: 3600,
+        max_consecutive_model_failures: 3,
+        pause_after_scene: true,
+        allow_dynamic_entities: true,
+        allow_user_override: true,
+        checkpoint_every_steps: 5,
+      },
+      output: {
+        manuscript_mode: 'manual',
+        wiki_mode: 'after_scene',
+      },
+    })
+  })
+
+  it('shows a failed Wiki maintenance state and retries it', async () => {
+    setActiveStoryProjectId('north-star')
+    const failedSession = {
+      ...baseSimulationSession,
+      status: 'paused',
+      maintenance_status: 'failed',
+      maintenance_error_text: 'Wiki provider timed out',
+      maintenance_step: 1,
+      maintenance_boundary: 'scene',
+    }
+    const succeededSession = {
+      ...failedSession,
+      maintenance_status: 'succeeded',
+      maintenance_error_text: null,
+    }
+
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
+      if (path === '/projects/north-star/branches') return Promise.resolve([])
+      if (path === '/projects/north-star/simulations') {
+        return Promise.resolve([
+          {
+            session_id: failedSession.session_id,
+            project_id: failedSession.project_id,
+            branch_id: failedSession.branch_id,
+            status: failedSession.status,
+            current_step: failedSession.current_step,
+            completed_scenes: failedSession.completed_scenes,
+            head_checkpoint_id: failedSession.checkpoint_id,
+            started_at: failedSession.started_at,
+            updated_at: failedSession.updated_at,
+            termination_reason_text: null,
+            restoration_notice_text: null,
+            maintenance_status: failedSession.maintenance_status,
+            maintenance_error_text: failedSession.maintenance_error_text,
+            maintenance_step: failedSession.maintenance_step,
+            maintenance_boundary: failedSession.maintenance_boundary,
+          },
+        ])
+      }
+      if (path === `/projects/north-star/simulations/${failedSession.session_id}`) {
+        return Promise.resolve(failedSession)
+      }
+      if (
+        path ===
+          `/projects/north-star/simulations/${failedSession.session_id}/maintenance/retry` &&
+        init?.method === 'POST'
+      ) {
+        return Promise.resolve(succeededSession)
+      }
+      if (path.includes('/simulation-events')) return Promise.resolve([])
+      if (path.includes('/simulation-trace')) return Promise.resolve([])
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    renderEvolution()
+
+    expect(await screen.findByText('Wiki provider timed out')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Wiki maintenance' }))
+    await waitFor(() =>
+      expect(h.engineRequest).toHaveBeenCalledWith(
+        '/projects/north-star/simulations/session:one/maintenance/retry',
+        { method: 'POST' }
+      )
+    )
+    await waitFor(() =>
+      expect(screen.queryByText('Wiki provider timed out')).not.toBeInTheDocument()
     )
   })
 

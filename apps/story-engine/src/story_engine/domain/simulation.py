@@ -166,6 +166,13 @@ class TurnSessionStatus(StrEnum):
     INTERRUPTED = "interrupted"
 
 
+class MaintenanceStatus(StrEnum):
+    NOT_REQUIRED = "not_required"
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class PendingControl(StrEnum):
     NONE = "none"
     PAUSE = "pause"
@@ -220,6 +227,10 @@ class TurnSessionSnapshot(RuntimeModel):
     updated_at: datetime
     termination_reason_text: str | None = None
     restoration_notice_text: str | None = None
+    maintenance_status: MaintenanceStatus = MaintenanceStatus.NOT_REQUIRED
+    maintenance_error_text: str | None = None
+    maintenance_step: int | None = Field(default=None, ge=0)
+    maintenance_boundary: SimulationBoundary = SimulationBoundary.NONE
     state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 

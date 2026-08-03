@@ -2,6 +2,7 @@ import json
 import re
 import shutil
 from pathlib import Path, PurePosixPath
+from urllib.parse import quote
 
 from story_engine.domain.wiki import (
     DirectorInstruction,
@@ -12,6 +13,7 @@ from story_engine.domain.wiki import (
     WikiPatchOperation,
 )
 from story_engine.workspace.atomic import atomic_write_text
+from story_engine.workspace.documents import dump_json_envelope, load_json_envelope
 from story_engine.workspace.project_store import ProjectSnapshot
 from story_engine.workspace.transaction import AtomicBatch
 
@@ -573,22 +575,40 @@ class WikiStore:
         )
 
     def list_instructions(self) -> tuple[DirectorInstruction, ...]:
-        path = self.branch_root / "director-instructions.jsonl"
-        if not path.exists():
+        directory = self.branch_root / "director-instructions"
+        if not directory.exists():
             return ()
-        return tuple(
-            DirectorInstruction.model_validate_json(line)
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
+        instructions = tuple(
+            DirectorInstruction.model_validate(
+                load_json_envelope(
+                    path,
+                    schema="story-engine/director-instruction/v1",
+                )
+            )
+            for path in directory.glob("*.md")
         )
+        return tuple(sorted(instructions, key=lambda item: item.created_at))
 
     def add_instruction(self, instruction: DirectorInstruction) -> Path:
-        path = self.branch_root / "director-instructions.jsonl"
-        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        path = (
+            self.branch_root
+            / "director-instructions"
+            / f"{quote(instruction.instruction_id, safe='')}.md"
+        )
         atomic_write_text(
             path,
-            existing + instruction.model_dump_json() + "\n",
-            overwrite=path.exists(),
+            dump_json_envelope(
+                schema="story-engine/director-instruction/v1",
+                title=f"Director Instruction {instruction.instruction_id}",
+                metadata={
+                    "instruction_id": instruction.instruction_id,
+                    "branch_id": self.branch_id,
+                    "checkpoint_id": instruction.applies_from_checkpoint_id,
+                },
+                body=f"# Director Instruction\n\n{instruction.text}",
+                payload=instruction.model_dump(mode="json"),
+            ),
+            overwrite=False,
         )
         return path
 

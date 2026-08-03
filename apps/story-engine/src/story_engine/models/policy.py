@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from threading import RLock
 
@@ -9,6 +8,7 @@ from story_engine.models.contracts import ModelProfile
 from story_engine.models.errors import ModelConfigurationError, ProfileNotFoundError
 from story_engine.models.registry import ProfileRegistry
 from story_engine.workspace.atomic import atomic_write_text
+from story_engine.workspace.documents import dump_json_envelope, load_json_envelope
 from story_engine.workspace.project_store import ProjectStore
 
 
@@ -16,7 +16,7 @@ class ProjectModelPolicyStore:
     def __init__(self, project_root: Path, registry: ProfileRegistry) -> None:
         self.project_root = project_root
         self.registry = registry
-        self.path = project_root / ".story-engine/config/model-policy.json"
+        self.path = project_root / ".story-engine/config/model-policy.md"
         self._lock = RLock()
 
     def load(self) -> ProjectModelPolicy:
@@ -25,8 +25,11 @@ class ProjectModelPolicyStore:
                 policy = ProjectModelPolicy()
             else:
                 try:
-                    policy = ProjectModelPolicy.model_validate_json(
-                        self.path.read_text(encoding="utf-8")
+                    policy = ProjectModelPolicy.model_validate(
+                        load_json_envelope(
+                            self.path,
+                            schema="story-engine/model-policy/v1",
+                        )
                     )
                 except (OSError, ValueError, ValidationError) as error:
                     raise ModelConfigurationError(
@@ -45,13 +48,12 @@ class ProjectModelPolicyStore:
                     "project model policy is invalid"
                 ) from error
             validated = self._validate_assignments(validated)
-            content = json.dumps(
-                validated.model_dump(mode="json"),
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
+            content = dump_json_envelope(
+                schema="story-engine/model-policy/v1",
+                title="Project Model Policy",
+                payload=validated.model_dump(mode="json"),
             )
-            atomic_write_text(self.path, f"{content}\n")
+            atomic_write_text(self.path, content)
             return validated
 
     def _validate_assignments(

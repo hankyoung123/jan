@@ -158,6 +158,10 @@ async function mockOperationalData(page: Page) {
       await route.fulfill({ json: [simulationSession] })
       return
     }
+    if (path === '/projects/fog-harbor/simulations/session:visual') {
+      await route.fulfill({ json: simulationSession })
+      return
+    }
     if (path === '/projects/fog-harbor/branches') {
       await route.fulfill({
         json: [

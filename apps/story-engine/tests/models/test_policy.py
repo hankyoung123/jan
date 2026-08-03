@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -9,6 +8,7 @@ from story_engine.models.errors import ModelConfigurationError
 from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.models.registry import ProfileRegistry
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
+from story_engine.workspace.documents import load_json_envelope
 
 
 def _configured_registry(tmp_path: Path) -> ProfileRegistry:
@@ -65,7 +65,10 @@ def test_policy_persists_per_character_overrides_atomically(tmp_path: Path) -> N
     saved = store.save(policy)
 
     assert ProjectModelPolicyStore(project_root, registry).load() == saved
-    assert json.loads(store.path.read_text(encoding="utf-8")) == (
+    assert load_json_envelope(
+        store.path,
+        schema="story-engine/model-policy/v1",
+    ) == (
         policy.model_dump(mode="json")
     )
     assert not list(store.path.parent.glob("*.tmp"))
@@ -126,7 +129,7 @@ def test_policy_is_project_owned_and_branch_independent(tmp_path: Path) -> None:
         )
     )
 
-    assert store.path == project_root / ".story-engine/config/model-policy.json"
+    assert store.path == project_root / ".story-engine/config/model-policy.md"
     assert not list(
-        (project_root / ".story-engine/branches").rglob("model-policy.json")
+        (project_root / ".story-engine/branches").rglob("model-policy.md")
     )

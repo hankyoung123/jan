@@ -5,7 +5,9 @@ from datetime import UTC, datetime
 from threading import RLock
 from typing import Any
 
+from story_engine.domain.projection import SimulationBoundary
 from story_engine.domain.simulation import (
+    MaintenanceStatus,
     PendingControl,
     TurnSessionRequest,
     TurnSessionSnapshot,
@@ -45,6 +47,10 @@ class SimulationSession:
     checkpoint_id: str | None = None
     termination_reason_text: str | None = None
     restoration_notice_text: str | None = None
+    maintenance_status: MaintenanceStatus = MaintenanceStatus.NOT_REQUIRED
+    maintenance_error_text: str | None = None
+    maintenance_step: int | None = None
+    maintenance_boundary: SimulationBoundary = SimulationBoundary.NONE
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     pending_control: PendingControl = PendingControl.NONE
@@ -98,6 +104,10 @@ class SimulationSession:
             updated_at=self.updated_at,
             termination_reason_text=self.termination_reason_text,
             restoration_notice_text=self.restoration_notice_text,
+            maintenance_status=self.maintenance_status,
+            maintenance_error_text=self.maintenance_error_text,
+            maintenance_step=self.maintenance_step,
+            maintenance_boundary=self.maintenance_boundary,
             state_hash="0" * 64,
         )
         return provisional.model_copy(

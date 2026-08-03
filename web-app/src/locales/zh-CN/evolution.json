@@ -33,6 +33,10 @@
     "pause": "正在等待当前步骤完成后暂停……",
     "terminate": "正在等待当前步骤完成后安全终止……"
   },
+  "maintenance": {
+    "failed": "Wiki 维护失败，模拟已暂停。",
+    "retry": "重试 Wiki 维护"
+  },
   "controls": {
     "step": "单步",
     "run": "连续运行",

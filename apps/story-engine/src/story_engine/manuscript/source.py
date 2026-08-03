@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
@@ -21,6 +20,7 @@ from story_engine.persistence.simulation_log import (
     SimulationLogStore,
 )
 from story_engine.wiki.context import WikiContextBuilder
+from story_engine.workspace.documents import load_json_envelope
 
 
 class NarrativeSourceReader:
@@ -268,15 +268,38 @@ class NarrativeSourceReader:
         viewpoint = tuple(
             item for item in selected_memories if item.scope == MemoryScope.CHARACTER
         )
+        participants = tuple(
+            sorted(
+                {
+                    actor_id
+                    for event in events
+                    for actor_id in (
+                        *event.participant_ids,
+                        *event.observer_ids,
+                        *((event.actor_id,) if event.actor_id else ()),
+                    )
+                }
+            )
+        )
+        locations = tuple(
+            sorted({item for event in events for item in event.location_ids})
+        )
+        wiki_context = WikiContextBuilder(
+            self.root,
+            source.branch_id,
+        ).writer(
+            source.viewpoint_actor_id,
+            participant_ids=participants,
+            location_ids=locations,
+            keywords=tuple(event.event_text for event in events),
+        )
         return NarrativeContext(
             source=source,
             events=events,
             game_master_memories=game_master,
             viewpoint_memories=viewpoint,
-            world_wiki_context=WikiContextBuilder(
-                self.root,
-                source.branch_id,
-            ).writer(source.viewpoint_actor_id),
+            world_wiki_context=wiki_context.content,
+            wiki_context_manifest=wiki_context.manifest,
         )
 
     @staticmethod
@@ -329,9 +352,12 @@ class NarrativeSourceReader:
         ranges: set[tuple[int, int]] = set()
         if not directory.exists():
             return ranges
-        for path in directory.glob("*.json"):
+        for path in directory.glob("*.md"):
             try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload = load_json_envelope(
+                    path,
+                    schema="story-engine/scene-draft/v1",
+                )
                 ranges.add(
                     (int(payload["source_from_step"]), int(payload["source_to_step"]))
                 )

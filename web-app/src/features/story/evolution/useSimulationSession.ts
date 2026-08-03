@@ -11,6 +11,7 @@ export type CommitResult = components['schemas']['CommitResult']
 export type ControlMode = components['schemas']['ControlMode']
 export type BranchManifest = components['schemas']['BranchManifest']
 export type BranchComparison = components['schemas']['BranchComparisonResponse']
+type SimulationStartRequest = components['schemas']['SimulationStartRequest']
 
 type Operation =
   | 'load'
@@ -27,6 +28,7 @@ type Operation =
   | 'projection'
   | 'locale'
   | 'compare'
+  | 'maintenance'
 
 interface StartOptions {
   branchId: string
@@ -161,27 +163,33 @@ export function useSimulationSession(projectId?: string) {
   const start = useCallback(
     async (options: StartOptions) => {
       if (!projectId) return null
+      const request = {
+        branch_id: options.branchId,
+        premise_text: options.premise,
+        actor_ids: options.actorIds,
+        content_locale: options.contentLocale,
+        control: {
+          mode: options.mode,
+          max_steps: 100,
+          max_scenes: 12,
+          max_total_tokens: 500_000,
+          max_runtime_seconds: 3_600,
+          max_consecutive_model_failures: 3,
+          pause_after_scene: options.mode !== 'autonomous',
+          allow_dynamic_entities: true,
+          allow_user_override: true,
+          checkpoint_every_steps: 5,
+        },
+        output: {
+          manuscript_mode:
+            options.mode === 'autonomous' ? 'after_scene' : 'manual',
+          wiki_mode: 'after_scene',
+        },
+      } satisfies SimulationStartRequest
       const created = await perform('start', () =>
         engineRequest<SessionSnapshot>(`/projects/${projectId}/simulations`, {
           method: 'POST',
-          body: JSON.stringify({
-            branch_id: options.branchId,
-            premise_text: options.premise,
-            actor_ids: options.actorIds,
-            content_locale: options.contentLocale,
-            control: {
-              mode: options.mode,
-              max_steps: 100,
-              max_scenes: 12,
-              pause_after_scene: options.mode !== 'autonomous',
-              checkpoint_every_steps: 5,
-            },
-            output: {
-              manuscript_mode:
-                options.mode === 'autonomous' ? 'after_scene' : 'manual',
-              world_projection_mode: 'after_scene',
-            },
-          }),
+          body: JSON.stringify(request),
         })
       )
       if (created) {
@@ -244,6 +252,21 @@ export function useSimulationSession(projectId?: string) {
     if (committed) await refreshSession()
     return committed
   }, [perform, projectId, refreshSession, session])
+
+  const retryMaintenance = useCallback(async () => {
+    if (!projectId || !session) return null
+    const updated = await perform('maintenance', () =>
+      engineRequest<SessionSnapshot>(
+        `/projects/${projectId}/simulations/${session.session_id}/maintenance/retry`,
+        { method: 'POST' }
+      )
+    )
+    if (updated) {
+      setSession(updated)
+      syncUrl(updated)
+    }
+    return updated
+  }, [perform, projectId, session, syncUrl])
 
   const restore = useCallback(
     async (checkpointId: string) => {
@@ -377,6 +400,7 @@ export function useSimulationSession(projectId?: string) {
     step,
     control,
     checkpoint,
+    retryMaintenance,
     restore,
     fork,
     rebuildProjection,

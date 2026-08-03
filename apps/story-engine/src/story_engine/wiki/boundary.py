@@ -13,7 +13,7 @@ from story_engine.persistence.simulation_log import (
 )
 from story_engine.wiki.consolidator import WikiConsolidator
 from story_engine.wiki.lint import WikiLinter
-from story_engine.wiki.reader import WikiSourceReader, decode_snapshot_memories
+from story_engine.wiki.reader import WikiSourceReader
 from story_engine.wiki.store import WikiStore
 from story_engine.wiki.validator import WikiValidator
 
@@ -92,7 +92,7 @@ class WikiBoundaryProcessor:
         if not scene_records:
             return ()
         first_step = scene_records[0].result.step
-        memories = decode_snapshot_memories(snapshot)
+        memories = SimulationLogStore(self.root).read_observations(snapshot.branch_id)
         affected_subjects = tuple(
             sorted(
                 {
@@ -215,4 +215,3 @@ class WikiBoundaryProcessor:
                 stale=False,
             )
         return tuple(written)
-

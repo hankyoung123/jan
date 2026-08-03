@@ -95,7 +95,8 @@ def test_one_thousand_scene_updates_keep_context_bounded(tmp_path: Path) -> None
     page = store.load_page("world/threads.md")
     assert "scene 1000" in page.content
     assert "scene 999" not in page.content
-    assert len(context) <= 2_048
+    assert len(context.content) <= 2_048
+    assert context.manifest
     assert store.view().updated_at_step == 1_000
 
 
@@ -122,14 +123,65 @@ def test_actor_and_writer_contexts_enforce_one_total_limit(tmp_path: Path) -> No
     actor = builder.actor("chen-mo", memories)
     writer = builder.writer("chen-mo")
 
-    assert len(actor) <= 1_024
-    assert "Character Wiki:" in actor
-    assert "Current scene and recent raw observations:" in actor
-    assert "memory 1" in actor
-    assert "memory 8" in actor
-    assert len(writer) <= 1_024
-    assert "World Wiki:" in writer
-    assert "Viewpoint Wiki:" in writer
+    assert len(actor.content) <= 1_024
+    assert "Character Wiki:" in actor.content
+    assert "Current scene and recent raw observations:" in actor.content
+    assert "memory 1" in actor.content
+    assert "memory 8" in actor.content
+    assert any(item.reason == "current_observation" for item in actor.manifest)
+    assert len(writer.content) <= 1_024
+    assert "World Wiki:" in writer.content
+    assert "Viewpoint Wiki:" in writer.content
+
+
+def test_context_routes_relationship_and_location_before_hundreds_of_pages(
+    tmp_path: Path,
+) -> None:
+    root = _root(tmp_path)
+    store = WikiStore(root, "main")
+    for index in range(250):
+        store.apply_patches(
+            (
+                WikiPatch(
+                    path=f"world/archive/a-{index:03d}.md",
+                    operation=WikiPatchOperation.CREATE,
+                    content=f"# Archived {index}\n\nUnrelated old material.",
+                    source_ids=(f"event:archive:{index}",),
+                ),
+            ),
+            checkpoint_id=f"checkpoint:archive:{index}",
+            step=index + 1,
+        )
+    store.apply_patches(
+        (
+            WikiPatch(
+                path="world/relationships/chen-mo-lin-lan.md",
+                operation=WikiPatchOperation.CREATE,
+                content="# Relationship\n\nchen-mo trusts lin-lan at the signal tower.",
+                source_ids=("event:relationship:current",),
+            ),
+            WikiPatch(
+                path="world/locations/signal-tower.md",
+                operation=WikiPatchOperation.CREATE,
+                content="# Signal Tower\n\nThe current confrontation is here.",
+                source_ids=("event:location:current",),
+            ),
+        ),
+        checkpoint_id="checkpoint:current",
+        step=999,
+    )
+
+    context = WikiContextBuilder(root, "main", max_context_chars=2_048).world(
+        participant_ids=("chen-mo", "lin-lan"),
+        location_ids=("signal-tower",),
+    )
+
+    selected = {item.path: item.reason for item in context.manifest}
+    assert selected["world/relationships/chen-mo-lin-lan.md"] == (
+        "current_participant_relationship"
+    )
+    assert selected["world/locations/signal-tower.md"] == "current_location"
+    assert "world/archive/a-000.md" not in selected
 
 
 def test_store_rejects_a_page_that_would_exceed_the_limit(tmp_path: Path) -> None:

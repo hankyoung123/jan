@@ -89,6 +89,36 @@ describe('Story Engine client', () => {
     )
   })
 
+  it('surfaces FastAPI request validation details', async () => {
+    h.isTauri.mockReturnValue(true)
+    h.invoke.mockResolvedValue({
+      phase: 'ready',
+      base_url: 'http://127.0.0.1:41000',
+      websocket_url: null,
+      session_token: 'runtime-secret',
+      restart_count: 0,
+      last_error: null,
+    })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: [
+            {
+              type: 'extra_forbidden',
+              loc: ['body', 'output', 'world_projection_mode'],
+              msg: 'Extra inputs are not permitted',
+            },
+          ],
+        }),
+        { status: 422 }
+      )
+    )
+
+    await expect(engineRequest('/projects/fog-harbor/simulations')).rejects.toThrow(
+      'output.world_projection_mode: Extra inputs are not permitted'
+    )
+  })
+
   it('restarts the managed native Sidecar through its dedicated command', async () => {
     h.isTauri.mockReturnValue(true)
     h.invoke.mockResolvedValue({ phase: 'starting', restart_count: 1 })

@@ -1,6 +1,6 @@
 # ADR-0002: Markdown is canonical state
 
-- Status: Partially superseded by ADR-0005
+- Status: Superseded by ADR-0006
 - Date: 2026-07-31
 
 ## Decision
@@ -35,6 +35,6 @@ approved Markdown event is superseded by ADR-0005.
 
 ## Superseding decision
 
-See [ADR-0005](0005-concordia-native-runtime.md) for the persistent Concordia
-runtime, branch/checkpoint authority, and removal of mandatory per-event user
-approval.
+See [ADR-0006](0006-cloud-only-markdown-first-wiki-runtime.md) for the current
+Markdown authority, complete Step transaction, and removal of the legacy event
+mutation boundary.

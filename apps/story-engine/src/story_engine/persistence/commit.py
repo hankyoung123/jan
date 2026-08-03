@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     BranchManifest,
     CommitResult,
@@ -16,10 +17,11 @@ from story_engine.persistence.simulation_log import (
 )
 from story_engine.projection.markdown import MarkdownProjector
 from story_engine.wiki.store import WikiStore
+from story_engine.workspace.transaction import AtomicBatch
 
 
 class SimulationCommitKernel:
-    """Persist checkpoint/log before atomically advancing a branch head."""
+    """Own recoverable all-or-nothing persistence for a simulation step."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -41,12 +43,39 @@ class SimulationCommitKernel:
             project_id=snapshot.project_id,
             content_locale=snapshot.content_locale,
         )
-        checkpoint_id, checkpoint_path = self.checkpoints.save(snapshot)
-        updated = self.branches.advance(
+        checkpoint_id, checkpoint_path, checkpoint_content = self.checkpoints.prepare(
+            snapshot
+        )
+        updated, branch_path, branch_content = self.branches.prepare_advance(
             snapshot.branch_id,
             checkpoint_id=checkpoint_id,
             step=snapshot.current_step,
             expected_head_checkpoint_id=branch.head_checkpoint_id,
+        )
+        persisted = snapshot.model_copy(update={"checkpoint_id": checkpoint_id})
+        manifest = SessionManifest.from_snapshot(persisted)
+        session_path, session_content = self.sessions.prepare(manifest)
+        batch = AtomicBatch(self.root)
+        written: list[Path] = []
+        if checkpoint_path.exists():
+            if checkpoint_path.read_text(encoding="utf-8") != checkpoint_content:
+                raise ValueError("checkpoint content hash collision")
+        else:
+            batch.add(
+                self._relative(checkpoint_path),
+                checkpoint_content,
+                overwrite=False,
+            )
+            written.append(checkpoint_path)
+        batch.add(self._relative(session_path), session_content)
+        written.append(session_path)
+        batch.add(self._relative(branch_path), branch_content)
+        written.append(branch_path)
+        batch.commit(
+            precondition=lambda: self.branches.assert_head(
+                snapshot.branch_id,
+                branch.head_checkpoint_id,
+            )
         )
         return CommitResult(
             branch=updated,
@@ -54,10 +83,7 @@ class SimulationCommitKernel:
             session_id=snapshot.session_id,
             step=snapshot.current_step,
             state_hash=snapshot.state_hash,
-            written_paths=(
-                str(checkpoint_path),
-                str(self.branches.path_for(branch.branch_id)),
-            ),
+            written_paths=tuple(str(path) for path in written),
         )
 
     def append_step(
@@ -75,33 +101,80 @@ class SimulationCommitKernel:
         )
         checkpoint_id: str | None = None
         checkpoint_path: Path | None = None
+        checkpoint_content: str | None = None
         if checkpoint:
-            checkpoint_id, checkpoint_path = self.checkpoints.save(snapshot)
-        log_path = self.logs.append(
-            snapshot.branch_id,
-            SimulationLogRecord(
+            checkpoint_id, checkpoint_path, checkpoint_content = (
+                self.checkpoints.prepare(snapshot)
+            )
+        record = SimulationLogRecord(
+            checkpoint_id=checkpoint_id,
+            state_hash=snapshot.state_hash,
+            result=result.model_copy(update={"checkpoint_id": checkpoint_id}),
+            trace=trace,
+        )
+        log_path, log_content = self.logs.prepare(record)
+        persisted = snapshot.model_copy(
+            update={"checkpoint_id": checkpoint_id or snapshot.checkpoint_id}
+        )
+        manifest = SessionManifest.from_snapshot(persisted)
+        session_path, session_content = self.sessions.prepare(manifest)
+        observations = self.logs.prepare_observations(snapshot, step=result.step)
+
+        batch = AtomicBatch(self.root)
+        written: list[Path] = []
+        if checkpoint_path is not None and checkpoint_content is not None:
+            if checkpoint_path.exists():
+                if checkpoint_path.read_text(encoding="utf-8") != checkpoint_content:
+                    raise ValueError("checkpoint content hash collision")
+            else:
+                batch.add(
+                    self._relative(checkpoint_path),
+                    checkpoint_content,
+                    overwrite=False,
+                )
+                written.append(checkpoint_path)
+        batch.add(self._relative(log_path), log_content, overwrite=False)
+        written.append(log_path)
+        for observation_path, observation_content in observations:
+            batch.add(
+                self._relative(observation_path),
+                observation_content,
+                overwrite=False,
+            )
+            written.append(observation_path)
+        batch.add(self._relative(session_path), session_content)
+        written.append(session_path)
+
+        updated = branch
+        if checkpoint_id is not None:
+            updated, branch_path, branch_content = self.branches.prepare_advance(
+                snapshot.branch_id,
                 checkpoint_id=checkpoint_id,
-                state_hash=snapshot.state_hash,
-                result=result.model_copy(update={"checkpoint_id": checkpoint_id}),
-                trace=trace,
-            ),
+                step=snapshot.current_step,
+                expected_head_checkpoint_id=branch.head_checkpoint_id,
+            )
+            batch.add(self._relative(branch_path), branch_content)
+            written.append(branch_path)
+
+        batch.commit(
+            precondition=lambda: self.branches.assert_head(
+                snapshot.branch_id,
+                branch.head_checkpoint_id,
+            )
         )
         if checkpoint_id is None or checkpoint_path is None:
             return None
-        updated = self.branches.advance(
-            snapshot.branch_id,
-            checkpoint_id=checkpoint_id,
-            step=snapshot.current_step,
-            expected_head_checkpoint_id=branch.head_checkpoint_id,
-        )
         return CommitResult(
             branch=updated,
             checkpoint_id=checkpoint_id,
             session_id=snapshot.session_id,
             step=snapshot.current_step,
             state_hash=snapshot.state_hash,
-            written_paths=(str(checkpoint_path), str(log_path)),
+            written_paths=tuple(str(path) for path in written),
         )
+
+    def _relative(self, path: Path) -> str:
+        return path.relative_to(self.root).as_posix()
 
     def load_checkpoint(
         self,

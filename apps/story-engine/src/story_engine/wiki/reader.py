@@ -1,28 +1,16 @@
 import json
 from pathlib import Path
 
-from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
-from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
+from story_engine.domain.memory import MemoryRecordType
 from story_engine.domain.projection import EventVisibility
 from story_engine.domain.simulation import TurnSessionSnapshot
 from story_engine.domain.wiki import WikiSource, WikiSourceKind
-from story_engine.persistence.simulation_log import SimulationLogRecord
+from story_engine.persistence.simulation_log import (
+    SimulationLogRecord,
+    SimulationLogStore,
+)
 from story_engine.wiki.store import WikiStore
 from story_engine.workspace.project_store import ProjectStore
-
-
-def decode_snapshot_memories(
-    snapshot: TurnSessionSnapshot,
-) -> tuple[MemoryRecord, ...]:
-    records: list[MemoryRecord] = []
-    for memory_snapshot in snapshot.memory_snapshots.values():
-        bank = ConcordiaMemoryBank(
-            owner_id=memory_snapshot.owner_id,
-            scope=memory_snapshot.scope,
-        )
-        bank.restore(memory_snapshot)
-        records.extend(bank.scan(lambda _record: True))
-    return tuple(records)
 
 
 class WikiSourceReader:
@@ -31,6 +19,7 @@ class WikiSourceReader:
     def __init__(self, root: Path, branch_id: str) -> None:
         self.root = root
         self.branch_id = branch_id
+        self.logs = SimulationLogStore(root)
 
     def project_sources(self) -> tuple[WikiSource, ...]:
         snapshot = ProjectStore(self.root).load()
@@ -108,23 +97,6 @@ class WikiSourceReader:
             )
         sources.extend(
             WikiSource(
-                source_id=memory.record_id,
-                kind=WikiSourceKind.GM_MEMORY,
-                branch_id=self.branch_id,
-                step=memory.step,
-                content=memory.text,
-            )
-            for memory in decode_snapshot_memories(snapshot)
-            if memory.scope == MemoryScope.GAME_MASTER
-            and memory.record_type
-            in {
-                MemoryRecordType.PREMISE,
-                MemoryRecordType.WORLD_EVENT,
-                MemoryRecordType.SYSTEM,
-            }
-        )
-        sources.extend(
-            WikiSource(
                 source_id=instruction.instruction_id,
                 kind=WikiSourceKind.DIRECTOR_INSTRUCTION,
                 branch_id=self.branch_id,
@@ -142,6 +114,7 @@ class WikiSourceReader:
         records: tuple[SimulationLogRecord, ...],
         snapshot: TurnSessionSnapshot,
     ) -> tuple[WikiSource, ...]:
+        del snapshot
         sources = [
             source
             for source in self.project_sources()
@@ -181,10 +154,11 @@ class WikiSourceReader:
                 step=memory.step,
                 content=memory.text,
             )
-            for memory in decode_snapshot_memories(snapshot)
-            if memory.scope == MemoryScope.CHARACTER
-            and memory.owner_id == subject_id
-            and memory.record_type
+            for memory in self.logs.read_observations(
+                self.branch_id,
+                subject_id=subject_id,
+            )
+            if memory.record_type
             in {MemoryRecordType.PREMISE, MemoryRecordType.OBSERVATION}
         )
         return tuple({source.source_id: source for source in sources}.values())

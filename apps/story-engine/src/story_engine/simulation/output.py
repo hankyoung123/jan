@@ -1,6 +1,5 @@
 import asyncio
-import json
-import os
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +12,8 @@ from story_engine.domain.simulation import (
 )
 from story_engine.manuscript.service import ManuscriptAgent, ManuscriptService
 from story_engine.wiki.boundary import WikiBoundaryProcessor
+from story_engine.workspace.atomic import atomic_write_text
+from story_engine.workspace.documents import dump_json_envelope
 from story_engine.workspace.lock import ProjectLock
 
 
@@ -30,6 +31,35 @@ class BoundaryMaintenanceCoordinator:
         self.wiki_processor = wiki_processor
         self.manuscript_agent = manuscript_agent
 
+    def requires_wiki(
+        self,
+        result: StepResult,
+        snapshot: TurnSessionSnapshot,
+    ) -> bool:
+        return result.boundary != SimulationBoundary.NONE and self._should_update_wiki(
+            snapshot,
+            result.boundary,
+        )
+
+    def process_wiki(
+        self,
+        result: StepResult,
+        snapshot: TurnSessionSnapshot,
+    ) -> None:
+        if snapshot.checkpoint_id is None:
+            raise WikiMaintenanceError("boundary has no checkpoint")
+        try:
+            asyncio.run(
+                self.wiki_processor.process(
+                    snapshot,
+                    boundary=result.boundary,
+                    end_step=result.step,
+                )
+            )
+        except Exception as error:
+            self._record_failure(snapshot, result, f"wiki: {error}")
+            raise WikiMaintenanceError(str(error)) from error
+
     def process(
         self,
         result: StepResult,
@@ -39,19 +69,10 @@ class BoundaryMaintenanceCoordinator:
             return
         if snapshot.checkpoint_id is None:
             self._record_failure(snapshot, result, "boundary has no checkpoint")
-            return
+            raise WikiMaintenanceError("boundary has no checkpoint")
 
         if self._should_update_wiki(snapshot, result.boundary):
-            try:
-                asyncio.run(
-                    self.wiki_processor.process(
-                        snapshot,
-                        boundary=result.boundary,
-                        end_step=result.step,
-                    )
-                )
-            except Exception as error:
-                self._record_failure(snapshot, result, f"wiki: {error}")
+            self.process_wiki(result, snapshot)
 
         if self._should_write(snapshot, result.boundary):
             try:
@@ -111,25 +132,34 @@ class BoundaryMaintenanceCoordinator:
         result: StepResult,
         detail: str,
     ) -> None:
-        path = self.root / ".story-engine/runtime/output-failures.jsonl"
-        payload = json.dumps(
-            {
-                "project_id": snapshot.project_id,
+        recorded_at = datetime.now(UTC)
+        failure_id = f"failure-{uuid.uuid4().hex}"
+        path = self.root / ".story-engine/runtime/output-failures" / f"{failure_id}.md"
+        payload = {
+            "failure_id": failure_id,
+            "project_id": snapshot.project_id,
+            "branch_id": snapshot.branch_id,
+            "session_id": snapshot.session_id,
+            "checkpoint_id": snapshot.checkpoint_id,
+            "step": result.step,
+            "boundary": result.boundary.value,
+            "detail": detail,
+            "recorded_at": recorded_at.isoformat(),
+        }
+        content = dump_json_envelope(
+            schema="story-engine/output-failure/v1",
+            title=f"Output Failure {failure_id}",
+            metadata={
+                "failure_id": failure_id,
                 "branch_id": snapshot.branch_id,
-                "session_id": snapshot.session_id,
-                "checkpoint_id": snapshot.checkpoint_id,
                 "step": result.step,
-                "boundary": result.boundary.value,
-                "detail": detail,
-                "recorded_at": datetime.now(UTC).isoformat(),
             },
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
+            body=f"# Output Failure\n\n{detail}",
+            payload=payload,
         )
         with ProjectLock(self.root):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8", newline="\n") as handle:
-                handle.write(payload + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
+            atomic_write_text(path, content, overwrite=False)
+
+
+class WikiMaintenanceError(RuntimeError):
+    """Wiki state is stale and the next simulation step must be blocked."""

@@ -24,7 +24,10 @@ from story_engine.domain.trace import (
 from story_engine.events.stream import EngineEventBus, EngineEventType
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.simulation.engine import SessionNotFoundError, StoryTurnEngine
-from story_engine.simulation.output import BoundaryMaintenanceCoordinator
+from story_engine.simulation.output import (
+    BoundaryMaintenanceCoordinator,
+    WikiMaintenanceError,
+)
 from story_engine.simulation.session import calculate_snapshot_state_hash
 
 CommitKernelFactory = Callable[[str], SimulationCommitKernel]
@@ -166,6 +169,18 @@ class SimulationApplicationService:
         loaded = self._kernel(project_id).load_checkpoint(
             project_id,
             manifest.head_checkpoint_id,
+        )
+        loaded = loaded.model_copy(
+            update={
+                "maintenance_status": manifest.maintenance_status,
+                "maintenance_error_text": manifest.maintenance_error_text,
+                "maintenance_step": manifest.maintenance_step,
+                "maintenance_boundary": manifest.maintenance_boundary,
+                "state_hash": "0" * 64,
+            }
+        )
+        loaded = loaded.model_copy(
+            update={"state_hash": calculate_snapshot_state_hash(loaded)}
         )
         if manifest.status in {
             TurnSessionStatus.TERMINATED,
@@ -566,7 +581,7 @@ class SimulationApplicationService:
             raise
         snapshot = self.engine.get(session_id)
         result, snapshot, _ = self._commit_step(result, snapshot)
-        self._process_boundary_outputs(result, snapshot)
+        snapshot = self._process_boundary_outputs(result, snapshot)
         self._step_sink(lambda: snapshot)(result)
         if snapshot.status == TurnSessionStatus.PAUSED:
             self._publish(snapshot, "simulation.paused")
@@ -583,7 +598,10 @@ class SimulationApplicationService:
                 result,
                 snapshot,
             )
-            self._process_boundary_outputs(committed_result, committed_snapshot)
+            committed_snapshot = self._process_boundary_outputs(
+                committed_result,
+                committed_snapshot,
+            )
             self._step_sink(lambda: committed_snapshot)(committed_result)
 
         snapshot = self.engine.run(
@@ -786,7 +804,82 @@ class SimulationApplicationService:
         self,
         result: StepResult,
         snapshot: TurnSessionSnapshot,
-    ) -> None:
+    ) -> TurnSessionSnapshot:
         if self._boundary_output_factory is None or result.boundary.value == "none":
-            return
-        self._boundary_output_factory(snapshot).process(result, snapshot)
+            return snapshot
+        coordinator = self._boundary_output_factory(snapshot)
+        if not coordinator.requires_wiki(result, snapshot):
+            coordinator.process(result, snapshot)
+            return snapshot
+        pending = self.engine.begin_maintenance(
+            snapshot.session_id,
+            step=result.step,
+            boundary=result.boundary,
+        )
+        self._persist(pending)
+        try:
+            coordinator.process(result, pending)
+        except WikiMaintenanceError as error:
+            failed = self.engine.fail_maintenance(
+                snapshot.session_id,
+                error_text=str(error),
+            )
+            self._persist(failed)
+            self._publish(
+                failed,
+                "simulation.paused",
+                payload={
+                    "session_id": failed.session_id,
+                    "maintenance_status": failed.maintenance_status.value,
+                    "maintenance_error": str(error),
+                },
+            )
+            return failed
+        completed = self.engine.complete_maintenance(snapshot.session_id)
+        self._persist(completed)
+        return completed
+
+    def retry_maintenance(self, session_id: str) -> TurnSessionSnapshot:
+        if self._boundary_output_factory is None:
+            raise RuntimeError("Wiki maintenance is not configured")
+        snapshot = self.engine.get(session_id)
+        if snapshot.maintenance_status.value != "failed":
+            raise RuntimeError("session has no failed Wiki maintenance")
+        if snapshot.maintenance_step is None:
+            raise RuntimeError("failed Wiki maintenance has no source step")
+        records = self._kernel(snapshot.project_id).logs.read(snapshot.branch_id)
+        record = next(
+            (
+                item
+                for item in reversed(records)
+                if item.result.session_id == session_id
+                and item.result.step == snapshot.maintenance_step
+                and item.trace.status == ModelCallStatus.SUCCEEDED
+            ),
+            None,
+        )
+        if record is None:
+            raise RuntimeError("failed Wiki maintenance source turn is missing")
+        pending = self.engine.begin_maintenance(
+            session_id,
+            step=record.result.step,
+            boundary=record.result.boundary,
+        )
+        self._persist(pending)
+        try:
+            self._boundary_output_factory(pending).process_wiki(record.result, pending)
+        except WikiMaintenanceError as error:
+            failed = self.engine.fail_maintenance(session_id, error_text=str(error))
+            self._persist(failed)
+            raise
+        completed = self.engine.complete_maintenance(session_id)
+        self._persist(completed)
+        self._publish(
+            completed,
+            "simulation.paused",
+            payload={
+                "session_id": completed.session_id,
+                "maintenance_status": completed.maintenance_status.value,
+            },
+        )
+        return completed

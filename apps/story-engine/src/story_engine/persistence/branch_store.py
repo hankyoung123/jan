@@ -1,12 +1,11 @@
-import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from story_engine.domain.simulation import BranchManifest
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.workspace.atomic import atomic_write_text
+from story_engine.workspace.documents import dump_json_envelope, load_json_envelope
 from story_engine.workspace.lock import ProjectLock
 
 _BRANCH_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,127}$")
@@ -25,26 +24,30 @@ class BranchStore:
     def _path(self, branch_id: str) -> Path:
         if not _BRANCH_ID.fullmatch(branch_id):
             raise ValueError("invalid branch ID")
-        return self.directory / f"{branch_id}.json"
+        return self.directory / f"{branch_id}.md"
 
     def path_for(self, branch_id: str) -> Path:
         return self._path(branch_id)
 
     @staticmethod
     def _content(manifest: BranchManifest) -> str:
-        return (
-            json.dumps(
-                manifest.model_dump(mode="json"),
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
+        return dump_json_envelope(
+            schema="story-engine/branch/v1",
+            title=f"Branch {manifest.branch_id}",
+            metadata={
+                "branch_id": manifest.branch_id,
+                "step": manifest.head_step,
+                "head_checkpoint_id": manifest.head_checkpoint_id,
+            },
+            payload=manifest.model_dump(mode="json"),
         )
 
     def load(self, branch_id: str) -> BranchManifest:
         try:
-            payload: Any = json.loads(self._path(branch_id).read_text(encoding="utf-8"))
+            payload = load_json_envelope(
+                self._path(branch_id),
+                schema="story-engine/branch/v1",
+            )
             manifest = BranchManifest.model_validate(payload)
         except FileNotFoundError:
             raise
@@ -63,7 +66,7 @@ class BranchStore:
             return ()
         return tuple(
             sorted(
-                (self.load(path.stem) for path in self.directory.glob("*.json")),
+                (self.load(path.stem) for path in self.directory.glob("*.md")),
                 key=lambda branch: (branch.created_at, branch.branch_id),
             )
         )
@@ -101,21 +104,45 @@ class BranchStore:
         step: int,
         expected_head_checkpoint_id: str | None,
     ) -> BranchManifest:
-        if not self.checkpoints.exists(checkpoint_id):
-            raise ValueError("cannot advance branch to a missing checkpoint")
         with ProjectLock(self.root):
-            current = self.load(branch_id)
-            if current.head_checkpoint_id != expected_head_checkpoint_id:
-                raise BranchConflictError("branch head changed concurrently")
-            updated = current.model_copy(
-                update={
-                    "head_checkpoint_id": checkpoint_id,
-                    "head_step": step,
-                    "updated_at": datetime.now(UTC),
-                }
+            if not self.checkpoints.exists(checkpoint_id):
+                raise ValueError("cannot advance branch to a missing checkpoint")
+            updated, path, content = self.prepare_advance(
+                branch_id,
+                checkpoint_id=checkpoint_id,
+                step=step,
+                expected_head_checkpoint_id=expected_head_checkpoint_id,
             )
-            atomic_write_text(self._path(branch_id), self._content(updated))
+            atomic_write_text(path, content)
             return updated
+
+    def assert_head(
+        self,
+        branch_id: str,
+        expected_head_checkpoint_id: str | None,
+    ) -> None:
+        if self.load(branch_id).head_checkpoint_id != expected_head_checkpoint_id:
+            raise BranchConflictError("branch head changed concurrently")
+
+    def prepare_advance(
+        self,
+        branch_id: str,
+        *,
+        checkpoint_id: str,
+        step: int,
+        expected_head_checkpoint_id: str | None,
+    ) -> tuple[BranchManifest, Path, str]:
+        current = self.load(branch_id)
+        if current.head_checkpoint_id != expected_head_checkpoint_id:
+            raise BranchConflictError("branch head changed concurrently")
+        updated = current.model_copy(
+            update={
+                "head_checkpoint_id": checkpoint_id,
+                "head_step": step,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        return updated, self._path(branch_id), self._content(updated)
 
     def create(
         self,

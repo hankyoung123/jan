@@ -11,6 +11,7 @@ from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
 from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.registry import ProfileRegistry
+from story_engine.persistence.simulation_log import SimulationLogStore
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 
 AUTH = {"Authorization": "Bearer integration-token"}
@@ -26,12 +27,14 @@ class ReplayGatewayTransport:
         boundary: str = "none",
         event_text: str = "Chen Mo finds a deliberately severed wire.",
         fail_writer: bool = False,
+        fail_wiki_attempts: int = 0,
     ) -> None:
         self.calls: list[str] = []
         self.entity_change = entity_change
         self.boundary = boundary
         self.event_text = event_text
         self.fail_writer = fail_writer
+        self.fail_wiki_attempts = fail_wiki_attempts
 
     def _choice(self, prompt: str, payload: Mapping[str, Any]) -> str:
         response_format = payload.get("response_format")
@@ -97,6 +100,9 @@ class ReplayGatewayTransport:
                 }
             )
         elif "disciplined Story Engine Wiki maintainer" in prompt:
+            if self.fail_wiki_attempts > 0:
+                self.fail_wiki_attempts -= 1
+                raise RuntimeError("wiki unavailable")
             source_ids = re.findall(r'"source_id":\s*"([^"]+)"', prompt)
             if "Scope: World Wiki" in prompt:
                 source_id = next(
@@ -417,12 +423,18 @@ def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
         assert wiki["checkpoint_id"] == checkpoint_id
         assert "severed wire" in world["content"]
         assert any(item.startswith("event:") for item in world["source_ids"])
+        raw_store = SimulationLogStore(tmp_path / "fog-harbor")
+        event_source = next(
+            item for item in world["source_ids"] if item.startswith("event:")
+        )
+        assert raw_store.find_source("main", event_source).suffix == ".md"
         assert world["updated_at_step"] == 0
-        chen_beliefs = client.get(
+        chen_page = client.get(
             "/projects/fog-harbor/branches/main/wiki/page",
             params={"path": "characters/chen-mo/beliefs.md"},
             headers=AUTH,
-        ).json()["content"]
+        ).json()
+        chen_beliefs = chen_page["content"]
         lin_beliefs = client.get(
             "/projects/fog-harbor/branches/main/wiki/page",
             params={"path": "characters/lin-lan/beliefs.md"},
@@ -430,6 +442,12 @@ def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
         ).json()["content"]
         assert "severed wire" in chen_beliefs
         assert "severed wire" in lin_beliefs
+        observation_source = next(
+            item
+            for item in chen_page["source_ids"]
+            if item.startswith(("observation:", "event-observation:"))
+        )
+        assert raw_store.find_source("main", observation_source).suffix == ".md"
         wiki_prompts = [
             prompt
             for prompt in transport.calls
@@ -446,6 +464,86 @@ def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
         assert len(scenes) == 1
         assert scenes[0]["branch_id"] == "main"
         assert scenes[0]["source_checkpoint_id"] == checkpoint_id
+
+
+def test_wiki_failure_pauses_blocks_and_can_be_retried(tmp_path: Path) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    transport = ReplayGatewayTransport(boundary="scene", fail_wiki_attempts=1)
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+                "output": {
+                    "wiki_mode": "after_scene",
+                    "manuscript_mode": "manual",
+                },
+            },
+        ).json()
+        session_id = started["session_id"]
+
+        stepped = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert stepped.status_code == 200
+        failed = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()
+        assert failed["status"] == "paused"
+        assert failed["maintenance_status"] == "failed"
+        assert "wiki unavailable" in failed["maintenance_error_text"]
+
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        recovered = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        )
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.json()["status"] == "paused"
+        assert recovered.json()["maintenance_status"] == "failed"
+        assert "wiki unavailable" in recovered.json()["maintenance_error_text"]
+
+        blocked = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert blocked.status_code == 409
+        assert "retry maintenance" in blocked.json()["detail"]
+
+        retried = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/maintenance/retry",
+            headers=AUTH,
+        )
+        assert retried.status_code == 200, retried.text
+        assert retried.json()["maintenance_status"] == "succeeded"
+        assert retried.json()["status"] == "paused"
+
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        recovered = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        )
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.json()["status"] == "paused"
+        assert recovered.json()["maintenance_status"] == "succeeded"
+
+        continued = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert continued.status_code == 200, continued.text
 
 
 def test_writer_failure_keeps_committed_history_and_wiki(
@@ -495,10 +593,12 @@ def test_writer_failure_keeps_committed_history_and_wiki(
             "/projects/fog-harbor/branches/main/manuscript/scenes",
             headers=AUTH,
         ).json() == []
-        failures = (
-            tmp_path
-            / "fog-harbor/.story-engine/runtime/output-failures.jsonl"
-        ).read_text(encoding="utf-8")
+        failures = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (
+                tmp_path / "fog-harbor/.story-engine/runtime/output-failures"
+            ).glob("*.md")
+        )
         assert "writer unavailable" in failures
 
 
