@@ -1,3 +1,6 @@
+from story_engine.models.contracts import ModelUsage
+
+
 class ModelGatewayError(Exception):
     code = "model_gateway_error"
 
@@ -25,6 +28,10 @@ class UnsupportedResponseFormatError(ProviderResponseError):
 class ResponseLimitError(ModelGatewayError):
     code = "response_limit_exceeded"
 
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.usage: ModelUsage | None = None
+
 
 class StructuredOutputError(ModelGatewayError):
     code = "structured_output_invalid"
@@ -32,6 +39,7 @@ class StructuredOutputError(ModelGatewayError):
     def __init__(self, message: str, *, retryable: bool = False) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.usage: ModelUsage | None = None
 
 
 class ModelConfigurationError(ModelGatewayError):

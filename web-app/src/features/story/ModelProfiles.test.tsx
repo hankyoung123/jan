@@ -141,6 +141,26 @@ describe('ModelProfiles', () => {
     expect(JSON.parse(options.body).model_ref).toBe('openai/shared-model')
   })
 
+  it('saves the selected thinking intensity', async () => {
+    render(<ModelProfiles />)
+    fireEvent.click(await screen.findByRole('button', { name: '角色模型高级参数' }))
+    fireEvent.change(await screen.findByLabelText('角色模型思考强度'), {
+      target: { value: 'medium' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存角色模型' }))
+
+    await waitFor(() =>
+      expect(engineRequest).toHaveBeenCalledWith(
+        '/models/profiles/actor',
+        expect.anything()
+      )
+    )
+    const options = engineRequest.mock.calls.find(
+      ([path]) => path === '/models/profiles/actor'
+    )?.[1]
+    expect(JSON.parse(options.body).reasoning_effort).toBe('medium')
+  })
+
   it('persists a per-character actor profile override', async () => {
     render(<ModelProfiles />)
     fireEvent.change(await screen.findByLabelText('陈默 Agent Profile'), {

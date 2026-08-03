@@ -12,6 +12,7 @@ from story_engine.concordia_runtime.language_model import (
 )
 from story_engine.domain.trace import ModelCallStatus
 from story_engine.models.contracts import ModelProfile, ModelStreamChunk
+from story_engine.models.errors import ResponseLimitError
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.registry import ProfileRegistry
 
@@ -129,3 +130,104 @@ def test_runtime_language_model_choice_and_precancel(tmp_path: Path) -> None:
 
     assert len(transport.calls) == 1
     assert cancelled_traces[0].status == ModelCallStatus.CANCELLED
+
+
+def test_runtime_language_model_uses_profile_budget_and_reasoning_effort(
+    tmp_path: Path,
+) -> None:
+    gateway, transport = _gateway(tmp_path, "A concise answer.")
+    gateway.registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+            max_output_tokens=3072,
+            reasoning_effort="medium",
+        )
+    )
+    model = JanConcordiaLanguageModel(
+        gateway,
+        profile_id="writer",
+        task_type="writer",
+        content_locale="en-US",
+    )
+
+    model.sample_text("Answer the witness.", terminators=())
+
+    assert transport.calls[0]["max_tokens"] == 3072
+    assert transport.calls[0]["reasoning_effort"] == "medium"
+
+
+def test_choice_budget_comes_from_profile_instead_of_hardcoded_256(
+    tmp_path: Path,
+) -> None:
+    gateway, transport = _gateway(tmp_path, json.dumps({"choice": "b"}))
+    gateway.registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+            max_output_tokens=2048,
+        )
+    )
+    model = JanConcordiaLanguageModel(
+        gateway,
+        profile_id="writer",
+        task_type="writer",
+        content_locale="en-US",
+    )
+
+    model.sample_choice("Choose.", ("a", "b"))
+
+    assert transport.calls[0]["max_tokens"] == 2048
+
+
+class TruncatingTransport(QueueTransport):
+    async def complete(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> Mapping[str, Any]:
+        self.calls.append(payload)
+        return {
+            "choices": [
+                {
+                    "message": {"content": '{"choice":'},
+                    "finish_reason": "length",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 4,
+                "total_tokens": 14,
+            },
+        }
+
+
+def test_failed_choice_records_usage_in_trace(tmp_path: Path) -> None:
+    transport = TruncatingTransport(("ignored",))
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+        )
+    )
+    traces = []
+    model = JanConcordiaLanguageModel(
+        ModelGateway(registry, transport),
+        profile_id="writer",
+        task_type="writer",
+        content_locale="en-US",
+        trace_sink=traces.append,
+    )
+
+    with pytest.raises(ResponseLimitError):
+        model.sample_choice("Choose.", ("a", "b"))
+
+    assert len(traces) == 1
+    assert traces[0].status == ModelCallStatus.FAILED
+    assert traces[0].prompt_tokens == 10
+    assert traces[0].completion_tokens == 4

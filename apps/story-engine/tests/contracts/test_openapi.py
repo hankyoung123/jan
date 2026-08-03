@@ -59,4 +59,4 @@ def test_openapi_model_profile_exposes_only_jan_model_reference() -> None:
 
     assert "model_ref" in properties
     assert "provider_id" not in properties
-    assert "reasoning_effort" not in properties
+    assert "reasoning_effort" in properties

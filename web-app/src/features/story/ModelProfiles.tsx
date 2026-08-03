@@ -53,6 +53,17 @@ const emptyUsage: UsageTotals = {
   completion_tokens: 0,
   total_tokens: 0,
 }
+const reasoningEffortOptions: Array<{
+  value: ModelProfile['reasoning_effort']
+  label: string
+}> = [
+  { value: null, label: '跟随模型默认' },
+  { value: 'disabled', label: '关闭思考' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+  { value: 'xhigh', label: '极高' },
+]
 
 type CloudModelOption = { id: string; label: string }
 
@@ -171,7 +182,7 @@ function ProfileRow({
         </div>
 
         <CollapsibleContent>
-          <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-3">
+          <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1.5">
               <Label htmlFor={`${draft.id}-temperature`}>Temperature</Label>
               <Input
@@ -189,6 +200,28 @@ function ProfileRow({
                 type="number"
                 value={draft.temperature ?? ''}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={`${draft.id}-reasoning`}>思考强度</Label>
+              <select
+                aria-label={`${label}思考强度`}
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                id={`${draft.id}-reasoning`}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    reasoning_effort:
+                      (event.target.value || null) as ModelProfile['reasoning_effort'],
+                  }))
+                }
+                value={draft.reasoning_effort ?? ''}
+              >
+                {reasoningEffortOptions.map((option) => (
+                  <option key={option.label} value={option.value ?? ''}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor={`${draft.id}-tokens`}>最大输出 Token</Label>

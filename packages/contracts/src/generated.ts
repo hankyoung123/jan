@@ -1352,6 +1352,8 @@ export interface components {
             max_output_tokens: number;
             /** Model Ref */
             model_ref?: string | null;
+            /** Reasoning Effort */
+            reasoning_effort?: ("disabled" | "low" | "medium" | "high" | "xhigh") | null;
             /**
              * Task Type
              * @enum {string}
@@ -1368,13 +1370,15 @@ export interface components {
         /** ModelRequest */
         ModelRequest: {
             /** Max Output Tokens */
-            max_output_tokens: number;
+            max_output_tokens?: number | null;
             /** Messages */
             messages: components["schemas"]["Message"][];
             /** Output Schema */
             output_schema?: string | null;
             /** Profile Id */
             profile_id: string;
+            /** Reasoning Effort */
+            reasoning_effort?: ("disabled" | "low" | "medium" | "high" | "xhigh") | null;
             /**
              * Task Type
              * @enum {string}

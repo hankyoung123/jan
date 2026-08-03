@@ -42,11 +42,7 @@ def _runtime_factory(
             else tuple(
                 value
                 for step in range(steps)
-                for value in (
-                    ("No", "actor-a")
-                    if boundaries is not None
-                    else ("No", "actor-a", "none")
-                )
+                for value in ("No", "actor-a")
             )
         )
         gm_text = tuple(
@@ -61,8 +57,6 @@ def _runtime_factory(
                     f'{step}","boundary":"{boundary_values[step]}",'
                     '"visibility":"participants","observer_ids":[],'
                     '"participant_ids":["actor-a"],"entity_changes":[]}'
-                    if boundaries is not None
-                    else f"Resolved event {step}"
                 ),
             )
         )

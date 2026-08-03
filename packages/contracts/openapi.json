@@ -1299,6 +1299,24 @@
             ],
             "title": "Model Ref"
           },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "disabled",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
           "task_type": {
             "enum": [
               "actor",
@@ -1342,10 +1360,17 @@
         "additionalProperties": false,
         "properties": {
           "max_output_tokens": {
-            "maximum": 8192.0,
-            "minimum": 1.0,
-            "title": "Max Output Tokens",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 8192.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Output Tokens"
           },
           "messages": {
             "items": {
@@ -1372,6 +1397,24 @@
             "minLength": 1,
             "title": "Profile Id",
             "type": "string"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "disabled",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
           },
           "task_type": {
             "enum": [
@@ -1408,7 +1451,6 @@
           "profile_id",
           "task_type",
           "messages",
-          "max_output_tokens",
           "timeout_seconds"
         ],
         "title": "ModelRequest",

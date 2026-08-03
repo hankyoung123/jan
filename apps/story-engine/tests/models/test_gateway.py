@@ -349,6 +349,147 @@ def test_token_truncation_reports_bridge_reasoning_usage(tmp_path: Path) -> None
         )
 
 
+def test_profile_budget_is_authoritative_when_request_omits_tokens(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport("confirmed prose")
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+            max_output_tokens=3072,
+        )
+    )
+    gateway = ModelGateway(registry, transport)
+
+    request = _request().model_copy(update={"max_output_tokens": None})
+    asyncio.run(gateway.complete(request))
+
+    assert transport.calls[0]["max_tokens"] == 3072
+
+
+def test_reasoning_effort_comes_from_profile_and_request_override(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport("confirmed prose")
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+            reasoning_effort="high",
+        )
+    )
+    gateway = ModelGateway(registry, transport)
+
+    asyncio.run(gateway.complete(_request()))
+    asyncio.run(
+        gateway.complete(_request().model_copy(update={"reasoning_effort": "low"}))
+    )
+    asyncio.run(
+        gateway.complete(_request().model_copy(update={"reasoning_effort": None}))
+    )
+
+    assert transport.calls[0]["reasoning_effort"] == "high"
+    assert transport.calls[1]["reasoning_effort"] == "low"
+    assert transport.calls[2]["reasoning_effort"] == "high"
+
+
+class SequenceTransport:
+    def __init__(
+        self,
+        calls: list[tuple[str, str, int | None]],
+    ) -> None:
+        self._calls = calls
+        self.observed: list[Mapping[str, Any]] = []
+
+    async def complete(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> Mapping[str, Any]:
+        del timeout_seconds
+        self.observed.append(dict(payload))
+        content, finish_reason, reasoning_tokens = self._calls.pop(0)
+        usage: dict[str, Any] = {
+            "prompt_tokens": 5,
+            "completion_tokens": 3,
+            "total_tokens": 8,
+        }
+        if reasoning_tokens is not None:
+            usage["completion_tokens_details"] = {
+                "reasoning_tokens": reasoning_tokens
+            }
+        return {
+            "choices": [
+                {
+                    "message": {"content": content},
+                    "finish_reason": finish_reason,
+                }
+            ],
+            "usage": usage,
+        }
+
+
+def test_truncated_structured_output_retries_with_expanded_budget(
+    tmp_path: Path,
+) -> None:
+    schema = json.dumps(
+        {
+            "type": "object",
+            "required": ["decision"],
+            "properties": {"decision": {"const": "accept"}},
+        }
+    )
+    transport = SequenceTransport(
+        [
+            ('{"decision":', "length", 256),
+            ('{"decision":"accept"}', "stop", None),
+        ]
+    )
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+            max_output_tokens=4096,
+        )
+    )
+    gateway = ModelGateway(registry, transport)
+
+    response = asyncio.run(
+        gateway.complete(_request(output_schema=schema))
+    )
+
+    assert response.parsed_output == {"decision": "accept"}
+    assert transport.observed[0]["max_tokens"] == 512
+    assert transport.observed[1]["max_tokens"] == 1024
+    assert gateway.usage.totals().requests == 2
+    assert gateway.usage.totals().total_tokens == 16
+
+
+def test_free_text_truncation_retries_then_fails_loudly(tmp_path: Path) -> None:
+    transport = SequenceTransport(
+        [
+            ("half a sentence", "length", None),
+            ("still truncated", "length", None),
+            ("truncated again", "length", None),
+        ]
+    )
+    gateway, _ = _gateway(tmp_path, transport)
+
+    with pytest.raises(ResponseLimitError, match="truncated at max_tokens"):
+        asyncio.run(gateway.complete(_request()))
+
+    assert len(transport.observed) == 3
+    assert gateway.usage.totals().requests == 3
+
+
 def test_task_mismatch_fails_before_the_jan_bridge(tmp_path: Path) -> None:
     transport = FakeTransport("unused")
     gateway, _ = _gateway(tmp_path, transport)

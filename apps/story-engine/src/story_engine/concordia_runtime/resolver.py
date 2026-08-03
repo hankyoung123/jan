@@ -22,6 +22,10 @@ class SimulationCancelledError(RuntimeError):
     """Raised before an unresolved step can advance persistent state."""
 
 
+class ResolutionEnvelopeError(ValueError):
+    """Raised when a Game Master resolution is not a usable JSON envelope."""
+
+
 class ConcordiaResolverKernel:
     """Resolve putative actor actions through the persistent Game Master."""
 
@@ -46,18 +50,26 @@ class ConcordiaResolverKernel:
     ]:
         try:
             payload = json.loads(raw.strip().removeprefix("Event:").strip())
-        except json.JSONDecodeError:
-            return raw, None, (), ()
+        except json.JSONDecodeError as error:
+            raise ResolutionEnvelopeError(
+                "Game Master resolution must be valid JSON"
+            ) from error
         if not isinstance(payload, Mapping):
-            return raw, None, (), ()
+            raise ResolutionEnvelopeError(
+                "Game Master resolution JSON must be an object"
+            )
         event_text = payload.get("event_text")
         if not isinstance(event_text, str) or not event_text.strip():
-            return raw, None, (), ()
+            raise ResolutionEnvelopeError(
+                "Game Master resolution JSON must include event_text"
+            )
         try:
             boundary = SimulationBoundary(payload.get("boundary", "none"))
             visibility = EventVisibility(payload.get("visibility", "participants"))
-        except ValueError:
-            return raw, None, (), ()
+        except ValueError as error:
+            raise ResolutionEnvelopeError(
+                "Game Master resolution JSON has an invalid boundary or visibility"
+            ) from error
 
         def string_tuple(value: object) -> tuple[str, ...]:
             if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):

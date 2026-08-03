@@ -67,8 +67,17 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         self._content_locale = content_locale
         self._prompt_version = prompt_version
         self._output_schema = output_schema
-        self._max_output_tokens = max_output_tokens
-        self._timeout_seconds = timeout_seconds
+        profile = self._gateway.registry.get_profile(profile_id)
+        self._max_output_tokens: int = (
+            max_output_tokens
+            if max_output_tokens is not None
+            else profile.max_output_tokens
+        )
+        self._timeout_seconds: float = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else profile.timeout_seconds
+        )
         self._cancellation = cancellation
         self._trace_sink = trace_sink
         self._session_id = session_id
@@ -131,6 +140,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         else:
             status = ModelCallStatus.SUCCEEDED
         profile = self._gateway.registry.get_profile(self._profile_id)
+        attempt_usage = getattr(error, "usage", None) if error is not None else None
         trace = ModelCallTrace(
             call_id=call_id,
             task_id=f"task:{call_id.removeprefix('call:')}",
@@ -147,8 +157,16 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
             component_ids=self._component_ids,
             source_record_ids=self._source_record_ids,
             prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-            prompt_tokens=response.usage.prompt_tokens if response else 0,
-            completion_tokens=response.usage.completion_tokens if response else 0,
+            prompt_tokens=(
+                response.usage.prompt_tokens
+                if response
+                else getattr(attempt_usage, "prompt_tokens", 0)
+            ),
+            completion_tokens=(
+                response.usage.completion_tokens
+                if response
+                else getattr(attempt_usage, "completion_tokens", 0)
+            ),
             duration_ms=duration_ms,
             error_code=(
                 getattr(error, "code", type(error).__name__.lower())
@@ -221,8 +239,8 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         del top_p, top_k, seed
         content, _ = self._complete(
             prompt,
-            max_tokens=self._max_output_tokens or max_tokens,
-            timeout=self._timeout_seconds or timeout,
+            max_tokens=self._max_output_tokens,
+            timeout=self._timeout_seconds,
             temperature=temperature,
             output_schema=self._output_schema,
         )
@@ -255,8 +273,8 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         )
         _, parsed = self._complete(
             f"{prompt}\nReturn the selected option in the required JSON schema.",
-            max_tokens=256,
-            timeout=self._timeout_seconds or language_model.DEFAULT_TIMEOUT_SECONDS,
+            max_tokens=self._max_output_tokens,
+            timeout=self._timeout_seconds,
             temperature=0,
             output_schema=schema,
         )

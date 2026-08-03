@@ -21,7 +21,8 @@ def _runtime() -> tuple[object, object, ConcordiaMemoryBank]:
         text_responses=(
             '{"call_to_action":"Try the door.","output_type":"free",'
             '"options":[],"tag":"action"}',
-            "The lock holds, and the noise alerts the guard.",
+            '{"event_text":"The lock holds, and the noise alerts the guard.",'
+            '"boundary":"none","visibility":"participants"}',
         ),
         choice_responses=("actor-a", "none"),
     )

@@ -11,6 +11,7 @@ ModelTask = Literal[
     "editor",
     "writer",
 ]
+ReasoningEffort = Literal["disabled", "low", "medium", "high", "xhigh"]
 MessageRole = Literal["system", "user", "assistant"]
 
 
@@ -26,6 +27,7 @@ class ModelProfile(DomainModel):
     max_output_tokens: int = Field(default=2048, ge=1, le=8192)
     timeout_seconds: int = Field(default=60, ge=1, le=120)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
 
 
 class Message(DomainModel):
@@ -38,9 +40,10 @@ class ModelRequest(DomainModel):
     task_type: ModelTask
     messages: tuple[Message, ...] = Field(min_length=1, max_length=128)
     output_schema: str | None = Field(default=None, max_length=131_072)
-    max_output_tokens: int = Field(ge=1, le=8192)
+    max_output_tokens: int | None = Field(default=None, ge=1, le=8192)
     timeout_seconds: int = Field(ge=1, le=120)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
 
 
 class ModelUsage(DomainModel):

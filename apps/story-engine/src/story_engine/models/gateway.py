@@ -416,7 +416,11 @@ class ModelGateway:
         messages = [message.model_dump(mode="json") for message in request.messages]
         payload: dict[str, Any] = {
             "messages": messages,
-            "max_tokens": request.max_output_tokens,
+            "max_tokens": (
+                request.max_output_tokens
+                if request.max_output_tokens is not None
+                else profile.max_output_tokens
+            ),
         }
         if profile.model_ref is not None:
             payload["model"] = profile.model_ref
@@ -427,6 +431,13 @@ class ModelGateway:
         )
         if temperature is not None:
             payload["temperature"] = temperature
+        reasoning_effort = (
+            request.reasoning_effort
+            if request.reasoning_effort is not None
+            else profile.reasoning_effort
+        )
+        if reasoning_effort is not None:
+            payload["reasoning_effort"] = reasoning_effort
         if schema is not None:
             payload["response_format"] = {
                 "type": "json_schema",
@@ -532,11 +543,32 @@ class ModelGateway:
             ) from error
         return parsed
 
+    @staticmethod
+    def _expanded_budget(
+        current_budget: int,
+        *,
+        reasoning_tokens: int | None,
+        ceiling: int,
+    ) -> int:
+        next_budget = max(
+            current_budget * 2,
+            (reasoning_tokens if reasoning_tokens is not None else current_budget)
+            + 128,
+        )
+        return min(ceiling, next_budget)
+
     async def complete(self, request: ModelRequest) -> ModelResponse:
         profile = self._resolve(request)
         schema = self._schema(request)
         payload = self._payload(request, profile, schema)
         can_fallback_to_prompt = schema is not None
+        budget_ceiling = min(
+            8192,
+            max(
+                profile.max_output_tokens,
+                request.max_output_tokens or 0,
+            ),
+        )
         try:
             async with asyncio.timeout(request.timeout_seconds):
                 for attempt in range(MAX_STRUCTURED_ATTEMPTS):
@@ -555,8 +587,13 @@ class ModelGateway:
                             timeout_seconds=request.timeout_seconds,
                         )
                     content, finish_reason, usage = self._parse_content(raw)
-                    if schema is not None and finish_reason in TRUNCATED_FINISH_REASONS:
-                        message = "model JSON output was truncated at max_tokens"
+                    self.usage.record(usage)
+                    if finish_reason in TRUNCATED_FINISH_REASONS:
+                        message = (
+                            "model JSON output was truncated at max_tokens"
+                            if schema is not None
+                            else "model output was truncated at max_tokens"
+                        )
                         reasoning_tokens = _reasoning_tokens(raw)
                         if reasoning_tokens is not None:
                             message += (
@@ -565,10 +602,29 @@ class ModelGateway:
                             )
                         else:
                             message += f" (finish_reason={finish_reason})"
-                        raise ResponseLimitError(message)
+                        current_budget = payload.get("max_tokens")
+                        if not isinstance(current_budget, int):
+                            current_budget = request.max_output_tokens or (
+                                profile.max_output_tokens
+                            )
+                        expanded = self._expanded_budget(
+                            current_budget,
+                            reasoning_tokens=reasoning_tokens,
+                            ceiling=budget_ceiling,
+                        )
+                        if (
+                            attempt == MAX_STRUCTURED_ATTEMPTS - 1
+                            or expanded <= current_budget
+                        ):
+                            error = ResponseLimitError(message)
+                            error.usage = usage
+                            raise error
+                        payload["max_tokens"] = expanded
+                        continue
                     try:
                         parsed_output = self._validate_output(content, schema)
                     except StructuredOutputError as error:
+                        error.usage = usage
                         if (
                             not error.retryable
                             or attempt == MAX_STRUCTURED_ATTEMPTS - 1
@@ -578,7 +634,6 @@ class ModelGateway:
                             STRUCTURED_RETRY_BACKOFF_SECONDS * (2**attempt)
                         )
                         continue
-                    self.usage.record(usage)
                     return ModelResponse(
                         profile_id=profile.id,
                         model_ref=(
