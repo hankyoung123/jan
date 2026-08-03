@@ -4,10 +4,11 @@ import {
   Check,
   ChevronDown,
   Loader2,
+  Plus,
   RefreshCw,
   Save,
   Settings2,
-  SlidersHorizontal,
+  UsersRound,
   Workflow,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -18,53 +19,34 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { route } from '@/constants/routes'
-import { ModelCombobox } from '@/containers/ModelCombobox'
-import ProvidersAvatar from '@/containers/ProvidersAvatar'
 import { useModelProvider } from '@/hooks/useModelProvider'
-import { cn, getProviderTitle } from '@/lib/utils'
+import { cn, getProviderTitle, isLocalProvider } from '@/lib/utils'
+import { useActiveStoryProjectId } from './activeProject'
 import { engineRequest } from './engine'
 
+type Character = components['schemas']['Character']
 type ModelProfile = components['schemas']['ModelProfile']
+type ModelTask = ModelProfile['task_type']
+type ProjectModelPolicy = components['schemas']['ProjectModelPolicy']
 type UsageTotals = components['schemas']['UsageTotals']
 
-const taskLabels: Record<ModelProfile['task_type'], string> = {
+const taskLabels: Record<ModelTask, string> = {
   actor: '角色',
   game_master: '世界主持人',
-  reflection: '反思',
-  memory_consolidation: '记忆整理',
-  projection: '投影',
+  wiki_maintenance: 'Wiki 整理',
   editor: '审核',
   writer: '写作',
-  embedding: '嵌入',
 }
-
-const reasoningOptions: Array<{
-  value: NonNullable<ModelProfile['reasoning_effort']>
-  label: string
-}> = [
-  { value: 'disabled', label: '关闭' },
-  { value: 'low', label: '低' },
-  { value: 'high', label: '高' },
-  { value: 'max', label: '最高' },
-]
-
+const defaultProfileIds: Record<ModelTask, string> = {
+  actor: 'actor',
+  game_master: 'game-master',
+  wiki_maintenance: 'wiki-maintenance',
+  editor: 'editor',
+  writer: 'writer',
+}
 const emptyUsage: UsageTotals = {
   requests: 0,
   prompt_tokens: 0,
@@ -72,13 +54,22 @@ const emptyUsage: UsageTotals = {
   total_tokens: 0,
 }
 
+type CloudModelOption = { id: string; label: string }
+
+function profileLabel(profile: ModelProfile): string {
+  const task = taskLabels[profile.task_type]
+  return profile.id === defaultProfileIds[profile.task_type]
+    ? `${task}模型`
+    : `${task}模型（${profile.id}）`
+}
+
 function ProfileRow({
   profile,
-  providers,
+  models,
   onSaved,
 }: {
   profile: ModelProfile
-  providers: ModelProvider[]
+  models: CloudModelOption[]
   onSaved: (profile: ModelProfile) => void
 }) {
   const [draft, setDraft] = useState(profile)
@@ -91,31 +82,9 @@ function ProfileRow({
     setSaveError(null)
   }, [profile])
 
-  const provider = providers.find(
-    (candidate) => candidate.provider === draft.provider_id
-  )
-  const reasoningEffort = draft.reasoning_effort ?? 'disabled'
-  const models = useMemo(
-    () =>
-      Array.from(
-        new Set((provider?.models ?? []).map((model) => model.id))
-      ).sort((left, right) => left.localeCompare(right)),
-    [provider]
-  )
-  const providerOptions = useMemo(() => {
-    const active = providers.filter((candidate) => candidate.active)
-    if (provider && !active.includes(provider)) active.push(provider)
-    return active.sort((left, right) =>
-      getProviderTitle(left.provider).localeCompare(
-        getProviderTitle(right.provider)
-      )
-    )
-  }, [provider, providers])
-
+  const label = profileLabel(draft)
   const dirty = JSON.stringify(draft) !== JSON.stringify(profile)
   const valid =
-    draft.provider_id.trim().length > 0 &&
-    draft.model.trim().length > 0 &&
     draft.max_output_tokens >= 1 &&
     draft.max_output_tokens <= 8192 &&
     draft.timeout_seconds >= 1 &&
@@ -123,21 +92,8 @@ function ProfileRow({
     (draft.temperature === null ||
       draft.temperature === undefined ||
       (draft.temperature >= 0 && draft.temperature <= 2))
-
-  const selectProvider = (providerId: string) => {
-    const nextProvider = providers.find(
-      (candidate) => candidate.provider === providerId
-    )
-    setDraft((current) => ({
-      ...current,
-      provider_id: providerId,
-      model:
-        nextProvider?.models.some((model) => model.id === current.model)
-          ? current.model
-          : (nextProvider?.models[0]?.id ?? ''),
-    }))
-    setSaveError(null)
-  }
+  const selectedUnavailable =
+    draft.model_ref && !models.some((model) => model.id === draft.model_ref)
 
   const save = async () => {
     if (!dirty || !valid || saving) return
@@ -146,275 +102,139 @@ function ProfileRow({
     try {
       const saved = await engineRequest<ModelProfile>(
         `/models/profiles/${draft.id}`,
-        {
-          method: 'PUT',
-          body: JSON.stringify(draft),
-        }
+        { method: 'PUT', body: JSON.stringify(draft) }
       )
       onSaved(saved)
     } catch (error) {
-      setSaveError(
-        error instanceof Error ? error.message : '任务模型配置保存失败'
-      )
+      setSaveError(error instanceof Error ? error.message : '任务模型配置保存失败')
     } finally {
       setSaving(false)
     }
   }
 
-  const taskLabel = taskLabels[draft.task_type]
-
   return (
     <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
       <div className="p-3">
-        <div className="grid min-w-0 grid-cols-1 items-end gap-3 lg:grid-cols-[minmax(7rem,0.7fr)_minmax(8rem,1fr)_minmax(10rem,1.45fr)_auto_auto]">
-          <div className="min-w-0 self-center">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-sm font-medium text-foreground">
-                {taskLabel}
-              </span>
-              {!draft.enabled && (
-                <span className="text-xs text-muted-foreground">已停用</span>
-              )}
-            </div>
-            <div className="mt-1 flex h-4 items-center gap-1.5 text-xs text-muted-foreground">
-              {saving ? (
-                <>
-                  <Loader2 className="size-3 animate-spin" /> 保存中
-                </>
-              ) : dirty ? (
-                '未保存'
-              ) : (
-                <>
-                  <Check className="size-3" /> 已保存
-                </>
-              )}
-            </div>
+        <div className="grid min-w-0 grid-cols-1 items-end gap-3 lg:grid-cols-[minmax(9rem,0.8fr)_minmax(15rem,2fr)_auto_auto]">
+          <div className="self-center">
+            <span className="block text-sm font-medium">{taskLabels[draft.task_type]}</span>
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+              {draft.id}
+            </span>
           </div>
-
           <div className="min-w-0 space-y-1.5">
-            <Label htmlFor={`${draft.id}-provider`}>Provider</Label>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  id={`${draft.id}-provider`}
-                  variant="outline"
-                  className="h-9 w-full min-w-0 justify-between rounded-md px-3 font-normal"
-                  aria-label={`${taskLabel} Provider`}
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    {provider && <ProvidersAvatar provider={provider} />}
-                    <span className="truncate">
-                      {getProviderTitle(draft.provider_id)}
-                    </span>
-                  </span>
-                  <ChevronDown className="size-4 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-48">
-                {providerOptions.length === 0 ? (
-                  <DropdownMenuItem disabled>
-                    没有已启用的 Provider
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuRadioGroup
-                    value={draft.provider_id}
-                    onValueChange={selectProvider}
-                  >
-                    {providerOptions.map((option) => (
-                      <DropdownMenuRadioItem
-                        key={option.provider}
-                        value={option.provider}
-                      >
-                        <ProvidersAvatar provider={option} />
-                        <span>{getProviderTitle(option.provider)}</span>
-                        {!option.active && (
-                          <span className="ml-auto text-xs text-muted-foreground">
-                            已停用
-                          </span>
-                        )}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          <div className="min-w-0 space-y-1.5">
-            <Label htmlFor={`${draft.id}-model`}>模型</Label>
-            <ModelCombobox
-              inputId={`${draft.id}-model`}
-              value={draft.model}
-              onChange={(model) => {
-                setDraft((current) => ({ ...current, model }))
-                setSaveError(null)
-              }}
-              models={models}
-              placeholder="选择或输入模型 ID"
-              className="w-full"
-            />
-          </div>
-
-          <div className="flex h-9 items-center gap-2 self-end lg:justify-center">
-            <Switch
-              id={`${draft.id}-enabled`}
-              checked={draft.enabled}
-              onCheckedChange={(enabled) =>
-                setDraft((current) => ({ ...current, enabled }))
+            <Label htmlFor={`${draft.id}-model`}>{label}</Label>
+            <select
+              aria-label={label}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              id={`${draft.id}-model`}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  model_ref: event.target.value || null,
+                }))
               }
-            />
-            <Label htmlFor={`${draft.id}-enabled`} className="lg:sr-only">
-              启用{taskLabel}
-            </Label>
+              value={draft.model_ref ?? ''}
+            >
+              <option value="">未选择模型</option>
+              {selectedUnavailable && (
+                <option value={draft.model_ref ?? ''}>
+                  {draft.model_ref}（Provider 当前不可用）
+                </option>
+              )}
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
           </div>
-
-          <div className="flex h-9 items-center gap-1 self-end">
-            <Tooltip>
-              <CollapsibleTrigger asChild>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`${taskLabel}高级设置`}
-                  >
-                    <SlidersHorizontal
-                      className={cn(
-                        'text-muted-foreground transition-colors',
-                        advancedOpen && 'text-foreground'
-                      )}
-                    />
-                  </Button>
-                </TooltipTrigger>
-              </CollapsibleTrigger>
-              <TooltipContent>高级设置</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon-sm"
-                  disabled={!dirty || !valid || saving}
-                  onClick={() => void save()}
-                  aria-label={`保存${taskLabel}配置`}
-                >
-                  {saving ? (
-                    <Loader2 className="animate-spin" />
-                  ) : (
-                    <Save />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>保存配置</TooltipContent>
-            </Tooltip>
-          </div>
+          <CollapsibleTrigger asChild>
+            <Button aria-label={`${label}高级参数`} size="icon-sm" variant="ghost">
+              <ChevronDown
+                className={cn(
+                  'transition-transform',
+                  advancedOpen && 'rotate-180'
+                )}
+              />
+            </Button>
+          </CollapsibleTrigger>
+          <Button
+            aria-label={`保存${label}`}
+            disabled={!dirty || !valid || saving}
+            onClick={() => void save()}
+            size="sm"
+          >
+            {saving ? <Loader2 className="animate-spin" /> : <Save />}
+            保存
+          </Button>
         </div>
 
         <CollapsibleContent>
-          <div className="mt-3 grid grid-cols-1 gap-3 border-t pt-3 sm:grid-cols-4">
+          <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor={`${draft.id}-temperature`}>Temperature</Label>
               <Input
                 id={`${draft.id}-temperature`}
-                type="number"
-                min={0}
                 max={2}
-                step={0.1}
-                value={draft.temperature ?? ''}
+                min={0}
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
                     temperature:
-                      event.target.value === ''
-                        ? null
-                        : Number(event.target.value),
+                      event.target.value === '' ? null : Number(event.target.value),
                   }))
                 }
+                step={0.1}
+                type="number"
+                value={draft.temperature ?? ''}
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor={`${draft.id}-tokens`}>最大输出 Token</Label>
               <Input
                 id={`${draft.id}-tokens`}
-                type="number"
-                min={1}
                 max={8192}
-                step={1}
-                value={draft.max_output_tokens}
+                min={1}
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
                     max_output_tokens: Number(event.target.value),
                   }))
                 }
+                type="number"
+                value={draft.max_output_tokens}
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor={`${draft.id}-timeout`}>超时（秒）</Label>
               <Input
                 id={`${draft.id}-timeout`}
-                type="number"
-                min={1}
                 max={120}
-                step={1}
-                value={draft.timeout_seconds}
+                min={1}
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
                     timeout_seconds: Number(event.target.value),
                   }))
                 }
+                type="number"
+                value={draft.timeout_seconds}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={`${draft.id}-reasoning`}>思考强度</Label>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    id={`${draft.id}-reasoning`}
-                    variant="outline"
-                    className="h-9 w-full justify-between rounded-md px-3 font-normal"
-                    disabled={draft.provider_id !== 'deepseek'}
-                    aria-label={`${taskLabel}思考强度`}
-                  >
-                    <span className="truncate">
-                      {reasoningOptions.find(
-                        (option) => option.value === reasoningEffort
-                      )?.label ?? '关闭'}
-                    </span>
-                    <ChevronDown className="size-4 text-muted-foreground" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-44">
-                  <DropdownMenuRadioGroup
-                    value={reasoningEffort}
-                    onValueChange={(value) =>
-                      setDraft((current) => ({
-                        ...current,
-                        reasoning_effort: value as ModelProfile['reasoning_effort'],
-                      }))
-                    }
-                  >
-                    {reasoningOptions.map((option) => (
-                      <DropdownMenuRadioItem
-                        key={option.value}
-                        value={option.value}
-                      >
-                        {option.label}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <p className="text-xs text-muted-foreground">
-                {draft.provider_id === 'deepseek'
-                  ? 'V4 Pro 当前将低档映射为高档'
-                  : '仅 DeepSeek 生效'}
-              </p>
             </div>
           </div>
         </CollapsibleContent>
-
+        <div className="mt-2 flex h-4 items-center gap-1.5 text-xs text-muted-foreground">
+          {saving ? (
+            <><Loader2 className="size-3 animate-spin" />保存中</>
+          ) : dirty ? (
+            '有未保存修改'
+          ) : (
+            <><Check className="size-3" />已保存</>
+          )}
+        </div>
         {saveError && (
-          <p role="alert" className="mt-2 text-xs text-destructive">
+          <p className="mt-2 text-xs text-destructive" role="alert">
             {saveError}
           </p>
         )}
@@ -423,145 +243,314 @@ function ProfileRow({
   )
 }
 
+function AgentProfileRow({
+  character,
+  actorProfiles,
+  defaultProfileId,
+  selectedProfileId,
+  onSaved,
+}: {
+  character: Character
+  actorProfiles: ModelProfile[]
+  defaultProfileId: string
+  selectedProfileId: string | null
+  onSaved: (profileId: string | null) => Promise<void>
+}) {
+  const [draft, setDraft] = useState(selectedProfileId ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const displayName = character.display_name || character.id
+  const dirty = draft !== (selectedProfileId ?? '')
+
+  useEffect(() => {
+    setDraft(selectedProfileId ?? '')
+    setError(null)
+  }, [selectedProfileId])
+
+  const save = async () => {
+    if (!dirty || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onSaved(draft || null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Agent Profile 保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-1 items-end gap-3 p-3 lg:grid-cols-[minmax(10rem,0.8fr)_minmax(15rem,2fr)_auto]">
+      <div className="min-w-0 self-center">
+        <span className="block truncate text-sm font-medium">{displayName}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {character.id} · {character.type}
+        </span>
+      </div>
+      <div className="min-w-0 space-y-1.5">
+        <Label htmlFor={`agent-${character.id}`}>{displayName} Agent Profile</Label>
+        <select
+          aria-label={`${displayName} Agent Profile`}
+          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+          id={`agent-${character.id}`}
+          onChange={(event) => setDraft(event.target.value)}
+          value={draft}
+        >
+          <option value="">跟随角色默认（{defaultProfileId}）</option>
+          {actorProfiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.id} · {profile.model_ref ?? '未选择模型'}
+            </option>
+          ))}
+        </select>
+      </div>
+      <Button
+        aria-label={`保存${displayName} Agent Profile`}
+        disabled={!dirty || saving}
+        onClick={() => void save()}
+        size="sm"
+      >
+        {saving ? <Loader2 className="animate-spin" /> : <Save />}
+        保存
+      </Button>
+      {error && (
+        <p className="text-xs text-destructive lg:col-start-2" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function ModelProfiles() {
   const providers = useModelProvider((state) => state.providers)
+  const projectId = useActiveStoryProjectId()
   const [profiles, setProfiles] = useState<ModelProfile[]>([])
   const [usage, setUsage] = useState<UsageTotals>(emptyUsage)
-  const [open, setOpen] = useState(true)
+  const [policy, setPolicy] = useState<ProjectModelPolicy | null>(null)
+  const [characters, setCharacters] = useState<Character[]>([])
+  const [creatingProfile, setCreatingProfile] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  const cloudModels = useMemo<CloudModelOption[]>(
+    () =>
+      providers
+        .filter((provider) => provider.active && !isLocalProvider(provider.provider))
+        .flatMap((provider) =>
+          provider.models.map((model) => ({
+            id: `${provider.provider}/${model.id}`,
+            label: `${getProviderTitle(provider.provider)} · ${model.id}`,
+          }))
+        )
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [providers]
+  )
+  const actorProfiles = profiles.filter((profile) => profile.task_type === 'actor')
+  const taskProfileIds = policy?.task_profile_ids ?? defaultProfileIds
+  const agentProfileIds = policy?.agent_profile_ids ?? {}
 
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
     try {
-      const [nextProfiles, nextUsage] = await Promise.all([
+      const [nextProfiles, nextUsage, projectData] = await Promise.all([
         engineRequest<ModelProfile[]>('/models/profiles'),
         engineRequest<UsageTotals>('/models/usage').catch(() => emptyUsage),
+        projectId
+          ? Promise.all([
+              engineRequest<ProjectModelPolicy>(
+                `/projects/${projectId}/model-policy`
+              ),
+              engineRequest<Character[]>(`/projects/${projectId}/characters`),
+            ])
+          : Promise.resolve(null),
       ])
       setProfiles(nextProfiles)
       setUsage(nextUsage)
+      setPolicy(projectData?.[0] ?? null)
+      setCharacters(projectData?.[1] ?? [])
     } catch (error) {
-      setLoadError(
-        error instanceof Error ? error.message : '任务模型配置加载失败'
-      )
+      setLoadError(error instanceof Error ? error.message : '任务模型配置加载失败')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [projectId])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const updateSavedProfile = (saved: ModelProfile) => {
-    setProfiles((current) =>
-      current.map((profile) => (profile.id === saved.id ? saved : profile))
+  const saveAgentProfile = async (
+    characterId: string,
+    profileId: string | null
+  ) => {
+    if (!projectId || !policy) return
+    const nextAssignments = { ...(policy.agent_profile_ids ?? {}) }
+    if (profileId) nextAssignments[characterId] = profileId
+    else delete nextAssignments[characterId]
+    const saved = await engineRequest<ProjectModelPolicy>(
+      `/projects/${projectId}/model-policy`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...policy,
+          task_profile_ids: taskProfileIds,
+          agent_profile_ids: nextAssignments,
+        }),
+      }
+    )
+    setPolicy(saved)
+  }
+
+  const createActorProfile = async () => {
+    if (creatingProfile) return
+    const source =
+      profiles.find((profile) => profile.id === (taskProfileIds.actor ?? 'actor')) ??
+      actorProfiles[0]
+    if (!source) {
+      setCreateError('默认 Actor Profile 不存在')
+      return
+    }
+    const existing = new Set(profiles.map((profile) => profile.id))
+    let sequence = 1
+    while (existing.has(`actor-custom-${sequence}`)) sequence += 1
+    const draft: ModelProfile = {
+      ...source,
+      id: `actor-custom-${sequence}`,
+      model_ref: null,
+    }
+    setCreatingProfile(true)
+    setCreateError(null)
+    try {
+      const saved = await engineRequest<ModelProfile>(
+        `/models/profiles/${draft.id}`,
+        { method: 'PUT', body: JSON.stringify(draft) }
+      )
+      setProfiles((current) => [...current, saved])
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Actor Profile 创建失败')
+    } finally {
+      setCreatingProfile(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div
+        aria-label="正在加载 Story Agent 模型"
+        className="flex min-h-48 items-center justify-center"
+      >
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-32 items-center justify-between gap-3 rounded-md border bg-card p-4">
+        <p className="text-sm text-destructive" role="alert">{loadError}</p>
+        <Button onClick={() => void load()} size="sm" variant="outline">
+          <RefreshCw />重新加载
+        </Button>
+      </div>
     )
   }
 
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={setOpen}
-      className="shrink-0 border-b bg-muted/20"
-    >
-      <div className="mx-auto w-full px-4 py-3 md:w-4/5 xl:w-4/6">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+    <div className="space-y-4 pb-6">
+      <section className="bg-card p-4 text-muted-foreground">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background">
-              <Workflow className="size-4 text-muted-foreground" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-medium text-foreground">
-                任务模型
-              </h2>
-              <p className="truncate text-xs text-muted-foreground">
+            <Workflow className="size-5 shrink-0 text-foreground" />
+            <div>
+              <h2 className="text-base font-medium text-foreground">任务 Profile</h2>
+              <p className="text-xs">
                 {usage.requests.toLocaleString()} 次调用 ·{' '}
                 {usage.total_tokens.toLocaleString()} Token
               </p>
             </div>
           </div>
-
-          <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" asChild>
-                  <Link
-                    to={route.settings.model_providers}
-                    aria-label="打开 Provider 设置"
-                  >
-                    <Settings2 />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Provider 设置</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <CollapsibleTrigger asChild>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={open ? '收起任务模型' : '展开任务模型'}
-                  >
-                    <ChevronDown
-                      className={cn(
-                        'transition-transform',
-                        open && 'rotate-180'
-                      )}
-                    />
-                  </Button>
-                </TooltipTrigger>
-              </CollapsibleTrigger>
-              <TooltipContent>{open ? '收起' : '展开'}</TooltipContent>
-            </Tooltip>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              disabled={creatingProfile}
+              onClick={() => void createActorProfile()}
+              size="sm"
+              variant="outline"
+            >
+              {creatingProfile ? <Loader2 className="animate-spin" /> : <Plus />}
+              新增角色 Profile
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link to={route.settings.model_providers}>
+                <Settings2 />Provider 设置
+              </Link>
+            </Button>
           </div>
         </div>
+        {createError && (
+          <p className="mb-3 text-sm text-destructive" role="alert">
+            {createError}
+          </p>
+        )}
+        {cloudModels.length === 0 && (
+          <p className="mb-3 rounded-md border border-dashed p-3 text-sm">
+            当前没有可用的远程模型，请先启用 Provider 并添加模型。
+          </p>
+        )}
+        <div className="divide-y rounded-md border bg-background">
+          {profiles.map((profile) => (
+            <ProfileRow
+              key={profile.id}
+              models={cloudModels}
+              onSaved={(saved) =>
+                setProfiles((current) =>
+                  current.map((item) => (item.id === saved.id ? saved : item))
+                )
+              }
+              profile={profile}
+            />
+          ))}
+        </div>
+      </section>
 
-        <CollapsibleContent className="max-h-[48vh] overflow-y-auto">
-          <div className="pt-3">
-            {loading ? (
-              <div
-                className="flex h-24 items-center justify-center text-muted-foreground"
-                aria-label="正在加载任务模型"
-              >
-                <Loader2 className="size-4 animate-spin" />
-              </div>
-            ) : loadError ? (
-              <div className="flex min-h-24 items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
-                <p role="alert" className="min-w-0 text-sm text-destructive">
-                  {loadError}
-                </p>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      onClick={() => void load()}
-                      aria-label="重新加载任务模型"
-                    >
-                      <RefreshCw />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>重新加载</TooltipContent>
-                </Tooltip>
-              </div>
-            ) : (
-              <div className="divide-y rounded-md border bg-background">
-                {profiles.map((profile) => (
-                  <ProfileRow
-                    key={profile.id}
-                    profile={profile}
-                    providers={providers}
-                    onSaved={updateSavedProfile}
-                  />
-                ))}
-              </div>
-            )}
+      <section className="bg-card p-4 text-muted-foreground">
+        <div className="mb-4 flex min-w-0 items-center gap-3">
+          <UsersRound className="size-5 shrink-0 text-foreground" />
+          <div className="min-w-0">
+            <h2 className="text-base font-medium text-foreground">项目 Agent 覆写</h2>
+            <p className="truncate text-xs">
+              {projectId ? `当前项目：${projectId}` : '当前没有打开的 Story 项目'}
+            </p>
           </div>
-        </CollapsibleContent>
-      </div>
-    </Collapsible>
+        </div>
+        {!projectId ? (
+          <p className="rounded-md border border-dashed p-3 text-sm">
+            打开一个 Story 项目后，可在此为单个角色指定 Actor Profile。
+          </p>
+        ) : characters.length === 0 ? (
+          <p className="rounded-md border border-dashed p-3 text-sm">
+            当前项目没有可配置的角色。
+          </p>
+        ) : (
+          <div className="divide-y rounded-md border bg-background">
+            {characters.map((character) => (
+              <AgentProfileRow
+                actorProfiles={actorProfiles}
+                character={character}
+                defaultProfileId={taskProfileIds.actor ?? 'actor'}
+                key={character.id}
+                onSaved={(profileId) =>
+                  saveAgentProfile(character.id, profileId)
+                }
+                selectedProfileId={agentProfileIds[character.id] ?? null}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   )
 }

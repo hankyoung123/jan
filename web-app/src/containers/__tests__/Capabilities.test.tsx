@@ -56,13 +56,6 @@ describe('Capabilities', () => {
     expect(worldIcon).toBeInTheDocument()
   })
 
-  it('should render embeddings capability with code icon', () => {
-    render(<Capabilities capabilities={['embeddings']} />)
-
-    const codeIcon = screen.getByTestId('icon-code')
-    expect(codeIcon).toBeInTheDocument()
-  })
-
   it('should render multiple capabilities', () => {
     render(<Capabilities capabilities={['tools', 'vision', 'reasoning']} />)
 
@@ -72,13 +65,12 @@ describe('Capabilities', () => {
   })
 
   it('should render all capabilities in correct order', () => {
-    render(<Capabilities capabilities={['tools', 'vision', 'reasoning', 'web_search', 'embeddings']} />)
+    render(<Capabilities capabilities={['tools', 'vision', 'reasoning', 'web_search']} />)
 
     expect(screen.getByTestId('icon-tool')).toBeInTheDocument()
     expect(screen.getByTestId('icon-eye')).toBeInTheDocument()
     expect(screen.getByTestId('icon-atom')).toBeInTheDocument()
     expect(screen.getByTestId('icon-world')).toBeInTheDocument()
-    expect(screen.getByTestId('icon-code')).toBeInTheDocument()
   })
 
   it('should handle empty capabilities array', () => {

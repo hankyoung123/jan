@@ -27,6 +27,7 @@ from story_engine.models.errors import (
     ProviderResponseError,
     ResponseLimitError,
     StructuredOutputError,
+    UnsupportedResponseFormatError,
 )
 from story_engine.models.registry import ProfileRegistry
 
@@ -34,11 +35,9 @@ MAX_REQUEST_BYTES = 1_048_576
 MAX_RESPONSE_BYTES = 1_048_576
 MAX_ATTEMPTS = 3
 MAX_PROVIDER_ERROR_DETAIL_CHARS = 1_000
-JSON_OBJECT_PROVIDERS = frozenset({"deepseek"})
 TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens"})
 MAX_STRUCTURED_ATTEMPTS = 3
 STRUCTURED_RETRY_BACKOFF_SECONDS = 0.5
-DEEPSEEK_THINKING_MIN_OUTPUT_TOKENS = 16384
 
 
 class ModelTransport(Protocol):
@@ -55,14 +54,6 @@ class ModelTransport(Protocol):
         *,
         timeout_seconds: float,
     ) -> AsyncIterator[ModelStreamChunk]: ...
-
-    def embed(
-        self,
-        payload: Mapping[str, Any],
-        *,
-        timeout_seconds: float,
-    ) -> Mapping[str, Any]: ...
-
 
 class _TransientProviderError(Exception):
     def __init__(self, message: str, *, retry_after: float | None = None) -> None:
@@ -124,12 +115,32 @@ async def _raise_for_status(response: httpx.Response) -> None:
     message = f"provider returned HTTP {response.status_code}"
     if detail is not None:
         message = f"{message}: {detail}"
+    if response.status_code == 400 and _response_format_is_unavailable(detail):
+        raise UnsupportedResponseFormatError(message)
     if response.status_code == 429 or response.status_code >= 500:
         raise _TransientProviderError(
             message,
             retry_after=_retry_after_seconds(response),
         )
     raise ProviderResponseError(message)
+
+
+def _response_format_is_unavailable(detail: str | None) -> bool:
+    if detail is None:
+        return False
+    normalized = detail.casefold().replace("-", "_")
+    names_format = "response_format" in normalized or "response format" in normalized
+    unavailable = any(
+        marker in normalized
+        for marker in (
+            "unavailable",
+            "unsupported",
+            "not supported",
+            "invalid type",
+            "unknown type",
+        )
+    )
+    return names_format and unavailable
 
 
 def _reasoning_tokens(raw: Mapping[str, Any]) -> int | None:
@@ -292,47 +303,6 @@ class OpenAICompatibleTransport:
         except _TransientProviderError as error:
             raise ProviderResponseError("provider stream was unavailable") from error
 
-    def embed(
-        self,
-        payload: Mapping[str, Any],
-        *,
-        timeout_seconds: float,
-    ) -> Mapping[str, Any]:
-        """Call the OpenAI-compatible embedding endpoint from runtime threads."""
-        try:
-            with httpx.Client(
-                timeout=httpx.Timeout(timeout_seconds),
-                follow_redirects=False,
-                transport=cast(httpx.BaseTransport | None, self._transport),
-            ) as client:
-                response = client.post(
-                    _endpoint(self._base_url, "embeddings"),
-                    headers=_headers(self._api_key),
-                    json=payload,
-                )
-        except httpx.TimeoutException as error:
-            raise ModelTimeoutError("embedding provider request timed out") from error
-        except httpx.NetworkError as error:
-            raise ProviderResponseError("embedding provider was unavailable") from error
-        if response.is_error:
-            detail = _provider_error_detail(response.content[:MAX_RESPONSE_BYTES])
-            message = f"provider returned HTTP {response.status_code}"
-            if detail:
-                message = f"{message}: {detail}"
-            raise ProviderResponseError(message)
-        if len(response.content) > MAX_RESPONSE_BYTES:
-            raise ResponseLimitError(
-                f"provider response exceeded {MAX_RESPONSE_BYTES} bytes"
-            )
-        try:
-            parsed = response.json()
-        except json.JSONDecodeError as error:
-            raise ProviderResponseError("provider returned invalid JSON") from error
-        if not isinstance(parsed, dict):
-            raise ProviderResponseError("embedding response must be an object")
-        return cast(dict[str, Any], parsed)
-
-
 class UnavailableModelTransport:
     async def complete(
         self,
@@ -351,16 +321,6 @@ class UnavailableModelTransport:
         if False:
             yield ModelStreamChunk()
         raise ModelConfigurationError("Story Engine model runtime is unavailable")
-
-    def embed(
-        self,
-        payload: Mapping[str, Any],
-        *,
-        timeout_seconds: float,
-    ) -> Mapping[str, Any]:
-        del payload, timeout_seconds
-        raise ModelConfigurationError("Story Engine embedding runtime is unavailable")
-
 
 def _stream_delta(event: Mapping[str, Any]) -> str:
     choices = event.get("choices")
@@ -420,8 +380,10 @@ class ModelGateway:
 
     def _resolve(self, request: ModelRequest) -> ModelProfile:
         profile = self.registry.get_profile(request.profile_id)
-        if not profile.enabled:
-            raise ModelConfigurationError(f"profile {profile.id!r} is disabled")
+        if profile.model_ref is None:
+            raise ModelConfigurationError(
+                f"profile {profile.id!r} has no model selected"
+            )
         if profile.task_type != request.task_type:
             raise ProfileMismatchError(
                 f"profile {profile.id!r} is for {profile.task_type}, "
@@ -452,65 +414,63 @@ class ModelGateway:
         schema: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
         messages = [message.model_dump(mode="json") for message in request.messages]
-        uses_json_object = (
-            schema is not None and profile.provider_id in JSON_OBJECT_PROVIDERS
-        )
-        if uses_json_object:
-            schema_text = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
-            messages.insert(
-                0,
-                {
-                    "role": "system",
-                    "content": (
-                        "Return exactly one valid JSON object as a single compact "
-                        "line with no line breaks. The JSON object must match this "
-                        "JSON Schema exactly; do not add Markdown fences, formatting "
-                        "whitespace, or prose: "
-                        f"{schema_text}"
-                    ),
-                },
-            )
-        thinking_enabled = (
-            profile.provider_id == "deepseek" and profile.reasoning_effort != "disabled"
-        )
-        max_output_tokens = request.max_output_tokens
-        if thinking_enabled:
-            max_output_tokens = max(
-                max_output_tokens,
-                DEEPSEEK_THINKING_MIN_OUTPUT_TOKENS,
-            )
         payload: dict[str, Any] = {
-            "model": profile.model,
             "messages": messages,
-            "max_tokens": max_output_tokens,
+            "max_tokens": request.max_output_tokens,
         }
+        if profile.model_ref is not None:
+            payload["model"] = profile.model_ref
         temperature = (
             request.temperature
             if request.temperature is not None
             else profile.temperature
         )
-        if temperature is not None and not thinking_enabled:
+        if temperature is not None:
             payload["temperature"] = temperature
-        if profile.provider_id == "deepseek":
-            if profile.reasoning_effort == "disabled":
-                payload["thinking"] = {"type": "disabled"}
-            else:
-                payload["reasoning_effort"] = profile.reasoning_effort
-                payload["thinking"] = {"type": "enabled"}
         if schema is not None:
-            if uses_json_object:
-                payload["response_format"] = {"type": "json_object"}
-            else:
-                payload["response_format"] = {
-                    "type": "json_schema",
-                    "json_schema": {"name": "story_engine_output", "schema": schema},
-                }
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "story_engine_output", "schema": schema},
+            }
         encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         if len(encoded) > MAX_REQUEST_BYTES:
             raise ResponseLimitError(
                 f"model request exceeded {MAX_REQUEST_BYTES} bytes"
             )
         return payload
+
+    @staticmethod
+    def _prompt_only_structured_payload(
+        payload: Mapping[str, Any],
+        schema: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        fallback = dict(payload)
+        fallback.pop("response_format", None)
+        raw_messages = fallback.get("messages")
+        messages = list(raw_messages) if isinstance(raw_messages, list) else []
+        instruction = {
+            "role": "system",
+            "content": (
+                "Return only valid JSON matching this JSON Schema. Do not use "
+                "Markdown fences or add explanatory text. JSON SCHEMA: "
+                f"{json.dumps(schema, ensure_ascii=False, separators=(',', ':'))}"
+            ),
+        }
+        insert_at = 0
+        while (
+            insert_at < len(messages)
+            and isinstance(messages[insert_at], Mapping)
+            and messages[insert_at].get("role") == "system"
+        ):
+            insert_at += 1
+        messages.insert(insert_at, instruction)
+        fallback["messages"] = messages
+        encoded = json.dumps(fallback, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > MAX_REQUEST_BYTES:
+            raise ResponseLimitError(
+                f"model request exceeded {MAX_REQUEST_BYTES} bytes"
+            )
+        return fallback
 
     @staticmethod
     def _parse_content(
@@ -576,13 +536,24 @@ class ModelGateway:
         profile = self._resolve(request)
         schema = self._schema(request)
         payload = self._payload(request, profile, schema)
+        can_fallback_to_prompt = schema is not None
         try:
             async with asyncio.timeout(request.timeout_seconds):
                 for attempt in range(MAX_STRUCTURED_ATTEMPTS):
-                    raw = await self.transport.complete(
-                        payload,
-                        timeout_seconds=request.timeout_seconds,
-                    )
+                    try:
+                        raw = await self.transport.complete(
+                            payload,
+                            timeout_seconds=request.timeout_seconds,
+                        )
+                    except UnsupportedResponseFormatError:
+                        if not can_fallback_to_prompt or schema is None:
+                            raise
+                        payload = self._prompt_only_structured_payload(payload, schema)
+                        can_fallback_to_prompt = False
+                        raw = await self.transport.complete(
+                            payload,
+                            timeout_seconds=request.timeout_seconds,
+                        )
                     content, finish_reason, usage = self._parse_content(raw)
                     if schema is not None and finish_reason in TRUNCATED_FINISH_REASONS:
                         message = "model JSON output was truncated at max_tokens"
@@ -600,7 +571,6 @@ class ModelGateway:
                     except StructuredOutputError as error:
                         if (
                             not error.retryable
-                            or profile.provider_id not in JSON_OBJECT_PROVIDERS
                             or attempt == MAX_STRUCTURED_ATTEMPTS - 1
                         ):
                             raise
@@ -611,8 +581,11 @@ class ModelGateway:
                     self.usage.record(usage)
                     return ModelResponse(
                         profile_id=profile.id,
-                        provider_id=profile.provider_id,
-                        model=profile.model,
+                        model_ref=(
+                            raw.get("model")
+                            if isinstance(raw.get("model"), str)
+                            else profile.model_ref
+                        ),
                         content=content,
                         parsed_output=parsed_output,
                         finish_reason=finish_reason,
@@ -654,51 +627,3 @@ class ModelGateway:
             raise ModelTimeoutError(
                 "model stream exceeded its total deadline"
             ) from error
-
-    def embed(self, text: str, *, profile_id: str = "embedding") -> tuple[float, ...]:
-        """Create one production embedding through the configured task profile."""
-        if not text.strip():
-            raise ValueError("embedding text must not be empty")
-        profile = self.registry.get_profile(profile_id)
-        if not profile.enabled:
-            raise ModelConfigurationError(f"profile {profile.id!r} is disabled")
-        if profile.task_type != "embedding":
-            raise ProfileMismatchError(
-                f"profile {profile.id!r} is for {profile.task_type}, not embedding"
-            )
-        payload = {"model": profile.model, "input": text, "encoding_format": "float"}
-        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        if len(encoded) > MAX_REQUEST_BYTES:
-            raise ResponseLimitError(
-                f"embedding request exceeded {MAX_REQUEST_BYTES} bytes"
-            )
-        raw = self.transport.embed(payload, timeout_seconds=profile.timeout_seconds)
-        data = raw.get("data")
-        if (
-            not isinstance(data, Sequence)
-            or isinstance(data, (str, bytes))
-            or not data
-            or not isinstance(data[0], Mapping)
-        ):
-            raise ProviderResponseError("provider response has no embedding")
-        vector = data[0].get("embedding")
-        if (
-            not isinstance(vector, Sequence)
-            or isinstance(vector, (str, bytes))
-            or not vector
-            or any(not isinstance(item, (int, float)) for item in vector)
-        ):
-            raise ProviderResponseError("provider returned an invalid embedding")
-        usage_value = raw.get("usage")
-        if isinstance(usage_value, Mapping):
-            prompt_tokens = usage_value.get("prompt_tokens", 0)
-            total_tokens = usage_value.get("total_tokens", prompt_tokens)
-            self.usage.record(
-                ModelUsage(
-                    prompt_tokens=(
-                        prompt_tokens if isinstance(prompt_tokens, int) else 0
-                    ),
-                    total_tokens=total_tokens if isinstance(total_tokens, int) else 0,
-                )
-            )
-        return tuple(float(item) for item in vector)

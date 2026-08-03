@@ -14,8 +14,10 @@ from story_engine.concordia_runtime.factory import (
     default_game_master_recipe,
 )
 from story_engine.concordia_runtime.language_model import JanConcordiaLanguageModel
-from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
-from story_engine.concordia_runtime.memory_lifecycle import ConcordiaMemoryLifecycle
+from story_engine.concordia_runtime.memory import (
+    ConcordiaMemoryBank,
+    concordia_hash_embedder,
+)
 from story_engine.concordia_runtime.roster import ConcordiaRosterPlanner
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.simulation import (
@@ -25,9 +27,9 @@ from story_engine.domain.simulation import (
 )
 from story_engine.domain.trace import ModelCallTrace
 from story_engine.models.gateway import ModelGateway
+from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
-from story_engine.projection.world_bible import WorldBibleStore
 from story_engine.simulation.runtime import StorySimulationRuntime
 from story_engine.workspace.project_store import ProjectStore
 
@@ -46,9 +48,7 @@ class ProjectRuntimeFactory:
         self._projects_root = projects_root
         self._gateway = gateway
         self._trace_sink = trace_sink
-        self._embedder = embedder or (
-            lambda text: np.asarray(self._gateway.embed(text), dtype=float)
-        )
+        self._embedder = embedder or concordia_hash_embedder
 
     def __call__(
         self,
@@ -96,6 +96,27 @@ class ProjectRuntimeFactory:
         if not project_actors:
             raise ValueError("simulation requires at least one active character")
 
+        if restored is not None and restored.resolved_model_profile_ids:
+            resolved_profile_ids = dict(restored.resolved_model_profile_ids)
+        else:
+            policy = ProjectModelPolicyStore(
+                project_root,
+                self._gateway.registry,
+            ).load()
+            resolved_profile_ids = {
+                f"task:{task_type}": profile_id
+                for task_type, profile_id in policy.task_profile_ids.items()
+            }
+            resolved_profile_ids.update(
+                {
+                    f"agent:{character.id}": policy.agent_profile_ids.get(
+                        character.id,
+                        policy.task_profile_ids["actor"],
+                    )
+                    for character in snapshot.characters
+                }
+            )
+
         cancellation = Event()
         model_traces: list[ModelCallTrace] = []
 
@@ -108,9 +129,13 @@ class ProjectRuntimeFactory:
 
         def create_actor_model(actor_id: str) -> JanConcordiaLanguageModel:
             key = f"actor:{actor_id}"
+            profile_id = resolved_profile_ids.get(
+                f"agent:{actor_id}",
+                resolved_profile_ids["task:actor"],
+            )
             model = JanConcordiaLanguageModel(
                 self._gateway,
-                profile_id="actor",
+                profile_id=profile_id,
                 task_type="actor",
                 content_locale=request.content_locale,
                 session_id=session_id,
@@ -129,7 +154,7 @@ class ProjectRuntimeFactory:
         gm_model_key = "game-master"
         models[gm_model_key] = JanConcordiaLanguageModel(
             self._gateway,
-            profile_id="game-master",
+            profile_id=resolved_profile_ids["task:game_master"],
             task_type="game_master",
             content_locale=request.content_locale,
             session_id=session_id,
@@ -137,28 +162,6 @@ class ProjectRuntimeFactory:
             cancellation=cancellation,
             trace_sink=record_trace,
         )
-        reflection_model = JanConcordiaLanguageModel(
-            self._gateway,
-            profile_id="reflection",
-            task_type="reflection",
-            content_locale=request.content_locale,
-            session_id=session_id,
-            branch_id=request.branch_id,
-            cancellation=cancellation,
-            trace_sink=record_trace,
-        )
-        consolidation_model = JanConcordiaLanguageModel(
-            self._gateway,
-            profile_id="memory-consolidation",
-            task_type="memory_consolidation",
-            content_locale=request.content_locale,
-            session_id=session_id,
-            branch_id=request.branch_id,
-            cancellation=cancellation,
-            trace_sink=record_trace,
-        )
-        models["reflection"] = reflection_model
-        models["memory-consolidation"] = consolidation_model
         roster_planner = None
         if not request.actor_ids and restored is None:
             actor_ids = [character.id for character in project_actors]
@@ -180,7 +183,7 @@ class ProjectRuntimeFactory:
             )
             roster_model = JanConcordiaLanguageModel(
                 self._gateway,
-                profile_id="game-master",
+                profile_id=resolved_profile_ids["task:game_master"],
                 task_type="game_master",
                 content_locale=request.content_locale,
                 output_schema=roster_schema,
@@ -248,6 +251,8 @@ class ProjectRuntimeFactory:
                         "identity": character.identity,
                         "goal": character.current_goal or character.core_desire,
                         "relationships": relationships,
+                        "project_root": str(project_root),
+                        "branch_id": request.branch_id,
                     },
                     memory=memory,
                 )
@@ -296,6 +301,8 @@ class ProjectRuntimeFactory:
                     "identity": definition.identity,
                     "goal": definition.goal,
                     "relationships": "",
+                    "project_root": str(project_root),
+                    "branch_id": request.branch_id,
                 },
                 memory=memory,
             )
@@ -378,6 +385,8 @@ class ProjectRuntimeFactory:
             gm_params={
                 "name": gm_id,
                 "scene_goal": request.premise_text,
+                "project_root": str(project_root),
+                "branch_id": request.branch_id,
             },
             actors=active_actors,
             shared_memory=gm_memory,
@@ -396,6 +405,8 @@ class ProjectRuntimeFactory:
                 gm_params={
                     "name": gm_id,
                     "scene_goal": request.premise_text,
+                    "project_root": str(project_root),
+                    "branch_id": request.branch_id,
                 },
                 actors=current_actors,
                 shared_memory=previous.memory,
@@ -408,14 +419,10 @@ class ProjectRuntimeFactory:
             content_locale=request.content_locale,
             actors=active_actors,
             game_master=game_master,
+            resolved_model_profile_ids=resolved_profile_ids,
             cancellation=cancellation,
             model_traces=model_traces,
             language_models=tuple(models.values()),
-            memory_lifecycle=ConcordiaMemoryLifecycle(
-                reflection_model=reflection_model,
-                consolidation_model=consolidation_model,
-                content_locale=request.content_locale,
-            ),
             allow_dynamic_entities=request.control.allow_dynamic_entities,
             dynamic_entities=dynamic_definitions,
             dynamic_actor_builder=build_dynamic_actor,
@@ -435,7 +442,9 @@ class ProjectRuntimeFactory:
             record.record_id
             for record in runtime.game_master.memory.scan(lambda _record: True)
         }
-        for instruction in WorldBibleStore(
+        from story_engine.wiki.store import WikiStore
+
+        for instruction in WikiStore(
             project_root,
             request.branch_id,
         ).list_instructions():

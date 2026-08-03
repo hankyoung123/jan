@@ -34,9 +34,6 @@
       "resources/LICENSE": "LICENSE",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "../licenses/": "licenses/",
-      "resources/bin/mlx-server": "resources/bin/mlx-server",
-      "resources/bin/mlx-swift_Cmlx.bundle": "resources/bin/mlx-swift_Cmlx.bundle",
-      "resources/bin/story-engine-cli": "resources/bin/story-engine-cli",
       "resources/story-engine/": "story-engine/"
     },
     "externalBin": ["resources/bin/bun", "resources/bin/uv"],

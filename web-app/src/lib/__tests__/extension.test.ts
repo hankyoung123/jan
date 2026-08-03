@@ -3,11 +3,8 @@ import { Extension, ExtensionManager } from '../extension'
 
 // Mock dependencies
 vi.mock('@janhq/core', () => ({
-  AIEngine: class MockAIEngine {},
   BaseExtension: class MockBaseExtension {},
   ExtensionTypeEnum: {
-    SystemMonitor: 'system-monitor',
-    Model: 'model',
     Assistant: 'assistant',
   },
 }))

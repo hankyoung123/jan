@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
 from story_engine.domain.models import Character
-from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.contracts import ModelProfile, ModelStreamChunk
+from story_engine.models.registry import ProfileRegistry
 from story_engine.submission.service import fog_harbor_submission
 from story_engine.workspace.project_store import ProjectStore
 
@@ -59,9 +60,22 @@ class PromotionTransport:
 
 def _client(tmp_path: Path) -> tuple[TestClient, PromotionTransport]:
     transport = PromotionTransport()
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="editor",
+            task_type="editor",
+            model_ref="test-provider/test-editor",
+        )
+    )
     client = TestClient(
         create_app(
-            EngineSettings(session_token="test-token", projects_root=tmp_path),
+            EngineSettings(
+                session_token="test-token",
+                projects_root=tmp_path,
+                model_registry_path=registry.path,
+            ),
+            model_registry=registry,
             model_transport=transport,
         )
     )

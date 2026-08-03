@@ -5,7 +5,6 @@ import {
 } from '@tabler/icons-react'
 import { ReactNode, memo } from 'react'
 import { Button } from "@/components/ui/button"
-import { DownloadManagement } from '@/containers/DownloadManegement'
 import { useTitlebarLayout } from '@/stores/titlebar-layout-store'
 
 type HeaderPageProps = {
@@ -35,7 +34,6 @@ const HeaderPage = memo(function HeaderPage({ children }: HeaderPageProps) {
       >
         {!open && (
           <>
-            <DownloadManagement />
             <Button
               variant="ghost"
               size="icon-sm"

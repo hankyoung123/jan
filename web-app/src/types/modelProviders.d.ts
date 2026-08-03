@@ -25,16 +25,6 @@ type ProviderSetting = {
 }
 
 /**
- * A chat-template kwarg the model's embedded jinja template accepts,
- * detected from the GGUF (e.g. `preserve_thinking`).
- */
-type TemplateKwarg = {
-  name: string
-  type: 'boolean' | 'number' | 'string'
-  default: boolean | number | string
-}
-
-/**
  * The model object structure
  */
 type Model = {
@@ -46,14 +36,7 @@ type Model = {
   description?: string
   format?: string
   capabilities?: string[]
-  /** Chat-template kwargs the model's template accepts (llamacpp only). */
-  template_kwargs?: TemplateKwarg[]
   settings?: Record<string, ProviderSetting>
-  /** Whether this model is an embedding model (e.g., BERT-based) */
-  embedding?: boolean
-  /** Whether this model was imported from a user-supplied local file
-   *  (path lives outside the provider's managed models directory). */
-  imported?: boolean
 }
 
 /**

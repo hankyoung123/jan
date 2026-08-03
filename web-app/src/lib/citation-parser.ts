@@ -1,4 +1,4 @@
-import type { CitationsPayload, RagCitation, WebCitation } from '@/components/Citations'
+import type { CitationsPayload, WebCitation } from '@/components/Citations'
 
 const tryParseJson = (s: string): unknown => {
   try {
@@ -6,16 +6,6 @@ const tryParseJson = (s: string): unknown => {
   } catch {
     return null
   }
-}
-
-const isRagCitation = (x: unknown): x is RagCitation => {
-  if (!x || typeof x !== 'object') return false
-  const o = x as Record<string, unknown>
-  return (
-    typeof o.id === 'string' &&
-    typeof o.text === 'string' &&
-    typeof o.file_id === 'string'
-  )
 }
 
 const isWebCitation = (x: unknown): x is WebCitation => {
@@ -41,22 +31,6 @@ const extractTextItems = (output: unknown): string[] => {
     return o.content.filter(isTextItem).map((it) => it.text)
   }
   return []
-}
-
-const fromRagPayload = (obj: Record<string, unknown>): CitationsPayload | null => {
-  const citations = obj.citations
-  if (!Array.isArray(citations)) return null
-  const filtered = citations.filter(isRagCitation)
-  if (!filtered.length) return null
-  const scope = obj.scope === 'project' ? 'project' : 'thread'
-  return {
-    kind: 'rag',
-    query: typeof obj.query === 'string' ? obj.query : undefined,
-    scope,
-    threadId: typeof obj.thread_id === 'string' ? obj.thread_id : undefined,
-    projectId: typeof obj.project_id === 'string' ? obj.project_id : undefined,
-    citations: filtered,
-  }
 }
 
 const fromWebPayload = (obj: unknown): CitationsPayload | null => {
@@ -89,20 +63,12 @@ export function parseCitationsFromToolOutput(
   const texts = extractTextItems(output)
   for (const text of texts) {
     const parsed = tryParseJson(text)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const rag = fromRagPayload(parsed as Record<string, unknown>)
-      if (rag) return rag
-    }
     if (parsed !== null) {
       const web = fromWebPayload(parsed)
       if (web) return web
     }
   }
 
-  if (output && typeof output === 'object' && !Array.isArray(output)) {
-    const rag = fromRagPayload(output as Record<string, unknown>)
-    if (rag) return rag
-  }
   const web = fromWebPayload(output)
   if (web) return web
 

@@ -32,9 +32,6 @@ export class DefaultAppService implements AppService {
     // No-op - not implemented in default service
   }
 
-  async getServerStatus(): Promise<boolean> {
-    return false
-  }
 
   async readYaml<T = unknown>(path: string): Promise<T> {
     console.log('readYaml called with path:', path)

@@ -31,7 +31,7 @@ report_category() {
 report_category 'Tauri, updater, and desktop runtime' \
   src-tauri/ package.json yarn.lock
 report_category 'Model runtimes and providers' \
-  core/ extensions/llamacpp-extension/ extensions/mlx-extension/ \
+  core/ \
   extensions/download-extension/
 report_category 'Build, dependency, and security automation' \
   .github/ Cargo.lock package.json yarn.lock

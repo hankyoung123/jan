@@ -9,27 +9,25 @@ from story_engine.domain.simulation import (
     ManuscriptGenerationMode,
     StepResult,
     TurnSessionSnapshot,
-    WorldProjectionMode,
+    WikiMaintenanceMode,
 )
 from story_engine.manuscript.service import ManuscriptAgent, ManuscriptService
-from story_engine.projection.world_bible import (
-    WorldBibleProjector,
-    WorldBibleStore,
-    read_branch_records,
-)
+from story_engine.wiki.boundary import WikiBoundaryProcessor
 from story_engine.workspace.lock import ProjectLock
 
 
-class BoundaryOutputCoordinator:
-    """Run derived outputs after durable simulation commit without rollback."""
+class BoundaryMaintenanceCoordinator:
+    """Maintain Wiki and optional prose after the durable runtime commit."""
 
     def __init__(
         self,
         root: Path,
         *,
+        wiki_processor: WikiBoundaryProcessor,
         manuscript_agent: ManuscriptAgent,
     ) -> None:
         self.root = root
+        self.wiki_processor = wiki_processor
         self.manuscript_agent = manuscript_agent
 
     def process(
@@ -43,20 +41,17 @@ class BoundaryOutputCoordinator:
             self._record_failure(snapshot, result, "boundary has no checkpoint")
             return
 
-        if self._should_project(snapshot, result.boundary):
+        if self._should_update_wiki(snapshot, result.boundary):
             try:
-                store = WorldBibleStore(self.root, snapshot.branch_id)
-                try:
-                    previous = store.load()
-                except FileNotFoundError:
-                    previous = None
-                WorldBibleProjector(self.root).rebuild_sync(
-                    snapshot,
-                    read_branch_records(self.root, snapshot.branch_id),
-                    previous=previous,
+                asyncio.run(
+                    self.wiki_processor.process(
+                        snapshot,
+                        boundary=result.boundary,
+                        end_step=result.step,
+                    )
                 )
             except Exception as error:
-                self._record_failure(snapshot, result, f"world_bible: {error}")
+                self._record_failure(snapshot, result, f"wiki: {error}")
 
         if self._should_write(snapshot, result.boundary):
             try:
@@ -89,13 +84,13 @@ class BoundaryOutputCoordinator:
                 self._record_failure(snapshot, result, f"manuscript: {error}")
 
     @staticmethod
-    def _should_project(
+    def _should_update_wiki(
         snapshot: TurnSessionSnapshot,
         boundary: SimulationBoundary,
     ) -> bool:
-        mode = snapshot.request.output.world_projection_mode
-        return mode == WorldProjectionMode.AFTER_SCENE or (
-            mode == WorldProjectionMode.AFTER_CHAPTER
+        mode = snapshot.request.output.wiki_mode
+        return mode == WikiMaintenanceMode.AFTER_SCENE or (
+            mode == WikiMaintenanceMode.AFTER_CHAPTER
             and boundary == SimulationBoundary.CHAPTER
         )
 

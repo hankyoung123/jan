@@ -10,7 +10,6 @@ describe('useAppState - coverage', () => {
         streamingContent: undefined,
         loadingModel: false,
         tools: [],
-        ragToolNames: new Set<string>(),
         mcpToolNames: new Set<string>(),
         serverStatus: 'stopped',
         abortControllers: {},
@@ -45,16 +44,6 @@ describe('useAppState - coverage', () => {
       result.current.updateStreamingContent({ id: 'msg-1', content: 'Hi', role: 'user', thread_id: 't1' } as any)
     })
     expect(result.current.streamingContent?.created_at).toBeGreaterThan(0)
-  })
-
-  it('should update rag tool names', () => {
-    const { result } = renderHook(() => useAppState())
-
-    act(() => {
-      result.current.updateRagToolNames(['rag1', 'rag2'])
-    })
-
-    expect(result.current.ragToolNames).toEqual(new Set(['rag1', 'rag2']))
   })
 
   it('should update mcp tool names', () => {

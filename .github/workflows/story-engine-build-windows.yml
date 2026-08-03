@@ -45,7 +45,7 @@ jobs:
 
       - name: Build the Story Engine Windows bundles
         shell: pwsh
-        run: yarn build:tauri
+        run: yarn build
 
       - name: Smoke-test NSIS install and uninstall in the runner profile
         shell: pwsh

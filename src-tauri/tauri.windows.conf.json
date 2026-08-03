@@ -34,7 +34,6 @@
       "resources/LICENSE": "LICENSE",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "../licenses/": "licenses/",
-      "resources/bin/story-engine-cli.exe": "resources/bin/story-engine-cli.exe",
       "resources/story-engine/": "story-engine/"
     },
     "externalBin": ["resources/bin/bun", "resources/bin/uv"],

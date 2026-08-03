@@ -28,12 +28,9 @@ TraceSink = Callable[[ModelCallTrace], None]
 _TASK_TYPES: dict[ModelTask, TaskType] = {
     "actor": TaskType.ACTOR,
     "game_master": TaskType.GAME_MASTER,
-    "reflection": TaskType.REFLECTION,
-    "memory_consolidation": TaskType.MEMORY_CONSOLIDATION,
-    "projection": TaskType.PROJECTION,
+    "wiki_maintenance": TaskType.WIKI_MAINTENANCE,
     "editor": TaskType.EDITOR,
     "writer": TaskType.WRITER,
-    "embedding": TaskType.EMBEDDING,
 }
 
 
@@ -144,8 +141,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
             step=self._step,
             actor_id=self._actor_id,
             profile_id=self._profile_id,
-            provider_id=response.provider_id if response else profile.provider_id,
-            model_id=response.model if response else profile.model,
+            model_ref=response.model_ref if response else profile.model_ref,
             prompt_version=self._prompt_version,
             content_locale=self._content_locale,
             component_ids=self._component_ids,

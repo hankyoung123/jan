@@ -29,12 +29,6 @@ export * from './extension'
 export * from './extensions'
 
 /**
- * Export all base models.
- * @module
- */
-export * from './models'
-
-/**
  * Export shared logger.
  * @module
  */

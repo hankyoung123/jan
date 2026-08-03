@@ -99,6 +99,7 @@ describe('SettingsMenu', () => {
 
     expect(screen.getByText('common:general')).toBeInTheDocument()
     expect(screen.getByText('common:appearance')).toBeInTheDocument()
+    expect(screen.getByText('Story Agent 模型')).toBeInTheDocument()
     expect(screen.getByText('common:privacy')).toBeInTheDocument()
   })
 
@@ -114,7 +115,7 @@ describe('SettingsMenu', () => {
     render(<SettingsMenu />)
     expect(screen.getByText('common:keyboardShortcuts')).toBeInTheDocument()
     expect(screen.getByText('common:https_proxy')).toBeInTheDocument()
-    expect(screen.getByText('common:hardware')).toBeInTheDocument()
+    expect(screen.queryByText('common:hardware')).not.toBeInTheDocument()
     expect(screen.getByText('common:privacy')).toBeInTheDocument()
   })
 
@@ -210,7 +211,7 @@ describe('SettingsMenu', () => {
     expect(mockNavigate).toHaveBeenCalled()
   })
 
-  it('hides llama.cpp during setup remote provider step', () => {
+  it('shows only cloud providers during remote provider setup', () => {
     vi.mocked(useMatches).mockReturnValue([
       {
         routeId: '/settings/providers/',
@@ -219,14 +220,16 @@ describe('SettingsMenu', () => {
       },
     ])
 
+    vi.mocked(useModelProvider).mockReturnValue({
+      providers: [{ provider: 'openai', active: true, models: [] }],
+      addProvider: vi.fn(),
+    })
     render(<SettingsMenu />)
 
     // openai should be visible during remote provider setup
     expect(screen.getByTestId('provider-avatar-openai')).toBeInTheDocument()
 
-    // llama.cpp should have 'hidden' class during setup_remote_provider step
-    const llamaCpp = screen.getByTestId('provider-avatar-llama.cpp').closest('div[class*="cursor-pointer"]')
-    expect(llamaCpp?.className).toContain('hidden')
+    expect(screen.queryByTestId('provider-avatar-llama.cpp')).not.toBeInTheDocument()
   })
 
   it('shows inactive providers in disabled section', () => {

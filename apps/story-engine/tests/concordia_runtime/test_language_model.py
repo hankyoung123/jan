@@ -11,7 +11,7 @@ from story_engine.concordia_runtime.language_model import (
     ModelCallCancelledError,
 )
 from story_engine.domain.trace import ModelCallStatus
-from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.contracts import ModelProfile, ModelStreamChunk
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.registry import ProfileRegistry
 
@@ -57,8 +57,16 @@ class QueueTransport:
 
 def _gateway(tmp_path: Path, *responses: str) -> tuple[ModelGateway, QueueTransport]:
     transport = QueueTransport(tuple(responses))
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+        )
+    )
     return (
-        ModelGateway(ProfileRegistry(tmp_path / "models.json"), transport),
+        ModelGateway(registry, transport),
         transport,
     )
 

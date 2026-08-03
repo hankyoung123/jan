@@ -1,7 +1,7 @@
 import { isPlatformTauri } from '@/lib/platform/utils'
 import { getServiceHub } from '@/hooks/useServiceHub'
 import { localStorageKey } from '@/constants/localStorage'
-import { HUGGINGFACE_TOKEN_SECRET_KEY } from '@/hooks/useGeneralSetting'
+import { isLocalProvider } from '@/lib/utils'
 
 /**
  * One-time migration of settings from webview localStorage to the backend
@@ -23,17 +23,10 @@ const MIGRATED_KEYS: string[] = [
   localStorageKey.modelProvider,
   localStorageKey.productAnalyticPrompt,
   localStorageKey.productAnalytic,
-  localStorageKey.settingHardware,
-  localStorageKey.settingLocalApiServer,
   localStorageKey.toolApproval,
   localStorageKey.toolAvailability,
-  localStorageKey.pausedDownloads,
   localStorageKey.settingProxyConfig,
-  localStorageKey.settingVulkan,
   localStorageKey.favoriteModels,
-  localStorageKey.latestJanModel,
-  localStorageKey.janModelPromptDismissed,
-  localStorageKey.defaultEmbeddingModel,
   localStorageKey.agentMode,
 ]
 
@@ -85,7 +78,7 @@ async function transformModelProviderBlob(
       .map((k) => k.trim())
       .filter((k) => k.length > 0)
 
-    if (p.provider !== 'llamacpp' && chain.length > 0) {
+    if (typeof p.provider === 'string' && !isLocalProvider(p.provider) && chain.length > 0) {
       const customHeaders = Array.isArray(p.custom_header)
         ? (p.custom_header as Array<{ header: string; value: string }>).map(
             (h) => ({ header: h.header, value: h.value })
@@ -125,22 +118,10 @@ async function transformModelProviderBlob(
   return JSON.stringify(parsed)
 }
 
-// Move the HF token into the keyring, then strip it from the blob.
-async function transformGeneralBlob(
-  raw: string,
-  invoke: Invoke
-): Promise<string> {
+// Drop the retired download credential from legacy general settings.
+function transformGeneralBlob(raw: string): string {
   const parsed = JSON.parse(raw)
   const state = getStateSlice(parsed)
-  const token = state && typeof state.huggingfaceToken === 'string'
-    ? (state.huggingfaceToken as string)
-    : ''
-  if (token.trim().length > 0) {
-    await invoke('set_secret', {
-      key: HUGGINGFACE_TOKEN_SECRET_KEY,
-      value: token,
-    })
-  }
   if (state) delete state.huggingfaceToken
   return JSON.stringify(parsed)
 }
@@ -173,7 +154,7 @@ export async function migrateLocalStorageToBackend(): Promise<void> {
       if (key === localStorageKey.modelProvider) {
         value = await transformModelProviderBlob(local, invoke)
       } else if (key === localStorageKey.settingGeneral) {
-        value = await transformGeneralBlob(local, invoke)
+        value = transformGeneralBlob(local)
       }
       await invoke('settings_set', { key, value })
     }

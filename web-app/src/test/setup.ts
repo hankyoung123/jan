@@ -23,17 +23,6 @@ const mockServiceHub = {
     emit: vi.fn().mockResolvedValue(undefined),
     listen: vi.fn().mockResolvedValue(() => {}),
   }),
-  hardware: () => ({
-    getHardwareInfo: vi.fn().mockResolvedValue(null),
-    getSystemUsage: vi.fn().mockResolvedValue(null),
-    getLlamacppDevices: vi.fn().mockResolvedValue([]), // cspell: disable-line
-    setActiveGpus: vi.fn().mockResolvedValue(undefined),
-    refreshHardwareInfo: vi.fn().mockResolvedValue(undefined),
-    // Legacy methods for backward compatibility
-    getGpuInfo: vi.fn().mockResolvedValue([]),
-    getCpuInfo: vi.fn().mockResolvedValue({}),
-    getMemoryInfo: vi.fn().mockResolvedValue({}),
-  }),
   app: () => ({
     getAppSettings: vi.fn().mockResolvedValue({}),
     updateAppSettings: vi.fn().mockResolvedValue(undefined),

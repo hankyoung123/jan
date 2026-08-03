@@ -46,7 +46,7 @@ class NarrativeContext(RuntimeModel):
     events: tuple[ResolvedEvent, ...]
     game_master_memories: tuple[MemoryRecord, ...]
     viewpoint_memories: tuple[MemoryRecord, ...] = ()
-    world_bible_text: str = ""
+    world_wiki_context: str = ""
 
     @model_validator(mode="after")
     def source_ids_match_loaded_context(self) -> "NarrativeContext":

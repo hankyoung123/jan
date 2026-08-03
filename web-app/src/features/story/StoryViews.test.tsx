@@ -378,7 +378,7 @@ describe('Story submission', () => {
           draft: { ...completedDraft, id: draftId },
           review: {
             mode: 'submission_review',
-            passed: true,
+            passed: false,
             summary: '创作方向、世界压力和角色知识边界明确。',
             issues: [],
           },
@@ -779,6 +779,7 @@ describe('Character workspace', () => {
     })
 
     render(<CharactersView />)
+    fireEvent.click(await screen.findByRole('button', { name: /角色档案/ }))
     fireEvent.click(await screen.findByRole('button', { name: /临时导航员/ }))
     expect(screen.getByText('普通人物')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '评估升级建议' }))
@@ -833,6 +834,7 @@ describe('Character relationship graph', () => {
 
     render(<CharactersView />)
 
+    fireEvent.click(await screen.findByRole('button', { name: /角色档案/ }))
     expect(await screen.findByText('互为退路')).toBeInTheDocument()
   })
 
@@ -842,8 +844,7 @@ describe('Character relationship graph', () => {
 
     render(<CharactersView />)
 
-    await screen.findAllByText('阿岚')
-    fireEvent.click(screen.getByRole('button', { name: /关系图/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /关系图/ }))
 
     expect(
       screen.getByRole('img', { name: '角色关系图' })
@@ -857,6 +858,7 @@ describe('Character relationship graph', () => {
 
     render(<CharactersView />)
 
+    fireEvent.click(await screen.findByRole('button', { name: /角色档案/ }))
     expect(await screen.findByText('暂无关系记录')).toBeInTheDocument()
   })
 
@@ -866,8 +868,7 @@ describe('Character relationship graph', () => {
 
     render(<CharactersView />)
 
-    await screen.findAllByText('阿岚')
-    fireEvent.click(screen.getByRole('button', { name: /关系图/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /关系图/ }))
 
     expect(await screen.findByText('暂无关系连线')).toBeInTheDocument()
     expect(

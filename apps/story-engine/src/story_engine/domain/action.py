@@ -74,12 +74,9 @@ class ActionSpec(RuntimeModel):
 class TaskType(StrEnum):
     ACTOR = "actor"
     GAME_MASTER = "game_master"
-    REFLECTION = "reflection"
-    MEMORY_CONSOLIDATION = "memory_consolidation"
-    PROJECTION = "projection"
+    WIKI_MAINTENANCE = "wiki_maintenance"
     EDITOR = "editor"
     WRITER = "writer"
-    EMBEDDING = "embedding"
 
 
 class TaskSpec(RuntimeModel):

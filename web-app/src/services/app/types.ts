@@ -11,7 +11,7 @@ export interface LogEntry {
 
 export interface FactoryResetOptions {
   keepAppData: boolean
-  keepModelsAndConfigs: boolean
+  keepProviderConfigs: boolean
   clearWebData?: boolean
 }
 
@@ -21,6 +21,5 @@ export interface AppService {
   parseLogLine(line: string): LogEntry
   getJanDataFolder(): Promise<string | undefined>
   relocateJanDataFolder(path: string): Promise<void>
-  getServerStatus(): Promise<boolean>
   readYaml<T = unknown>(path: string): Promise<T>
 }

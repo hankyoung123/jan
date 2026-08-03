@@ -79,7 +79,12 @@ def _runtime_factory(
                 model_profile_id="actor",
                 content_locale=request.content_locale,
             ),
-            actor_params={"name": "actor-a", "identity": "Investigator"},
+            actor_params={
+                "name": "actor-a",
+                "identity": "Investigator",
+                "project_root": ".",
+                "branch_id": request.branch_id,
+            },
             memory=ConcordiaMemoryBank(
                 owner_id="actor-a",
                 scope=MemoryScope.CHARACTER,
@@ -90,7 +95,12 @@ def _runtime_factory(
                 model_profile_id="gm",
                 content_locale=request.content_locale,
             ),
-            gm_params={"name": "gm", "scene_goal": request.premise_text},
+            gm_params={
+                "name": "gm",
+                "scene_goal": request.premise_text,
+                "project_root": ".",
+                "branch_id": request.branch_id,
+            },
             actors=(actor,),
             shared_memory=ConcordiaMemoryBank(
                 owner_id="gm",
@@ -360,8 +370,7 @@ def test_model_token_budget_terminates_before_another_step_can_run() -> None:
             session_id=created.session_id,
             branch_id="main",
             profile_id="actor",
-            provider_id="local",
-            model_id="replay",
+                model_ref="replay",
             prompt_version="v1",
             content_locale="en-US",
             prompt_sha256="a" * 64,

@@ -50,8 +50,7 @@ class SimulationStageEvent(RuntimeModel):
     output_record_ids: tuple[Identifier, ...] = ()
     visible_to: tuple[Identifier, ...] = ()
     profile_ids: tuple[Identifier, ...] = ()
-    provider_ids: tuple[Identifier, ...] = ()
-    model_ids: tuple[str, ...] = ()
+    model_refs: tuple[str, ...] = ()
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
     duration_ms: int | None = Field(default=None, ge=0)
@@ -75,8 +74,7 @@ class ModelCallTrace(RuntimeModel):
     step: int | None = Field(default=None, ge=0)
     actor_id: Identifier | None = None
     profile_id: Identifier
-    provider_id: Identifier
-    model_id: str
+    model_ref: str | None = None
     prompt_version: Identifier
     content_locale: LocaleCode
     component_ids: tuple[Identifier, ...] = ()

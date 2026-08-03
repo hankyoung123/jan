@@ -1,16 +1,13 @@
 import { ExtensionManager } from '@/lib/extension'
 import { APIs } from '@/lib/service'
 import { EventEmitter } from '@/services/events/EventEmitter'
-import { EngineManager, ModelManager } from '@janhq/core'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { emit } from '@tauri-apps/api/event'
 import { PropsWithChildren, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from '@/i18n/react-i18next-compat'
 
-// Secondary windows (logs, system monitor) reuse the same React bundle but
-// their Tauri capabilities do not grant hardware:*/llamacpp:*/etc. Loading
-// extensions there triggers ACL-denied invokes and would double-spawn the
-// llama-server router. Gate the whole pipeline on the main window.
+// Secondary windows reuse the same React bundle. Gate extension setup on the
+// main window so extensions are initialized once.
 function isMainWindow(): boolean {
   try {
     return getCurrentWebviewWindow().label === 'main'
@@ -33,9 +30,6 @@ export function ExtensionProvider({ children }: PropsWithChildren) {
 
     window.core.events = new EventEmitter()
     window.core.extensionManager = new ExtensionManager()
-    window.core.engineManager = new EngineManager()
-    window.core.modelManager = new ModelManager()
-
     if (!isMainWindow()) {
       setFinishedSetup(true)
       return

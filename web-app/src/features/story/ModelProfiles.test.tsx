@@ -1,324 +1,195 @@
+import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const h = vi.hoisted(() => ({
-  engineRequest: vi.fn(),
-  providers: [
-    {
-      active: true,
-      provider: 'deepseek',
-      base_url: 'https://api.deepseek.com/v1',
-      settings: [],
-      models: [{ id: 'deepseek-v4-flash' }, { id: 'deepseek-v4-pro' }],
-    },
-    {
-      active: true,
-      provider: 'openai',
-      base_url: 'https://api.openai.com/v1',
-      settings: [],
-      models: [{ id: 'gpt-5-mini' }, { id: 'gpt-5.1' }],
-    },
-    {
-      active: true,
-      provider: 'llamacpp',
-      base_url: 'http://127.0.0.1:39280/v1',
-      settings: [],
-      models: [{ id: 'qwen3-8b' }, { id: 'bge-m3' }],
-    },
-  ],
-}))
-
-vi.stubGlobal(
-  'ResizeObserver',
-  class ResizeObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  }
-)
-
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
-    <a href={to} {...props}>
-      {children}
-    </a>
-  ),
-}))
-
-vi.mock('@/hooks/useModelProvider', () => ({
-  useModelProvider: (
-    selector: (state: { providers: typeof h.providers }) => unknown
-  ) => selector({ providers: h.providers }),
-}))
-
-vi.mock('./engine', () => ({
-  engineRequest: h.engineRequest,
-}))
 
 import { ModelProfiles } from './ModelProfiles'
 
-const configuredProviders = h.providers.map((provider) => ({
-  ...provider,
-  models: provider.models.map((model) => ({ ...model })),
+const engineRequest = vi.fn()
+const providers = [
+  {
+    provider: 'openai',
+    active: true,
+    models: [{ id: 'shared-model' }],
+  },
+  {
+    provider: 'anthropic',
+    active: true,
+    models: [{ id: 'shared-model' }],
+  },
+  {
+    provider: 'llamacpp',
+    active: true,
+    models: [{ id: 'local-model' }],
+  },
+]
+
+vi.mock('./engine', () => ({
+  engineRequest: (...args: unknown[]) => engineRequest(...args),
+}))
+vi.mock('@/hooks/useModelProvider', () => ({
+  useModelProvider: (selector: (state: { providers: typeof providers }) => unknown) =>
+    selector({ providers }),
+}))
+vi.mock('./activeProject', () => ({
+  useActiveStoryProjectId: () => 'fog-harbor',
+}))
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children }: { children: unknown }) => <span>{children as never}</span>,
 }))
 
 const profiles = [
   {
     id: 'actor',
-    name: 'Character',
     task_type: 'actor',
-    provider_id: 'llamacpp',
-    model: 'qwen3-8b',
+    model_ref: null,
     max_output_tokens: 2048,
     timeout_seconds: 60,
     temperature: 0.7,
-    enabled: true,
   },
   {
-    id: 'game-master',
-    name: 'Resolver',
-    task_type: 'game_master',
-    provider_id: 'openai',
-    model: 'gpt-5-mini',
+    id: 'actor-precise',
+    task_type: 'actor',
+    model_ref: 'anthropic/shared-model',
     max_output_tokens: 2048,
     timeout_seconds: 60,
     temperature: 0.2,
-    enabled: true,
   },
-  {
-    id: 'reflection',
-    name: 'Reflection',
-    task_type: 'reflection',
-    provider_id: 'openai',
-    model: 'gpt-5-mini',
-    max_output_tokens: 2048,
-    timeout_seconds: 60,
-    temperature: 0.2,
-    enabled: true,
+]
+const policy = {
+  schema_version: 1,
+  task_profile_ids: {
+    actor: 'actor',
+    game_master: 'game-master',
+    wiki_maintenance: 'wiki-maintenance',
+    editor: 'editor',
+    writer: 'writer',
   },
-  {
-    id: 'memory-consolidation',
-    name: 'Memory consolidation',
-    task_type: 'memory_consolidation',
-    provider_id: 'openai',
-    model: 'gpt-5-mini',
-    max_output_tokens: 2048,
-    timeout_seconds: 60,
-    temperature: 0.2,
-    enabled: true,
-  },
-  {
-    id: 'projection',
-    name: 'Projection',
-    task_type: 'projection',
-    provider_id: 'openai',
-    model: 'gpt-5-mini',
-    max_output_tokens: 2048,
-    timeout_seconds: 60,
-    temperature: 0.2,
-    enabled: true,
-  },
-  {
-    id: 'editor',
-    name: 'Editor',
-    task_type: 'editor',
-    provider_id: 'openai',
-    model: 'gpt-5-mini',
-    max_output_tokens: 2048,
-    timeout_seconds: 60,
-    temperature: 0.1,
-    enabled: true,
-  },
-  {
-    id: 'writer',
-    name: 'Writer',
-    task_type: 'writer',
-    provider_id: 'openai',
-    model: 'gpt-5-mini',
-    max_output_tokens: 2048,
-    timeout_seconds: 60,
-    temperature: 0.8,
-    enabled: true,
-  },
-  {
-    id: 'embedding',
-    name: 'Embedding',
-    task_type: 'embedding',
-    provider_id: 'llamacpp',
-    model: 'bge-m3',
-    max_output_tokens: 2048,
-    timeout_seconds: 60,
-    temperature: null,
-    enabled: true,
-  },
-] as const
-
-function successfulRequests(path: string, init?: RequestInit) {
-  if (path === '/models/profiles') return Promise.resolve(profiles)
-  if (path === '/models/usage') {
-    return Promise.resolve({
-      requests: 12,
-      prompt_tokens: 200,
-      completion_tokens: 145,
-      total_tokens: 345,
-    })
-  }
-  if (path === '/models/profiles/writer' && init?.method === 'PUT') {
-    return Promise.resolve(JSON.parse(String(init.body)))
-  }
-  throw new Error(`Unexpected request: ${path}`)
+  agent_profile_ids: {},
 }
+const characters = [
+  {
+    id: 'chen-mo',
+    display_name: '陈默',
+    type: 'active',
+    identity: '调查员',
+    core_desire: '寻找真相',
+    current_goal: '检查灯塔',
+    known_fact_ids: [],
+    relationships: [],
+    resources: [],
+    version: 0,
+  },
+]
 
 describe('ModelProfiles', () => {
   beforeEach(() => {
-    h.providers = configuredProviders.map((provider) => ({
-      ...provider,
-      models: provider.models.map((model) => ({ ...model })),
-    }))
-    h.engineRequest.mockReset()
-    h.engineRequest.mockImplementation(successfulRequests)
+    engineRequest.mockReset()
+    engineRequest.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/models/profiles') return Promise.resolve(profiles)
+      if (path === '/models/usage') {
+        return Promise.resolve({
+          requests: 1,
+          prompt_tokens: 2,
+          completion_tokens: 3,
+          total_tokens: 5,
+        })
+      }
+      if (path === '/projects/fog-harbor/model-policy') {
+        if (options?.method === 'PUT') return Promise.resolve(JSON.parse(String(options.body)))
+        return Promise.resolve(policy)
+      }
+      if (path === '/projects/fog-harbor/characters') return Promise.resolve(characters)
+      if (path === '/models/profiles/actor') {
+        return Promise.resolve({ ...profiles[0], model_ref: 'openai/shared-model' })
+      }
+      throw new Error(path)
+    })
   })
 
-  it('loads all eight task routes and usage inside the Jan model center', async () => {
+  it('requires an explicit provider-qualified model and retains duplicate model IDs', async () => {
     render(<ModelProfiles />)
+    const select = await screen.findByLabelText('角色模型')
 
-    expect(await screen.findByText('角色')).toBeInTheDocument()
-    expect(screen.getByText('世界主持人')).toBeInTheDocument()
-    expect(screen.getByText('反思')).toBeInTheDocument()
-    expect(screen.getByText('记忆整理')).toBeInTheDocument()
-    expect(screen.getByText('投影')).toBeInTheDocument()
-    expect(screen.getByText('审核')).toBeInTheDocument()
-    expect(screen.getByText('写作')).toBeInTheDocument()
-    expect(screen.getByText('嵌入')).toBeInTheDocument()
-    expect(screen.getByText('12 次调用 · 345 Token')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '打开 Provider 设置' })).toHaveAttribute(
-      'href',
-      '/settings/providers'
+    expect(select).toHaveValue('')
+    const options = Array.from((select as HTMLSelectElement).options)
+    expect(options.find((option) => option.text === 'OpenAI · shared-model')?.value).toBe(
+      'openai/shared-model'
     )
-    expect(screen.queryByText(/api key/i)).not.toBeInTheDocument()
+    expect(
+      options.find((option) => option.text === 'Anthropic · shared-model')?.value
+    ).toBe('anthropic/shared-model')
+    expect(screen.queryByRole('option', { name: /local-model/ })).not.toBeInTheDocument()
+    expect(options.find((option) => option.text === '未选择模型')).toBeDefined()
   })
 
-  it('saves model and advanced limits without adding Provider secrets', async () => {
+  it('saves the provider-qualified model reference', async () => {
     render(<ModelProfiles />)
-    await screen.findByText('写作')
-
-    fireEvent.change(screen.getAllByLabelText('模型')[6], {
-      target: { value: 'gpt-5.1' },
+    fireEvent.change(await screen.findByLabelText('角色模型'), {
+      target: { value: 'openai/shared-model' },
     })
-    fireEvent.click(
-      screen.getByRole('button', { name: '写作高级设置' })
+    fireEvent.click(screen.getByRole('button', { name: '保存角色模型' }))
+
+    await waitFor(() =>
+      expect(engineRequest).toHaveBeenCalledWith(
+        '/models/profiles/actor',
+        expect.anything()
+      )
     )
-    fireEvent.change(screen.getByLabelText('最大输出 Token'), {
-      target: { value: '4096' },
-    })
-    fireEvent.click(screen.getByLabelText('启用写作'))
-    fireEvent.click(screen.getByRole('button', { name: '保存写作配置' }))
+    const options = engineRequest.mock.calls.find(
+      ([path]) => path === '/models/profiles/actor'
+    )?.[1]
+    expect(JSON.parse(options.body).model_ref).toBe('openai/shared-model')
+  })
 
-    await waitFor(() => {
-      expect(h.engineRequest).toHaveBeenCalledWith(
-        '/models/profiles/writer',
+  it('persists a per-character actor profile override', async () => {
+    render(<ModelProfiles />)
+    fireEvent.change(await screen.findByLabelText('陈默 Agent Profile'), {
+      target: { value: 'actor-precise' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存陈默 Agent Profile' }))
+
+    await waitFor(() =>
+      expect(engineRequest).toHaveBeenCalledWith(
+        '/projects/fog-harbor/model-policy',
         expect.objectContaining({ method: 'PUT' })
       )
-    })
-    const request = h.engineRequest.mock.calls.find(
-      ([path]) => path === '/models/profiles/writer'
     )
-    const body = JSON.parse(String(request?.[1]?.body))
-    expect(body).toMatchObject({
-      id: 'writer',
-      provider_id: 'openai',
-      model: 'gpt-5.1',
-      max_output_tokens: 4096,
-      enabled: false,
+    const options = engineRequest.mock.calls.find(
+      ([path, request]) =>
+        path === '/projects/fog-harbor/model-policy' && request?.method === 'PUT'
+    )?.[1]
+    expect(JSON.parse(options.body).agent_profile_ids).toEqual({
+      'chen-mo': 'actor-precise',
     })
-    expect(JSON.stringify(body).toLowerCase()).not.toContain('api_key')
   })
 
-  it('shows thinking strength in advanced settings and disables it off DeepSeek', async () => {
+  it('can create an additional actor profile for per-agent assignments', async () => {
+    engineRequest.mockImplementation((path: string) => {
+      if (path === '/models/profiles') return Promise.resolve(profiles)
+      if (path === '/models/usage') {
+        return Promise.resolve({
+          requests: 0,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+        })
+      }
+      if (path === '/projects/fog-harbor/model-policy') return Promise.resolve(policy)
+      if (path === '/projects/fog-harbor/characters') return Promise.resolve(characters)
+      if (path === '/models/profiles/actor-custom-1') {
+        return Promise.resolve({ ...profiles[0], id: 'actor-custom-1' })
+      }
+      throw new Error(path)
+    })
     render(<ModelProfiles />)
-    await screen.findByText('写作')
+    fireEvent.click(await screen.findByRole('button', { name: '新增角色 Profile' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '写作高级设置' }))
-
-    const select = screen.getByRole('button', { name: '写作思考强度' })
-    expect(select).toBeDisabled()
-    expect(select).toHaveTextContent('关闭')
-    expect(screen.getByText('仅 DeepSeek 生效')).toBeInTheDocument()
-  })
-
-  it('saves a chosen reasoning effort for a DeepSeek task', async () => {
-    const user = userEvent.setup()
-    render(<ModelProfiles />)
-    await screen.findByText('写作')
-
-    await user.click(screen.getByRole('button', { name: '写作 Provider' }))
-    await user.click(await screen.findByRole('menuitemradio', { name: /DeepSeek/ }))
-    await user.click(screen.getByRole('button', { name: '写作高级设置' }))
-
-    const select = screen.getByRole('button', { name: '写作思考强度' })
-    expect(select).toBeEnabled()
-    expect(screen.getByText('V4 Pro 当前将低档映射为高档')).toBeInTheDocument()
-    await user.click(select)
-    await user.click(await screen.findByRole('menuitemradio', { name: '低' }))
-    await user.click(screen.getByRole('button', { name: '保存写作配置' }))
-
-    await waitFor(() => {
-      expect(h.engineRequest).toHaveBeenCalledWith(
-        '/models/profiles/writer',
+    await waitFor(() =>
+      expect(engineRequest).toHaveBeenCalledWith(
+        '/models/profiles/actor-custom-1',
         expect.objectContaining({ method: 'PUT' })
       )
-    })
-    const request = h.engineRequest.mock.calls.find(
-      ([path]) => path === '/models/profiles/writer'
     )
-    const body = JSON.parse(String(request?.[1]?.body))
-    expect(body.reasoning_effort).toBe('low')
-  })
-
-  it('offers an in-place retry when the Story Engine is unavailable', async () => {
-    h.engineRequest.mockRejectedValue(new Error('Story Engine is not running'))
-    render(<ModelProfiles />)
-
-    expect(
-      await screen.findByText('Story Engine is not running')
-    ).toBeInTheDocument()
-
-    h.engineRequest.mockImplementation(successfulRequests)
-    fireEvent.click(
-      screen.getByRole('button', { name: '重新加载任务模型' })
-    )
-
-    expect(await screen.findByText('写作')).toBeInTheDocument()
-  })
-
-  it('keeps profiles available when aggregate usage cannot be loaded', async () => {
-    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
-      if (path === '/models/usage') return Promise.reject(new Error('no usage'))
-      return successfulRequests(path, init)
-    })
-    render(<ModelProfiles />)
-
-    expect(await screen.findByText('写作')).toBeInTheDocument()
-    expect(screen.getByText('0 次调用 · 0 Token')).toBeInTheDocument()
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-  })
-
-  it('keeps explicit model IDs editable while Jan Provider state hydrates', async () => {
-    h.providers = []
-    render(<ModelProfiles />)
-    await screen.findByText('写作')
-
-    const modelInputs = screen.getAllByLabelText('模型')
-    expect(modelInputs).toHaveLength(8)
-    expect(modelInputs.every((input) => !input.hasAttribute('disabled'))).toBe(
-      true
-    )
-
-    fireEvent.change(modelInputs[6], { target: { value: 'gpt-5.1' } })
-    expect(
-      screen.getByRole('button', { name: '保存写作配置' })
-    ).toBeEnabled()
+    expect(await screen.findByLabelText('角色模型（actor-custom-1）')).toBeInTheDocument()
   })
 })

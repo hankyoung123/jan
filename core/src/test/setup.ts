@@ -9,7 +9,6 @@ if (typeof window === 'undefined') {
 if (!window.core) {
   Object.defineProperty(window, 'core', {
     value: {
-      engineManager: undefined
     },
     writable: true,
     configurable: true

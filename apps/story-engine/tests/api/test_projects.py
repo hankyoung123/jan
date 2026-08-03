@@ -7,15 +7,17 @@ from fastapi.testclient import TestClient
 
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
-from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.contracts import ModelProfile, ModelStreamChunk
+from story_engine.models.registry import ProfileRegistry
 from story_engine.submission.service import SubmissionDraft, fog_harbor_submission
 
 AUTH = {"Authorization": "Bearer test-token"}
 
 
 class SubmissionTransport:
-    def __init__(self) -> None:
+    def __init__(self, *, review_passed: bool = True) -> None:
         self.calls: list[Mapping[str, Any]] = []
+        self.review_passed = review_passed
 
     async def complete(
         self,
@@ -30,7 +32,7 @@ class SubmissionTransport:
             "draft": fog_harbor_submission().model_dump(mode="json"),
             "review": {
                 "mode": "submission_review",
-                "passed": True,
+                "passed": self.review_passed,
                 "summary": "创作方向、压力和知识边界明确。",
                 "issues": [],
             },
@@ -63,9 +65,22 @@ def _client(
     *,
     transport: SubmissionTransport | None = None,
 ) -> TestClient:
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="editor",
+            task_type="editor",
+            model_ref="test-provider/test-editor",
+        )
+    )
     return TestClient(
         create_app(
-            EngineSettings(session_token="test-token", projects_root=tmp_path),
+            EngineSettings(
+                session_token="test-token",
+                projects_root=tmp_path,
+                model_registry_path=registry.path,
+            ),
+            model_registry=registry,
             model_transport=transport,
         )
     )
@@ -87,7 +102,28 @@ def test_submission_message_uses_editor_profile_without_creating_project(
     assert response.status_code == 200
     assert response.json()["runnable"] is True
     assert not (tmp_path / "fog-harbor").exists()
-    assert transport.calls[0]["model"] == "gpt-5-mini"
+    assert transport.calls[0]["model"] == "test-provider/test-editor"
+
+
+def test_complete_submission_is_runnable_when_model_review_flag_is_false(
+    tmp_path: Path,
+) -> None:
+    response = _client(
+        tmp_path,
+        transport=SubmissionTransport(review_passed=False),
+    ).post(
+        "/projects/fog-harbor/submission/messages",
+        headers=AUTH,
+        json={
+            "draft": SubmissionDraft(id="fog-harbor").model_dump(mode="json"),
+            "messages": [{"role": "user", "content": "整理完整投稿设定。"}],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["review"]["passed"] is False
+    assert response.json()["missing_requirements"] == []
+    assert response.json()["runnable"] is True
 
 
 def test_project_create_open_get_and_close(tmp_path: Path) -> None:

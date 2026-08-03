@@ -15,9 +15,7 @@
       "capabilities": [
         "default",
         "log-app-window",
-        "logs-window",
-        "system-monitor-window",
-        "mlx"
+        "logs-window"
       ],
       "csp": {
         "default-src": "'self' customprotocol: asset: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",

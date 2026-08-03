@@ -22,8 +22,9 @@ def test_openapi_contains_core_paths_and_bearer_security() -> None:
         "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/generate",
         "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/{scene_id}",
         "/projects/{project_id}/branches/{branch_id}/manuscript/export",
-        "/projects/{project_id}/branches/{branch_id}/world-bible",
-        "/projects/{project_id}/branches/{branch_id}/world-bible/rebuild",
+        "/projects/{project_id}/branches/{branch_id}/wiki",
+        "/projects/{project_id}/branches/{branch_id}/wiki/page",
+        "/projects/{project_id}/branches/{branch_id}/wiki/rebuild",
         "/models/catalog",
         "/models/profiles",
         "/models/profiles/{profile_id}",
@@ -50,11 +51,12 @@ def test_openapi_never_contains_runtime_session_token() -> None:
     assert "contract-generation-token" not in serialized
 
 
-def test_openapi_model_profile_exposes_reasoning_effort_choices() -> None:
+def test_openapi_model_profile_exposes_only_jan_model_reference() -> None:
     schema = build_openapi_schema()
 
     profile_schema = schema["components"]["schemas"]["ModelProfile"]
-    reasoning = profile_schema["properties"]["reasoning_effort"]
+    properties = profile_schema["properties"]
 
-    assert reasoning["default"] == "disabled"
-    assert reasoning["enum"] == ["disabled", "low", "high", "max"]
+    assert "model_ref" in properties
+    assert "provider_id" not in properties
+    assert "reasoning_effort" not in properties

@@ -2,7 +2,6 @@ import { createRootRoute, Outlet } from '@tanstack/react-router'
 // import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 
 import DialogAppUpdater from '@/containers/dialogs/AppUpdater'
-import BackendUpdater from '@/containers/dialogs/BackendUpdater'
 import { Fragment } from 'react/jsx-runtime'
 import { ThemeProvider } from '@/providers/ThemeProvider'
 import { InterfaceProvider } from '@/providers/InterfaceProvider'
@@ -13,16 +12,12 @@ import { ExtensionProvider } from '@/providers/ExtensionProvider'
 import { ToasterProvider } from '@/providers/ToasterProvider'
 import { useAnalytic } from '@/hooks/useAnalytic'
 import { PromptAnalytic } from '@/containers/analytics/PromptAnalytic'
-import { useJanModelPrompt } from '@/hooks/useJanModelPrompt'
-import { PromptJanModel } from '@/containers/PromptJanModel'
 import { AnalyticProvider } from '@/providers/AnalyticProvider'
 import { useLeftPanel } from '@/hooks/useLeftPanel'
 import ToolApproval from '@/containers/dialogs/ToolApproval'
 import { TranslationProvider } from '@/i18n/TranslationContext'
 import OutOfContextPromiseModal from '@/containers/dialogs/OutOfContextDialog'
-import AttachmentIngestionDialog from '@/containers/dialogs/AttachmentIngestionDialog'
 import GlobalError from '@/containers/GlobalError'
-import { GlobalEventHandler } from '@/providers/GlobalEventHandler'
 import { ServiceHubProvider } from '@/providers/ServiceHubProvider'
 import {
   SidebarInset,
@@ -33,8 +28,6 @@ import { LeftSidebar } from '@/components/left-sidebar'
 import { WindowControls } from '@/components/WindowControls'
 import { WindowResizeGrips } from '@/components/WindowResizeGrips'
 import ErrorDialog from '@/containers/dialogs/ErrorDialog'
-import LlamacppBusyOnExitDialog from '@/containers/dialogs/LlamacppBusyOnExitDialog'
-import LlamacppOomListener from '@/containers/dialogs/LlamacppOomListener'
 import MissingDependenciesDialog from '@/containers/dialogs/MissingDependenciesDialog'
 import { EngineStatus } from '@/features/story/EngineStatus'
 
@@ -45,7 +38,6 @@ export const Route = createRootRoute({
 
 const AppLayout = () => {
   const { productAnalyticPrompt } = useAnalytic()
-  const { showJanModelPrompt } = useJanModelPrompt()
   const {
     open: isLeftPanelOpen,
     setLeftPanel,
@@ -75,7 +67,6 @@ const AppLayout = () => {
           />
         )}
         <DialogAppUpdater />
-        <BackendUpdater />
         <LeftSidebar />
         <SidebarTrigger
           aria-label="打开导航"
@@ -90,7 +81,6 @@ const AppLayout = () => {
         <EngineStatus />
 
         {productAnalyticPrompt && <PromptAnalytic />}
-        {showJanModelPrompt && <PromptJanModel />}
       </SidebarProvider>
     </div>
   )
@@ -116,11 +106,7 @@ const LogsLayout = () => {
 function RootLayout() {
   const getInitialLayoutType = () => {
     const pathname = window.location.pathname
-    return (
-      pathname === route.localApiServerlogs ||
-      pathname === route.systemMonitor ||
-      pathname === route.appLogs
-    )
+    return pathname === route.appLogs
   }
 
   const IS_LOGS_ROUTE = getInitialLayoutType()
@@ -134,15 +120,11 @@ function RootLayout() {
         <TranslationProvider>
           <ExtensionProvider>
             <DataProvider />
-            <GlobalEventHandler />
             {IS_LOGS_ROUTE ? <LogsLayout /> : <AppLayout />}
           </ExtensionProvider>
           {/* <TanStackRouterDevtools position="bottom-right" /> */}
           <ToolApproval />
-          <AttachmentIngestionDialog />
           <ErrorDialog />
-          <LlamacppBusyOnExitDialog />
-          <LlamacppOomListener />
           <MissingDependenciesDialog />
           <OutOfContextPromiseModal />
         </TranslationProvider>

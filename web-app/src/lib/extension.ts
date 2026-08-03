@@ -1,4 +1,4 @@
-import { AIEngine, BaseExtension, ExtensionTypeEnum } from '@janhq/core'
+import { BaseExtension, ExtensionTypeEnum } from '@janhq/core'
 
 import { getServiceHub } from '@/hooks/useServiceHub'
 
@@ -64,9 +64,6 @@ export class ExtensionManager {
   // Registered extensions
   private extensions = new Map<string, BaseExtension>()
 
-  // Registered inference engines
-  private engines = new Map<string, AIEngine>()
-
   // Notified whenever an extension registers, so consumers waiting on a
   // not-yet-ready extension (startup race) can re-attempt instead of polling.
   private registrationListeners = new Set<() => void>()
@@ -78,14 +75,6 @@ export class ExtensionManager {
   register<T extends BaseExtension>(name: string, extension: T) {
     // Register for naming use
     this.extensions.set(name, extension)
-
-    // Register AI Engines
-    if ('provider' in extension && typeof extension.provider === 'string') {
-      this.engines.set(
-        extension.provider as unknown as string,
-        extension as unknown as AIEngine
-      )
-    }
 
     this.registrationListeners.forEach((cb) => cb())
   }
@@ -123,15 +112,6 @@ export class ExtensionManager {
    */
   getAll(): BaseExtension[] {
     return Array.from(this.extensions.values())
-  }
-
-  /**
-   * Retrieves a extension by its type.
-   * @param engine - The engine name to retrieve.
-   * @returns The extension, if found.
-   */
-  getEngine<T extends AIEngine>(engine: string): T | undefined {
-    return this.engines.get(engine) as T | undefined
   }
 
   /**

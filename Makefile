@@ -6,7 +6,6 @@ ifeq ($(OS),Windows_NT)
 else
     DETECTED_OS := $(shell uname -s)
 endif
-
 ifeq ($(OS),Windows_NT)
     MKDIR = if not exist "$(1)" mkdir "$(1)"
 else
@@ -58,9 +57,6 @@ install-ios-rust-targets:
 	@echo "iOS Rust targets ready!"
 
 dev: install-and-build
-	yarn download:bin
-	make build-mlx-server-if-exists
-	make build-cli-dev
 	yarn dev
 
 # Web application targets
@@ -116,121 +112,13 @@ lint: install-and-build
 
 # Testing
 test: lint install-rust-targets
-	yarn download:bin
 ifeq ($(DETECTED_OS),Windows)
 endif
 	yarn test
 	yarn copy:assets:tauri
 	yarn build:icon
-	yarn build:mlx-server
-	make build-cli
 	cargo test --locked --manifest-path src-tauri/Cargo.toml --no-default-features --features test-tauri -- --test-threads=1
-	cargo test --locked --manifest-path src-tauri/plugins/tauri-plugin-hardware/Cargo.toml
-	cargo test --locked --manifest-path src-tauri/plugins/tauri-plugin-llamacpp/Cargo.toml
 	cargo test --locked --manifest-path src-tauri/utils/Cargo.toml
-
-# Build MLX server (macOS Apple Silicon only) - always builds
-build-mlx-server:
-ifeq ($(DETECTED_OS),Darwin)
-	@echo "Building MLX server for Apple Silicon..."
-	# mlx-swift's Metal shaders are compiled by the PrepareMetalShaders
-	# plugin, which only runs under Xcode -- `swift build` produces a
-	# binary with no default.metallib and the app fails at runtime. See
-	# https://github.com/ml-explore/mlx-swift README ("SwiftPM (command
-	# line) cannot build the Metal shaders").
-	cd mlx-server && xcodebuild build -scheme mlx-server -destination 'platform=OS X' -configuration Release OTHER_LDFLAGS="-dead_strip"
-	@echo "Finding build products..."
-	@DERIVED_DATA=$$(find ~/Library/Developer/Xcode/DerivedData/mlx-server-*/Build/Products/Release -maxdepth 0 2>/dev/null | head -1); \
-	if [ -z "$$DERIVED_DATA" ] || [ ! -f "$$DERIVED_DATA/mlx-server" ]; then \
-		echo "Error: Could not find xcodebuild products under DerivedData"; \
-		exit 1; \
-	fi; \
-	METALLIB=$$(find "$$DERIVED_DATA/mlx-swift_Cmlx.bundle" -name 'default.metallib' -print -quit 2>/dev/null); \
-	if [ -z "$$METALLIB" ]; then \
-		echo "Error: default.metallib missing under $$DERIVED_DATA/mlx-swift_Cmlx.bundle -- PrepareMetalShaders did not run"; \
-		find "$$DERIVED_DATA/mlx-swift_Cmlx.bundle" -maxdepth 4 2>/dev/null; \
-		exit 1; \
-	fi; \
-	mkdir -p src-tauri/resources/bin; \
-	echo "Copying mlx-server from $$DERIVED_DATA..."; \
-	cp "$$DERIVED_DATA/mlx-server" src-tauri/resources/bin/mlx-server; \
-	rm -rf src-tauri/resources/bin/mlx-swift_Cmlx.bundle; \
-	cp -r "$$DERIVED_DATA/mlx-swift_Cmlx.bundle" src-tauri/resources/bin/; \
-	chmod +x src-tauri/resources/bin/mlx-server; \
-	echo "MLX server built and copied successfully"; \
-	echo "Checking for code signing identity..."; \
-	SIGNING_IDENTITY=$$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/'); \
-	if [ -n "$$SIGNING_IDENTITY" ]; then \
-		echo "Signing mlx-server with identity: $$SIGNING_IDENTITY"; \
-		codesign --force --options runtime --timestamp --sign "$$SIGNING_IDENTITY" src-tauri/resources/bin/mlx-server; \
-		if ! find src-tauri/resources/bin/mlx-swift_Cmlx.bundle -name 'default.metallib' -print -quit 2>/dev/null | grep -q .; then \
-			echo "Error: staged mlx-swift_Cmlx.bundle is missing default.metallib; refusing to sign an empty bundle"; \
-			exit 1; \
-		fi; \
-		echo "Signing mlx-swift_Cmlx.bundle..."; \
-		codesign --force --options runtime --timestamp --sign "$$SIGNING_IDENTITY" --deep src-tauri/resources/bin/mlx-swift_Cmlx.bundle; \
-		echo "Code signing completed successfully"; \
-	else \
-		echo "Warning: No Developer ID Application identity found. Skipping code signing (notarization will fail)."; \
-	fi
-else
-	@echo "Skipping MLX server build (macOS only)"
-endif
-
-# Build MLX server only if not already present (for dev)
-build-mlx-server-if-exists:
-ifeq ($(DETECTED_OS),Darwin)
-	@if [ -f "src-tauri/resources/bin/mlx-server" ]; then \
-		echo "MLX server already exists at src-tauri/resources/bin/mlx-server, skipping build..."; \
-	else \
-		make build-mlx-server; \
-	fi
-else
-	@echo "Skipping MLX server build (macOS only)"
-endif
-
-# Build Story Engine CLI (release, platform-aware) → src-tauri/resources/bin/story-engine[.exe]
-build-cli:
-ifeq ($(DETECTED_OS),Darwin)
-	cd src-tauri && cargo build --release --features cli --bin story-engine-cli --target aarch64-apple-darwin
-	cd src-tauri && cargo build --release --features cli --bin story-engine-cli --target x86_64-apple-darwin
-	lipo -create \
-		src-tauri/target/aarch64-apple-darwin/release/story-engine-cli \
-		src-tauri/target/x86_64-apple-darwin/release/story-engine-cli \
-		-output src-tauri/resources/bin/story-engine-cli
-	chmod +x src-tauri/resources/bin/story-engine-cli
-	$(call MKDIR,'src-tauri/target/universal-apple-darwin/release')
-	$(call MKDIR,'src-tauri/target/release')
-
-	echo "Checking for code signing identity..."; \
-	SIGNING_IDENTITY=$$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/'); \
-	if [ -n "$$SIGNING_IDENTITY" ]; then \
-		echo "Signing story-engine-cli with identity: $$SIGNING_IDENTITY"; \
-		codesign --force --options runtime --timestamp --sign "$$SIGNING_IDENTITY" src-tauri/resources/bin/story-engine-cli; \
-		echo "Code signing completed successfully"; \
-	else \
-		echo "Warning: No Developer ID Application identity found. Skipping code signing (notarization will fail)."; \
-	fi
-
-	cp src-tauri/resources/bin/story-engine-cli src-tauri/target/universal-apple-darwin/release/story-engine-cli
-	cp src-tauri/resources/bin/story-engine-cli src-tauri/target/release/story-engine-cli
-else ifeq ($(DETECTED_OS),Windows)
-	cd src-tauri && cargo build --release --features cli --bin story-engine-cli
-	cp src-tauri/target/release/story-engine-cli.exe src-tauri/resources/bin/story-engine-cli.exe
-else
-	cd src-tauri && cargo build --release --features cli --bin story-engine-cli
-	cp src-tauri/target/release/story-engine-cli src-tauri/resources/bin/story-engine-cli
-endif
-
-# Debug build for local dev (faster, native arch only)
-build-cli-dev:
-	$(call MKDIR,'src-tauri/resources/bin')	
-	cd src-tauri && cargo build --features cli --bin story-engine-cli
-ifeq ($(DETECTED_OS),Windows)
-	copy src-tauri\target\debug\story-engine-cli.exe src-tauri\resources\bin\story-engine-cli.exe
-else
-	install -m755 src-tauri/target/debug/story-engine-cli src-tauri/resources/bin/story-engine-cli
-endif
 
 # Build
 build: install-and-build install-rust-targets

@@ -18,6 +18,10 @@ class ProviderResponseError(ModelGatewayError):
     code = "provider_error"
 
 
+class UnsupportedResponseFormatError(ProviderResponseError):
+    """Provider rejected the requested structured-output wire format."""
+
+
 class ResponseLimitError(ModelGatewayError):
     code = "response_limit_exceeded"
 

@@ -5,10 +5,7 @@ export type ThinkingBudgetLevelKey =
   | 'xhigh'
   | 'unlimited'
 
-// Fractions of the model's context window; null = unlimited (-1, llama.cpp's
-// sentinel for "don't cap reasoning"). Resolved against the LIVE (post-fit)
-// context size at send time, not the configured/default size at selection
-// time, since llama.cpp's --fit can pick a runtime n_ctx far from either.
+// Fractions of the configured context window; null means unlimited.
 export const THINKING_BUDGET_LEVELS: Array<{
   key: ThinkingBudgetLevelKey
   label: string

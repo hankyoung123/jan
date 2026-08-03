@@ -1,0 +1,2 @@
+"""LLM Wiki acceptance tests."""
+

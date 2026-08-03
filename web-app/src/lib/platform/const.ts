@@ -11,22 +11,6 @@ import { isPlatformTauri, isPlatformIOS, isPlatformAndroid } from './utils'
  * Centralized feature flags for different platforms
  */
 export const PlatformFeatures: Record<PlatformFeature, boolean> = {
-  // Hardware monitoring and GPU usage
-  [PlatformFeature.HARDWARE_MONITORING]:
-    isPlatformTauri() && !isPlatformIOS() && !isPlatformAndroid(),
-
-  // Local model inference (llama.cpp)
-  [PlatformFeature.LOCAL_INFERENCE]:
-    isPlatformTauri() && !isPlatformIOS() && !isPlatformAndroid(),
-
-  // Local API server
-  [PlatformFeature.LOCAL_API_SERVER]:
-    isPlatformTauri() && !isPlatformIOS() && !isPlatformAndroid(),
-
-  // Hub/model downloads
-  [PlatformFeature.MODEL_HUB]:
-    isPlatformTauri() && !isPlatformIOS() && !isPlatformAndroid(),
-
   // System integrations (logs, file explorer, etc.)
   [PlatformFeature.SYSTEM_INTEGRATIONS]:
     isPlatformTauri() && !isPlatformIOS() && !isPlatformAndroid(),
@@ -69,7 +53,4 @@ export const PlatformFeatures: Record<PlatformFeature, boolean> = {
   // Shortcut
   [PlatformFeature.SHORTCUT]: !isPlatformIOS() && !isPlatformAndroid(),
 
-  // File attachments/RAG UI and tooling - desktop platforms only
-  [PlatformFeature.FILE_ATTACHMENTS]:
-    isPlatformTauri() && !isPlatformIOS() && !isPlatformAndroid(),
 }

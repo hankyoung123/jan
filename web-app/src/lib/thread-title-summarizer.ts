@@ -70,9 +70,6 @@ export async function generateThreadTitle(
       return null
     }
 
-    // MLX models often emit reasoning that can't be reliably suppressed; fall back to default title.
-    if (selectedProvider === 'mlx') return null
-
     const provider = getProviderByName(selectedProvider)
     if (!provider) {
       console.warn('[ThreadTitle] Provider not found:', selectedProvider)
@@ -80,22 +77,7 @@ export async function generateThreadTitle(
     }
 
     console.log('[ThreadTitle] Creating model:', selectedModel.id, 'provider:', selectedProvider)
-    // Pin to the reserved background slot (RESERVED_BACKGROUND_SLOTS in
-    // preset.ts) — one index past the user-visible "Parallel Sequences"
-    // count — so this call can never evict a chat request's KV cache.
-    // "Parallel Sequences" = 0 means auto (llama.cpp picks its own slot
-    // count); we can't safely reserve a slot in that case, so skip pinning.
     const params: Record<string, unknown> = {}
-    if (selectedProvider === 'llamacpp') {
-      params.chat_template_kwargs = { enable_thinking: false }
-      const userParallel = Number(
-        provider.settings?.find((s) => s.key === 'parallel')?.controller_props
-          ?.value ?? 1
-      )
-      if (Number.isFinite(userParallel) && userParallel > 0) {
-        params.id_slot = userParallel
-      }
-    }
     const model = await ModelFactory.createModel(
       selectedModel.id,
       provider,

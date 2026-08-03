@@ -13,7 +13,7 @@ describe('pruneLocalStorageByFlags', () => {
 
   it('clears model + thread + setup keys on a full wipe', () => {
     seed()
-    pruneLocalStorageByFlags({ keepAppData: false, keepModelsAndConfigs: false })
+    pruneLocalStorageByFlags({ keepAppData: false, keepProviderConfigs: false })
 
     expect(localStorage.getItem('model-provider')).toBeNull()
     expect(localStorage.getItem('last-used-model')).toBeNull()
@@ -21,9 +21,9 @@ describe('pruneLocalStorageByFlags', () => {
     expect(localStorage.getItem('setup-completed')).toBeNull()
   })
 
-  it('keeps model keys and setup flag when models are preserved', () => {
+  it('keeps provider keys and setup flag when provider configs are preserved', () => {
     seed()
-    pruneLocalStorageByFlags({ keepAppData: false, keepModelsAndConfigs: true })
+    pruneLocalStorageByFlags({ keepAppData: false, keepProviderConfigs: true })
 
     expect(localStorage.getItem('model-provider')).toBe('{"providers":[]}')
     expect(localStorage.getItem('setup-completed')).toBe('true')
@@ -33,7 +33,7 @@ describe('pruneLocalStorageByFlags', () => {
 
   it('keeps thread keys when app data is preserved', () => {
     seed()
-    pruneLocalStorageByFlags({ keepAppData: true, keepModelsAndConfigs: false })
+    pruneLocalStorageByFlags({ keepAppData: true, keepProviderConfigs: false })
 
     expect(localStorage.getItem('threads')).toBe('[]')
     expect(localStorage.getItem('model-provider')).toBeNull()

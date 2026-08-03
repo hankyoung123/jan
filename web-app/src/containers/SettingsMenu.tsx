@@ -10,14 +10,14 @@ import {
   IconPalette,
   IconPlus,
   IconLock,
-  IconCpu,
+  IconRobot,
   IconWorld,
 } from '@tabler/icons-react'
 import { useMatches, useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 
 import { useModelProvider } from '@/hooks/useModelProvider'
-import { getProviderTitle, isLocalProvider } from '@/lib/utils'
+import { getProviderTitle } from '@/lib/utils'
 import ProvidersAvatar from '@/containers/ProvidersAvatar'
 import { AddProviderDialog } from '@/containers/dialogs'
 import {
@@ -82,22 +82,10 @@ const SettingsMenu = () => {
     [providers, addProvider, t, navigate]
   )
 
-  const activeProviders = providers.filter((provider) => {
-    if (!provider.active) return false
-    if (!IS_MACOS && provider.provider === 'mlx') return false
-    return true
-  })
-
-  const activeLocalProviders = activeProviders.filter((p) =>
-    isLocalProvider(p.provider)
-  )
-  const activeRemoteProviders = activeProviders.filter(
-    (p) => !isLocalProvider(p.provider)
-  )
+  const activeProviders = providers.filter((provider) => provider.active)
 
   const hiddenProviders = providers.filter((provider) => {
     if (provider.active) return false
-    if (!IS_MACOS && provider.provider === 'mlx') return false
     return true
   })
 
@@ -113,10 +101,7 @@ const SettingsMenu = () => {
         key={provider.provider}
         className={cn(
           'flex px-2 items-center gap-1.5 cursor-pointer hover:bg-secondary/60 py-1 w-full rounded-sm text-foreground',
-          isRouteActive && 'bg-secondary',
-          provider.provider === 'llama.cpp' &&
-            stepSetupRemoteProvider &&
-            'hidden'
+          isRouteActive && 'bg-secondary'
         )}
         onClick={() =>
           navigate({
@@ -173,6 +158,11 @@ const SettingsMenu = () => {
       icon: IconPalette,
     },
     {
+      title: 'Story Agent 模型',
+      route: route.settings.story_models,
+      icon: IconRobot,
+    },
+    {
       title: 'common:https_proxy',
       route: route.settings.https_proxy,
       icon: IconWorld,
@@ -181,13 +171,6 @@ const SettingsMenu = () => {
       title: 'common:keyboardShortcuts',
       route: route.settings.shortcuts,
       icon: IconCommand,
-    },
-    {
-      title: 'common:hardware',
-      route: route.settings.hardware,
-      hasSubMenu: false,
-      isEnabled: true,
-      icon: IconCpu,
     },
     { title: 'common:privacy', route: route.settings.privacy, icon: IconLock },
   ]
@@ -227,26 +210,12 @@ const SettingsMenu = () => {
               </AddProviderDialog>
             </div>
             <div className="mt-1 flex flex-col gap-0.5">
-              {activeLocalProviders.length > 0 && (
+              {activeProviders.length > 0 && (
                 <>
                   <span className="px-2 pt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-                    {t('common:localProviders')}
-                  </span>
-                  {activeLocalProviders.map(renderActiveProvider)}
-                </>
-              )}
-
-              {activeRemoteProviders.length > 0 && (
-                <>
-                  <span
-                    className={cn(
-                      'px-2 pt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70',
-                      activeLocalProviders.length > 0 && 'mt-2'
-                    )}
-                  >
                     {t('common:remoteProviders')}
                   </span>
-                  {activeRemoteProviders.map(renderActiveProvider)}
+                  {activeProviders.map(renderActiveProvider)}
                 </>
               )}
 

@@ -3,7 +3,7 @@ const HEX = /[0-9a-fA-F]/
 /**
  * Re-escapes backslashes inside JSON string literals as literal path
  * separators. Intended for tool-call arguments that FAILED to parse: smaller
- * local models emit Windows paths like `C:\Users\name\file.txt` verbatim, where
+ * some APIs emit Windows paths like `C:\Users\name\file.txt` verbatim, where
  * `\U`, `\n`, `\f`, ... are treated as (invalid or unintended) JSON escapes and
  * the path is corrupted or dropped. Every backslash is doubled except a genuine
  * `\uXXXX` unicode escape, which is preserved. Do not run this on already-valid

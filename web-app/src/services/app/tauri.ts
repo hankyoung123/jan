@@ -25,26 +25,18 @@ export class TauriAppService extends DefaultAppService {
    * best-effort supplement that races the restart flush.
    */
   async factoryReset(options?: FactoryResetOptions): Promise<void> {
-    const { EngineManager } = await import('@janhq/core')
-    for (const [, engine] of EngineManager.instance().engines) {
-      const activeModels = await engine.getLoadedModels()
-      if (activeModels) {
-        await Promise.all(activeModels.map((model: string) => engine.unload(model)))
-      }
-    }
-
     const keepAppData = options?.keepAppData ?? false
-    const keepModelsAndConfigs = options?.keepModelsAndConfigs ?? false
+    const keepProviderConfigs = options?.keepProviderConfigs ?? false
     const clearWebData = options?.clearWebData ?? false
 
-    pruneLocalStorageByFlags({ keepAppData, keepModelsAndConfigs })
+    pruneLocalStorageByFlags({ keepAppData, keepProviderConfigs })
 
-    if (!keepAppData && !keepModelsAndConfigs && !clearWebData) {
+    if (!keepAppData && !keepProviderConfigs && !clearWebData) {
       await invoke('factory_reset')
     } else {
       await invoke('factory_reset', {
         keepAppData,
-        keepModelsAndConfigs,
+        keepProviderConfigs,
         clearWebData,
       })
     }
@@ -95,9 +87,6 @@ export class TauriAppService extends DefaultAppService {
     }
   }
 
-  async getServerStatus(): Promise<boolean> {
-    return await invoke<boolean>('get_server_status')
-  }
 
   async readYaml<T = unknown>(path: string): Promise<T> {
     return await invoke<T>('read_yaml', { path })

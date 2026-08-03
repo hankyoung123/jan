@@ -378,15 +378,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/branches/{branch_id}/world-bible": {
+    "/projects/{project_id}/branches/{branch_id}/wiki": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get World Bible */
-        get: operations["get_world_bible_projects__project_id__branches__branch_id__world_bible_get"];
+        /** Get Wiki */
+        get: operations["get_wiki_projects__project_id__branches__branch_id__wiki_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -395,7 +395,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/branches/{branch_id}/world-bible/rebuild": {
+    "/projects/{project_id}/branches/{branch_id}/wiki/lint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lint Wiki */
+        get: operations["lint_wiki_projects__project_id__branches__branch_id__wiki_lint_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/wiki/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Wiki Page */
+        get: operations["get_wiki_page_projects__project_id__branches__branch_id__wiki_page_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/branches/{branch_id}/wiki/rebuild": {
         parameters: {
             query?: never;
             header?: never;
@@ -404,8 +438,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Rebuild World Bible */
-        post: operations["rebuild_world_bible_projects__project_id__branches__branch_id__world_bible_rebuild_post"];
+        /** Rebuild Wiki */
+        post: operations["rebuild_wiki_projects__project_id__branches__branch_id__wiki_rebuild_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -497,6 +531,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/model-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Model Policy */
+        get: operations["get_project_model_policy_projects__project_id__model_policy_get"];
+        /** Put Project Model Policy */
+        put: operations["put_project_model_policy_projects__project_id__model_policy_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/open": {
         parameters: {
             query?: never;
@@ -508,40 +560,6 @@ export interface paths {
         put?: never;
         /** Open Project */
         post: operations["open_project_projects__project_id__open_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/rag/rebuild": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Rebuild Index */
-        post: operations["rebuild_index_projects__project_id__rag_rebuild_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/rag/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Search */
-        post: operations["search_projects__project_id__rag_search_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1254,8 +1272,8 @@ export interface components {
             duration_ms: number;
             /** Error Code */
             error_code?: string | null;
-            /** Model Id */
-            model_id: string;
+            /** Model Ref */
+            model_ref?: string | null;
             /** Profile Id */
             profile_id: string;
             /** Prompt Sha256 */
@@ -1267,8 +1285,6 @@ export interface components {
             prompt_tokens: number;
             /** Prompt Version */
             prompt_version: string;
-            /** Provider Id */
-            provider_id: string;
             /**
              * Retry Count
              * @default 0
@@ -1305,11 +1321,6 @@ export interface components {
         };
         /** ModelProfile */
         ModelProfile: {
-            /**
-             * Enabled
-             * @default true
-             */
-            enabled: boolean;
             /** Id */
             id: string;
             /**
@@ -1317,23 +1328,13 @@ export interface components {
              * @default 2048
              */
             max_output_tokens: number;
-            /** Model */
-            model: string;
-            /** Name */
-            name: string;
-            /** Provider Id */
-            provider_id: string;
-            /**
-             * Reasoning Effort
-             * @default disabled
-             * @enum {string}
-             */
-            reasoning_effort: "disabled" | "low" | "high" | "max";
+            /** Model Ref */
+            model_ref?: string | null;
             /**
              * Task Type
              * @enum {string}
              */
-            task_type: "actor" | "game_master" | "reflection" | "memory_consolidation" | "projection" | "editor" | "writer" | "embedding";
+            task_type: "actor" | "game_master" | "wiki_maintenance" | "editor" | "writer";
             /** Temperature */
             temperature?: number | null;
             /**
@@ -1356,7 +1357,7 @@ export interface components {
              * Task Type
              * @enum {string}
              */
-            task_type: "actor" | "game_master" | "reflection" | "memory_consolidation" | "projection" | "editor" | "writer" | "embedding";
+            task_type: "actor" | "game_master" | "wiki_maintenance" | "editor" | "writer";
             /** Temperature */
             temperature?: number | null;
             /** Timeout Seconds */
@@ -1368,13 +1369,11 @@ export interface components {
             content: string;
             /** Finish Reason */
             finish_reason?: string | null;
-            /** Model */
-            model: string;
+            /** Model Ref */
+            model_ref?: string | null;
             parsed_output?: components["schemas"]["JsonValue"];
             /** Profile Id */
             profile_id: string;
-            /** Provider Id */
-            provider_id: string;
             usage?: components["schemas"]["ModelUsage"];
         };
         /** ModelUsage */
@@ -1422,7 +1421,7 @@ export interface components {
             /** @default manual */
             manuscript_mode: components["schemas"]["ManuscriptGenerationMode"];
             /** @default after_scene */
-            world_projection_mode: components["schemas"]["WorldProjectionMode"];
+            wiki_mode: components["schemas"]["WikiMaintenanceMode"];
         };
         /**
          * PendingControl
@@ -1465,6 +1464,22 @@ export interface components {
              * @default 0
              */
             version: number;
+        };
+        /** ProjectModelPolicy */
+        ProjectModelPolicy: {
+            /** Agent Profile Ids */
+            agent_profile_ids?: {
+                [key: string]: string;
+            };
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Task Profile Ids */
+            task_profile_ids?: {
+                [key: string]: string;
+            };
         };
         /** ProjectSnapshot */
         ProjectSnapshot: {
@@ -1529,73 +1544,6 @@ export interface components {
         PromotionConfirmationRequest: {
             /** Candidate Id */
             candidate_id: string;
-        };
-        /** RagHit */
-        RagHit: {
-            /** Chunk Id */
-            chunk_id: string;
-            /** Content */
-            content: string;
-            /** Heading */
-            heading: string;
-            /** Permission Scope */
-            permission_scope: string;
-            /**
-             * Retrieval Mode
-             * @enum {string}
-             */
-            retrieval_mode: "exact" | "bm25";
-            /** Score */
-            score: number;
-            /** Source Id */
-            source_id: string;
-            /** Source Path */
-            source_path: string;
-            /**
-             * Source Type
-             * @enum {string}
-             */
-            source_type: "project" | "world" | "character" | "fact" | "source";
-        };
-        /** RagIndexSummary */
-        RagIndexSummary: {
-            /** Chunk Count */
-            chunk_count: number;
-            /** Document Count */
-            document_count: number;
-            /** Fingerprint */
-            fingerprint: string;
-            /** Project Id */
-            project_id: string;
-        };
-        /** RagSearchRequest */
-        RagSearchRequest: {
-            /** Exact Id */
-            exact_id?: string | null;
-            /**
-             * Limit
-             * @default 8
-             */
-            limit: number;
-            /**
-             * Query
-             * @default
-             */
-            query: string;
-            scope: components["schemas"]["RetrievalScope"];
-        };
-        /** RagSearchResult */
-        RagSearchResult: {
-            /** Exact Id */
-            exact_id?: string | null;
-            /** Hits */
-            hits: components["schemas"]["RagHit"][];
-            /** Index Fingerprint */
-            index_fingerprint: string;
-            /** Permission Scope */
-            permission_scope: string;
-            /** Query */
-            query: string;
         };
         /** Relationship */
         Relationship: {
@@ -1707,16 +1655,6 @@ export interface components {
             terminated: boolean;
             /** Termination Reason Text */
             termination_reason_text?: string | null;
-        };
-        /** RetrievalScope */
-        RetrievalScope: {
-            /** Character Id */
-            character_id?: string | null;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "editorial" | "writer" | "character";
         };
         /** ReviewIssue */
         ReviewIssue: {
@@ -1876,6 +1814,10 @@ export interface components {
             head_checkpoint_id: string | null;
             /** Project Id */
             project_id: string;
+            /** Resolved Model Profile Ids */
+            resolved_model_profile_ids?: {
+                [key: string]: string;
+            };
             /** Restoration Notice Text */
             restoration_notice_text?: string | null;
             /** Session Id */
@@ -1944,7 +1886,7 @@ export interface components {
             /**
              * @default {
              *       "manuscript_mode": "manual",
-             *       "world_projection_mode": "after_scene"
+             *       "wiki_mode": "after_scene"
              *     }
              */
             output: components["schemas"]["OutputPolicy"];
@@ -2218,7 +2160,7 @@ export interface components {
          * TaskType
          * @enum {string}
          */
-        TaskType: "actor" | "game_master" | "reflection" | "memory_consolidation" | "projection" | "editor" | "writer" | "embedding";
+        TaskType: "actor" | "game_master" | "wiki_maintenance" | "editor" | "writer";
         /** TurnSessionRequest */
         TurnSessionRequest: {
             /**
@@ -2234,7 +2176,7 @@ export interface components {
             /**
              * @default {
              *       "manuscript_mode": "manual",
-             *       "world_projection_mode": "after_scene"
+             *       "wiki_mode": "after_scene"
              *     }
              */
             output: components["schemas"]["OutputPolicy"];
@@ -2301,6 +2243,10 @@ export interface components {
             /** Raw Log Offset */
             raw_log_offset: number;
             request: components["schemas"]["TurnSessionRequest"];
+            /** Resolved Model Profile Ids */
+            resolved_model_profile_ids?: {
+                [key: string]: string;
+            };
             /** Restoration Notice Text */
             restoration_notice_text?: string | null;
             /** Session Id */
@@ -2402,6 +2348,104 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WikiBranchView */
+        WikiBranchView: {
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+            /** Pages */
+            pages: components["schemas"]["WikiPageSummary"][];
+            /** Stale */
+            stale: boolean;
+            /** Updated At Step */
+            updated_at_step: number;
+        };
+        /** WikiLintIssue */
+        WikiLintIssue: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Path */
+            path?: string | null;
+            severity: components["schemas"]["WikiLintSeverity"];
+        };
+        /** WikiLintResult */
+        WikiLintResult: {
+            /** Branch Id */
+            branch_id: string;
+            /**
+             * Issues
+             * @default []
+             */
+            issues: components["schemas"]["WikiLintIssue"][];
+            /** Passed */
+            passed: boolean;
+        };
+        /**
+         * WikiLintSeverity
+         * @enum {string}
+         */
+        WikiLintSeverity: "warning" | "error";
+        /**
+         * WikiMaintenanceMode
+         * @enum {string}
+         */
+        WikiMaintenanceMode: "manual" | "after_scene" | "after_chapter";
+        /** WikiPage */
+        WikiPage: {
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+            /**
+             * Confidence
+             * @default 1
+             */
+            confidence: number;
+            /** Content */
+            content: string;
+            /** Path */
+            path: string;
+            /**
+             * Source Ids
+             * @default []
+             */
+            source_ids: string[];
+            /**
+             * Stale
+             * @default false
+             */
+            stale: boolean;
+            /** Subject Id */
+            subject_id?: string | null;
+            /** Updated At Step */
+            updated_at_step: number;
+        };
+        /** WikiPageSummary */
+        WikiPageSummary: {
+            /** Confidence */
+            confidence: number;
+            /** Path */
+            path: string;
+            /**
+             * Source Ids
+             * @default []
+             */
+            source_ids: string[];
+            /** Subject Id */
+            subject_id?: string | null;
+            /** Title */
+            title: string;
+            /** Updated At Step */
+            updated_at_step: number;
+        };
+        /** WikiRebuildRequest */
+        WikiRebuildRequest: {
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+        };
         /** WorkspaceClosedState */
         WorkspaceClosedState: {
             /** Project Id */
@@ -2461,76 +2505,6 @@ export interface components {
              */
             status: "open";
         };
-        /**
-         * WorldBibleCategory
-         * @enum {string}
-         */
-        WorldBibleCategory: "rule" | "location" | "organization" | "history" | "established_fact" | "unresolved_thread";
-        /** WorldBibleEntry */
-        WorldBibleEntry: {
-            category: components["schemas"]["WorldBibleCategory"];
-            /** Confidence */
-            confidence: number;
-            /** Content Text */
-            content_text: string;
-            /** Entry Id */
-            entry_id: string;
-            /** First Seen Step */
-            first_seen_step: number;
-            /** Last Updated Step */
-            last_updated_step: number;
-            /** Source Event Ids */
-            source_event_ids: string[];
-            /** Source Record Ids */
-            source_record_ids: string[];
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "active" | "historical" | "uncertain";
-            /** Title */
-            title: string;
-        };
-        /** WorldBibleRebuildRequest */
-        WorldBibleRebuildRequest: {
-            /** Checkpoint Id */
-            checkpoint_id?: string | null;
-        };
-        /** WorldBibleSnapshot */
-        WorldBibleSnapshot: {
-            /** Branch Id */
-            branch_id: string;
-            /** Checkpoint Id */
-            checkpoint_id: string;
-            /** Creative Direction Text */
-            creative_direction_text: string;
-            /** Current World State Text */
-            current_world_state_text: string;
-            /** Established Facts */
-            established_facts: components["schemas"]["WorldBibleEntry"][];
-            /**
-             * Generated At
-             * Format: date-time
-             */
-            generated_at: string;
-            /** History */
-            history: components["schemas"]["WorldBibleEntry"][];
-            /** Locations */
-            locations: components["schemas"]["WorldBibleEntry"][];
-            /** Organizations */
-            organizations: components["schemas"]["WorldBibleEntry"][];
-            /** Project Id */
-            project_id: string;
-            /** Rules */
-            rules: components["schemas"]["WorldBibleEntry"][];
-            /** Unresolved Threads */
-            unresolved_threads: components["schemas"]["WorldBibleEntry"][];
-        };
-        /**
-         * WorldProjectionMode
-         * @enum {string}
-         */
-        WorldProjectionMode: "manual" | "after_scene" | "after_chapter";
         /** WorldState */
         WorldState: {
             /**
@@ -3331,10 +3305,74 @@ export interface operations {
             };
         };
     };
-    get_world_bible_projects__project_id__branches__branch_id__world_bible_get: {
+    get_wiki_projects__project_id__branches__branch_id__wiki_get: {
         parameters: {
-            query?: {
-                checkpoint_id?: string | null;
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WikiBranchView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lint_wiki_projects__project_id__branches__branch_id__wiki_lint_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WikiLintResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_wiki_page_projects__project_id__branches__branch_id__wiki_page_get: {
+        parameters: {
+            query: {
+                path: string;
             };
             header?: never;
             path: {
@@ -3351,7 +3389,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorldBibleSnapshot"];
+                    "application/json": components["schemas"]["WikiPage"];
                 };
             };
             /** @description Validation Error */
@@ -3365,7 +3403,7 @@ export interface operations {
             };
         };
     };
-    rebuild_world_bible_projects__project_id__branches__branch_id__world_bible_rebuild_post: {
+    rebuild_wiki_projects__project_id__branches__branch_id__wiki_rebuild_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3377,7 +3415,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["WorldBibleRebuildRequest"];
+                "application/json": components["schemas"]["WikiRebuildRequest"];
             };
         };
         responses: {
@@ -3387,7 +3425,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorldBibleSnapshot"];
+                    "application/json": components["schemas"]["WikiBranchView"];
                 };
             };
             /** @description Validation Error */
@@ -3565,6 +3603,72 @@ export interface operations {
             };
         };
     };
+    get_project_model_policy_projects__project_id__model_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectModelPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_project_model_policy_projects__project_id__model_policy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectModelPolicy"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectModelPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     open_project_projects__project_id__open_post: {
         parameters: {
             query?: never;
@@ -3583,72 +3687,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceState"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    rebuild_index_projects__project_id__rag_rebuild_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RagIndexSummary"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    search_projects__project_id__rag_search_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RagSearchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RagSearchResult"];
                 };
             };
             /** @description Validation Error */

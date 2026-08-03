@@ -15,11 +15,6 @@ import {
   IconArrowDown,
   IconSum,
   IconRulerMeasure,
-  IconStack2,
-  IconPhoto,
-  IconMicrophone,
-  IconMoon,
-  IconAdjustmentsAlt,
 } from '@tabler/icons-react'
 
 interface TokenCounterProps {
@@ -132,19 +127,8 @@ export const TokenCounter = memo(function TokenCounter({
         ? 'bg-amber-500'
         : 'bg-primary'
 
-  const { inputTokens, outputTokens, modelProps, modelDisplayName } = tokenData
+  const { inputTokens, outputTokens, modelDisplayName } = tokenData
   const remaining = Math.max(0, tokenData.maxTokens - totalTokens)
-  const showFittedBadge =
-    tokenData.fitEnabled &&
-    typeof tokenData.configuredCtxLen === 'number' &&
-    tokenData.configuredCtxLen !== tokenData.maxTokens
-  const hasModalities =
-    tokenData.modalities?.vision || tokenData.modalities?.audio
-  const showFooter =
-    showFittedBadge ||
-    hasModalities ||
-    modelProps?.isSleeping ||
-    (modelProps?.totalSlots !== undefined && modelProps.totalSlots > 1)
 
   return (
     <TooltipProvider delayDuration={isUpdating ? 1200 : 400}>
@@ -218,12 +202,6 @@ export const TokenCounter = memo(function TokenCounter({
                 </div>
               )}
             </div>
-            {modelProps?.isSleeping && (
-              <IconMoon
-                className="size-3.5 text-muted-foreground"
-                aria-label="Model sleeping"
-              />
-            )}
           </div>
 
           {/* Progress block */}
@@ -287,45 +265,6 @@ export const TokenCounter = memo(function TokenCounter({
             />
           </div>
 
-          {/* Footer: fit + slots + modalities */}
-          {showFooter && (
-            <div className="px-3 py-2 border-t border-border flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-              {showFittedBadge && (
-                <span
-                  className="flex items-center gap-1"
-                  title={`Configured ctx_len: ${formatExact(tokenData.configuredCtxLen!)}`}
-                >
-                  <IconAdjustmentsAlt className="size-3" />
-                  Fitted to {formatNumber(tokenData.maxTokens)}
-                </span>
-              )}
-              {modelProps?.totalSlots !== undefined &&
-                modelProps.totalSlots > 1 && (
-                  <span className="flex items-center gap-1">
-                    <IconStack2 className="size-3" />
-                    {modelProps.totalSlots} slots
-                  </span>
-                )}
-              {tokenData.modalities?.vision && (
-                <span
-                  className="flex items-center gap-1"
-                  title="Vision input supported"
-                >
-                  <IconPhoto className="size-3" />
-                  Vision
-                </span>
-              )}
-              {tokenData.modalities?.audio && (
-                <span
-                  className="flex items-center gap-1"
-                  title="Audio input supported"
-                >
-                  <IconMicrophone className="size-3" />
-                  Audio
-                </span>
-              )}
-            </div>
-          )}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

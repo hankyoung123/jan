@@ -63,6 +63,11 @@ class SimulationSession:
             "dynamic_entity_definitions",
             None,
         )
+        model_profile_ids = getattr(
+            self.runtime,
+            "resolved_model_profile_ids",
+            None,
+        )
         provisional = TurnSessionSnapshot(
             session_id=self.session_id,
             project_id=self.request.project_id,
@@ -71,6 +76,9 @@ class SimulationSession:
             pending_control=self.pending_control,
             content_locale=self.request.content_locale,
             request=self.request,
+            resolved_model_profile_ids=(
+                model_profile_ids() if model_profile_ids is not None else {}
+            ),
             active_entity_ids=(
                 active_ids() if active_ids is not None else tuple(actor_states)
             ),

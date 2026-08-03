@@ -154,39 +154,15 @@ describe('Story Engine product branding', () => {
     expect(existsSync(join(workspaceRoot, 'flatpak/flathub.json'))).toBe(false)
   })
 
-  it('keeps the shipped CLI help and provider examples product-branded', () => {
-    const cli = readFileSync(
-      join(workspaceRoot, 'src-tauri/src/bin/story-engine-cli.rs'),
-      'utf8'
-    )
-
-    expect(cli).toContain('Story Engine')
-    for (const marker of [
-      'janhq/Jan-',
-      'Jan data folder',
-      "Jan's settings",
-      'Jan.app',
-      'jan provider',
-      'jan/{model_id}',
-      '"JAN" in ANSI Shadow',
-    ]) {
-      expect(cli, marker).not.toContain(marker)
-    }
-
-    expect(cli).toContain('story-engine/{model_id}')
+  it('does not ship the removed local inference CLI', () => {
+    expect(
+      existsSync(join(workspaceRoot, 'src-tauri/src/bin/story-engine-cli.rs'))
+    ).toBe(false)
   })
 
   it('does not expose inherited Jan names in active product copy', () => {
-    const claudeCodeSettings = readFileSync(
-      join(workspaceRoot, 'web-app/src/routes/settings/claude-code.tsx'),
-      'utf8'
-    )
     const browserExtensionHook = readFileSync(
       join(workspaceRoot, 'web-app/src/hooks/useJanBrowserExtension.ts'),
-      'utf8'
-    )
-    const modelService = readFileSync(
-      join(workspaceRoot, 'web-app/src/services/models/default.ts'),
       'utf8'
     )
     const mcpSettingsRoute = readFileSync(
@@ -198,11 +174,9 @@ describe('Story Engine product branding', () => {
       'utf8'
     )
 
-    expect(claudeCodeSettings).not.toContain('Use Jan-Code')
     expect(browserExtensionHook).not.toContain("toast.success('Jan Browser MCP")
     expect(browserExtensionHook).not.toContain("toast.error('Jan Browser MCP")
     expect(browserExtensionHook).not.toContain("toast.warning('Jan Browser MCP")
-    expect(modelService).not.toContain('latest Jan model')
     expect(mcpSettingsRoute).toContain('getMCPServerDisplayName')
     expect(mcpSettingsRoute).not.toContain('{key}</h1>')
     expect(mcpDefaults).toContain('"displayName": "Browser MCP"')

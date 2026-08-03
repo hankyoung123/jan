@@ -8,7 +8,7 @@ import type { ThreadsService } from './types'
 import { TEMPORARY_CHAT_ID } from '@/constants/chat'
 
 function toModelPayload(model?: Thread['model']) {
-  return { id: model?.id ?? '*', engine: model?.provider ?? 'llamacpp' }
+  return { id: model?.id ?? '*', engine: model?.provider ?? 'openai' }
 }
 
 function fromModelResponse(
@@ -16,7 +16,7 @@ function fromModelResponse(
   fallback?: Thread['model']
 ): Thread['model'] | undefined {
   if (assistantModel) {
-    return { id: assistantModel.id, provider: assistantModel.engine ?? 'llamacpp' }
+    return { id: assistantModel.id, provider: assistantModel.engine ?? 'openai' }
   }
   return fallback
 }
@@ -26,9 +26,8 @@ export class DefaultThreadsService implements ThreadsService {
     const ext = ExtensionManager.getInstance().get<ConversationalExtension>(
       ExtensionTypeEnum.Conversational
     )
-    // The extension may not be registered yet during a startup race (e.g. a
-    // reload while the llamacpp router is busy). Throw so the caller can retry
-    // instead of treating "not ready" as "no threads" and wiping the list.
+    // A startup race can leave the extension temporarily unavailable. Throw so
+    // the caller retries instead of interpreting "not ready" as an empty list.
     if (!ext) {
       throw new Error('Conversational extension not available yet')
     }

@@ -27,16 +27,12 @@ vi.mock('@/types/events', () => ({
 }))
 
 // Mock the ServiceHub
-const mockStopAllModels = vi.fn()
 const mockUpdaterCheck = vi.fn()
 const mockUpdaterDownloadAndInstall = vi.fn()
 const mockUpdaterDownloadAndInstallWithProgress = vi.fn()
 const mockEventsEmit = vi.fn()
 vi.mock('@/hooks/useServiceHub', () => ({
   getServiceHub: () => ({
-    models: () => ({
-      stopAllModels: mockStopAllModels,
-    }),
     updater: () => ({
       check: mockUpdaterCheck,
       downloadAndInstall: mockUpdaterDownloadAndInstall,
@@ -314,7 +310,6 @@ describe('useAppUpdater', () => {
         await result.current.downloadAndInstallUpdate()
       })
 
-      expect(mockStopAllModels).toHaveBeenCalled()
       expect(mockEventsEmit).toHaveBeenCalledWith('KILL_SIDECAR')
       expect(mockUpdaterDownloadAndInstallWithProgress).toHaveBeenCalled()
       expect(mockRelaunch).toHaveBeenCalled()
@@ -363,7 +358,7 @@ describe('useAppUpdater', () => {
         await result.current.downloadAndInstallUpdate()
       })
 
-      expect(mockStopAllModels).not.toHaveBeenCalled()
+      expect(mockUpdaterDownloadAndInstallWithProgress).not.toHaveBeenCalled()
     })
 
     it('should emit progress events during download', async () => {

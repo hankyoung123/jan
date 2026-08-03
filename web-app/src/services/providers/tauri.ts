@@ -4,18 +4,11 @@
 
 import { predefinedProviders } from '@/constants/providers'
 import { providerModels } from '@/constants/models'
-import { EngineManager, SettingComponentProps } from '@janhq/core'
-import { ModelCapabilities } from '@/types/models'
-import { modelSettings } from '@/lib/predefined'
-import { ExtensionManager } from '@/lib/extension'
 import { fetch as fetchTauri } from '@tauri-apps/plugin-http'
 import { invoke } from '@tauri-apps/api/core'
 import { DefaultProvidersService } from './default'
 import { getModelCapabilities } from '@/lib/models'
-import {
-  API_KEY_FALLBACKS_SETTING_KEY,
-  providerRemoteApiKeyChain,
-} from '@/lib/provider-api-keys'
+import { providerRemoteApiKeyChain } from '@/lib/provider-api-keys'
 import { ensureAnthropicHeaders } from '@/lib/remoteModelCatalog'
 
 export class TauriProvidersService extends DefaultProvidersService {
@@ -51,85 +44,7 @@ export class TauriProvidersService extends DefaultProvidersService {
         }
       }).filter(Boolean)
 
-      const runtimeProviders: ModelProvider[] = []
-      for (const [providerName, value] of EngineManager.instance().engines) {
-        const models = await value.list() ?? []
-        const provider: ModelProvider = {
-          active: false,
-          persist: true,
-          provider: providerName,
-          base_url:
-            'inferenceUrl' in value
-              ? (value.inferenceUrl as string).replace('/chat/completions', '')
-              : '',
-          settings: (await value.getSettings()).map((setting) => {
-            return {
-              key: setting.key,
-              title: setting.title,
-              description: setting.description,
-              controller_type: setting.controllerType as unknown,
-              controller_props: setting.controllerProps as unknown,
-            }
-          }) as ProviderSetting[],
-          models: await Promise.all(
-            models.map(async (model) => {
-              let capabilities: string[] = []
-
-              if ('capabilities' in model && Array.isArray(model.capabilities)) {
-                capabilities = [...(model.capabilities as string[])]
-              }
-              if (!capabilities.includes(ModelCapabilities.TOOLS)) {
-                try {
-                  const toolSupported = await value.isToolSupported(model.id)
-                  if (toolSupported) {
-                    capabilities.push(ModelCapabilities.TOOLS)
-                  }
-                } catch (error) {
-                  console.warn(
-                    `Failed to check tool support for model ${model.id}:`,
-                    error
-                  )
-                  // Continue without tool capabilities if check fails
-                }
-              }
-
-              // Add embeddings capability for embedding models
-              if (model.embedding && !capabilities.includes(ModelCapabilities.EMBEDDINGS)) {
-                capabilities = [...capabilities, ModelCapabilities.EMBEDDINGS]
-              }
-
-              return {
-                id: model.id,
-                model: model.id,
-                name: model.name,
-                displayName: model.name,
-                description: model.description,
-                capabilities,
-                embedding: model.embedding, // Preserve embedding flag for filtering in UI
-                imported: (model as { imported?: boolean }).imported,
-                template_kwargs: (model as { template_kwargs?: TemplateKwarg[] })
-                  .template_kwargs,
-                provider: providerName,
-                settings: Object.values(modelSettings).reduce(
-                  (acc, setting) => {
-                    acc[setting.key] = {
-                      ...setting,
-                      controller_props: {
-                        ...setting.controller_props,
-                      },
-                    }
-                    return acc
-                  },
-                  {} as Record<string, ProviderSetting>
-                ),
-              } as Model
-            })
-          ),
-        }
-        runtimeProviders.push(provider)
-      }
-
-      return runtimeProviders.concat(builtinProviders as ModelProvider[])
+      return builtinProviders as ModelProvider[]
     } catch (error: unknown) {
       console.error('Error getting providers in Tauri:', error)
       return []
@@ -285,31 +200,9 @@ export class TauriProvidersService extends DefaultProvidersService {
     providerName: string,
     settings: ProviderSetting[]
   ): Promise<void> {
-    try {
-      // API keys are persisted to the OS keyring only (via
-      // register_provider_config), never to the extension's settings.json.
-      // Blank the key entries at this single chokepoint regardless of caller.
-      const isSecretKey = (key: string) =>
-        key === 'api-key' || key === API_KEY_FALLBACKS_SETTING_KEY
-      return ExtensionManager.getInstance()
-        .getEngine(providerName)
-        ?.updateSettings(
-          settings.map((setting) => ({
-            ...setting,
-            controllerProps: {
-              ...setting.controller_props,
-              value: isSecretKey(setting.key)
-                ? ''
-                : setting.controller_props.value !== undefined
-                  ? setting.controller_props.value
-                  : '',
-            },
-            controllerType: setting.controller_type,
-          })) as SettingComponentProps[]
-        )
-    } catch (error) {
-      console.error('Error updating settings in Tauri:', error)
-      throw error
-    }
+    void providerName
+    void settings
+    // Provider settings are persisted by the provider store and registered
+    // with the native remote-provider bridge by DataProvider.
   }
 }

@@ -10,10 +10,6 @@ vi.mock('@/lib/platform/utils', () => ({
 vi.mock('@/hooks/useServiceHub', () => ({
   getServiceHub: () => ({ core: () => ({ invoke }) }),
 }))
-vi.mock('@/hooks/useGeneralSetting', () => ({
-  HUGGINGFACE_TOKEN_SECRET_KEY: 'huggingface',
-}))
-
 import { migrateLocalStorageToBackend } from '../migrateLocalStorageSettings'
 
 // invoke mock backed by an in-memory settings map
@@ -133,16 +129,13 @@ describe('migrateLocalStorageToBackend', () => {
     expect(stored).not.toContain('sk-fb1')
   })
 
-  it('extracts the HF token to keyring and strips it', async () => {
+  it('drops the retired download token from general settings', async () => {
     localStorage.setItem(
       'setting-general',
       JSON.stringify({ state: { huggingfaceToken: 'hf_secret', autoUpdateCheck: true } })
     )
     await migrateLocalStorageToBackend()
-    expect(invoke).toHaveBeenCalledWith('set_secret', {
-      key: 'huggingface',
-      value: 'hf_secret',
-    })
+    expect(invoke).not.toHaveBeenCalledWith('set_secret', expect.anything())
     const stored = backend.get('setting-general')!
     expect(stored).not.toContain('hf_secret')
     expect(stored).toContain('autoUpdateCheck')

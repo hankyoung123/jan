@@ -43,7 +43,7 @@ jobs:
           uv sync --frozen --project apps/story-engine --extra packaging
 
       - name: Build the Story Engine macOS bundle
-        run: yarn build:tauri
+        run: yarn build
 
       - name: Smoke-test the DMG in an isolated mount
         run: |

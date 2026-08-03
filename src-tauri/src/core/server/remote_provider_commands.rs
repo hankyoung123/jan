@@ -76,7 +76,7 @@ pub async fn register_provider_config(
     };
 
     // Persist the key chain to the OS keyring so it survives webview storage
-    // clears and is readable by out-of-process consumers (Story Engine CLI). Keyring
+    // clears and is readable by the private Story Engine bridge. Keyring
     // access is blocking, so run it off-thread and before taking the config
     // lock. Keyring failure (e.g. headless Linux without an unlocked Secret
     // Service) must not block registration; the in-memory config still works.
@@ -103,25 +103,9 @@ pub async fn register_provider_config(
     Ok(())
 }
 
-/// Replace the per-model sampling defaults the API server injects for MLX
-/// requests. The frontend pushes the full map (model id → request-body object),
-/// so this overwrites wholesale rather than merging.
-#[tauri::command]
-pub async fn set_model_param_defaults(
-    state: State<'_, AppState>,
-    defaults: std::collections::HashMap<String, serde_json::Value>,
-) -> Result<(), String> {
-    let mut guard = state.model_param_defaults.lock().await;
-    *guard = defaults;
-    Ok(())
-}
-
 /// Drop a provider's in-memory config, reporting whether it was present. Pure:
 /// touches only the map, never the persisted keyring secret.
-fn remove_provider_config(
-    configs: &mut HashMap<String, ProviderConfig>,
-    provider: &str,
-) -> bool {
+fn remove_provider_config(configs: &mut HashMap<String, ProviderConfig>, provider: &str) -> bool {
     configs.remove(provider).is_some()
 }
 

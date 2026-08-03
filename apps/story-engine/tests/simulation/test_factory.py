@@ -1,12 +1,15 @@
 from pathlib import Path
 
-from story_engine.concordia_runtime.memory import deterministic_embedder
+from story_engine.concordia_runtime.memory import concordia_hash_embedder
+from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     ControlMode,
     ControlPolicy,
     TurnSessionRequest,
 )
+from story_engine.models.contracts import ModelProfile
 from story_engine.models.gateway import ModelGateway, UnavailableModelTransport
+from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.models.registry import ProfileRegistry
 from story_engine.simulation.factory import ProjectRuntimeFactory
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
@@ -23,7 +26,7 @@ def test_project_runtime_imports_seed_with_private_memory_isolation(
     runtime = ProjectRuntimeFactory(
         tmp_path,
         gateway,
-        embedder=deterministic_embedder,
+        embedder=concordia_hash_embedder,
     )(
         "session:1",
         TurnSessionRequest(
@@ -50,3 +53,82 @@ def test_project_runtime_imports_seed_with_private_memory_isolation(
     assert "父亲在灯塔附近失踪" not in actor_memories["lin-lan"]
     assert "父亲在灯塔附近失踪" in gm_memories
     assert "未归档的值班表" in gm_memories
+
+
+def test_project_runtime_resolves_and_restores_project_model_assignments(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    registry = ProfileRegistry(tmp_path / "models.json")
+    for profile in (
+        ModelProfile(
+            id="actor-dramatic",
+            task_type="actor",
+            model_ref="provider-a/shared-model",
+        ),
+        ModelProfile(
+            id="actor-precise",
+            task_type="actor",
+            model_ref="provider-b/shared-model",
+        ),
+        ModelProfile(
+            id="gm-project",
+            task_type="game_master",
+            model_ref="provider-a/game-master",
+        ),
+    ):
+        registry.upsert_profile(profile)
+    policy_store = ProjectModelPolicyStore(tmp_path / "fog-harbor", registry)
+    policy = policy_store.load()
+    policy_store.save(
+        policy.model_copy(
+            update={
+                "task_profile_ids": {
+                    **policy.task_profile_ids,
+                    "game_master": "gm-project",
+                },
+                "agent_profile_ids": {
+                    "chen-mo": "actor-dramatic",
+                    "lin-lan": "actor-precise",
+                },
+            }
+        )
+    )
+    gateway = ModelGateway(registry, UnavailableModelTransport())
+    factory = ProjectRuntimeFactory(tmp_path, gateway)
+    request = TurnSessionRequest(
+        project_id="fog-harbor",
+        branch_id="main",
+        premise_text="灯塔突然熄灭。",
+        actor_ids=("chen-mo", "lin-lan"),
+        content_locale="zh-CN",
+        control=ControlPolicy(mode=ControlMode.STEP),
+    )
+    runtime = factory("session:profiles", request)
+
+    assert runtime.resolved_model_profile_ids() == {
+        "task:actor": "actor",
+        "task:game_master": "gm-project",
+        "task:wiki_maintenance": "wiki-maintenance",
+        "task:editor": "editor",
+        "task:writer": "writer",
+        "agent:chen-mo": "actor-dramatic",
+        "agent:lin-lan": "actor-precise",
+    }
+
+    from story_engine.simulation.engine import StoryTurnEngine
+
+    engine = StoryTurnEngine(factory)
+    snapshot = engine.create_session(request)
+    manifest = SessionManifest.from_snapshot(snapshot)
+    assert manifest.resolved_model_profile_ids == snapshot.resolved_model_profile_ids
+
+    changed = policy_store.load()
+    policy_store.save(
+        changed.model_copy(
+            update={"agent_profile_ids": {"chen-mo": "actor-precise"}}
+        )
+    )
+    restored = factory.from_snapshot(snapshot.session_id, request, snapshot)
+    assert restored.resolved_model_profile_ids() == snapshot.resolved_model_profile_ids
+    assert restored.resolved_model_profile_ids()["agent:chen-mo"] == "actor-dramatic"

@@ -11,15 +11,15 @@ original Python Story Engine and story-focused React product layer.
 - Commit: `5f30aee467f08941964a83f946e2663e7ae0e01f`
 - Root repository license: Apache License 2.0
 - Copyright: 2025 Menlo Research
-- Included source: `web-app`, `core`, selected model/runtime extensions,
+- Included source: `web-app`, `core`, selected assistant/conversation extensions,
   `src-tauri`, build scripts, and supporting tests from the locked commit
 - Excluded source: Jan's `rag-extension`, `vector-db-extension`,
   `tauri-plugin-rag`, `tauri-plugin-vector-db`, marketing website, end-user
   documentation site, changelog media, and promotional repository assets
 - Modification status: desktop package metadata, icons, routes and domain
-  workflows are rebranded for Story Engine; the inherited marketing/docs
-  distribution is removed; the model, Provider and local inference
-  infrastructure is retained
+  workflows are rebranded for Story Engine; the inherited marketing/docs,
+  RAG, model download, hardware inspection, and local inference infrastructure
+  are removed
 - Trademark note: Jan names, logos, illustrations, and branded assets are not
   part of the product identity and must be removed from distributed builds.
 
@@ -74,9 +74,8 @@ The desktop product currently links or bundles the following package families:
 Jan's direct and transitive JavaScript versions are recorded in `yarn.lock` and
 its Rust versions in `src-tauri/Cargo.lock`.
 
-The retained `assistant-extension`, `download-extension`,
-`llamacpp-extension`, and `mlx-extension` package manifests each declare
-`AGPL-3.0`, despite the Jan repository root carrying Apache-2.0. That
+The retained `assistant-extension` package manifest declares `AGPL-3.0`,
+despite the Jan repository root carrying Apache-2.0. That
 package-level conflict must be resolved through upstream clarification,
 license-compliant distribution, or replacement before a closed-source release.
 The exact license text is included at `licenses/AGPL-3.0.txt`.
@@ -85,9 +84,6 @@ The affected retained package paths are:
 
 - `core/package.json`
 - `extensions/assistant-extension/package.json`
-- `extensions/download-extension/package.json`
-- `extensions/llamacpp-extension/package.json`
-- `extensions/mlx-extension/package.json`
 
 Including the text is an attribution and notice requirement, not a license
 decision. The product must not relabel these packages as MIT or Apache-2.0.

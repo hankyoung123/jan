@@ -40,34 +40,7 @@ const ENTRIES: BundledEntry[] = [
     description: 'Enables conversations and state persistence via your file system.',
     mobile: true,
   },
-  {
-    load: () => import('@janhq/download-extension'),
-    name: '@janhq/download-extension',
-    productName: 'Download Manager',
-    version: '1.0.0',
-    description: 'Download and manage files and AI models in Story Engine.',
-  },
-  {
-    load: () => import('@janhq/llamacpp-extension'),
-    name: '@janhq/llamacpp-extension',
-    productName: 'llama.cpp Inference Engine',
-    version: '1.0.1',
-    description: 'This extension enables llama.cpp chat completion API calls',
-  },
 ]
-
-// The MLX extension depends on @janhq/tauri-plugin-mlx-api, which only exists
-// on macOS. IS_MACOS is a build-time constant, so this import() is dead-code
-// eliminated on other platforms and never enters the bundle graph.
-if (IS_MACOS) {
-  ENTRIES.push({
-    load: () => import('@janhq/mlx-extension'),
-    name: '@janhq/mlx-extension',
-    productName: 'MLX Inference Engine',
-    version: '1.0.0',
-    description: 'This extension enables MLX-Swift inference on Apple Silicon Macs',
-  })
-}
 
 export async function getBundledExtensions(
   opts: { mobile?: boolean } = {}

@@ -4,8 +4,6 @@ import { getServiceHub } from '@/hooks/useServiceHub'
 import { Fzf } from 'fzf'
 import { TEMPORARY_CHAT_ID } from '@/constants/chat'
 import { useAgentMode } from '@/hooks/useAgentMode'
-import { ExtensionManager } from '@/lib/extension'
-import { ExtensionTypeEnum, VectorDBExtension } from '@janhq/core'
 import { useChatSessions } from '@/stores/chat-session-store'
 import { useAppState } from '@/hooks/useAppState'
 
@@ -41,23 +39,6 @@ type ThreadState = {
   searchIndex: Fzf<Thread[]> | null
 }
 
-// Helper function to clean up vector DB collection for a thread
-const cleanupVectorDB = async (threadId: string) => {
-  try {
-    const vec = ExtensionManager.getInstance().get<VectorDBExtension>(
-      ExtensionTypeEnum.VectorDB
-    )
-    if (vec?.deleteCollection) {
-      await vec.deleteCollection(`attachments_${threadId}`)
-    }
-  } catch (e) {
-    console.warn(
-      `[Threads] Failed to delete vector DB collection for thread ${threadId}:`,
-      e
-    )
-  }
-}
-
 export const useThreads = create<ThreadState>()((set, get) => ({
   threads: {},
   isLoadingThreads: true,
@@ -68,22 +49,6 @@ export const useThreads = create<ThreadState>()((set, get) => ({
       (acc: Record<string, Thread>, thread) => {
         acc[thread.id] = {
           ...thread,
-          model: thread.model
-            ? {
-                provider:
-                  thread.model?.provider?.replace('llama.cpp', 'llamacpp') ??
-                  'llamacpp',
-                // Cortex migration: take first two parts of the ID (the last is file name which is not needed)
-                id:
-                  thread.model?.provider === 'llama.cpp' ||
-                  thread.model?.provider === 'llamacpp'
-                    ? thread.model?.id
-                        ?.split(':')
-                        .slice(0, 2)
-                        .join(getServiceHub().path().sep())
-                    : thread.model?.id,
-              }
-            : undefined,
         }
         return acc
       },
@@ -164,7 +129,6 @@ export const useThreads = create<ThreadState>()((set, get) => ({
       useAgentMode.getState().removeThread(threadId)
       useChatSessions.getState().removeSession(threadId)
       useAppState.getState().clearThreadState(threadId)
-      cleanupVectorDB(threadId)
       getServiceHub().threads().deleteThread(threadId)
 
       return {
@@ -198,9 +162,8 @@ export const useThreads = create<ThreadState>()((set, get) => ({
           !state.threads[threadId].metadata?.project
       )
 
-      // Delete threads and clean up their vector DB collections
+      // Delete threads from persistent storage.
       threadsToDeleteIds.forEach((threadId) => {
-        cleanupVectorDB(threadId)
         getServiceHub().threads().deleteThread(threadId)
       })
 
@@ -234,7 +197,6 @@ export const useThreads = create<ThreadState>()((set, get) => ({
         useAgentMode.getState().removeThread(threadId)
         useChatSessions.getState().removeSession(threadId)
         useAppState.getState().clearThreadState(threadId)
-        cleanupVectorDB(threadId)
         getServiceHub().threads().deleteThread(threadId)
       })
 
@@ -260,7 +222,6 @@ export const useThreads = create<ThreadState>()((set, get) => ({
       threadsToDeleteIds.forEach((threadId) => {
         useChatSessions.getState().removeSession(threadId)
         useAppState.getState().clearThreadState(threadId)
-        cleanupVectorDB(threadId)
         getServiceHub().threads().deleteThread(threadId)
       })
 

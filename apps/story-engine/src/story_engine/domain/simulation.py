@@ -145,7 +145,7 @@ class ManuscriptGenerationMode(StrEnum):
     AFTER_CHAPTER = "after_chapter"
 
 
-class WorldProjectionMode(StrEnum):
+class WikiMaintenanceMode(StrEnum):
     MANUAL = "manual"
     AFTER_SCENE = "after_scene"
     AFTER_CHAPTER = "after_chapter"
@@ -153,7 +153,7 @@ class WorldProjectionMode(StrEnum):
 
 class OutputPolicy(RuntimeModel):
     manuscript_mode: ManuscriptGenerationMode = ManuscriptGenerationMode.MANUAL
-    world_projection_mode: WorldProjectionMode = WorldProjectionMode.AFTER_SCENE
+    wiki_mode: WikiMaintenanceMode = WikiMaintenanceMode.AFTER_SCENE
 
 
 class TurnSessionStatus(StrEnum):
@@ -200,6 +200,9 @@ class TurnSessionSnapshot(RuntimeModel):
     pending_control: PendingControl = PendingControl.NONE
     content_locale: LocaleCode
     request: TurnSessionRequest
+    resolved_model_profile_ids: dict[Identifier, Identifier] = Field(
+        default_factory=dict
+    )
     active_entity_ids: tuple[Identifier, ...] = ()
     dynamic_entities: tuple[DynamicEntityDefinition, ...] = ()
     current_step: int = Field(ge=0)

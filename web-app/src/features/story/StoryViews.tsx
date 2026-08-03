@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import type { ChatStatus, UIMessage } from 'ai'
 import {
   ArrowRight,
+  BookOpenText,
   Check,
   FileText,
   FolderOpen,
@@ -44,6 +45,7 @@ import {
   resetSubmissionSession,
   useSubmissionSession,
 } from './submission/session'
+import { CharacterWikiView } from './character/CharacterWikiView'
 
 type SubmissionPackage = components['schemas']['SubmissionPackage']
 type SubmissionConversationResponse =
@@ -819,7 +821,7 @@ export function CharactersView() {
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(projectId !== null)
-  const [viewMode, setViewMode] = useState<'roster' | 'relations'>('roster')
+  const [viewMode, setViewMode] = useState<'wiki' | 'roster' | 'relations'>('wiki')
 
   const loadProject = useCallback(async () => {
     if (!projectId) return
@@ -940,6 +942,7 @@ export function CharactersView() {
             label="角色视图"
             onChange={setViewMode}
             options={[
+              { value: 'wiki', label: '角色 Wiki', icon: BookOpenText },
               { value: 'roster', label: '角色档案', icon: UsersRound },
               { value: 'relations', label: '关系图', icon: Network },
             ]}
@@ -949,7 +952,13 @@ export function CharactersView() {
         eyebrow={`${activeCount} 个活跃角色`}
         title="角色"
       />
-      {viewMode === 'relations' ? (
+      {viewMode === 'wiki' ? (
+        <CharacterWikiView
+          branchId={branchId}
+          characters={project.characters}
+          projectId={projectId}
+        />
+      ) : viewMode === 'relations' ? (
         <CharacterRelationshipGraph characters={project.characters} />
       ) : (
       <div className="grid min-h-[540px] border bg-background md:grid-cols-[230px_1fr]">

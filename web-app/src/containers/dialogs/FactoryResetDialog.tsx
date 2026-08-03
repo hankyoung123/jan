@@ -25,11 +25,11 @@ export function FactoryResetDialog({
   const { t } = useTranslation()
   const resetButtonRef = useRef<HTMLButtonElement>(null)
   const [keepAppData, setKeepAppData] = useState(true)
-  const [keepModelsAndConfigs, setKeepModelsAndConfigs] = useState(true)
+  const [keepProviderConfigs, setKeepProviderConfigs] = useState(true)
   const [clearWebData, setClearWebData] = useState(false)
 
   const handleReset = () => {
-    onReset({ keepAppData, keepModelsAndConfigs, clearWebData })
+    onReset({ keepAppData, keepProviderConfigs, clearWebData })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -70,13 +70,13 @@ export function FactoryResetDialog({
             <label className="flex items-start gap-2 cursor-pointer">
               <input
                 type="checkbox"
-                checked={keepModelsAndConfigs}
-                onChange={(e) => setKeepModelsAndConfigs(e.target.checked)}
+                checked={keepProviderConfigs}
+                onChange={(e) => setKeepProviderConfigs(e.target.checked)}
                 className="mt-0.5 h-4 w-4 rounded border-border accent-primary cursor-pointer"
               />
               <div className="flex flex-col">
                 <span className="text-sm font-medium text-foreground">
-                  {t('settings:general.keepModelsAndConfigs')}
+                  {t('settings:general.keepProviderConfigs')}
                 </span>
               </div>
             </label>

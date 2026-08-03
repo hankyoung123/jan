@@ -34,7 +34,7 @@ def _get_json(url: str, *, token: str | None = None) -> dict[str, object]:
 
 
 def _wait_until_ready(base_url: str, process: subprocess.Popen[str]) -> None:
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(

@@ -6,30 +6,8 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }))
 
-// Mock EngineManager
-vi.mock('@janhq/core', async (importOriginal) => {
-  const actual = await importOriginal()
-  return {
-    ...actual,
-    EngineManager: {
-      instance: () => ({
-        engines: new Map([
-          ['engine1', {
-            getLoadedModels: vi.fn().mockResolvedValue(['model1', 'model2']),
-            unload: vi.fn().mockResolvedValue(undefined),
-          }],
-        ]),
-      }),
-    },
-  }
-})
-
 vi.mock('@tauri-apps/api/event', () => ({
   emit: vi.fn(),
-}))
-
-vi.mock('../models', () => ({
-  stopAllModels: vi.fn(),
 }))
 
 // Mock the global window object

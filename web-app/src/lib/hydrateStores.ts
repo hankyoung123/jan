@@ -7,17 +7,10 @@ import {
   useProductAnalytic,
   useProductAnalyticPrompt,
 } from '@/hooks/useAnalytic'
-import { useHardware } from '@/hooks/useHardware'
-import { useLocalApiServer } from '@/hooks/useLocalApiServer'
 import { useToolApproval } from '@/hooks/useToolApproval'
 import { useToolAvailable } from '@/hooks/useToolAvailable'
-import { useDownloadStore } from '@/hooks/useDownloadStore'
 import { useProxyConfig } from '@/hooks/useProxyConfig'
-import { useVulkan } from '@/hooks/useVulkan'
 import { useFavoriteModel } from '@/hooks/useFavoriteModel'
-import { useLatestJanModel } from '@/hooks/useLatestJanModel'
-import { useJanModelPromptDismissed } from '@/hooks/useJanModelPrompt'
-import { useDefaultEmbeddingModel } from '@/hooks/useDefaultEmbeddingModel'
 import { useAgentMode } from '@/hooks/useAgentMode'
 import { useWebSearchConfig } from '@/hooks/useWebSearchConfig'
 
@@ -38,17 +31,10 @@ const secondaryStores = [
   useModelProvider,
   useProductAnalytic,
   useProductAnalyticPrompt,
-  useHardware,
-  useLocalApiServer,
   useToolApproval,
   useToolAvailable,
-  useDownloadStore,
   useProxyConfig,
-  useVulkan,
   useFavoriteModel,
-  useLatestJanModel,
-  useJanModelPromptDismissed,
-  useDefaultEmbeddingModel,
   useAgentMode,
   useWebSearchConfig,
 ] as const

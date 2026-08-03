@@ -1,5 +1,4 @@
 import {
-  Blocks,
   BookOpenText,
   Boxes,
   CalendarClock,
@@ -14,7 +13,6 @@ import { route } from '@/constants/routes'
 
 export const primaryRoutes = [
   { title: '投稿', url: route.submission, icon: MessageSquarePlus },
-  { title: '模型中心', url: route.hub.index, icon: Blocks },
   { title: '全局设置', url: route.settings.general, icon: Settings },
 ]
 

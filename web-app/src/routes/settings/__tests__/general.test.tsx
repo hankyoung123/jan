@@ -61,8 +61,6 @@ vi.mock('@/hooks/useGeneralSetting', () => ({
   useGeneralSetting: () => ({
     spellCheckChatInput: true,
     setSpellCheckChatInput: vi.fn(),
-    huggingfaceToken: 'test-token',
-    setHuggingfaceToken: vi.fn(),
     autoUpdateCheck: true,
     setAutoUpdateCheck: vi.fn(),
   }),
@@ -120,25 +118,6 @@ vi.mock('@/components/ui/button', () => ({
     >
       {children}
     </button>
-  ),
-}))
-
-vi.mock('@/components/ui/input', () => ({
-  Input: ({
-    value,
-    onChange,
-    placeholder,
-  }: {
-    value: string
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
-    placeholder?: string
-  }) => (
-    <input
-      data-testid="input"
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-    />
   ),
 }))
 
@@ -344,17 +323,6 @@ describe('General Settings Route', () => {
   //   expect(screen.getByTestId('language-switcher')).toBeInTheDocument()
   // })
 
-  it('should render huggingface token input', async () => {
-    const Component = GeneralRoute.component as React.ComponentType
-    await act(async () => {
-      render(<Component />)
-    })
-
-    const input = screen.getByTestId('input')
-    expect(input).toBeInTheDocument()
-    expect(input).toHaveValue('test-token')
-  })
-
   it('does not expose chat settings, Jan CLI, or Jan product links', async () => {
     const Component = GeneralRoute.component as React.ComponentType
     await act(async () => {
@@ -369,7 +337,7 @@ describe('General Settings Route', () => {
       screen.queryByText('settings:general.keepAppDataDesc')
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByText('settings:general.keepModelsAndConfigsDesc')
+      screen.queryByText('settings:general.keepProviderConfigsDesc')
     ).not.toBeInTheDocument()
     expect(
       screen.queryByText('settings:general.checkForUpdatesDesc')
@@ -380,22 +348,6 @@ describe('General Settings Route', () => {
     expect(screen.queryByText('Jan CLI')).not.toBeInTheDocument()
     expect(document.querySelector('a[href*="jan.ai"]')).not.toBeInTheDocument()
     expect(document.querySelector('a[href*="janhq"]')).not.toBeInTheDocument()
-  })
-
-  it('should handle huggingface token change', async () => {
-    const Component = GeneralRoute.component as React.ComponentType
-    await act(async () => {
-      render(<Component />)
-    })
-
-    const input = screen.getByTestId('input')
-    expect(input).toBeInTheDocument()
-
-    // Test that input is interactive
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'new-token' } })
-    })
-    expect(input).toBeInTheDocument()
   })
 
   it('should handle check for updates', async () => {

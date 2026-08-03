@@ -20,7 +20,7 @@ use crate::core::story_model_bridge::{ModelBridge, ModelBridgeConnection};
 const MAX_LOG_LINES: usize = 200;
 const SIDECAR_LOG_TARGET: &str = "story_engine::sidecar";
 const HEALTH_INTERVAL: Duration = Duration::from_millis(100);
-const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -728,18 +728,18 @@ mod tests {
 
     #[test]
     fn startup_timeout_is_bounded_and_configurable() {
-        assert_eq!(startup_timeout_from(None), Duration::from_secs(30));
+        assert_eq!(startup_timeout_from(None), Duration::from_secs(60));
         assert_eq!(
             startup_timeout_from(Some(OsString::from("20"))),
             Duration::from_secs(20)
         );
         assert_eq!(
             startup_timeout_from(Some(OsString::from("1"))),
-            Duration::from_secs(30)
+            Duration::from_secs(60)
         );
         assert_eq!(
             startup_timeout_from(Some(OsString::from("invalid"))),
-            Duration::from_secs(30)
+            Duration::from_secs(60)
         );
     }
 

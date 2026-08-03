@@ -12,7 +12,6 @@ from story_engine.concordia_runtime.factory import (
     ConcordiaStoryActor,
 )
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
-from story_engine.concordia_runtime.memory_lifecycle import ConcordiaMemoryLifecycle
 from story_engine.concordia_runtime.resolver import (
     ConcordiaResolverKernel,
     SimulationCancelledError,
@@ -54,13 +53,13 @@ class StorySimulationRuntime:
         content_locale: str,
         actors: tuple[ConcordiaStoryActor, ...],
         game_master: ConcordiaGameMasterActor,
+        resolved_model_profile_ids: Mapping[str, str] | None = None,
         resolver: ConcordiaResolverKernel | None = None,
         cancellation: Event | None = None,
         model_traces: list[ModelCallTrace] | None = None,
         initial_snapshot: TurnSessionSnapshot | None = None,
         language_models: Sequence[object] = (),
         observer: SimulationObserver | None = None,
-        memory_lifecycle: ConcordiaMemoryLifecycle | None = None,
         allow_dynamic_entities: bool = False,
         dynamic_entities: tuple[DynamicEntityDefinition, ...] = (),
         dynamic_actor_builder: Callable[
@@ -83,13 +82,13 @@ class StorySimulationRuntime:
         self.content_locale = content_locale
         self.actors = actors
         self.game_master = game_master
+        self._resolved_model_profile_ids = dict(resolved_model_profile_ids or {})
         self.resolver = resolver or ConcordiaResolverKernel()
         self.cancellation = cancellation or Event()
         self._model_traces = model_traces if model_traces is not None else []
         self.initial_snapshot = initial_snapshot
         self._language_models = list(language_models)
         self._observer = observer
-        self._memory_lifecycle = memory_lifecycle
         self._stage_events: list[SimulationStageEvent] = []
         self._sequential = sequential.Sequential()
         self._actors_by_name = {actor.name: actor for actor in actors}
@@ -109,6 +108,9 @@ class StorySimulationRuntime:
 
     def active_entity_ids(self) -> tuple[str, ...]:
         return tuple(actor.name for actor in self.actors)
+
+    def resolved_model_profile_ids(self) -> dict[str, str]:
+        return dict(self._resolved_model_profile_ids)
 
     def dynamic_entity_definitions(self) -> tuple[DynamicEntityDefinition, ...]:
         return tuple(
@@ -283,10 +285,13 @@ class StorySimulationRuntime:
             output_record_ids=output_record_ids,
             visible_to=visible_to,
             profile_ids=tuple(dict.fromkeys(trace.profile_id for trace in stage_calls)),
-            provider_ids=tuple(
-                dict.fromkeys(trace.provider_id for trace in stage_calls)
+            model_refs=tuple(
+                dict.fromkeys(
+                    trace.model_ref
+                    for trace in stage_calls
+                    if trace.model_ref is not None
+                )
             ),
-            model_ids=tuple(dict.fromkeys(trace.model_id for trace in stage_calls)),
             prompt_tokens=sum(trace.prompt_tokens for trace in stage_calls),
             completion_tokens=sum(trace.completion_tokens for trace in stage_calls),
             duration_ms=duration_ms,
@@ -554,8 +559,6 @@ class StorySimulationRuntime:
                 step=step,
                 component_ids=(
                     "memory:routing",
-                    "memory:reflection",
-                    "memory:consolidation",
                 ),
                 source_record_ids=(event_id,),
             )
@@ -584,19 +587,6 @@ class StorySimulationRuntime:
                     )
                 )
                 routed_ids.append(routed_id)
-            lifecycle_records = (
-                self._memory_lifecycle.process_boundary(
-                    session_id=self.session_id,
-                    branch_id=self.branch_id,
-                    step=step,
-                    boundary=resolved.boundary,
-                    acting_actor=actor,
-                    game_master=self.game_master,
-                )
-                if self._memory_lifecycle is not None
-                else ()
-            )
-            lifecycle_ids = tuple(record.record_id for record in lifecycle_records)
             self._publish_stage(
                 step=step,
                 stage=current_stage,
@@ -607,7 +597,7 @@ class StorySimulationRuntime:
                     "World result routed to " + ", ".join(sorted(observer_ids))
                 ),
                 input_record_ids=(event_id,),
-                output_record_ids=(*routed_ids, *lifecycle_ids),
+                output_record_ids=tuple(routed_ids),
                 visible_to=tuple(sorted(observer_ids)),
             )
             return StepResult(
@@ -667,8 +657,6 @@ class StorySimulationRuntime:
         for actor in self._all_actors_by_name.values():
             actor.set_content_locale(content_locale)
         self.game_master.set_content_locale(content_locale)
-        if self._memory_lifecycle is not None:
-            self._memory_lifecycle.set_content_locale(content_locale)
         for model in self._language_models:
             setter = getattr(model, "set_content_locale", None)
             if setter is not None:

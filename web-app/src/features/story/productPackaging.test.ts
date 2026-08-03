@@ -68,8 +68,11 @@ describe('Story Engine packaged Sidecar boundary', () => {
     const packageJson = readJson('package.json') as {
       scripts: Record<string, string>
     }
+    expect(packageJson.scripts.build).toBe(
+      'yarn build:sidecar && yarn build:web && yarn build:tauri'
+    )
     for (const platform of ['win32', 'darwin', 'linux']) {
-      expect(packageJson.scripts[`build:tauri:${platform}`]).toContain(
+      expect(packageJson.scripts[`build:tauri:${platform}`]).not.toContain(
         'yarn build:sidecar'
       )
     }
@@ -77,16 +80,11 @@ describe('Story Engine packaged Sidecar boundary', () => {
       'universal-apple-darwin'
     )
 
-    const makefile = readFileSync(join(workspaceRoot, 'Makefile'), 'utf8')
-    expect(makefile).toContain(
-      'cp src-tauri/resources/bin/story-engine-cli src-tauri/target/release/story-engine-cli'
-    )
-
     const cargoManifest = readFileSync(
       join(workspaceRoot, 'src-tauri/Cargo.toml'),
       'utf8'
     )
-    expect(cargoManifest).toContain('name = "story-engine-cli"')
+    expect(cargoManifest).not.toContain('name = "story-engine-cli"')
     expect(cargoManifest).not.toContain('name = "jan-cli"')
 
     for (const platform of ['.macos', '.windows', '.linux']) {

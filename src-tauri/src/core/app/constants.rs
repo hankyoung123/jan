@@ -13,20 +13,16 @@ pub const TAURI_BUNDLE_IDENTIFIER: &str = "com.storyengine.desktop";
 /// Gated by the `keep_app_data` flag during factory reset.
 pub const JAN_DATA_DIRS_CONVERSATIONS: &[&str] = &["threads", "assistants"];
 
-/// Downloaded models and engine binaries.
-/// Gated by the `keep_models_and_configs` flag during factory reset.
-pub const JAN_DATA_DIRS_MODELS: &[&str] = &["models", "llamacpp", "mlx", "openclaw"];
-
-/// Configuration files — engine settings, MCP config, etc.
-/// Gated by the `keep_models_and_configs` flag during factory reset.
+/// Configuration files for cloud providers and MCP.
+/// Gated by the `keep_provider_configs` flag during factory reset.
 pub const JAN_DATA_FILES_CONFIGS: &[&str] = &["mcp_config.json"];
 
 /// Extensions, logs, and caches — always cleaned during any reset.
 pub const JAN_DATA_DIRS_COMMON: &[&str] = &["extensions", "logs", ".npx", ".uvx"];
 
-/// Cross-category settings file (contains data spanning conversations, models,
+/// Cross-category settings file (contains conversations, providers,
 /// and UI preferences). Only deleted during a full wipe — i.e. when the user
-/// keeps neither conversations nor models/configs.
+/// keeps neither conversations nor provider configs.
 /// Written by the backend settings store (`core::app::settings_store`), which
 /// persists webview zustand blobs here keyed by store namespace.
 /// `provider_secrets.enc` is the encrypted OS-keyring fallback for provider API
@@ -39,10 +35,6 @@ pub const JAN_DATA_SUBDIRS: &[&str] = &[
     "assistants",
     "extensions",
     "logs",
-    "models",
-    "llamacpp",
-    "mlx",
-    "openclaw",
     ".npx",
     ".uvx",
 ];
@@ -71,19 +63,24 @@ mod tests {
         let mut union: HashSet<&str> = HashSet::new();
         for entry in JAN_DATA_DIRS_CONVERSATIONS
             .iter()
-            .chain(JAN_DATA_DIRS_MODELS.iter())
             .chain(JAN_DATA_DIRS_COMMON.iter())
         {
             union.insert(*entry);
         }
         let listed: HashSet<&str> = JAN_DATA_SUBDIRS.iter().copied().collect();
-        assert_eq!(union, listed, "JAN_DATA_SUBDIRS must equal union of categories");
+        assert_eq!(
+            union, listed,
+            "JAN_DATA_SUBDIRS must equal union of categories"
+        );
     }
 
     #[test]
     fn jan_data_files_is_union_of_all_file_categories() {
         let mut union: HashSet<&str> = HashSet::new();
-        for entry in JAN_DATA_FILES_CONFIGS.iter().chain(JAN_DATA_FILES_SETTINGS.iter()) {
+        for entry in JAN_DATA_FILES_CONFIGS
+            .iter()
+            .chain(JAN_DATA_FILES_SETTINGS.iter())
+        {
             union.insert(*entry);
         }
         let listed: HashSet<&str> = JAN_DATA_FILES.iter().copied().collect();
@@ -93,17 +90,13 @@ mod tests {
     #[test]
     fn dir_categories_have_no_overlap() {
         let conv: HashSet<&str> = JAN_DATA_DIRS_CONVERSATIONS.iter().copied().collect();
-        let models: HashSet<&str> = JAN_DATA_DIRS_MODELS.iter().copied().collect();
         let common: HashSet<&str> = JAN_DATA_DIRS_COMMON.iter().copied().collect();
-        assert!(conv.is_disjoint(&models));
         assert!(conv.is_disjoint(&common));
-        assert!(models.is_disjoint(&common));
     }
 
     #[test]
     fn known_entries_present() {
         assert!(JAN_DATA_DIRS_CONVERSATIONS.contains(&"threads"));
-        assert!(JAN_DATA_DIRS_MODELS.contains(&"models"));
         assert!(JAN_DATA_DIRS_COMMON.contains(&"logs"));
         assert!(JAN_DATA_FILES_CONFIGS.contains(&"mcp_config.json"));
     }

@@ -56,13 +56,6 @@ describe('DefaultAppService', () => {
     })
   })
 
-  describe('getServerStatus', () => {
-    it('returns false', async () => {
-      const result = await svc.getServerStatus()
-      expect(result).toBe(false)
-    })
-  })
-
   describe('readYaml', () => {
     it('throws not implemented error', async () => {
       await expect(svc.readYaml('/some/path')).rejects.toThrow(

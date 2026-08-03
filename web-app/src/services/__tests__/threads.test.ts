@@ -101,7 +101,7 @@ describe('DefaultThreadsService', () => {
       })
     })
 
-    it('should default provider to llamacpp when engine is missing in stored thread', async () => {
+    it('defaults to the remote OpenAI provider when engine is missing', async () => {
       mockConversationalExtension.listThreads.mockResolvedValue([
         {
           id: '1',
@@ -111,7 +111,7 @@ describe('DefaultThreadsService', () => {
         },
       ])
       const result = await threadsService.fetchThreads()
-      expect(result[0].model).toEqual({ id: 'my-model', provider: 'llamacpp' })
+      expect(result[0].model).toEqual({ id: 'my-model', provider: 'openai' })
     })
 
     it('should handle empty threads array', async () => {
@@ -363,7 +363,7 @@ describe('DefaultThreadsService', () => {
         id: '1',
         title: 'New Thread',
         updated: 1234567890,
-        assistants: [{ ...realAssistant, model: { id: '*', engine: 'llamacpp' } }],
+        assistants: [{ ...realAssistant, model: { id: '*', engine: 'openai' } }],
         metadata: { order: 1 },
       }
 
@@ -377,7 +377,7 @@ describe('DefaultThreadsService', () => {
         expect.objectContaining({
           assistants: [
             expect.objectContaining({
-              model: { id: '*', engine: 'llamacpp' },
+              model: { id: '*', engine: 'openai' },
             }),
           ],
         })
@@ -468,7 +468,7 @@ describe('DefaultThreadsService', () => {
         expect.objectContaining({
           assistants: [
             expect.objectContaining({
-              model: { id: '*', engine: 'llamacpp' },
+              model: { id: '*', engine: 'openai' },
             }),
           ],
         })

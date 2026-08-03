@@ -20,7 +20,6 @@ import {
 } from '@/constants/providers'
 import cloneDeep from 'lodash/cloneDeep'
 import { toast } from 'sonner'
-import { useServiceHub } from '@/hooks/useServiceHub'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const Route = createFileRoute(route.settings.model_providers as any)({
@@ -29,7 +28,6 @@ export const Route = createFileRoute(route.settings.model_providers as any)({
 
 function ModelProviders() {
   const { t } = useTranslation()
-  const serviceHub = useServiceHub()
   const { providers, addProvider, updateProvider } = useModelProvider()
   const stripReasoningFromContext = useGeneralSetting(
     (s) => s.stripReasoningFromContext
@@ -139,7 +137,7 @@ function ModelProviders() {
                 </div>
               }
             >
-              {providers.filter((provider) => IS_MACOS || provider.provider !== 'mlx').map((provider, index) => (
+              {providers.map((provider, index) => (
                 <CardItem
                   key={index}
                   title={
@@ -178,13 +176,7 @@ function ModelProviders() {
                       )}
                       <Switch
                         checked={provider.active}
-                        onCheckedChange={async (e) => {
-                          if (
-                            !e &&
-                            provider.provider.toLowerCase() === 'llamacpp'
-                          ) {
-                            await serviceHub.models().stopAllModels()
-                          }
+                        onCheckedChange={(e) => {
                           updateProvider(provider.provider, {
                             ...provider,
                             active: e,

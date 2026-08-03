@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
 from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.registry import ProfileRegistry
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 
 AUTH = {"Authorization": "Bearer integration-token"}
@@ -95,6 +96,37 @@ class ReplayGatewayTransport:
                     "unsupported_facts": [],
                 }
             )
+        elif "disciplined Story Engine Wiki maintainer" in prompt:
+            source_ids = re.findall(r'"source_id":\s*"([^"]+)"', prompt)
+            if "Scope: World Wiki" in prompt:
+                source_id = next(
+                    item for item in source_ids if item.startswith("event:")
+                )
+                path = "world/state.md"
+            else:
+                source_id = next(
+                    item
+                    for item in reversed(source_ids)
+                    if item.startswith("observation:")
+                    or item.startswith("event-observation:")
+                )
+                subject = re.search(r"Scope: Character Wiki: ([a-z0-9-]+)", prompt)
+                assert subject is not None
+                path = f"characters/{subject.group(1)}/beliefs.md"
+            content = json.dumps(
+                {
+                    "patches": [
+                        {
+                            "path": path,
+                            "section": None,
+                            "operation": "append_history",
+                            "content": f"## Step Update\n\n- {self.event_text}",
+                            "source_ids": [source_id],
+                            "confidence": 1.0,
+                        }
+                    ]
+                }
+            )
         elif "response_format" in payload:
             choice = self._choice(prompt, payload)
             content = choice if choice.startswith("{") else f'{{"choice":"{choice}"}}'
@@ -149,25 +181,20 @@ class ReplayGatewayTransport:
             yield ModelStreamChunk()
         raise AssertionError("simulation integration does not stream")
 
-    def embed(
-        self,
-        payload: Mapping[str, Any],
-        *,
-        timeout_seconds: float,
-    ) -> Mapping[str, Any]:
-        del payload, timeout_seconds
-        return {
-            "data": [{"embedding": [1.0, 0.0, 0.0, 0.0]}],
-            "usage": {"prompt_tokens": 1, "total_tokens": 1},
-        }
-
-
 def _settings(tmp_path: Path) -> EngineSettings:
-    return EngineSettings(
+    settings = EngineSettings(
         session_token="integration-token",
         projects_root=tmp_path,
         model_registry_path=tmp_path / "models.json",
     )
+    registry = ProfileRegistry(settings.model_registry_path)
+    for profile in registry.load().profiles:
+        registry.upsert_profile(
+            profile.model_copy(
+                update={"model_ref": f"test-provider/test-{profile.id}"}
+            )
+        )
+    return settings
 
 
 def test_real_application_chain_checkpoints_rebuilds_and_resumes(
@@ -183,7 +210,7 @@ def test_real_application_chain_checkpoints_rebuilds_and_resumes(
             headers=AUTH,
             json={
                 "premise_text": "The lighthouse suddenly goes dark.",
-                "actor_ids": ["chen-mo"],
+                "actor_ids": ["chen-mo", "lin-lan"],
                 "content_locale": "en-US",
                 "control": {
                     "mode": "step",
@@ -327,7 +354,7 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
         assert "## The Severed Wire" in exported.json()["markdown"]
 
 
-def test_submission_world_bible_and_scene_boundary_outputs_form_a_closed_loop(
+def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
     tmp_path: Path,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
@@ -336,29 +363,32 @@ def test_submission_world_bible_and_scene_boundary_outputs_form_a_closed_loop(
         create_app(_settings(tmp_path), model_transport=transport)
     ) as client:
         initial = client.get(
-            "/projects/fog-harbor/branches/main/world-bible",
+            "/projects/fog-harbor/branches/main/wiki",
             headers=AUTH,
         )
         assert initial.status_code == 200
-        assert initial.json()["checkpoint_id"] == "seed:fog-harbor"
-        assert initial.json()["rules"]
-        assert initial.json()["established_facts"]
-        characters_path = (
-            tmp_path
-            / "fog-harbor/.story-engine/projections/main/characters.md"
+        assert initial.json()["checkpoint_id"] is None
+        assert any(
+            page["path"] == "world/rules.md"
+            for page in initial.json()["pages"]
         )
-        assert "陈默" in characters_path.read_text(encoding="utf-8")
+        character_page = client.get(
+            "/projects/fog-harbor/branches/main/wiki/page",
+            params={"path": "characters/chen-mo/self.md"},
+            headers=AUTH,
+        )
+        assert "陈默" in character_page.json()["content"]
 
         started = client.post(
             "/projects/fog-harbor/simulations",
             headers=AUTH,
             json={
                 "premise_text": "The lighthouse suddenly goes dark.",
-                "actor_ids": ["chen-mo"],
+                "actor_ids": ["chen-mo", "lin-lan"],
                 "content_locale": "en-US",
                 "control": {"mode": "step", "max_steps": 3},
                 "output": {
-                    "world_projection_mode": "after_scene",
+                    "wiki_mode": "after_scene",
                     "manuscript_mode": "after_scene",
                 },
             },
@@ -370,8 +400,13 @@ def test_submission_world_bible_and_scene_boundary_outputs_form_a_closed_loop(
         assert stepped.status_code == 200, stepped.text
         checkpoint_id = stepped.json()["checkpoint_id"]
 
+        wiki = client.get(
+            "/projects/fog-harbor/branches/main/wiki",
+            headers=AUTH,
+        ).json()
         world = client.get(
-            "/projects/fog-harbor/branches/main/world-bible",
+            "/projects/fog-harbor/branches/main/wiki/page",
+            params={"path": "world/state.md"},
             headers=AUTH,
         ).json()
         scenes = client.get(
@@ -379,20 +414,41 @@ def test_submission_world_bible_and_scene_boundary_outputs_form_a_closed_loop(
             headers=AUTH,
         ).json()
 
-        assert world["checkpoint_id"] == checkpoint_id
-        generated_fact = next(
-            entry
-            for entry in world["established_facts"]
-            if "severed wire" in entry["content_text"]
+        assert wiki["checkpoint_id"] == checkpoint_id
+        assert "severed wire" in world["content"]
+        assert any(item.startswith("event:") for item in world["source_ids"])
+        assert world["updated_at_step"] == 0
+        chen_beliefs = client.get(
+            "/projects/fog-harbor/branches/main/wiki/page",
+            params={"path": "characters/chen-mo/beliefs.md"},
+            headers=AUTH,
+        ).json()["content"]
+        lin_beliefs = client.get(
+            "/projects/fog-harbor/branches/main/wiki/page",
+            params={"path": "characters/lin-lan/beliefs.md"},
+            headers=AUTH,
+        ).json()["content"]
+        assert "severed wire" in chen_beliefs
+        assert "severed wire" in lin_beliefs
+        wiki_prompts = [
+            prompt
+            for prompt in transport.calls
+            if "disciplined Story Engine Wiki maintainer" in prompt
+        ]
+        chen_prompt = next(
+            prompt for prompt in wiki_prompts if "Character Wiki: chen-mo" in prompt
         )
-        assert generated_fact["source_event_ids"]
-        assert generated_fact["last_updated_step"] == 0
+        lin_prompt = next(
+            prompt for prompt in wiki_prompts if "Character Wiki: lin-lan" in prompt
+        )
+        assert "secret:lin-unfiled-duty-roster" not in chen_prompt
+        assert "secret:chen-father-disappearance" not in lin_prompt
         assert len(scenes) == 1
         assert scenes[0]["branch_id"] == "main"
         assert scenes[0]["source_checkpoint_id"] == checkpoint_id
 
 
-def test_writer_failure_keeps_committed_history_and_world_projection(
+def test_writer_failure_keeps_committed_history_and_wiki(
     tmp_path: Path,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
@@ -414,7 +470,7 @@ def test_writer_failure_keeps_committed_history_and_world_projection(
                 "content_locale": "en-US",
                 "control": {"mode": "step", "max_steps": 3},
                 "output": {
-                    "world_projection_mode": "after_scene",
+                    "wiki_mode": "after_scene",
                     "manuscript_mode": "after_scene",
                 },
             },
@@ -429,13 +485,12 @@ def test_writer_failure_keeps_committed_history_and_world_projection(
             "/projects/fog-harbor/branches/main/simulation-trace",
             headers=AUTH,
         ).json()
-        assert any(
-            "severed wire" in entry["content_text"]
-            for entry in client.get(
-                "/projects/fog-harbor/branches/main/world-bible",
-                headers=AUTH,
-            ).json()["established_facts"]
-        )
+        world = client.get(
+            "/projects/fog-harbor/branches/main/wiki/page",
+            params={"path": "world/state.md"},
+            headers=AUTH,
+        ).json()
+        assert "severed wire" in world["content"]
         assert client.get(
             "/projects/fog-harbor/branches/main/manuscript/scenes",
             headers=AUTH,
@@ -447,7 +502,7 @@ def test_writer_failure_keeps_committed_history_and_world_projection(
         assert "writer unavailable" in failures
 
 
-def test_world_bible_and_narrative_sources_are_isolated_by_branch(
+def test_wiki_and_narrative_sources_are_isolated_by_branch(
     tmp_path: Path,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
@@ -504,10 +559,14 @@ def test_world_bible_and_narrative_sources_are_isolated_by_branch(
         assert advanced.status_code == 200, advanced.text
 
         main_world = client.get(
-            "/projects/fog-harbor/branches/main/world-bible", headers=AUTH
+            "/projects/fog-harbor/branches/main/wiki/page",
+            params={"path": "world/state.md"},
+            headers=AUTH,
         ).json()
         alternate_world = client.get(
-            "/projects/fog-harbor/branches/alternate/world-bible", headers=AUTH
+            "/projects/fog-harbor/branches/alternate/wiki/page",
+            params={"path": "world/state.md"},
+            headers=AUTH,
         ).json()
         main_sources = client.get(
             "/projects/fog-harbor/branches/main/narrative-sources", headers=AUTH
@@ -719,7 +778,7 @@ def test_game_master_selects_initial_roster_when_actors_are_not_pinned(
         )
 
 
-def test_simulation_start_reports_unavailable_embedding_profile_as_model_error(
+def test_simulation_start_needs_no_embedding_model_or_bridge(
     tmp_path: Path,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
@@ -735,5 +794,4 @@ def test_simulation_start_reports_unavailable_embedding_profile_as_model_error(
             },
         )
 
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "model_configuration_error"
+        assert response.status_code == 201

@@ -9,7 +9,6 @@ import { mcpOrchestrator } from '@/lib/mcp-orchestrator/mcp-orchestrator'
 
 export const useTools = () => {
   const updateTools = useAppState((state) => state.updateTools)
-  const updateRagToolNames = useAppState((state) => state.updateRagToolNames)
   const updateMcpToolNames = useAppState((state) => state.updateMcpToolNames)
   const { isDefaultsInitialized, setDisabledTools, markDefaultsAsInitialized } = useToolAvailable()
 
@@ -27,26 +26,13 @@ export const useTools = () => {
           ExtensionTypeEnum.MCP
         )
 
-        // Fetch tools and tool names in parallel
-        const [mcpTools, ragToolNames] = await Promise.all([
-          getServiceHub().mcp().getTools(),
-          getServiceHub().rag().getToolNames?.() ?? Promise.resolve([]),
-        ])
+        const mcpTools = await getServiceHub().mcp().getTools()
 
         // Update MCP tools
         updateTools(mcpTools)
 
         const mcpNames = mcpTools.map((t) => t.name)
-        const mcpNameSet = new Set(mcpNames)
-        const ragOnly = ragToolNames.filter((n) => !mcpNameSet.has(n))
-        if (ragOnly.length !== ragToolNames.length) {
-          const shadowed = ragToolNames.filter((n) => mcpNameSet.has(n))
-          console.warn(
-            `[tools] RAG tool(s) shadowed by MCP and routed to MCP: ${shadowed.join(', ')}`
-          )
-        }
         updateMcpToolNames(mcpNames)
-        updateRagToolNames(ragOnly)
 
         // Initialize default disabled tools for new users (only once)
         if (!isDefaultsInitialized() && mcpTools.length > 0 && mcpExtension?.getDefaultDisabledTools) {

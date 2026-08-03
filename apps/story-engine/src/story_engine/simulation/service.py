@@ -24,11 +24,11 @@ from story_engine.domain.trace import (
 from story_engine.events.stream import EngineEventBus, EngineEventType
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.simulation.engine import SessionNotFoundError, StoryTurnEngine
-from story_engine.simulation.output import BoundaryOutputCoordinator
+from story_engine.simulation.output import BoundaryMaintenanceCoordinator
 from story_engine.simulation.session import calculate_snapshot_state_hash
 
 CommitKernelFactory = Callable[[str], SimulationCommitKernel]
-BoundaryOutputFactory = Callable[[str], BoundaryOutputCoordinator]
+BoundaryOutputFactory = Callable[[TurnSessionSnapshot], BoundaryMaintenanceCoordinator]
 
 
 class SimulationApplicationService:
@@ -789,4 +789,4 @@ class SimulationApplicationService:
     ) -> None:
         if self._boundary_output_factory is None or result.boundary.value == "none":
             return
-        self._boundary_output_factory(snapshot.project_id).process(result, snapshot)
+        self._boundary_output_factory(snapshot).process(result, snapshot)

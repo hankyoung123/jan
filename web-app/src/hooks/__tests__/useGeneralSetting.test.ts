@@ -19,45 +19,15 @@ vi.mock('zustand/middleware', () => ({
   }),
 }))
 
-// Mock ExtensionManager
-vi.mock('@/lib/extension', () => ({
-  ExtensionManager: {
-    getInstance: vi.fn(),
-  },
-}))
-
-// Mock ServiceHub (setHuggingfaceToken persists to the keyring via set_secret)
-const mockInvoke = vi.fn().mockResolvedValue(undefined)
-vi.mock('@/hooks/useServiceHub', () => ({
-  getServiceHub: () => ({ core: () => ({ invoke: mockInvoke }) }),
-}))
-
 describe('useGeneralSetting', () => {
-  let mockExtensionManager: any
-
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks()
-
-    // Get the mocked ExtensionManager
-    const { ExtensionManager } = await import('@/lib/extension')
-    mockExtensionManager = ExtensionManager
 
     // Reset store state to defaults
     useGeneralSetting.setState({
       currentLanguage: 'en',
       spellCheckChatInput: true,
       tokenCounterCompact: true,
-      huggingfaceToken: undefined,
-    })
-
-    // Setup default mock behavior to prevent errors
-    const mockGetByName = vi.fn().mockReturnValue({
-      getSettings: vi.fn().mockResolvedValue(null),
-      updateSettings: vi.fn(),
-    })
-
-    mockExtensionManager.getInstance.mockReturnValue({
-      getByName: mockGetByName,
     })
   })
 
@@ -66,10 +36,8 @@ describe('useGeneralSetting', () => {
 
     expect(result.current.currentLanguage).toBe('en')
     expect(result.current.spellCheckChatInput).toBe(true)
-    expect(result.current.huggingfaceToken).toBeUndefined()
     expect(typeof result.current.setCurrentLanguage).toBe('function')
     expect(typeof result.current.setSpellCheckChatInput).toBe('function')
-    expect(typeof result.current.setHuggingfaceToken).toBe('function')
   })
 
   describe('setCurrentLanguage', () => {
@@ -159,83 +127,6 @@ describe('useGeneralSetting', () => {
     })
   })
 
-  describe('setHuggingfaceToken', () => {
-    it('should set huggingface token', () => {
-      const { result } = renderHook(() => useGeneralSetting())
-
-      act(() => {
-        result.current.setHuggingfaceToken('test-token-123')
-      })
-
-      expect(result.current.huggingfaceToken).toBe('test-token-123')
-      expect(mockInvoke).toHaveBeenCalledWith('set_secret', {
-        key: 'huggingface',
-        value: 'test-token-123',
-      })
-    })
-
-    it('should update huggingface token', () => {
-      const { result } = renderHook(() => useGeneralSetting())
-
-      act(() => {
-        result.current.setHuggingfaceToken('old-token')
-      })
-      expect(result.current.huggingfaceToken).toBe('old-token')
-
-      act(() => {
-        result.current.setHuggingfaceToken('new-token')
-      })
-      expect(result.current.huggingfaceToken).toBe('new-token')
-    })
-
-    it('should handle empty token', () => {
-      const { result } = renderHook(() => useGeneralSetting())
-
-      act(() => {
-        result.current.setHuggingfaceToken('')
-      })
-
-      expect(result.current.huggingfaceToken).toBe('')
-    })
-
-    it('should call ExtensionManager when setting token', async () => {
-      const mockSettings = [
-        { key: 'hf-token', controllerProps: { value: 'old-value' } },
-        { key: 'other-setting', controllerProps: { value: 'other-value' } },
-      ]
-
-      const mockGetByName = vi.fn()
-      const mockGetSettings = vi.fn().mockResolvedValue(mockSettings)
-      const mockUpdateSettings = vi.fn()
-
-      mockExtensionManager.getInstance.mockReturnValue({
-        getByName: mockGetByName,
-      })
-      mockGetByName.mockReturnValue({
-        getSettings: mockGetSettings,
-        updateSettings: mockUpdateSettings,
-      })
-
-      const { result } = renderHook(() => useGeneralSetting())
-
-      act(() => {
-        result.current.setHuggingfaceToken('new-token')
-      })
-
-      expect(mockExtensionManager.getInstance).toHaveBeenCalled()
-      expect(mockGetByName).toHaveBeenCalledWith('@janhq/download-extension')
-
-      // Wait for async operations
-      await new Promise((resolve) => setTimeout(resolve, 0))
-
-      expect(mockGetSettings).toHaveBeenCalled()
-      expect(mockUpdateSettings).toHaveBeenCalledWith([
-        { key: 'hf-token', controllerProps: { value: 'new-token' } },
-        { key: 'other-setting', controllerProps: { value: 'other-value' } },
-      ])
-    })
-  })
-
   describe('state management', () => {
     it('should maintain state across multiple hook instances', () => {
       const { result: result1 } = renderHook(() => useGeneralSetting())
@@ -244,12 +135,10 @@ describe('useGeneralSetting', () => {
       act(() => {
         result1.current.setCurrentLanguage('id')
         result1.current.setSpellCheckChatInput(false)
-        result1.current.setHuggingfaceToken('shared-token')
       })
 
       expect(result2.current.currentLanguage).toBe('id')
       expect(result2.current.spellCheckChatInput).toBe(false)
-      expect(result2.current.huggingfaceToken).toBe('shared-token')
     })
   })
 
@@ -260,12 +149,10 @@ describe('useGeneralSetting', () => {
       act(() => {
         result.current.setCurrentLanguage('vn')
         result.current.setSpellCheckChatInput(false)
-        result.current.setHuggingfaceToken('complex-token-123')
       })
 
       expect(result.current.currentLanguage).toBe('vn')
       expect(result.current.spellCheckChatInput).toBe(false)
-      expect(result.current.huggingfaceToken).toBe('complex-token-123')
     })
 
     it('should handle multiple sequential updates', () => {
@@ -281,13 +168,6 @@ describe('useGeneralSetting', () => {
       expect(result.current.spellCheckChatInput).toBe(false)
 
       // Second update
-      act(() => {
-        result.current.setHuggingfaceToken('sequential-token')
-      })
-
-      expect(result.current.huggingfaceToken).toBe('sequential-token')
-
-      // Third update
       act(() => {
         result.current.setCurrentLanguage('en')
         result.current.setSpellCheckChatInput(true)

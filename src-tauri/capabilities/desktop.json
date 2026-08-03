@@ -25,9 +25,7 @@
     "opener:allow-open-url",
     "store:default",
     "websearch:default",
-    "llamacpp:default",
     "deep-link:default",
-    "hardware:default",
     {
       "identifier": "http:default",
       "allow": [

@@ -14,9 +14,6 @@ import {
 describe('getProviderLogo', () => {
   it('returns correct logo paths for known providers', () => {
     expect(getProviderLogo('jan')).toBe('/images/story-engine-logo.png')
-    expect(getProviderLogo('llamacpp')).toBe(
-      '/images/model-provider/llamacpp.svg'
-    )
     expect(getProviderLogo('anthropic')).toBe(
       '/images/model-provider/anthropic.svg'
     )
@@ -34,7 +31,6 @@ describe('getProviderLogo', () => {
 describe('getProviderTitle', () => {
   it('returns formatted titles for special providers', () => {
     expect(getProviderTitle('jan')).toBe('Story Engine Runtime')
-    expect(getProviderTitle('llamacpp')).toBe('Llama.cpp')
     expect(getProviderTitle('openai')).toBe('OpenAI')
     expect(getProviderTitle('openrouter')).toBe('OpenRouter')
     expect(getProviderTitle('deepseek')).toBe('DeepSeek')

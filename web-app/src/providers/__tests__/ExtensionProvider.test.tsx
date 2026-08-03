@@ -33,7 +33,6 @@ vi.mock('@/lib/extension', () => ({
 
 vi.mock('@/lib/service', () => ({ APIs: {} }))
 vi.mock('@/services/events/EventEmitter', () => ({ EventEmitter: class {} }))
-vi.mock('@janhq/core', () => ({ EngineManager: class {}, ModelManager: class {} }))
 vi.mock('@tauri-apps/api/webviewWindow', () => ({
   getCurrentWebviewWindow: () => ({ label: h.windowLabel }),
 }))

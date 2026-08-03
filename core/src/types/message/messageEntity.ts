@@ -165,7 +165,7 @@ export type ImageContentValue = {
 
 /**
  * The `InputAudioContentValue` type carries base64-encoded audio for OAI-compatible
- * `input_audio` content parts (supported by llama.cpp mtmd-capable models).
+ * `input_audio` content parts for compatible remote multimodal models.
  */
 export type InputAudioContentValue = {
   data: string
@@ -174,7 +174,7 @@ export type InputAudioContentValue = {
 
 /**
  * The `InputVideoContentValue` type carries base64-encoded video for OAI-compatible
- * `input_video` content parts (llama.cpp mtmd with a vision encoder + ffmpeg).
+ * `input_video` content parts for compatible remote multimodal models.
  * The wire shape sent to llama-server is `{ data }`; `format` (the source MIME,
  * e.g. `video/mp4`) is retained only to reconstruct the data URL for UI re-render.
  */

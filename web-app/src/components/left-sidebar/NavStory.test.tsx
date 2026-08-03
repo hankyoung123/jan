@@ -66,7 +66,7 @@ describe('mobile story navigation', () => {
   it('closes the mobile drawer after choosing a primary route', () => {
     render(<NavMain />)
 
-    fireEvent.click(screen.getByRole('link', { name: '模型中心' }))
+    fireEvent.click(screen.getByRole('link', { name: '全局设置' }))
 
     expect(h.setOpenMobile).toHaveBeenCalledWith(false)
   })

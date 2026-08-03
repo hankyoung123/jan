@@ -33,7 +33,6 @@ type AppState = {
   streamingContent?: ThreadMessage
   loadingModel?: boolean
   tools: MCPTool[]
-  ragToolNames: Set<string>
   mcpToolNames: Set<string>
   serverStatus: 'running' | 'stopped' | 'pending'
   abortControllers: Record<string, AbortController>
@@ -53,7 +52,6 @@ type AppState = {
   cancelToolCalls: Record<string, () => void>
   errorMessages: Record<string, AppErrorMessage>
   busyThreads: Record<string, boolean>
-  embeddingThreads: Record<string, boolean>
   currentStreamThreadId?: string
   oomError?: string
   backendError?: string
@@ -65,7 +63,6 @@ type AppState = {
   updateStreamingContent: (content: ThreadMessage | undefined) => void
   updateLoadingModel: (loading: boolean) => void
   updateTools: (tools: MCPTool[]) => void
-  updateRagToolNames: (names: string[]) => void
   updateMcpToolNames: (names: string[]) => void
   setAbortController: (threadId: string, controller: AbortController) => void
   clearAppState: () => void
@@ -106,14 +103,12 @@ type AppState = {
   clearThreadState: (threadId: string) => void
   setCurrentStreamThreadId: (threadId: string | undefined) => void
   setThreadBusy: (threadId: string, busy: boolean) => void
-  setThreadEmbedding: (threadId: string, embedding: boolean) => void
 }
 
 export const useAppState = create<AppState>()((set) => ({
   streamingContent: undefined,
   loadingModel: false,
   tools: [],
-  ragToolNames: new Set<string>(),
   mcpToolNames: new Set<string>(),
   serverStatus: 'stopped',
   abortControllers: {},
@@ -128,7 +123,6 @@ export const useAppState = create<AppState>()((set) => ({
   cancelToolCalls: {},
   errorMessages: {},
   busyThreads: {},
-  embeddingThreads: {},
   currentStreamThreadId: undefined,
   setCurrentStreamThreadId: (threadId) => set({ currentStreamThreadId: threadId }),
   setOomError: (line) => set({ oomError: line }),
@@ -139,13 +133,6 @@ export const useAppState = create<AppState>()((set) => ({
       if (busy) next[threadId] = true
       else delete next[threadId]
       return { busyThreads: next }
-    }),
-  setThreadEmbedding: (threadId, embedding) =>
-    set((state) => {
-      const next = { ...state.embeddingThreads }
-      if (embedding) next[threadId] = true
-      else delete next[threadId]
-      return { embeddingThreads: next }
     }),
   updateStreamingContent: (content: ThreadMessage | undefined) => {
     set(() => ({
@@ -162,9 +149,6 @@ export const useAppState = create<AppState>()((set) => ({
   },
   updateTools: (tools) => {
     set({ tools })
-  },
-  updateRagToolNames: (names) => {
-    set({ ragToolNames: new Set(names) })
   },
   updateMcpToolNames: (names) => {
     set({ mcpToolNames: new Set(names) })
@@ -292,7 +276,6 @@ export const useAppState = create<AppState>()((set) => ({
       const cancelToolCalls = { ...state.cancelToolCalls }
       const errorMessages = { ...state.errorMessages }
       const busyThreads = { ...state.busyThreads }
-      const embeddingThreads = { ...state.embeddingThreads }
       delete streamingContents[threadId]
       delete loadingModels[threadId]
       delete promptProgresses[threadId]
@@ -301,7 +284,6 @@ export const useAppState = create<AppState>()((set) => ({
       delete cancelToolCalls[threadId]
       delete errorMessages[threadId]
       delete busyThreads[threadId]
-      delete embeddingThreads[threadId]
       return {
         streamingContents,
         loadingModels,
@@ -311,7 +293,6 @@ export const useAppState = create<AppState>()((set) => ({
         cancelToolCalls,
         errorMessages,
         busyThreads,
-        embeddingThreads,
       }
     }),
 }))

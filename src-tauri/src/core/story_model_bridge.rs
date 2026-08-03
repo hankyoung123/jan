@@ -1,12 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Manager};
-use tauri_plugin_llamacpp::state::LlamacppState;
 use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
 use crate::core::{
-    app::commands::get_jan_data_folder_path,
     server::proxy,
     state::{AppState, ServerHandle},
 };
@@ -52,35 +50,13 @@ impl ModelBridge {
         }
 
         let app_state = app.state::<AppState>();
-        let llama_state = app.state::<Arc<LlamacppState>>().inner().clone();
-
-        #[cfg(target_os = "macos")]
-        let mlx_sessions = app
-            .state::<tauri_plugin_mlx::state::MlxState>()
-            .mlx_server_process
-            .clone();
-        #[cfg(not(target_os = "macos"))]
-        let mlx_sessions = Arc::new(AsyncMutex::new(std::collections::HashMap::new()));
-
         let api_key = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let port = proxy::start_server(
             self.server_handle.clone(),
-            llama_state,
-            mlx_sessions,
             "127.0.0.1".to_owned(),
             0,
-            "/v1".to_owned(),
             api_key.clone(),
-            vec![vec!["127.0.0.1".to_owned(), "localhost".to_owned()]],
-            120,
             app_state.provider_configs.clone(),
-            app_state.model_param_defaults.clone(),
-            app_state.mcp_servers.clone(),
-            app_state.mcp_settings.clone(),
-            get_jan_data_folder_path(app.clone())
-                .to_string_lossy()
-                .into_owned(),
-            false,
         )
         .await
         .map_err(|error| format!("failed to start the private model bridge: {error}"))?;

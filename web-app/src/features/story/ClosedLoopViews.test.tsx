@@ -56,19 +56,6 @@ const scene = {
   status: 'draft',
 }
 
-const worldEntry = {
-  entry_id: 'world-fact:wire',
-  category: 'established_fact',
-  title: '被切断的线路',
-  content_text: '灯塔线路被人为切断。',
-  source_record_ids: ['memory:gm:3'],
-  source_event_ids: ['event:session:one:3'],
-  first_seen_step: 3,
-  last_updated_step: 3,
-  confidence: 0.92,
-  status: 'active',
-}
-
 describe('closed-loop story views', () => {
   beforeEach(() => {
     clearActiveStoryProject()
@@ -76,23 +63,38 @@ describe('closed-loop story views', () => {
     window.history.replaceState({}, '', '/')
   })
 
-  it('renders a branch-scoped World Bible and saves director instructions', async () => {
+  it('renders a branch-scoped World Wiki and saves director instructions', async () => {
     setActiveStoryProjectId('fog-harbor')
     h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
-      if (path.endsWith('/world-bible')) {
+      if (path.endsWith('/wiki')) {
         return Promise.resolve({
-          project_id: 'fog-harbor',
           branch_id: 'main',
           checkpoint_id: 'checkpoint-main-3',
-          creative_direction_text: '悬疑 · 克制',
-          current_world_state_text: '暴风雨逼近雾港。',
-          rules: [],
-          locations: [],
-          organizations: [],
-          history: [],
-          established_facts: [worldEntry],
-          unresolved_threads: [],
-          generated_at: '2026-08-03T00:00:00Z',
+          updated_at_step: 3,
+          stale: false,
+          pages: [
+            {
+              path: 'world/state.md',
+              title: '世界状态',
+              subject_id: null,
+              updated_at_step: 3,
+              source_ids: ['event:session:one:3'],
+              confidence: 0.92,
+            },
+          ],
+        })
+      }
+      if (path.includes('/wiki/page?path=world%2Fstate.md')) {
+        return Promise.resolve({
+          branch_id: 'main',
+          path: 'world/state.md',
+          subject_id: null,
+          updated_at_step: 3,
+          source_ids: ['event:session:one:3'],
+          confidence: 0.92,
+          checkpoint_id: 'checkpoint-main-3',
+          stale: false,
+          content: '# 世界状态\n\n暴风雨逼近雾港。\n\n灯塔线路被人为切断。',
         })
       }
       if (path.endsWith('/director-instructions') && !init) {
@@ -117,8 +119,6 @@ describe('closed-loop story views', () => {
 
     render(<WorldView />)
     expect(await screen.findByText('暴风雨逼近雾港。')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '已确立事实' }))
-    fireEvent.click(await screen.findByRole('button', { name: /被切断的线路/ }))
     expect(screen.getByText('灯塔线路被人为切断。')).toBeInTheDocument()
     expect(screen.getByText('event:session:one:3')).toBeInTheDocument()
 
@@ -159,7 +159,7 @@ describe('closed-loop story views', () => {
 
     render(<ManuscriptView />)
     expect(await screen.findByText('陈默发现线路被人为切断。')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '从此片段生成' }))
+    fireEvent.click(await screen.findByRole('button', { name: '从此片段生成' }))
     expect(await screen.findByDisplayValue('切断的线路')).toBeInTheDocument()
     expect(screen.getByText('checkpoint-main-3')).toBeInTheDocument()
     expect(screen.getByText('event:session:one:3')).toBeInTheDocument()

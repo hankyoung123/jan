@@ -11,14 +11,12 @@ import { isPlatformTauri, isPlatformIOS, isPlatformAndroid } from '@/lib/platfor
 import { DefaultThemeService } from './theme/default'
 import { DefaultWindowService } from './window/default'
 import { DefaultEventsService } from './events/default'
-import { DefaultHardwareService } from './hardware/default'
 import { DefaultAppService } from './app/default'
 import { DefaultAnalyticService } from './analytic/default'
 import { DefaultMessagesService } from './messages/default'
 import { DefaultMCPService } from './mcp/default'
 import { DefaultThreadsService } from './threads/default'
 import { DefaultProvidersService } from './providers/default'
-import { DefaultModelsService } from './models/default'
 import { DefaultAssistantsService } from './assistants/default'
 import { DefaultDialogService } from './dialog/default'
 import { DefaultOpenerService } from './opener/default'
@@ -27,8 +25,6 @@ import { DefaultPathService } from './path/default'
 import { DefaultCoreService } from './core/default'
 import { DefaultDeepLinkService } from './deeplink/default'
 import { DefaultProjectsService } from './projects/default'
-import { DefaultRAGService } from './rag/default'
-import type { RAGService } from './rag/types'
 import { DefaultUploadsService } from './uploads/default'
 import type { UploadsService } from './uploads/types'
 
@@ -36,14 +32,12 @@ import type { UploadsService } from './uploads/types'
 import type { ThemeService } from './theme/types'
 import type { WindowService } from './window/types'
 import type { EventsService } from './events/types'
-import type { HardwareService } from './hardware/types'
 import type { AppService } from './app/types'
 import type { AnalyticService } from './analytic/types'
 import type { MessagesService } from './messages/types'
 import type { MCPService } from './mcp/types'
 import type { ThreadsService } from './threads/types'
 import type { ProvidersService } from './providers/types'
-import type { ModelsService } from './models/types'
 import type { AssistantsService } from './assistants/types'
 import type { DialogService } from './dialog/types'
 import type { OpenerService } from './opener/types'
@@ -58,14 +52,12 @@ export interface ServiceHub {
   theme(): ThemeService
   window(): WindowService
   events(): EventsService
-  hardware(): HardwareService
   app(): AppService
   analytic(): AnalyticService
   messages(): MessagesService
   mcp(): MCPService
   threads(): ThreadsService
   providers(): ProvidersService
-  models(): ModelsService
   assistants(): AssistantsService
   dialog(): DialogService
   opener(): OpenerService
@@ -74,7 +66,6 @@ export interface ServiceHub {
   core(): CoreService
   deeplink(): DeepLinkService
   projects(): ProjectsService
-  rag(): RAGService
   uploads(): UploadsService
 }
 
@@ -82,14 +73,12 @@ class PlatformServiceHub implements ServiceHub {
   private themeService: ThemeService = new DefaultThemeService()
   private windowService: WindowService = new DefaultWindowService()
   private eventsService: EventsService = new DefaultEventsService()
-  private hardwareService: HardwareService = new DefaultHardwareService()
   private appService: AppService = new DefaultAppService()
   private analyticService: AnalyticService = new DefaultAnalyticService()
   private messagesService: MessagesService = new DefaultMessagesService()
   private mcpService: MCPService = new DefaultMCPService()
   private threadsService: ThreadsService = new DefaultThreadsService()
   private providersService: ProvidersService = new DefaultProvidersService()
-  private modelsService: ModelsService = new DefaultModelsService()
   private assistantsService: AssistantsService = new DefaultAssistantsService()
   private dialogService: DialogService = new DefaultDialogService()
   private openerService: OpenerService = new DefaultOpenerService()
@@ -98,7 +87,6 @@ class PlatformServiceHub implements ServiceHub {
   private coreService: CoreService = new DefaultCoreService()
   private deepLinkService: DeepLinkService = new DefaultDeepLinkService()
   private projectsService: ProjectsService = new DefaultProjectsService()
-  private ragService: RAGService = new DefaultRAGService()
   private uploadsService: UploadsService = new DefaultUploadsService()
   private initialized = false
 
@@ -122,7 +110,6 @@ class PlatformServiceHub implements ServiceHub {
           themeModule,
           windowModule,
           eventsModule,
-          hardwareModule,
           appModule,
           mcpModule,
           providersModule,
@@ -136,7 +123,6 @@ class PlatformServiceHub implements ServiceHub {
           import('./theme/tauri'),
           import('./window/tauri'),
           import('./events/tauri'),
-          import('./hardware/tauri'),
           import('./app/tauri'),
           import('./mcp/tauri'),
           import('./providers/tauri'),
@@ -151,7 +137,6 @@ class PlatformServiceHub implements ServiceHub {
         this.themeService = new themeModule.TauriThemeService()
         this.windowService = new windowModule.TauriWindowService()
         this.eventsService = new eventsModule.TauriEventsService()
-        this.hardwareService = new hardwareModule.TauriHardwareService()
         this.appService = new appModule.TauriAppService()
         this.mcpService = new mcpModule.TauriMCPService()
         this.providersService = new providersModule.TauriProvidersService()
@@ -234,11 +219,6 @@ class PlatformServiceHub implements ServiceHub {
     return this.eventsService
   }
 
-  hardware(): HardwareService {
-    this.ensureInitialized()
-    return this.hardwareService
-  }
-
   app(): AppService {
     this.ensureInitialized()
     return this.appService
@@ -267,11 +247,6 @@ class PlatformServiceHub implements ServiceHub {
   providers(): ProvidersService {
     this.ensureInitialized()
     return this.providersService
-  }
-
-  models(): ModelsService {
-    this.ensureInitialized()
-    return this.modelsService
   }
 
   assistants(): AssistantsService {
@@ -312,11 +287,6 @@ class PlatformServiceHub implements ServiceHub {
   projects(): ProjectsService {
     this.ensureInitialized()
     return this.projectsService
-  }
-
-  rag(): RAGService {
-    this.ensureInitialized()
-    return this.ragService
   }
 
   uploads(): UploadsService {

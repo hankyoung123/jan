@@ -14,13 +14,13 @@ from story_engine.domain.projection import (
     SimulationBoundary,
 )
 from story_engine.domain.simulation import BranchManifest, TurnSessionSnapshot
-from story_engine.domain.world_bible import WorldBibleSnapshot
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.persistence.simulation_log import (
     SimulationLogRecord,
     SimulationLogStore,
 )
+from story_engine.wiki.context import WikiContextBuilder
 
 
 class NarrativeSourceReader:
@@ -273,7 +273,10 @@ class NarrativeSourceReader:
             events=events,
             game_master_memories=game_master,
             viewpoint_memories=viewpoint,
-            world_bible_text=self._world_bible_text(source.branch_id),
+            world_wiki_context=WikiContextBuilder(
+                self.root,
+                source.branch_id,
+            ).writer(source.viewpoint_actor_id),
         )
 
     @staticmethod
@@ -335,34 +338,3 @@ class NarrativeSourceReader:
             except (KeyError, OSError, TypeError, ValueError):
                 continue
         return ranges
-
-    def _world_bible_text(self, branch_id: str) -> str:
-        path = (
-            self.root
-            / ".story-engine/projections"
-            / branch_id
-            / "world-bible.json"
-        )
-        if not path.exists():
-            return ""
-        try:
-            snapshot = WorldBibleSnapshot.model_validate_json(
-                path.read_text(encoding="utf-8")
-            )
-        except (OSError, ValueError):
-            return ""
-        entries = (
-            *snapshot.rules,
-            *snapshot.locations,
-            *snapshot.organizations,
-            *snapshot.history,
-            *snapshot.established_facts,
-            *snapshot.unresolved_threads,
-        )
-        return "\n".join(
-            (
-                snapshot.creative_direction_text,
-                snapshot.current_world_state_text,
-                *(f"[{item.category.value}] {item.content_text}" for item in entries),
-            )
-        )

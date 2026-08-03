@@ -21,18 +21,18 @@ from story_engine.domain.memory import (
 
 _MEMORY_PREFIX = "[story-memory]"
 _MEMORY_PATTERN = re.compile(r"\[story-memory\](\{.*?\})\s(.*)$")
-_EMBEDDING_DIMENSIONS = 96
+_HASH_VECTOR_DIMENSIONS = 96
 
 
-def deterministic_embedder(text: str) -> np.ndarray:
-    """Return a stable local embedding suitable for deterministic tests."""
+def concordia_hash_embedder(text: str) -> np.ndarray:
+    """Return Concordia's private, non-model hash vector for in-memory ranking."""
 
-    vector = np.zeros(_EMBEDDING_DIMENSIONS, dtype=float)
+    vector = np.zeros(_HASH_VECTOR_DIMENSIONS, dtype=float)
     normalized = " ".join(text.casefold().split())
     tokens = normalized.split() or list(normalized)
     for token in tokens:
         digest = hashlib.sha256(token.encode("utf-8")).digest()
-        index = int.from_bytes(digest[:4], "big") % _EMBEDDING_DIMENSIONS
+        index = int.from_bytes(digest[:4], "big") % _HASH_VECTOR_DIMENSIONS
         vector[index] += 1.0 if digest[4] & 1 else -1.0
     norm = float(np.linalg.norm(vector))
     return vector if math.isclose(norm, 0.0) else vector / norm
@@ -101,13 +101,13 @@ class ConcordiaMemoryBank:
         scope: MemoryScope,
         codec: ConcordiaMemoryCodec | None = None,
         allow_duplicates: bool | None = None,
-        embedder: Callable[[str], np.ndarray] = deterministic_embedder,
+        embedder: Callable[[str], np.ndarray] = concordia_hash_embedder,
     ) -> None:
         self._owner_id = owner_id
         self._scope = scope
         self._codec = codec or ConcordiaMemoryCodec()
         self._embedder = embedder
-        self._embedding_cache: dict[str, np.ndarray] = {}
+        self._vector_cache: dict[str, np.ndarray] = {}
         self._bank = basic_associative_memory.AssociativeMemoryBank(
             sentence_embedder=self._embed,
             allow_duplicates=(
@@ -118,7 +118,7 @@ class ConcordiaMemoryBank:
         )
 
     def _embed(self, text: str) -> np.ndarray:
-        cached = self._embedding_cache.get(text)
+        cached = self._vector_cache.get(text)
         if cached is not None:
             return cached
         vector = np.asarray(self._embedder(text), dtype=float)
@@ -126,7 +126,7 @@ class ConcordiaMemoryBank:
             raise ValueError("memory embedder must return one finite vector")
         norm = float(np.linalg.norm(vector))
         normalized = vector if math.isclose(norm, 0.0) else vector / norm
-        self._embedding_cache[text] = normalized
+        self._vector_cache[text] = normalized
         return normalized
 
     @property
@@ -214,7 +214,9 @@ class ConcordiaMemoryBank:
         for record in records:
             record_vector = self._embed(record.raw_text or self._codec.encode(record))
             if record_vector.shape != query_vector.shape:
-                raise ValueError("memory embeddings changed dimensions within one bank")
+                raise ValueError(
+                    "memory hash vectors changed dimensions within one bank"
+                )
             cosine = float(np.dot(query_vector, record_vector))
             semantic = min(1.0, max(0.0, (cosine + 1.0) / 2.0))
             distance = max(0, reference_step - record.step)
@@ -299,6 +301,6 @@ class ConcordiaMemoryBank:
         if digest != snapshot.state_hash:
             raise ValueError("memory snapshot hash mismatch")
         self._bank.set_state(cast(dict[str, Any], snapshot.state))
-        self._embedding_cache.clear()
+        self._vector_cache.clear()
         if len(self._bank) != snapshot.record_count:
             raise ValueError("memory snapshot record count mismatch")

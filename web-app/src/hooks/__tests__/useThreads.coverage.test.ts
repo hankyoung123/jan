@@ -47,19 +47,6 @@ vi.mock('@/hooks/useAgentMode', () => ({
   },
 }))
 
-vi.mock('@janhq/core', () => ({
-  ExtensionTypeEnum: { VectorDB: 'VectorDB' },
-  VectorDBExtension: class {},
-}))
-
-vi.mock('@/lib/extension', () => ({
-  ExtensionManager: {
-    getInstance: () => ({
-      get: () => null,
-    }),
-  },
-}))
-
 vi.mock('@/constants/chat', () => ({
   TEMPORARY_CHAT_ID: 'temporary-chat',
 }))

@@ -80,19 +80,22 @@ fn legacy_app_config_candidate_paths(_app_data_dir: &Path) -> Vec<PathBuf> {
 
 fn app_data_dir_with_fallback<R: Runtime>(app_handle: &tauri::AppHandle<R>) -> PathBuf {
     let package_name = env!("CARGO_PKG_NAME");
-    app_handle.path().data_dir().unwrap_or_else(|err| {
-        log::error!("Failed to get data directory: {err}. Using home directory instead.");
+    app_handle
+        .path()
+        .data_dir()
+        .unwrap_or_else(|err| {
+            log::error!("Failed to get data directory: {err}. Using home directory instead.");
 
-        let home_dir = std::env::var(if cfg!(target_os = "windows") {
-            "USERPROFILE"
-        } else {
-            "HOME"
+            let home_dir = std::env::var(if cfg!(target_os = "windows") {
+                "USERPROFILE"
+            } else {
+                "HOME"
+            })
+            .expect("Failed to determine the home directory");
+
+            PathBuf::from(home_dir)
         })
-        .expect("Failed to determine the home directory");
-
-        PathBuf::from(home_dir)
-    })
-    .join(package_name)
+        .join(package_name)
 }
 
 /// Resolve the app config file path without an AppHandle (for CLI use).
@@ -491,8 +494,8 @@ mod tests {
     #[test]
     fn desktop_runtime_excludes_legacy_rag_plugins() {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let cargo = fs::read_to_string(manifest_dir.join("Cargo.toml"))
-            .expect("read desktop Cargo.toml");
+        let cargo =
+            fs::read_to_string(manifest_dir.join("Cargo.toml")).expect("read desktop Cargo.toml");
         let runtime =
             fs::read_to_string(manifest_dir.join("src/lib.rs")).expect("read desktop runtime");
 

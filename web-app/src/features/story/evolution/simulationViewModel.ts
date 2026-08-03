@@ -102,8 +102,11 @@ export function restoreSimulationTrace(
         output_record_ids: value.output_record_ids,
         visible_to: value.visible_to,
         profile_ids: [...new Set(calls.map((call) => call.profile_id))],
-        provider_ids: [...new Set(calls.map((call) => call.provider_id))],
-        model_ids: [...new Set(calls.map((call) => call.model_id))],
+        model_refs: [
+          ...new Set(
+            calls.flatMap((call) => (call.model_ref ? [call.model_ref] : []))
+          ),
+        ],
         prompt_tokens:
           value.prompt_tokens ||
           calls.reduce((total, call) => total + call.prompt_tokens, 0),
@@ -167,8 +170,7 @@ export function isStageEventPayload(
     isStringArray(candidate.output_record_ids) &&
     isStringArray(candidate.visible_to) &&
     isStringArray(candidate.profile_ids) &&
-    isStringArray(candidate.provider_ids) &&
-    isStringArray(candidate.model_ids) &&
+    isStringArray(candidate.model_refs) &&
     typeof candidate.started_at === 'string'
   )
 }

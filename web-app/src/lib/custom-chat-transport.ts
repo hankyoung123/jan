@@ -18,7 +18,6 @@ import { ModelFactory } from './model-factory'
 import { useModelProvider } from '@/hooks/useModelProvider'
 import { useAssistant } from '@/hooks/useAssistant'
 import { useThreads } from '@/hooks/useThreads'
-import { useAttachments } from '@/hooks/useAttachments'
 import { useMCPServers } from '@/hooks/useMCPServers'
 import { useWebSearchConfig } from '@/hooks/useWebSearchConfig'
 import {
@@ -28,19 +27,8 @@ import {
   WEB_FETCH_INPUT_SCHEMA,
 } from '@/lib/webSearchTool'
 import { useAppState } from '@/hooks/useAppState'
-import { unloadLlamaModel, getLoadedModels } from '@janhq/tauri-plugin-llamacpp-api'
-import { ExtensionManager } from '@/lib/extension'
-import { getLlamacppExtension } from '@/lib/llamacppRouterProps'
-import {
-  tokensForThinkingBudgetLevel,
-  isThinkingBudgetLevelKey,
-} from '@/lib/thinkingBudget'
 import { buildReasoningProviderOptions } from '@/lib/reasoningProviderOptions'
-import {
-  ExtensionTypeEnum,
-  VectorDBExtension,
-  type MCPTool,
-} from '@janhq/core'
+import { type MCPTool } from '@janhq/core'
 import {
   trimMessages,
   compactMessages,
@@ -69,11 +57,6 @@ export type OnFinishCallback = (params: {
 /** Partial assistant output replayed as a prefill to resume a stopped turn. */
 export type ContinuationContent = { text?: string; reasoning?: string }
 export type ServiceHub = {
-  rag(): {
-    getTools(): Promise<
-      Array<{ name: string; description: string; inputSchema: unknown }>
-    >
-  }
   mcp(): {
     getTools(): Promise<MCPTool[]>
     /** TauriMCPService only */
@@ -140,66 +123,11 @@ function extractModelSamplingDefaults(
  * values are forwarded; `enable_thinking` is owned by the reasoning control
  * and is dropped here.
  */
-function extractModelTemplateKwargs(
-  model: Model | null | undefined
-): Record<string, boolean | number | string> {
-  const raw: unknown =
-    model?.settings?.chat_template_kwargs?.controller_props?.value
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  const out: Record<string, boolean | number | string> = {}
-  for (const [key, value] of Object.entries(raw)) {
-    if (key === 'enable_thinking') continue
-    const t = typeof value
-    if (t === 'boolean' || t === 'number' || t === 'string') {
-      out[key] = value as boolean | number | string
-    }
-  }
-  return out
-}
-
-/**
- * `thinking_budget_tokens` is stored as a symbolic level (low/medium/high/
- * xhigh/unlimited), not a frozen absolute count — llama.cpp's --fit can pick
- * a runtime n_ctx far from the configured/default size, and that's only known
- * once the model is actually loaded. Resolve against the live n_ctx here, at
- * send time, instead of whatever context size was in scope when the level
- * was picked in ChatInput.
- */
-async function resolveThinkingBudgetTokens(
-  model: Model | null | undefined,
-  modelId: string | undefined
-): Promise<number | undefined> {
-  const rawLevel = model?.settings?.thinking_budget_tokens?.controller_props?.value
-  if (!isThinkingBudgetLevelKey(rawLevel)) return undefined
-  if (rawLevel === 'unlimited') return -1
-
-  let contextSize: number | undefined
-  if (modelId) {
-    try {
-      contextSize = (await getLlamacppExtension()?.getModelProps?.(modelId))?.nCtx
-    } catch {
-      // Model not loaded yet or router unreachable; fall through to configured/default.
-    }
-  }
-  if (!contextSize) {
-    const configured = model?.settings?.ctx_len?.controller_props?.value
-    contextSize =
-      typeof configured === 'number'
-        ? configured
-        : typeof configured === 'string' && configured !== ''
-          ? Number(configured)
-          : undefined
-  }
-  return tokensForThinkingBudgetLevel(rawLevel, contextSize || 8192)
-}
-
 /**
  * Coerce a schema-node slot into a valid sub-schema. Some tool generators
  * emit shorthand like `{ "properties": { "foo": "string" } }` instead of
- * `{ "properties": { "foo": { "type": "string" } } }`. llama.cpp's
- * json-schema-to-grammar rejects the former with
- * `Unrecognized schema: "string"`. We expand the shorthand here so the
- * grammar generator sees a well-formed schema.
+ * `{ "properties": { "foo": { "type": "string" } }`. We expand the
+ * shorthand so remote tool APIs receive a well-formed schema.
  */
 function coerceSchemaNode(value: unknown): unknown {
   if (typeof value === 'string' && SCHEMA_PRIMITIVE_TYPES.has(value)) {
@@ -265,18 +193,15 @@ function normalizeToolInputSchemaValue(value: unknown): unknown {
     normalized.type = 'string'
   }
 
-  // llama.cpp's json-schema-to-grammar emits PCRE `\d` for these formats,
-  // which GBNF rejects; the failed grammar silently disables tool-call JSON.
+  // Some OpenAI-compatible schema converters reject these string formats.
   if (
     typeof normalized.format === 'string' &&
-    LLAMACPP_BROKEN_STRING_FORMATS.has(normalized.format as string)
+    UNSUPPORTED_SCHEMA_FORMATS.has(normalized.format as string)
   ) {
     delete normalized.format
   }
 
-  // `pattern` is the same PCRE-to-GBNF trap as `format`: any pattern that
-  // uses `\d`, `\w`, or `\s` (extremely common in date/time/uuid regexes)
-  // fails GBNF compilation. The model still has `type` and `description`.
+  // Some compatible endpoints reject PCRE shorthand in JSON Schema patterns.
   if (
     typeof normalized.pattern === 'string' &&
     PCRE_SHORTHAND.test(normalized.pattern as string)
@@ -287,7 +212,7 @@ function normalizeToolInputSchemaValue(value: unknown): unknown {
   return normalized
 }
 
-const LLAMACPP_BROKEN_STRING_FORMATS = new Set(['date', 'time', 'date-time'])
+const UNSUPPORTED_SCHEMA_FORMATS = new Set(['date', 'time', 'date-time'])
 const PCRE_SHORTHAND = /\\[dDwWsS]/
 
 /**
@@ -520,7 +445,7 @@ export function resolveOrphanToolCalls(messages: UIMessage[]): UIMessage[] {
  *    was seeded with `assistant(tool-call)` then `tool(result)`, with no text
  *    yet. Splitting restores the generated order `assistant(tool-call)` ->
  *    `tool(result)` -> `assistant(text)`, so the prefix stays byte-identical
- *    across turns and llama.cpp reuses the KV cache.
+ *    across turns and preserves provider-side prefix caching.
  *
  * A message with no tool parts, or with all non-tool parts before the tool
  * parts, is returned unchanged.
@@ -615,43 +540,6 @@ export function normalizeToolInputSchema(
 }
 
 /** Text from the most recent user message (for MCP server routing). */
-type ChatTemplateKwargs = Record<string, boolean | number | string>
-
-/**
- * Build the per-request `chat_template_kwargs` for llama-server's chat
- * completions endpoint, merging the reasoning toggle with any user-set
- * per-model template kwargs (e.g. `preserve_thinking`) into one object. The
- * server parses each value via `json_value(...).dump()`
- * (server-common.cpp:1056-1069) and rejects values that serialize to a quoted
- * JSON string where a boolean/number is expected — so this emits real JSON
- * types, never the strings `"true"` / `"false"`. Reasoning 'auto'/undefined
- * omits `enable_thinking` so the server falls back to its --reasoning-budget
- * default; `enable_thinking` from the reasoning control always wins over a
- * user-supplied value. The function is a no-op for non-llamacpp providers.
- */
-export function buildLlamacppReasoningParams(
-  providerName: string | null | undefined,
-  reasoning: 'auto' | 'on' | 'off' | undefined,
-  userKwargs?: ChatTemplateKwargs | null
-): { chat_template_kwargs?: ChatTemplateKwargs } {
-  if (providerName !== 'llamacpp') return {}
-  const kwargs: ChatTemplateKwargs = {}
-  if (userKwargs && typeof userKwargs === 'object') {
-    for (const [key, value] of Object.entries(userKwargs)) {
-      if (key === 'enable_thinking') continue
-      const t = typeof value
-      if (t === 'boolean' || t === 'number' || t === 'string') {
-        kwargs[key] = value
-      }
-    }
-  }
-  if (reasoning === 'on' || reasoning === 'off') {
-    kwargs.enable_thinking = reasoning === 'on'
-  }
-  if (Object.keys(kwargs).length === 0) return {}
-  return { chat_template_kwargs: kwargs }
-}
-
 function extractLatestUserText(messages: UIMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]
@@ -732,9 +620,7 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
   private frozenRoutedTools: MCPTool[] | null = null
   private frozenRoutedSig = ''
   private onTokenUsage?: TokenUsageCallback
-  private hasDocuments = false
   private modelSupportsTools = false
-  private ragFeatureAvailable = false
   private systemMessage?: string
   private serviceHub: ServiceHub | null
   private threadId?: string
@@ -752,7 +638,6 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
     this.systemMessage = systemMessage
     this.threadId = threadId
     this.serviceHub = useServiceStore.getState().serviceHub
-    // Tools will be loaded when updateRagToolsAvailability is called with model capabilities
   }
 
   setLastUserMessage(message: string): void {
@@ -786,27 +671,8 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
   }
 
   /**
-   * Update RAG tools availability based on thread metadata and model capabilities
-   * @param hasDocuments - Whether the thread has documents attached
-   * @param modelSupportsTools - Whether the current model supports tool calling
-   * @param ragFeatureAvailable - Whether RAG features are available on the platform
-   */
-  async updateRagToolsAvailability(
-    hasDocuments: boolean,
-    modelSupportsTools: boolean,
-    ragFeatureAvailable: boolean
-  ) {
-    this.hasDocuments = hasDocuments
-    this.modelSupportsTools = modelSupportsTools
-    this.ragFeatureAvailable = ragFeatureAvailable
-
-    // Update tools based on current state
-    await this.refreshTools()
-  }
-
-  /**
    * Refresh tools based on current state
-   * Reloads both RAG and MCP tools and merges them
+   * Reloads MCP tools.
    * Filters out disabled tools based on thread settings
    * @private
    */
@@ -830,61 +696,6 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
 
     // Only load tools if model supports them
     if (modelSupportsTools) {
-      let hasDocuments = this.hasDocuments
-      let ragFeatureAvailable = this.ragFeatureAvailable
-
-      if (!hasDocuments && this.threadId) {
-        const thread = useThreads.getState().threads[this.threadId]
-        const hasThreadDocuments = Boolean(thread?.metadata?.hasDocuments)
-
-        const projectId = thread?.metadata?.project?.id
-        if (projectId) {
-          try {
-            const ext = ExtensionManager.getInstance().get<VectorDBExtension>(
-              ExtensionTypeEnum.VectorDB
-            )
-            if (ext?.listAttachmentsForProject) {
-              const projectFiles = await ext.listAttachmentsForProject(projectId)
-              hasDocuments = hasThreadDocuments || projectFiles.length > 0
-            }
-          } catch (error) {
-            console.warn('Failed to check project files:', error)
-            hasDocuments = hasThreadDocuments
-          }
-        } else {
-          hasDocuments = hasThreadDocuments
-        }
-      }
-
-      if (!ragFeatureAvailable) {
-        ragFeatureAvailable = Boolean(useAttachments.getState().enabled)
-      }
-
-      // Load RAG tools if documents are available
-      if (hasDocuments && ragFeatureAvailable) {
-        try {
-          const ragTools = await this.serviceHub.rag().getTools()
-          if (Array.isArray(ragTools) && ragTools.length > 0) {
-            // Convert RAG tools to AI SDK format, filtering out disabled tools
-            ragTools.forEach((tool) => {
-              // RAG tools use MCPTool interface with server field
-              const serverName =
-                (tool as { server?: string }).server || 'unknown'
-              if (!isToolDisabled(serverName, tool.name)) {
-                toolsRecord[tool.name] = {
-                  description: tool.description,
-                  inputSchema: jsonSchema(
-                    normalizeToolInputSchema(tool.inputSchema as Record<string, unknown>)
-                  ),
-                } as Tool
-              }
-            })
-          }
-        } catch (error) {
-          console.warn('Failed to load RAG tools:', error)
-        }
-      }
-
       // Load MCP tools — route through the orchestrator when available so only
       // relevant servers are queried instead of all of them.
       try {
@@ -1041,19 +852,11 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
       normalized.text || normalized.reasoning ? normalized : null
   }
 
-  /**
-   * Race model creation (which blocks on llama-server load, up to 600s)
-   * against the request's abort signal. `invoke()` has no cancellation of
-   * its own, so an abort during "Loading model..." would otherwise be
-   * silently ignored until load either finishes or times out. On abort we
-   * fire-and-forget an unload of the (possibly still-loading) model so the
-   * router doesn't keep spawning/holding a llama-server nobody wants.
-   */
+  /** Race remote model-client creation against the request abort signal. */
   private createModelOrAbort(
     modelId: string,
     provider: ProviderObject,
     parameters: Record<string, unknown>,
-    providerId: string,
     abortSignal: AbortSignal | undefined
   ): Promise<LanguageModel> {
     const modelPromise = ModelFactory.createModel(modelId, provider, parameters)
@@ -1063,19 +866,6 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
     // Promise.withResolvers (ES2024), so the executor form is required.
     return new Promise<LanguageModel>((resolve, reject) => {
       const onAbort = () => {
-        if (providerId === 'llamacpp') {
-          // Call the plugin's unload command directly instead of through the
-          // extension's `unload()` method: that method first looks up an
-          // active *loaded* session and throws if none is found, but a
-          // model aborted mid-load is still in the "loading" state (not
-          // "loaded") and would never resolve to a session -- silently
-          // skipping the unload and leaking the still-loading llama-server.
-          // See https://github.com/janhq/jan/issues/8432.
-          unloadLlamaModel(modelId).catch(() => {
-            // Best-effort: model may not have started loading yet, or may
-            // already have finished/failed on its own.
-          })
-        }
         const err = new Error('Aborted')
         err.name = 'AbortError'
         reject(err)
@@ -1131,65 +921,23 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
       const inferenceParams = this.getActiveInferenceParams()
 
       const selectedModel = useModelProvider.getState().selectedModel
-      const reasoningParams = buildLlamacppReasoningParams(
-        effectiveProviderName,
-        selectedModel?.settings?.reasoning?.controller_props?.value as
-          | 'auto'
-          | 'on'
-          | 'off'
-          | undefined,
-        extractModelTemplateKwargs(selectedModel)
-      )
-
-      if (providerId === 'llamacpp') {
-        try {
-          const loaded = await getLoadedModels()
-          if (!loaded.includes(modelId)) {
-            useAppState.getState().updateLoadingModel(true)
-            useAppState.getState().updateThreadLoadingModel(threadId, true)
-            useAppState.getState().updateModelLoadProgress(undefined)
-            useAppState.getState().updateThreadModelLoadProgress(threadId, undefined)
-          }
-        } catch {
-          // Ignore probe failures; the router will still load on demand
-        }
-      }
-
       // Per-model sidebar sampling defaults flow through as request-body
       // overrides (router mode can't bake them into CLI args). Assistant
       // params still win — they're the explicit per-conversation override.
       const modelSamplingDefaults = extractModelSamplingDefaults(selectedModel)
-      if (providerId === 'llamacpp') {
-        const thinkingBudgetTokens = await resolveThinkingBudgetTokens(
-          selectedModel,
-          modelId
-        )
-        if (thinkingBudgetTokens !== undefined) {
-          modelSamplingDefaults.thinking_budget_tokens = thinkingBudgetTokens
-        }
-      }
-
       // Create the model before refreshing tools so the MCP orchestrator can run
       // structured LLM routing when many servers are connected.
       const mergedParams: Record<string, unknown> = {
         ...modelSamplingDefaults,
         ...(inferenceParams ?? {}),
-        ...reasoningParams,
       }
       if (isPredefinedRemoteProvider(effectiveProviderName)) {
         for (const key of Object.keys(paramsSettings)) delete mergedParams[key]
-      }
-      // Pin chat to slot 0 so llama-server reuses this thread's cached KV
-      // prefix across turns; title generation uses the reserved background
-      // slot (RESERVED_BACKGROUND_SLOTS) and can't evict it.
-      if (providerId === 'llamacpp') {
-        mergedParams.id_slot = 0
       }
       this.model = await this.createModelOrAbort(
         modelId,
         updatedProvider ?? provider,
         mergedParams,
-        providerId,
         options.abortSignal
       )
       useAppState.getState().updateLoadingModel(false)
@@ -1214,8 +962,8 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
 
     // Split assistant turns that place text after tool calls into separate
     // messages. Required by the Claude API (tool_use / tool_result pairing) and
-    // it keeps the prompt prefix byte-identical across turns so llama.cpp reuses
-    // the KV cache. See `splitAssistantToolWaves`.
+    // it keeps the prompt prefix byte-identical across turns for provider-side
+    // caching. See `splitAssistantToolWaves`.
     const messagesToConvert = splitAssistantToolWaves(options.messages)
 
     const inferenceParams = this.getActiveInferenceParams()
@@ -1416,11 +1164,11 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
           const durationMs = streamStartTime ? Date.now() - streamStartTime : 0
           const durationSec = durationMs / 1000
 
-          // Use provider's outputTokens, or llama.cpp completionTokens, or fall back to text delta count
+          // Use provider-reported output tokens when available.
           const outputTokens = usage?.outputTokens ?? 0
           const inputTokens = usage?.inputTokens
 
-          // Use llama.cpp's tokens per second if available, otherwise calculate from duration
+          // Use streamed token speed when available, otherwise calculate it.
           let tokenSpeed: number
           if (durationSec > 0 && outputTokens > 0) {
             tokenSpeed =

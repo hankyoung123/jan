@@ -23,7 +23,6 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import { MermaidError } from '@/components/MermaidError'
-import { CitationLink } from '@/components/CitationLink'
 import { WebCitationChip } from '@/components/WebCitationChip'
 import { MarkdownTable } from '@/components/MarkdownTable'
 
@@ -107,7 +106,7 @@ const fixEmphasisFlanking = (s: string): string =>
         .replace(/(?<=[^\s\p{L}\p{N}*_])(\*\*?|__?)(?=[\p{L}\p{N}])/gu, `${ZWSP}$1`)
     : s
 
-// Placeholder-protection pipeline (adapted from llama.cpp's webui / LibreChat):
+// Placeholder-protection pipeline adapted from common chat renderers:
 // remark-math only parses $…$/$$…$$, so brackets need converting — but converting,
 // escaping currency, and fixing emphasis would corrupt each other unless code and
 // math are first lifted out as opaque tokens. PUA-delimited tokens can't occur in
@@ -234,14 +233,7 @@ function RenderMarkdownComponent({
     const Anchor = (
       props: React.AnchorHTMLAttributes<HTMLAnchorElement>
     ) => {
-      const { href, children, className: aClass } = props
-      if (typeof href === 'string' && href.startsWith('#cite-')) {
-        return (
-          <CitationLink href={href} className={aClass}>
-            {children}
-          </CitationLink>
-        )
-      }
+      const { href, children } = props
       if (typeof href === 'string' && href.startsWith('#webcite-')) {
         const url = decodeURIComponent(href.slice('#webcite-'.length))
         return <WebCitationChip messageId={messageId} url={url} />

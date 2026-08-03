@@ -70,7 +70,9 @@ pub fn migrate_mcp_servers(
         }
     }
     if mcp_version < 4 {
-        log::info!("Migrating MCP schema version 4: Removing default Exa MCP (native web search cutover)");
+        log::info!(
+            "Migrating MCP schema version 4: Removing default Exa MCP (native web search cutover)"
+        );
         if let Err(e) = remove_exa_server(app_handle) {
             log::error!("Failed to remove Exa MCP server: {e}");
         }
@@ -155,54 +157,6 @@ fn remove_exa_server(app_handle: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to write MCP config: {e}"))?;
     }
     Ok(())
-}
-
-/// Install/update the bundled `story-engine` CLI binary.
-///
-/// - `version_changed`: pass `true` whenever the app version has changed (i.e. after an update).
-///   When `true` the binary is always overwritten so the CLI stays in sync with the new app.
-///   When `false` only installs if the binary is not yet present on PATH.
-///
-/// Runs in a background task — never blocks startup.
-/// Errors are logged as warnings and never prevent the app from starting.
-pub fn setup_story_engine_cli<R: Runtime>(
-    app_handle: tauri::AppHandle<R>,
-    version_changed: bool,
-) {
-    tauri::async_runtime::spawn(async move {
-        // On a normal launch where the version hasn't changed, skip reinstall if already on PATH.
-        if !version_changed {
-            let which_cmd = if cfg!(windows) { "where" } else { "which" };
-            let mut cmd = std::process::Command::new(which_cmd);
-            cmd.arg("story-engine");
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            }
-            if cmd
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-            {
-                log::debug!("Story Engine CLI already on PATH — skipping reinstall");
-                return;
-            }
-        }
-
-        match crate::core::system::commands::install_story_engine_cli_sync(&app_handle) {
-            Ok(status) => {
-                log::info!(
-                    "Story Engine CLI {} to {}",
-                    if version_changed { "updated" } else { "installed" },
-                    status.path.as_deref().unwrap_or("<unknown>")
-                );
-            }
-            Err(e) => {
-                log::warn!("Story Engine CLI auto-install skipped: {e}");
-            }
-        }
-    });
 }
 
 /// Resolve when the frontend emits `app-ready`, or after `timeout` (so a window

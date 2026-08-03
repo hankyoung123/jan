@@ -65,35 +65,6 @@ describe('useThreads', () => {
     expect(result.current.threads['thread1']).toEqual(threads[0])
     expect(result.current.threads['thread2']).toEqual(threads[1])
   })
-  it('should set threads with cortex model migrated', () => {
-    const { result } = renderHook(() => useThreads())
-
-    const threads = [
-      {
-        id: 'thread1',
-        title: 'Thread 1',
-        messages: [],
-        model: { provider: 'llama.cpp', id: 'thread1:free' },
-      },
-      {
-        id: 'thread2',
-        title: 'Thread 2',
-        messages: [],
-        model: { provider: 'llama.cpp', id: 'thread2:test' },
-      },
-    ]
-
-    act(() => {
-      result.current.setThreads(threads)
-    })
-
-    expect(Object.keys(result.current.threads)).toHaveLength(2)
-    expect(result.current.threads['thread1'].model.id).toEqual('thread1/free')
-    expect(result.current.threads['thread1'].model.provider).toEqual('llamacpp')
-    expect(result.current.threads['thread2'].model.id).toEqual('thread2/test')
-    expect(result.current.threads['thread2'].model.provider).toEqual('llamacpp')
-  })
-
   it('should set current thread ID', () => {
     const { result } = renderHook(() => useThreads())
 

@@ -1,9 +1,8 @@
 // Video attachments enter the AI SDK as `file` parts with video mediaType,
 // but `@ai-sdk/openai-compatible` rejects any non-image file part. To bypass
 // that converter without forking the provider, we encode each video part as a
-// text sentinel before `streamText` and decode it back into an llama-server
-// `input_video` content part inside the request fetch. Mirrors audio-sentinel,
-// but llama-server's `input_video` wire shape is `{ data }` with no format.
+// text sentinel before `streamText` and decode it into the provider's
+// `input_video` content part inside the request fetch.
 
 const PREFIX = ' __JAN_VIDEO__'
 const SUFFIX = ' '

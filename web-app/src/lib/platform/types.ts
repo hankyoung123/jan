@@ -13,19 +13,7 @@ export type Platform = 'tauri' | 'web' | 'ios' | 'android'
  * Defines all available features that can be platform-specific
  */
 export enum PlatformFeature {
-  // Hardware monitoring and GPU usage
-  HARDWARE_MONITORING = 'hardwareMonitoring',
-
   SHORTCUT = 'shortcut',
-
-  // Local model inference (llama.cpp)
-  LOCAL_INFERENCE = 'localInference',
-
-  // Local API server
-  LOCAL_API_SERVER = 'localApiServer',
-
-  // Hub/model downloads
-  MODEL_HUB = 'modelHub',
 
   // System integrations (logs, file explorer, etc.)
   SYSTEM_INTEGRATIONS = 'systemIntegrations',
@@ -59,6 +47,4 @@ export enum PlatformFeature {
   // Assistant functionality (creation, editing, management)
   ASSISTANTS = 'assistants',
 
-  // File attachments/RAG UI and tooling (desktop-only for now)
-  FILE_ATTACHMENTS = 'fileAttachments',
 }

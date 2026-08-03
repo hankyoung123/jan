@@ -52,7 +52,10 @@ describe('TauriCoreService', () => {
       expect(exts.length).toBeGreaterThan(0)
       expect(exts.every((e) => e.url === 'built-in')).toBe(true)
       expect(exts.every((e) => e.extensionInstance)).toBe(true)
-      expect(exts.map((e) => e.name)).toContain('@janhq/llamacpp-extension')
+      expect(exts.map((e) => e.name)).toEqual([
+        '@janhq/assistant-extension',
+        '@janhq/conversational-extension',
+      ])
     })
   })
 
@@ -67,7 +70,10 @@ describe('TauriCoreService', () => {
     it('returns bundled extensions without invoking the backend', async () => {
       const exts = await svc.installExtension([])
       expect(mockInvoke).not.toHaveBeenCalled()
-      expect(exts.map((e) => e.name)).toContain('@janhq/llamacpp-extension')
+      expect(exts.map((e) => e.name)).toEqual([
+        '@janhq/assistant-extension',
+        '@janhq/conversational-extension',
+      ])
     })
   })
 

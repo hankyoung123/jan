@@ -3,35 +3,13 @@ from datetime import UTC, datetime
 import numpy as np
 import pytest
 
-from story_engine.concordia_runtime.factory import (
-    ConcordiaGameMasterActor,
-    ConcordiaStoryActor,
-)
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
-from story_engine.concordia_runtime.memory_lifecycle import ConcordiaMemoryLifecycle
-from story_engine.domain.action import EntityRole
 from story_engine.domain.memory import (
     MemoryQuery,
     MemoryRecord,
     MemoryRecordType,
     MemoryScope,
 )
-from story_engine.domain.projection import SimulationBoundary
-
-
-class _FakeEntity:
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-
-class _LifecycleModel:
-    def __init__(self, prefix: str) -> None:
-        self.prefix = prefix
-        self.prompts: list[str] = []
-
-    def sample_text(self, prompt: str, **_: object) -> str:
-        self.prompts.append(prompt)
-        return f"{self.prefix}: stable fact and open thread"
 
 
 def _record(owner_id: str, text: str, *, record_id: str) -> MemoryRecord:
@@ -150,66 +128,6 @@ def test_retrieval_exposes_semantic_recency_and_importance_scores() -> None:
     assert hits[0].importance_score is not None
 
 
-def test_scene_boundary_reflects_and_chapter_boundary_consolidates_privately() -> None:
-    actor_memory = ConcordiaMemoryBank(
-        owner_id="actor-a",
-        scope=MemoryScope.CHARACTER,
-    )
-    gm_memory = ConcordiaMemoryBank(
-        owner_id="gm",
-        scope=MemoryScope.GAME_MASTER,
-    )
-    actor_memory.add(_record("actor-a", "The signal was cut.", record_id="actor:1"))
-    gm_memory.add(
-        MemoryRecord(
-            record_id="gm:1",
-            record_type=MemoryRecordType.WORLD_EVENT,
-            scope=MemoryScope.GAME_MASTER,
-            owner_id="gm",
-            session_id="session:1",
-            branch_id="main",
-            step=1,
-            text="The signal wire was deliberately severed.",
-            content_locale="en-US",
-            created_at=datetime.now(UTC),
-        )
-    )
-    actor = ConcordiaStoryActor(
-        _FakeEntity("actor-a"),  # type: ignore[arg-type]
-        role=EntityRole.CHARACTER,
-        memory=actor_memory,
-    )
-    game_master = ConcordiaGameMasterActor(
-        _FakeEntity("gm"),  # type: ignore[arg-type]
-        role=EntityRole.GAME_MASTER,
-        memory=gm_memory,
-    )
-    reflection = _LifecycleModel("reflection")
-    consolidation = _LifecycleModel("consolidation")
-    lifecycle = ConcordiaMemoryLifecycle(
-        reflection_model=reflection,  # type: ignore[arg-type]
-        consolidation_model=consolidation,  # type: ignore[arg-type]
-        content_locale="en-US",
-    )
-
-    written = lifecycle.process_boundary(
-        session_id="session:1",
-        branch_id="main",
-        step=2,
-        boundary=SimulationBoundary.CHAPTER,
-        acting_actor=actor,
-        game_master=game_master,
-    )
-
-    assert [record.record_type for record in written] == [
-        MemoryRecordType.REFLECTION,
-        MemoryRecordType.REFLECTION,
-        MemoryRecordType.CONSOLIDATION,
-        MemoryRecordType.CONSOLIDATION,
-    ]
-    actor_records = [record for record in written if record.owner_id == "actor-a"]
-    gm_records = [record for record in written if record.owner_id == "gm"]
-    assert all(record.visible_to == ("actor-a",) for record in actor_records)
-    assert all(record.visible_to == () for record in gm_records)
-    assert len(reflection.prompts) == 2
-    assert len(consolidation.prompts) == 2
+def test_raw_memory_record_types_do_not_include_derived_summaries() -> None:
+    assert "reflection" not in {item.value for item in MemoryRecordType}
+    assert "consolidation" not in {item.value for item in MemoryRecordType}

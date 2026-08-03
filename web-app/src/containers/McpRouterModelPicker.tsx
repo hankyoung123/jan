@@ -5,7 +5,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { cn, getModelDisplayName, isLocalProvider } from '@/lib/utils'
+import { cn, getModelDisplayName } from '@/lib/utils'
 import { IconChevronDown, IconX } from '@tabler/icons-react'
 import ProvidersAvatar from '@/containers/ProvidersAvatar'
 import Capabilities from '@/containers/Capabilities'
@@ -14,8 +14,6 @@ import { isRouterModelSelectable } from '@/lib/mcp-router-model-filter'
 type Entry = {
   model: Model
   providerName: string
-  isLocal: boolean
-  hasApiKey: boolean
 }
 
 export type McpRouterModelPickerProps = {
@@ -65,8 +63,6 @@ export function McpRouterModelPicker({
         entries.push({
           model: m,
           providerName: p.provider,
-          isLocal: !!isLocalProvider(p.provider),
-          hasApiKey: !!p.api_key?.length,
         })
       }
     }
@@ -133,12 +129,7 @@ export function McpRouterModelPicker({
             {current ? (
               <>
                 <span
-                  className={cn(
-                    'text-[10px] px-1.5 py-0.5 rounded-full shrink-0',
-                    current.isLocal
-                      ? 'bg-emerald-500/10 text-emerald-600'
-                      : 'bg-blue-500/10 text-blue-600'
-                  )}
+                  className="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-600"
                 >
                   {current.providerName}
                 </span>

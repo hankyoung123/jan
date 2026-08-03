@@ -15,7 +15,6 @@ import {
   paramGroups,
   paramCategories,
   evaluateDisabled,
-  isGroupedParamKey,
   type ParamDef,
   type ParamGroup,
 } from '@/lib/predefinedParams'
@@ -79,7 +78,7 @@ export function ParametersSection({
     g.members.some((k) => k in params)
   )
   const activeStandaloneKeys = activeKeys
-    .filter((k) => k in paramsSettings && !isGroupedParamKey(k))
+    .filter((k) => k in paramsSettings)
     .sort((a, b) => canonicalOrder(a) - canonicalOrder(b))
   const unknownKeys = activeKeys.filter((k) => !(k in paramsSettings))
 

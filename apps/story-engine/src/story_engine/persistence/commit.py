@@ -15,11 +15,7 @@ from story_engine.persistence.simulation_log import (
     SimulationLogStore,
 )
 from story_engine.projection.markdown import MarkdownProjector
-from story_engine.projection.world_bible import (
-    WorldBibleProjector,
-    WorldBibleStore,
-    read_branch_records,
-)
+from story_engine.wiki.store import WikiStore
 
 
 class SimulationCommitKernel:
@@ -133,21 +129,13 @@ class SimulationCommitKernel:
             parent_branch_id=parent_branch_id,
             content_locale=content_locale,
         )
-        if (self.root / "project.md").is_file():
+        parent_wiki = WikiStore(self.root, parent_branch_id)
+        if parent_wiki.exists():
             source = self.checkpoints.load(source_checkpoint_id)
-            fork_snapshot = source.model_copy(
-                update={
-                    "branch_id": branch_id,
-                    "request": source.request.model_copy(
-                        update={"branch_id": branch_id}
-                    ),
-                    "checkpoint_id": source_checkpoint_id,
-                }
-            )
-            WorldBibleProjector(self.root).rebuild_sync(
-                fork_snapshot,
-                read_branch_records(self.root, branch_id),
-                previous=None,
+            WikiStore(self.root, branch_id).fork_from(
+                parent_branch_id=parent_branch_id,
+                checkpoint_id=source_checkpoint_id,
+                checkpoint_step=source.current_step,
             )
         return branch
 
@@ -161,7 +149,12 @@ class SimulationCommitKernel:
         branch = self.branches.load(branch_id)
         if branch.project_id != project_id:
             raise ValueError("branch belongs to another project")
-        return self.branches.rollback(branch_id, checkpoint_id)
+        updated = self.branches.rollback(branch_id, checkpoint_id)
+        snapshot = self.checkpoints.load(checkpoint_id)
+        wiki = WikiStore(self.root, branch_id)
+        if wiki.exists():
+            wiki.mark_stale(checkpoint_id, snapshot.current_step)
+        return updated
 
     def project_markdown(
         self,
@@ -178,27 +171,9 @@ class SimulationCommitKernel:
             raise ValueError("branch has no checkpoint")
         snapshot = self.load_checkpoint(project_id, selected)
         if (self.root / "project.md").is_file():
-            projection_snapshot = snapshot.model_copy(
-                update={
-                    "branch_id": branch_id,
-                    "request": snapshot.request.model_copy(
-                        update={"branch_id": branch_id}
-                    ),
-                    "checkpoint_id": selected,
-                }
-            )
-            WorldBibleProjector(self.root).rebuild_sync(
-                projection_snapshot,
-                read_branch_records(self.root, branch_id),
-                previous=None,
-            )
-            store = WorldBibleStore(self.root, branch_id)
-            return (
-                store.path,
-                store.directory / "world.md",
-                store.directory / "timeline.md",
-                store.directory / "characters.md",
-            )
+            del snapshot
+            store = WikiStore(self.root, branch_id)
+            return tuple(store.branch_root.rglob("*.md"))
         return self.projector.render(
             snapshot,
             self.logs.read(branch_id),

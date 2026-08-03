@@ -169,7 +169,6 @@ export const useAppUpdater = () => {
 
       let downloaded = 0
       let contentLength = 0
-      await getServiceHub().models().stopAllModels()
       getServiceHub().events().emit(SystemEvent.KILL_SIDECAR)
       await new Promise((resolve) => setTimeout(resolve, 1000))
 

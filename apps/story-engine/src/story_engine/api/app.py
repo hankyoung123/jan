@@ -13,9 +13,8 @@ from story_engine.api.routes.characters import create_characters_router
 from story_engine.api.routes.manuscript import create_manuscript_router
 from story_engine.api.routes.models import create_models_router
 from story_engine.api.routes.projects import create_projects_router
-from story_engine.api.routes.rag import create_rag_router
 from story_engine.api.routes.simulations import create_simulations_router
-from story_engine.api.routes.world_bible import create_world_bible_router
+from story_engine.api.routes.wiki import create_wiki_router
 from story_engine.config import EngineSettings
 from story_engine.events.stream import (
     EngineEventBus,
@@ -33,8 +32,10 @@ from story_engine.models.registry import ProfileRegistry
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.simulation.engine import RuntimeFactory, StoryTurnEngine
 from story_engine.simulation.factory import ProjectRuntimeFactory
-from story_engine.simulation.output import BoundaryOutputCoordinator
+from story_engine.simulation.output import BoundaryMaintenanceCoordinator
 from story_engine.simulation.service import SimulationApplicationService
+from story_engine.wiki.boundary import WikiBoundaryProcessor
+from story_engine.wiki.consolidator import GatewayWikiConsolidator
 from story_engine.workspace.session import WorkspaceChange, WorkspaceSessionManager
 
 
@@ -138,9 +139,29 @@ def create_app(
         commit_kernel_factory=lambda project_id: SimulationCommitKernel(
             runtime_settings.projects_root / project_id
         ),
-        boundary_output_factory=lambda project_id: BoundaryOutputCoordinator(
-            runtime_settings.projects_root / project_id,
-            manuscript_agent=GatewayManuscriptAgent(gateway),
+        boundary_output_factory=lambda snapshot: BoundaryMaintenanceCoordinator(
+            runtime_settings.projects_root / snapshot.project_id,
+            wiki_processor=WikiBoundaryProcessor(
+                runtime_settings.projects_root / snapshot.project_id,
+                consolidator=GatewayWikiConsolidator(
+                    gateway,
+                    profile_id=snapshot.resolved_model_profile_ids.get(
+                        "task:wiki_maintenance",
+                        "wiki-maintenance",
+                    ),
+                ),
+            ),
+            manuscript_agent=GatewayManuscriptAgent(
+                gateway,
+                writer_profile_id=snapshot.resolved_model_profile_ids.get(
+                    "task:writer",
+                    "writer",
+                ),
+                editor_profile_id=snapshot.resolved_model_profile_ids.get(
+                    "task:editor",
+                    "editor",
+                ),
+            ),
         ),
     )
     app.state.model_registry = registry
@@ -207,19 +228,15 @@ def create_app(
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(
-        create_models_router(registry, gateway),
+        create_models_router(registry, gateway, runtime_settings.projects_root),
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(
-        create_rag_router(runtime_settings, workspace_manager),
+        create_simulations_router(runtime_settings, simulation_service, gateway),
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(
-        create_simulations_router(runtime_settings, simulation_service),
-        dependencies=[Depends(require_session_token)],
-    )
-    app.include_router(
-        create_world_bible_router(runtime_settings),
+        create_wiki_router(runtime_settings, gateway),
         dependencies=[Depends(require_session_token)],
     )
 

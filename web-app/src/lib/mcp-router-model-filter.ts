@@ -1,5 +1,3 @@
-import { isLocalProvider } from '@/lib/utils'
-
 /**
  * Models that are a poor fit for cheap structured routing (short generateObject calls).
  * Heuristic only — no API to “ask” providers for tier yet.
@@ -56,12 +54,11 @@ export function isLikelyLightweightRouterModel(model: Model): boolean {
   return false
 }
 
-/** Shown in the router picker: lightweight heuristic + local or API-keyed remote. */
+/** Shown in the router picker: lightweight remote models with configured credentials. */
 export function isRouterModelSelectable(
   provider: ModelProvider,
   model: Model
 ): boolean {
   if (!isLikelyLightweightRouterModel(model)) return false
-  if (isLocalProvider(provider.provider)) return true
   return !!provider.api_key?.length
 }

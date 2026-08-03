@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import type { UIMessage } from '@ai-sdk/react'
 import {
-  buildLlamacppReasoningParams,
   coalesceMessagesForAlternation,
   hasGenuineUserQuery,
   extractContextInfoFromError,
@@ -345,105 +344,6 @@ describe('normalizeToolInputSchema', () => {
         },
       ],
     })
-  })
-})
-
-describe('buildLlamacppReasoningParams', () => {
-  it('returns empty object for non-llamacpp providers regardless of reasoning value', () => {
-    expect(buildLlamacppReasoningParams('openai', 'on')).toEqual({})
-    expect(buildLlamacppReasoningParams('anthropic', 'off')).toEqual({})
-    expect(buildLlamacppReasoningParams(null, 'on')).toEqual({})
-    expect(buildLlamacppReasoningParams(undefined, 'off')).toEqual({})
-  })
-
-  it('omits the kwarg for llamacpp when reasoning is auto or undefined', () => {
-    expect(buildLlamacppReasoningParams('llamacpp', 'auto')).toEqual({})
-    expect(buildLlamacppReasoningParams('llamacpp', undefined)).toEqual({})
-  })
-
-  it('emits chat_template_kwargs.enable_thinking=true for on', () => {
-    const params = buildLlamacppReasoningParams('llamacpp', 'on')
-    expect(params).toEqual({
-      chat_template_kwargs: { enable_thinking: true },
-    })
-  })
-
-  it('emits chat_template_kwargs.enable_thinking=false for off', () => {
-    const params = buildLlamacppReasoningParams('llamacpp', 'off')
-    expect(params).toEqual({
-      chat_template_kwargs: { enable_thinking: false },
-    })
-  })
-
-  // Regression: llama-server's server-common.cpp:1056-1069 parses kwargs via
-  // `json_value(...).dump()` and rejects values that serialize to a quoted
-  // string ("invalid type for \"enable_thinking\" (expected boolean, got
-  // string)"). The value MUST be a JSON boolean.
-  it('emits enable_thinking as a JSON boolean, not a string', () => {
-    for (const r of ['on', 'off'] as const) {
-      const params = buildLlamacppReasoningParams('llamacpp', r)
-      const value = params.chat_template_kwargs?.enable_thinking
-      expect(typeof value).toBe('boolean')
-      expect(value).not.toBe('true')
-      expect(value).not.toBe('false')
-      // The exact serialization llama-server sees: JSON.stringify of the
-      // value must produce literal `true` / `false`, never quoted strings.
-      expect(JSON.stringify(value)).toMatch(/^(true|false)$/)
-    }
-  })
-
-  it('merges user kwargs with reasoning into one chat_template_kwargs object', () => {
-    const params = buildLlamacppReasoningParams('llamacpp', 'on', {
-      preserve_thinking: true,
-    })
-    expect(params).toEqual({
-      chat_template_kwargs: { preserve_thinking: true, enable_thinking: true },
-    })
-  })
-
-  it('emits user kwargs even when reasoning is auto (no enable_thinking)', () => {
-    const params = buildLlamacppReasoningParams('llamacpp', 'auto', {
-      preserve_thinking: false,
-      reasoning_effort: 'high',
-      max_turns: 4,
-    })
-    expect(params).toEqual({
-      chat_template_kwargs: {
-        preserve_thinking: false,
-        reasoning_effort: 'high',
-        max_turns: 4,
-      },
-    })
-  })
-
-  it('lets the reasoning control win over a user-supplied enable_thinking', () => {
-    const params = buildLlamacppReasoningParams('llamacpp', 'off', {
-      enable_thinking: true,
-    })
-    expect(params).toEqual({
-      chat_template_kwargs: { enable_thinking: false },
-    })
-  })
-
-  it('drops non-primitive user kwarg values', () => {
-    const params = buildLlamacppReasoningParams('llamacpp', 'auto', {
-      good: true,
-      bad: { nested: 1 } as unknown as boolean,
-    })
-    expect(params).toEqual({
-      chat_template_kwargs: { good: true },
-    })
-  })
-
-  it('returns {} for llamacpp when there are no kwargs at all', () => {
-    expect(buildLlamacppReasoningParams('llamacpp', 'auto', {})).toEqual({})
-    expect(buildLlamacppReasoningParams('llamacpp', 'auto')).toEqual({})
-  })
-
-  it('ignores user kwargs for non-llamacpp providers', () => {
-    expect(
-      buildLlamacppReasoningParams('openai', 'on', { preserve_thinking: true })
-    ).toEqual({})
   })
 })
 

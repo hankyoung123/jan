@@ -452,7 +452,10 @@ def test_simulation_api_checkpoint_branch_rollback_and_projection(
     assert forked.status_code == 201
     assert forked.json()["parent_branch_id"] == "main"
     assert projected.status_code == 200
-    assert len(projected.json()["written_paths"]) == 4
+    assert any(
+        path.endswith("wiki/branches/main/world/state.md")
+        for path in projected.json()["written_paths"]
+    )
     assert rolled_back.status_code == 200
     assert rolled_back.json()["head_checkpoint_id"] == checkpoint_id
     assert {branch["branch_id"] for branch in branches.json()} == {

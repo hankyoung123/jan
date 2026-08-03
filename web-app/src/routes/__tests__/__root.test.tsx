@@ -6,7 +6,6 @@ import React from 'react'
 
 const h = vi.hoisted(() => ({
   productAnalyticPrompt: false,
-  showJanModelPrompt: false,
   leftPanelOpen: true,
   sidebarWidth: 260,
   setLeftPanel: vi.fn(),
@@ -70,17 +69,11 @@ vi.mock('@/i18n/TranslationContext', () => ({
 vi.mock('@/containers/dialogs/AppUpdater', () => ({
   default: () => <div data-testid="app-updater" />,
 }))
-vi.mock('@/containers/dialogs/BackendUpdater', () => ({
-  default: () => <div data-testid="backend-updater" />,
-}))
 vi.mock('@/containers/dialogs/ToolApproval', () => ({
   default: () => <div data-testid="tool-approval" />,
 }))
 vi.mock('@/containers/dialogs/OutOfContextDialog', () => ({
   default: () => <div data-testid="oocp" />,
-}))
-vi.mock('@/containers/dialogs/AttachmentIngestionDialog', () => ({
-  default: () => <div data-testid="attach-ingest" />,
 }))
 vi.mock('@/containers/dialogs/ErrorDialog', () => ({
   default: () => <div data-testid="error-dialog" />,
@@ -88,8 +81,8 @@ vi.mock('@/containers/dialogs/ErrorDialog', () => ({
 vi.mock('@/containers/analytics/PromptAnalytic', () => ({
   PromptAnalytic: () => <div data-testid="prompt-analytic" />,
 }))
-vi.mock('@/containers/PromptJanModel', () => ({
-  PromptJanModel: () => <div data-testid="prompt-jan" />,
+vi.mock('@/containers/dialogs/MissingDependenciesDialog', () => ({
+  default: () => <div data-testid="missing-dependencies" />,
 }))
 vi.mock('@/containers/GlobalError', () => ({
   default: ({ error }: any) => <div data-testid="global-error">{error?.message}</div>,
@@ -119,9 +112,6 @@ vi.mock('@/components/ui/sidebar', () => ({
 vi.mock('@/hooks/useAnalytic', () => ({
   useAnalytic: () => ({ productAnalyticPrompt: h.productAnalyticPrompt }),
 }))
-vi.mock('@/hooks/useJanModelPrompt', () => ({
-  useJanModelPrompt: () => ({ showJanModelPrompt: h.showJanModelPrompt }),
-}))
 vi.mock('@/hooks/useLeftPanel', () => ({
   useLeftPanel: () => ({
     open: h.leftPanelOpen,
@@ -133,8 +123,6 @@ vi.mock('@/hooks/useLeftPanel', () => ({
 
 vi.mock('@/constants/routes', () => ({
   route: {
-    localApiServerlogs: '/local-api-server/logs',
-    systemMonitor: '/system-monitor',
     appLogs: '/logs',
   },
 }))
@@ -150,7 +138,6 @@ describe('__root route', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     h.productAnalyticPrompt = false
-    h.showJanModelPrompt = false
     // reset document state
     document.body.className = ''
     const loader = document.getElementById('initial-loader')
@@ -185,11 +172,10 @@ describe('__root route', () => {
   it('renders all persistent dialogs', () => {
     renderComponent()
     expect(screen.getByTestId('tool-approval')).toBeInTheDocument()
-    expect(screen.getByTestId('attach-ingest')).toBeInTheDocument()
     expect(screen.getByTestId('error-dialog')).toBeInTheDocument()
     expect(screen.getByTestId('oocp')).toBeInTheDocument()
     expect(screen.getByTestId('app-updater')).toBeInTheDocument()
-    expect(screen.getByTestId('backend-updater')).toBeInTheDocument()
+    expect(screen.getByTestId('missing-dependencies')).toBeInTheDocument()
   })
 
   it('renders PromptAnalytic when productAnalyticPrompt is true', () => {
@@ -204,31 +190,12 @@ describe('__root route', () => {
     expect(screen.queryByTestId('prompt-analytic')).not.toBeInTheDocument()
   })
 
-  it('renders PromptJanModel when showJanModelPrompt is true', () => {
-    h.showJanModelPrompt = true
-    renderComponent()
-    expect(screen.getByTestId('prompt-jan')).toBeInTheDocument()
-  })
-
   it('uses LogsLayout on /logs path (no sidebar)', () => {
     window.history.pushState({}, '', '/logs')
     renderComponent()
     expect(screen.queryByTestId('left-sidebar')).not.toBeInTheDocument()
     expect(screen.queryByTestId('sidebar-provider')).not.toBeInTheDocument()
     expect(screen.getByTestId('outlet')).toBeInTheDocument()
-  })
-
-  it('uses LogsLayout on /system-monitor path', () => {
-    window.history.pushState({}, '', '/system-monitor')
-    renderComponent()
-    expect(screen.queryByTestId('left-sidebar')).not.toBeInTheDocument()
-    expect(screen.getByTestId('outlet')).toBeInTheDocument()
-  })
-
-  it('uses LogsLayout on /local-api-server/logs path', () => {
-    window.history.pushState({}, '', '/local-api-server/logs')
-    renderComponent()
-    expect(screen.queryByTestId('left-sidebar')).not.toBeInTheDocument()
   })
 
   // Loader dismissal moved to ExtensionProvider — see ExtensionProvider.test.tsx.

@@ -58,7 +58,7 @@ const GROQ: ProviderCaps = {
 
 const OPENROUTER: ProviderCaps = {
   supported: set('penalties', 'top_k', 'min_p', 'repetition'),
-  maybe: new Set(['typical_p']),
+  maybe: new Set(),
 }
 
 const XAI: ProviderCaps = {
@@ -68,12 +68,7 @@ const XAI: ProviderCaps = {
 
 const HUGGINGFACE: ProviderCaps = {
   supported: set('penalties'),
-  maybe: new Set([
-    'top_k',
-    'min_p',
-    'repetition',
-    'typical_p',
-  ]),
+  maybe: new Set(['top_k', 'min_p', 'repetition']),
 }
 
 const NVIDIA: ProviderCaps = {
@@ -91,33 +86,6 @@ const MINIMAX: ProviderCaps = {
   maybe: new Set(),
 }
 
-const LLAMACPP: ProviderCaps = {
-  supported: set(
-    'penalties',
-    'top_k',
-    'min_p',
-    'repetition',
-    'mirostat',
-    'dry',
-    'xtc',
-    'dynatemp',
-    'typical_p',
-    'top_n_sigma',
-    'grammar',
-    'json_schema',
-    'ignore_eos',
-    'sampler_order',
-    'backend_sampling',
-    'thinking_budget'
-  ),
-  maybe: new Set(),
-}
-
-const MLX: ProviderCaps = {
-  supported: set('top_k', 'repetition'),
-  maybe: new Set(),
-}
-
 /**
  * Custom user-added providers default to permissive — the user explicitly
  * pointed at an OpenAI-compatible endpoint of unknown shape, so showing all
@@ -130,17 +98,7 @@ const CUSTOM_PERMISSIVE: ProviderCaps = {
     'top_k',
     'min_p',
     'repetition',
-    'mirostat',
-    'dry',
-    'xtc',
-    'dynatemp',
-    'typical_p',
-    'top_n_sigma',
-    'grammar',
     'json_schema',
-    'ignore_eos',
-    'sampler_order',
-    'backend_sampling',
     'thinking_budget',
   ]),
 }
@@ -159,8 +117,6 @@ const BUILTIN_CAPS: Record<string, ProviderCaps> = {
   huggingface: HUGGINGFACE,
   nvidia: NVIDIA,
   minimax: MINIMAX,
-  llamacpp: LLAMACPP,
-  mlx: MLX,
 }
 
 export function resolveProviderCaps(
@@ -182,20 +138,16 @@ export function getProviderApiType(
   return provider.provider === 'anthropic' ? 'anthropic' : 'openai'
 }
 
-const LOCAL_PROVIDER_IDS = new Set<string>(['llamacpp', 'mlx'])
-
 /**
  * Predefined remote providers ship locked base_urls and expose only a fixed
- * sampling surface — exposing the in-app sampler UI for them invites silent
- * 400s. Local engines and user-added custom OpenAI-compatible providers keep
- * the sampler UI.
+ * sampling surface — exposing unsupported controls invites silent 400s.
  */
 export function isPredefinedRemoteProvider(
   provider: Pick<ProviderObject, 'provider'> | string | undefined
 ): boolean {
   if (!provider) return false
   const id = typeof provider === 'string' ? provider : provider.provider
-  return id in BUILTIN_CAPS && !LOCAL_PROVIDER_IDS.has(id)
+  return id in BUILTIN_CAPS
 }
 
 /**

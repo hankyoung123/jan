@@ -2,7 +2,7 @@ import { localStorageKey } from '@/constants/localStorage'
 
 export interface WebdataResetFlags {
   keepAppData: boolean
-  keepModelsAndConfigs: boolean
+  keepProviderConfigs: boolean
   clearWebData?: boolean
 }
 
@@ -22,19 +22,13 @@ export function pruneLocalStorageByFlags(flags: WebdataResetFlags): void {
   const remove = (keys: string[]) =>
     keys.forEach((key) => localStorage.removeItem(key))
 
-  if (!flags.keepModelsAndConfigs) {
+  if (!flags.keepProviderConfigs) {
     remove([
       k.modelProvider,
-      k.modelSources,
       k.lastUsedModel,
       k.lastUsedAssistant,
       k.defaultAssistantId,
       k.favoriteModels,
-      k.latestJanModel,
-      k.defaultEmbeddingModel,
-      k.modelSupportCache,
-      k.janModelPromptDismissed,
-      k.pausedDownloads,
     ])
   }
 
@@ -43,7 +37,7 @@ export function pruneLocalStorageByFlags(flags: WebdataResetFlags): void {
   }
 
   // A full wipe should land back on first-run onboarding.
-  if (!flags.keepAppData && !flags.keepModelsAndConfigs) {
+  if (!flags.keepAppData && !flags.keepProviderConfigs) {
     remove([k.setupCompleted])
   }
 }

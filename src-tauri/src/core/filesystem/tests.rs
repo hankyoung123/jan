@@ -113,7 +113,7 @@ fn test_resolve_jan_scoped_path_allows_canonicalized_home_symlink_target() {
     fs::create_dir_all(configured_root.parent().unwrap()).unwrap();
     symlink(&canonical_root, &configured_root).unwrap();
 
-    let candidate = canonical_root.join("llamacpp/backends/v1/backend.tar.gz");
+    let candidate = canonical_root.join("providers/cache/v1/catalog.json");
     let (_, resolved_path) =
         resolve_path_within_jan_data_folder(&configured_root, candidate.to_string_lossy().as_ref())
             .unwrap();
@@ -121,7 +121,7 @@ fn test_resolve_jan_scoped_path_allows_canonicalized_home_symlink_target() {
     let expected_path = canonical_root
         .canonicalize()
         .unwrap()
-        .join("llamacpp/backends/v1/backend.tar.gz");
+        .join("providers/cache/v1/catalog.json");
     assert_eq!(resolved_path, expected_path);
 
     let _ = fs::remove_dir_all(&base_dir);
@@ -132,11 +132,9 @@ fn test_resolve_jan_scoped_path_accepts_relative_path_inside_root() {
     let jan_data_folder = unique_test_dir("relative");
     fs::create_dir_all(&jan_data_folder).unwrap();
 
-    let (resolved_root, resolved_path) = resolve_path_within_jan_data_folder(
-        &jan_data_folder,
-        "llamacpp/backends/v1/backend.tar.gz",
-    )
-    .unwrap();
+    let (resolved_root, resolved_path) =
+        resolve_path_within_jan_data_folder(&jan_data_folder, "providers/cache/v1/catalog.json")
+            .unwrap();
 
     assert!(resolved_path.starts_with(&resolved_root));
     assert_eq!(
@@ -145,7 +143,7 @@ fn test_resolve_jan_scoped_path_accepts_relative_path_inside_root() {
     );
     assert_eq!(
         resolved_path.file_name().and_then(|name| name.to_str()),
-        Some("backend.tar.gz")
+        Some("catalog.json")
     );
 
     let _ = fs::remove_dir_all(&jan_data_folder);

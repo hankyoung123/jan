@@ -5,22 +5,6 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }))
 
-vi.mock('@janhq/core', () => ({
-  EngineManager: {
-    instance: () => ({
-      engines: new Map([
-        [
-          'engine1',
-          {
-            getLoadedModels: vi.fn().mockResolvedValue(['model1', 'model2']),
-            unload: vi.fn().mockResolvedValue(undefined),
-          },
-        ],
-      ]),
-    }),
-  },
-}))
-
 const mockWindowCore = {
   api: {
     getAppConfigurations: vi.fn(),
@@ -55,7 +39,7 @@ describe('TauriAppService – coverage', () => {
       const { invoke } = await import('@tauri-apps/api/core')
       vi.mocked(invoke).mockResolvedValue(undefined)
 
-      await svc.factoryReset({ keepAppData: false, keepModelsAndConfigs: false })
+      await svc.factoryReset({ keepAppData: false, keepProviderConfigs: false })
 
       expect(invoke).toHaveBeenCalledWith('factory_reset')
     })
@@ -64,24 +48,24 @@ describe('TauriAppService – coverage', () => {
       const { invoke } = await import('@tauri-apps/api/core')
       vi.mocked(invoke).mockResolvedValue(undefined)
 
-      await svc.factoryReset({ keepAppData: true, keepModelsAndConfigs: false })
+      await svc.factoryReset({ keepAppData: true, keepProviderConfigs: false })
 
       expect(invoke).toHaveBeenCalledWith('factory_reset', {
         keepAppData: true,
-        keepModelsAndConfigs: false,
+        keepProviderConfigs: false,
         clearWebData: false,
       })
     })
 
-    it('calls factory_reset with params when keepModelsAndConfigs true', async () => {
+    it('calls factory_reset with params when keepProviderConfigs true', async () => {
       const { invoke } = await import('@tauri-apps/api/core')
       vi.mocked(invoke).mockResolvedValue(undefined)
 
-      await svc.factoryReset({ keepAppData: false, keepModelsAndConfigs: true })
+      await svc.factoryReset({ keepAppData: false, keepProviderConfigs: true })
 
       expect(invoke).toHaveBeenCalledWith('factory_reset', {
         keepAppData: false,
-        keepModelsAndConfigs: true,
+        keepProviderConfigs: true,
         clearWebData: false,
       })
     })
@@ -94,7 +78,7 @@ describe('TauriAppService – coverage', () => {
       localStorage.setItem('setup-completed', 'true')
       localStorage.setItem('threads', '[]')
 
-      await svc.factoryReset({ keepAppData: false, keepModelsAndConfigs: false })
+      await svc.factoryReset({ keepAppData: false, keepProviderConfigs: false })
 
       expect(localStorage.getItem('model-provider')).toBeNull()
       expect(localStorage.getItem('last-used-model')).toBeNull()
@@ -102,32 +86,19 @@ describe('TauriAppService – coverage', () => {
       expect(localStorage.getItem('threads')).toBeNull()
     })
 
-    it('keeps model localStorage when models are preserved', async () => {
+    it('keeps provider localStorage when provider configs are preserved', async () => {
       const { invoke } = await import('@tauri-apps/api/core')
       vi.mocked(invoke).mockResolvedValue(undefined)
       localStorage.setItem('model-provider', '{"providers":[]}')
       localStorage.setItem('setup-completed', 'true')
 
-      await svc.factoryReset({ keepAppData: false, keepModelsAndConfigs: true })
+      await svc.factoryReset({ keepAppData: false, keepProviderConfigs: true })
 
       expect(localStorage.getItem('model-provider')).toBe('{"providers":[]}')
       // setup flag only cleared on a full wipe
       expect(localStorage.getItem('setup-completed')).toBe('true')
     })
 
-    it('handles engine with no active models', async () => {
-      // Re-mock to return null/empty from getLoadedModels
-      const { invoke } = await import('@tauri-apps/api/core')
-      vi.mocked(invoke).mockResolvedValue(undefined)
-
-      const { EngineManager } = await import('@janhq/core')
-      const engine = (EngineManager as any).instance().engines.get('engine1')
-      engine.getLoadedModels.mockResolvedValueOnce(null)
-
-      await svc.factoryReset()
-
-      expect(engine.unload).not.toHaveBeenCalled()
-    })
   })
 
   describe('getJanDataFolder', () => {
@@ -148,18 +119,6 @@ describe('TauriAppService – coverage', () => {
       const result = await svc.getJanDataFolder()
 
       expect(result).toBeUndefined()
-    })
-  })
-
-  describe('getServerStatus', () => {
-    it('invokes get_server_status and returns boolean', async () => {
-      const { invoke } = await import('@tauri-apps/api/core')
-      vi.mocked(invoke).mockResolvedValue(true)
-
-      const result = await svc.getServerStatus()
-
-      expect(invoke).toHaveBeenCalledWith('get_server_status')
-      expect(result).toBe(true)
     })
   })
 

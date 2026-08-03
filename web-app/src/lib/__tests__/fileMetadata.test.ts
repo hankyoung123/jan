@@ -88,12 +88,12 @@ describe('extractFilesFromPrompt', () => {
     expect(result.files[0].name).toBe('ok')
   })
 
-  it('handles embeddings injectionMode', () => {
+  it('handles inline injectionMode', () => {
     const prompt = injectFilesIntoPrompt('test', [
-      { id: 'f1', name: 'a.txt', injectionMode: 'embeddings' },
+      { id: 'f1', name: 'a.txt', injectionMode: 'inline' },
     ])
     const result = extractFilesFromPrompt(prompt)
-    expect(result.files[0].injectionMode).toBe('embeddings')
+    expect(result.files[0].injectionMode).toBe('inline')
   })
 
   it('ignores invalid injectionMode', () => {

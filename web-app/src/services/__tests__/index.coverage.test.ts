@@ -15,7 +15,6 @@ vi.mock('@/lib/platform/utils', () => ({
 vi.mock('../theme/tauri', () => ({ TauriThemeService: vi.fn().mockImplementation(() => ({})) }))
 vi.mock('../window/tauri', () => ({ TauriWindowService: vi.fn().mockImplementation(() => ({})) }))
 vi.mock('../events/tauri', () => ({ TauriEventsService: vi.fn().mockImplementation(() => ({})) }))
-vi.mock('../hardware/tauri', () => ({ TauriHardwareService: vi.fn().mockImplementation(() => ({})) }))
 vi.mock('../app/tauri', () => ({ TauriAppService: vi.fn().mockImplementation(() => ({})) }))
 vi.mock('../mcp/tauri', () => ({ TauriMCPService: vi.fn().mockImplementation(() => ({})) }))
 vi.mock('../providers/tauri', () => ({ TauriProvidersService: vi.fn().mockImplementation(() => ({})) }))
@@ -42,12 +41,6 @@ describe('ServiceHub – coverage', () => {
     const { initializeServiceHub } = await import('../index')
     const hub = await initializeServiceHub()
     expect(hub.projects()).toBeDefined()
-  })
-
-  it('rag() returns a service after init', async () => {
-    const { initializeServiceHub } = await import('../index')
-    const hub = await initializeServiceHub()
-    expect(hub.rag()).toBeDefined()
   })
 
   it('uploads() returns a service after init', async () => {

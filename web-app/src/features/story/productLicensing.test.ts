@@ -10,9 +10,6 @@ const workspaceRoot = existsSync(resolve(process.cwd(), 'web-app'))
 const agplPackagePaths = [
   'core/package.json',
   'extensions/assistant-extension/package.json',
-  'extensions/download-extension/package.json',
-  'extensions/llamacpp-extension/package.json',
-  'extensions/mlx-extension/package.json',
 ]
 
 const desktopTauriConfigs = [

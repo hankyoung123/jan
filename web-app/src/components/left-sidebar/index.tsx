@@ -1,7 +1,5 @@
-import { DownloadManagement } from '@/containers/DownloadManegement'
 import { NavMain } from './NavMain'
 import { NavStory } from './NavStory'
-import { useLeftPanel } from '@/hooks/useLeftPanel'
 
 import {
   Sidebar,
@@ -14,7 +12,6 @@ import { cn } from '@/lib/utils'
 import { useTitlebarLayout } from '@/stores/titlebar-layout-store'
 
 export function LeftSidebar() {
-  const { open: isLeftPanelOpen } = useLeftPanel()
   // Right-align the header when native controls own the top-left.
   const leftButtons = useTitlebarLayout((s) => s.layout.left.length)
   const controlsOnLeft = !IS_MACOS && leftButtons > 0
@@ -29,7 +26,6 @@ export function LeftSidebar() {
               {controlsOnLeft && (
                 <span className="mr-2 font-medium font-studio">Story Engine</span>
               )}
-              {isLeftPanelOpen && <DownloadManagement />}
               <SidebarTrigger className="text-muted-foreground rounded-full hover:bg-sidebar-foreground/8! -mt-0.5 relative z-50 ml-0.5" />
             </div>
           </div>

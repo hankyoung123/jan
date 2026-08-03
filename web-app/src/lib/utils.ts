@@ -3,7 +3,6 @@ import { twMerge } from 'tailwind-merge'
 import type { Node, Position } from 'unist'
 import type { Code, Paragraph, Parent, Text } from 'mdast'
 import { visit } from 'unist-util-visit'
-import { ExtensionManager } from './extension'
 import path from 'path'
 import type { VFile } from 'vfile'
 
@@ -131,10 +130,6 @@ export function getProviderLogo(provider: string) {
   switch (provider) {
     case 'jan':
       return '/images/story-engine-logo.png'
-    case 'llamacpp':
-      return '/images/model-provider/llamacpp.svg'
-    case 'mlx':
-      return '/images/model-provider/mlx.png'
     case 'anthropic':
       return '/images/model-provider/anthropic.svg'
     case 'huggingface':
@@ -168,10 +163,6 @@ export const getProviderTitle = (provider: string) => {
   switch (provider) {
     case 'jan':
       return 'Story Engine Runtime'
-    case 'llamacpp':
-      return 'Llama.cpp'
-    case 'mlx':
-      return 'MLX'
     case 'openai':
       return 'OpenAI'
     case 'openrouter':
@@ -232,8 +223,10 @@ export function getReadableLanguageName(language: string): string {
 }
 
 export const isLocalProvider = (provider: string) => {
-  const extension = ExtensionManager.getInstance().getEngine(provider)
-  return extension && 'load' in extension
+  // Migration boundary only: discard retired provider records from persisted or
+  // externally supplied catalogs before they can enter the remote-only store.
+  const normalized = provider.toLowerCase().replace(/[._-]/g, '')
+  return normalized === 'llamacpp' || normalized === 'mlx'
 }
 
 export const toGigabytes = (

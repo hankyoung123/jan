@@ -21,6 +21,8 @@ from story_engine.domain.simulation import (
 )
 from story_engine.events.stream import EngineEvent
 from story_engine.models.errors import ModelGatewayError
+from story_engine.models.gateway import ModelGateway
+from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.persistence.simulation_log import SimulationLogRecord
 from story_engine.simulation.engine import (
@@ -29,6 +31,8 @@ from story_engine.simulation.engine import (
 )
 from story_engine.simulation.execution import BranchAlreadyActiveError
 from story_engine.simulation.service import SimulationApplicationService
+from story_engine.wiki.boundary import WikiBoundaryProcessor, branch_records
+from story_engine.wiki.consolidator import GatewayWikiConsolidator
 
 _PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
@@ -101,6 +105,7 @@ def _require_project(settings: EngineSettings, project_id: str) -> Path:
 def create_simulations_router(
     settings: EngineSettings,
     service: SimulationApplicationService,
+    gateway: ModelGateway,
 ) -> APIRouter:
     router = APIRouter(tags=["simulations"])
 
@@ -487,13 +492,45 @@ def create_simulations_router(
         request: BranchRollbackRequest,
     ) -> BranchManifest:
         try:
-            return kernel_for(project_id).rollback_branch(
+            kernel = kernel_for(project_id)
+            branch = kernel.rollback_branch(
                 project_id,
                 branch_id,
                 checkpoint_id=request.checkpoint_id,
             )
+            snapshot = kernel.load_checkpoint(project_id, request.checkpoint_id)
+            branch_snapshot = snapshot.model_copy(
+                update={
+                    "branch_id": branch_id,
+                    "checkpoint_id": request.checkpoint_id,
+                    "request": snapshot.request.model_copy(
+                        update={"branch_id": branch_id}
+                    ),
+                }
+            )
+            profile_id = snapshot.resolved_model_profile_ids.get(
+                "task:wiki_maintenance"
+            )
+            if profile_id is None:
+                profile_id = ProjectModelPolicyStore(
+                    settings.projects_root / project_id,
+                    gateway.registry,
+                ).load().task_profile_ids["wiki_maintenance"]
+            await WikiBoundaryProcessor(
+                settings.projects_root / project_id,
+                consolidator=GatewayWikiConsolidator(
+                    gateway,
+                    profile_id=profile_id,
+                ),
+            ).rebuild(
+                branch_snapshot,
+                branch_records(settings.projects_root / project_id, branch_id),
+            )
+            return branch
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Branch not found") from error
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
         except (OSError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 

@@ -66,8 +66,6 @@ jobs:
           yarn build:sidecar
           yarn build:icon
           yarn copy:assets:tauri
-          yarn build:cli
-          yarn download:bin
           yarn build:web
           yarn tauri build --bundles deb --ci
 

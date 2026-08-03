@@ -13,8 +13,6 @@ class MemoryRecordType(StrEnum):
     OBSERVATION = "observation"
     PUTATIVE_EVENT = "putative_event"
     WORLD_EVENT = "world_event"
-    REFLECTION = "reflection"
-    CONSOLIDATION = "consolidation"
     PLAN = "plan"
     SYSTEM = "system"
 

@@ -40,14 +40,11 @@ import { extractFilesFromPrompt, FileMetadata } from '@/lib/fileMetadata'
 import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { PromptProgress } from '@/components/PromptProgress'
-import { useServiceHub } from '@/hooks/useServiceHub'
 import { useToolApprovalRequests } from '@/hooks/useToolApprovalRequests'
 import { parseCitationsFromToolOutput } from '@/lib/citation-parser'
-import type { RagCitation, WebCitation } from '@/components/Citations'
-import { useGroundingStore } from '@/stores/grounding-store'
+import type { WebCitation } from '@/components/Citations'
 import { useWebCitationStore } from '@/stores/web-citation-store'
 import { WebSourcesRow } from '@/components/WebSourcesRow'
-import { injectCitationMarkers } from '@/lib/grounding'
 import {
   ReasoningActiveStep,
   StepRow,
@@ -196,13 +193,8 @@ export const MessageItem = memo(
       ? (metadata?.duration as number | undefined)
       : undefined
 
-    // Aggregate RAG citations in part order and record each rag tool part's
-    // base offset, so its card numbers/anchors continue the same global
-    // sequence the inline superscript markers use.
-    const { ragCitations, citationOffsets, webCitations } = useMemo(() => {
-      const out: RagCitation[] = []
+    const webCitations = useMemo(() => {
       const web: WebCitation[] = []
-      const offsets = new Map<number, number>()
       if (message.role === 'assistant') {
         const parts = message.parts as any[]
         for (let i = 0; i < parts.length; i++) {
@@ -210,48 +202,13 @@ export const MessageItem = memo(
           if (!part.type?.startsWith('tool-')) continue
           if (part.state !== 'output-available') continue
           const parsed = parseCitationsFromToolOutput(part.output)
-          if (parsed?.kind === 'rag') {
-            offsets.set(i, out.length)
-            out.push(...parsed.citations)
-          } else if (parsed?.kind === 'web') {
+          if (parsed?.kind === 'web') {
             web.push(...parsed.citations)
           }
         }
       }
-      return { ragCitations: out, citationOffsets: offsets, webCitations: web }
+      return web
     }, [message.parts, message.role])
-
-    const serviceHub = useServiceHub()
-    const grounding = useGroundingStore((s) => s.byMessageId[message.id])
-    const ensureGrounding = useGroundingStore((s) => s.ensure)
-
-    const assistantText = useMemo(() => {
-      if (message.role !== 'assistant') return ''
-      return (message.parts as any[])
-        .filter((p) => p.type === CONTENT_TYPE.TEXT && p.text)
-        .map((p) => p.text)
-        .join('\n')
-    }, [message.parts, message.role])
-
-    useEffect(() => {
-      if (isStreaming) return
-      if (!assistantText || !ragCitations.length) return
-      const rag = serviceHub.rag()
-      if (!rag.embed) return
-      ensureGrounding(
-        message.id,
-        assistantText,
-        ragCitations,
-        rag.embed.bind(rag)
-      )
-    }, [
-      isStreaming,
-      assistantText,
-      ragCitations,
-      message.id,
-      ensureGrounding,
-      serviceHub,
-    ])
 
     const setWebCitations = useWebCitationStore((s) => s.setForMessage)
     useEffect(() => {
@@ -353,15 +310,7 @@ export const MessageItem = memo(
           ) : (
             <>
               <RenderMarkdown
-                content={
-                  grounding && !isStreaming
-                    ? injectCitationMarkers(
-                        part.text,
-                        grounding.sentenceCitations,
-                        `cite-${message.id}`
-                      )
-                    : part.text
-                }
+                content={part.text}
                 isStreaming={isStreaming && isLastPart}
                 messageId={message.id}
                 isAnimating={isAnimating}
@@ -487,7 +436,6 @@ export const MessageItem = memo(
                 output={part.output}
                 resolver={(input) => Promise.resolve(input)}
                 errorText={undefined}
-                citationOffset={citationOffsets.get(partIndex) ?? 0}
               />
             )}
             {part.state === 'output-error' && (
@@ -765,7 +713,7 @@ export const MessageItem = memo(
       flushCot(false)
       return elements
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [message.parts, isStreaming, isReasoningAtBottom, grounding])
+    }, [message.parts, isStreaming, isReasoningAtBottom])
 
     const versionNav =
       versionInfo && versionInfo.count > 1 && onSwitchVersion ? (

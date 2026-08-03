@@ -14,10 +14,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu'
 import { ArrowRight, PlusIcon } from 'lucide-react'
 import {
@@ -26,7 +22,6 @@ import {
   IconVideo,
   IconBrain,
   IconTool,
-  IconCodeCircle2,
   IconPlayerStopFilled,
   IconX,
   IconPaperclip,
@@ -42,15 +37,11 @@ import { BotIcon } from 'lucide-react'
 import { useTranslation } from '@/i18n/react-i18next-compat'
 import { useGeneralSetting } from '@/hooks/useGeneralSetting'
 import { useModelProvider } from '@/hooks/useModelProvider'
-import { useTokensCount } from '@/hooks/useTokensCount'
 import {
   THINKING_BUDGET_LEVELS,
-  DEFAULT_THINKING_BUDGET_LEVEL,
-  tokensForThinkingBudgetLevel,
   isThinkingBudgetLevelKey,
   type ThinkingBudgetLevelKey,
 } from '@/lib/thinkingBudget'
-import { useReconcileVideoCapability } from '@/hooks/useReconcileVideoCapability'
 
 import { useAppState } from '@/hooks/useAppState'
 import { MovingBorder } from './MovingBorder'
@@ -76,15 +67,11 @@ import { McpExtensionToolLoader } from './McpExtensionToolLoader'
 import {
   ExtensionTypeEnum,
   MCPExtension,
-  fs,
-  VectorDBExtension,
 } from '@janhq/core'
 import { ExtensionManager } from '@/lib/extension'
-import { useAttachments } from '@/hooks/useAttachments'
 import { toast } from 'sonner'
 import { isPlatformTauri } from '@/lib/platform/utils'
 import { shouldShowTokenCounter } from '@/lib/tokenCounterVisibility'
-import { useAttachmentIngestionPrompt } from '@/hooks/useAttachmentIngestionPrompt'
 import {
   NEW_THREAD_ATTACHMENT_KEY,
   useChatAttachments,
@@ -93,7 +80,6 @@ import {
 import {
   Attachment,
   createImageAttachment,
-  createDocumentAttachment,
   createAudioAttachment,
   createVideoAttachment,
 } from '@/types/attachment'
@@ -199,30 +185,19 @@ const ChatInput = memo(function ChatInput({
   )
 
   const maxRows = 10
-  const ATTACHMENT_AUTO_INLINE_FALLBACK_BYTES = 512 * 1024
-
   const selectedModel = useModelProvider((state) => state.selectedModel)
   const selectedProvider = useModelProvider((state) => state.selectedProvider)
   const selectModelProvider = useModelProvider(
     (state) => state.selectModelProvider
   )
   const updateProvider = useModelProvider((state) => state.updateProvider)
-  const { maxTokens: liveMaxTokens, configuredCtxLen } =
-    useTokensCount(threadMessages || [])
   const [message, setMessage] = useState('')
   const [dropdownToolsAvailable, setDropdownToolsAvailable] = useState(false)
   const [tooltipShown, setTooltipShown] = useState<
     'tools' | 'assistants' | false
   >(false)
   const [isDragOver, setIsDragOver] = useState(false)
-  const [hasMmproj, setHasMmproj] = useState(false)
-  const activeModels = useAppState(useShallow((state) => state.activeModels))
-  // Check if selected model is currently loaded/active
-  const isModelActive = selectedModel?.id ? activeModels.includes(selectedModel.id) : false
-
-  // Reconcile video capability from /props once the model is loaded.
-  useReconcileVideoCapability(selectedModel?.id, selectedProvider, isModelActive)
-
+  const [supportsVision, setSupportsVision] = useState(false)
   const tokenCounterVisible = shouldShowTokenCounter({
     hasSelectedModel: !!selectedModel,
     isAgentMode: effectiveAgentMode,
@@ -267,11 +242,6 @@ const ChatInput = memo(function ChatInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [janBrowserMCPActive, modelSupportsBrowser])
 
-  const attachmentsEnabled = useAttachments((s) => s.enabled)
-  const parsePreference = useAttachments((s) => s.parseMode)
-  const maxFileSizeMB = useAttachments((s) => s.maxFileSizeMB)
-
-  // Derived: any document currently processing (ingestion in progress)
   const attachmentsKey = currentThreadId ?? NEW_THREAD_ATTACHMENT_KEY
   const attachments = useChatAttachments(
     useCallback(
@@ -290,9 +260,6 @@ const ChatInput = memo(function ChatInput({
   )
   const getProviderByName = useModelProvider((state) => state.getProviderByName)
 
-  const ingestingDocs = attachments.some(
-    (a) => a.type === 'document' && a.processing
-  )
   const ingestingAny = attachments.some((a) => a.processing)
   const hasSendableMedia = attachments.some(
     (a) =>
@@ -330,25 +297,24 @@ const ChatInput = memo(function ChatInput({
     }
   }, [currentThreadId, transferAttachments])
 
-  // Check for mmproj existence or vision capability when model changes
+  // Keep media controls aligned with the selected cloud model capabilities.
   useEffect(() => {
-    const checkMmprojSupport = async () => {
+    const checkVisionSupport = async () => {
       if (selectedModel && selectedModel?.id) {
         try {
-          // Only check mmproj for llamacpp provider
           if (selectedModel?.capabilities?.includes('vision')) {
-            setHasMmproj(true)
+            setSupportsVision(true)
           } else {
-            setHasMmproj(false)
+            setSupportsVision(false)
           }
         } catch (error) {
-          console.error('Error checking mmproj:', error)
-          setHasMmproj(false)
+          console.error('Error checking vision support:', error)
+          setSupportsVision(false)
         }
       }
     }
 
-    checkMmprojSupport()
+    checkVisionSupport()
   }, [selectedModel, selectedModel?.capabilities, selectedProvider, serviceHub])
 
   // Check if there are active MCP servers
@@ -588,338 +554,7 @@ const ChatInput = memo(function ChatInput({
   const videoInputRef = useRef<HTMLInputElement>(null)
   const videoSupported = !!selectedModel?.capabilities?.includes('video')
 
-  const processNewDocumentAttachments = useCallback(
-    async (docs: Attachment[]) => {
-      if (!docs.length) return
-
-      // Only collect the user's inline-vs-embeddings preference via the
-      // dialog.  Actual ingestion is always deferred to send time
-      // (processAttachmentsForSend inside processAndSendMessage).
-      const docsNeedingPrompt = docs.filter((doc) => {
-        if (doc.processed || doc.injectionMode) return false
-        const preference = doc.parseMode ?? parsePreference
-        return preference === 'prompt' || preference === 'auto'
-      })
-
-      if (docsNeedingPrompt.length > 0) {
-        const choices = new Map<string, 'inline' | 'embeddings'>()
-        for (let i = 0; i < docsNeedingPrompt.length; i++) {
-          const doc = docsNeedingPrompt[i]
-          const choice = await useAttachmentIngestionPrompt
-            .getState()
-            .showPrompt(
-              doc,
-              ATTACHMENT_AUTO_INLINE_FALLBACK_BYTES,
-              i,
-              docsNeedingPrompt.length
-            )
-
-          if (!choice) {
-            // User cancelled — remove all pending docs
-            setAttachmentsForThread(attachmentsKey, (prev) =>
-              prev.filter(
-                (att) =>
-                  !docsNeedingPrompt.some(
-                    (d) => d.path && att.path && d.path === att.path
-                  )
-              )
-            )
-            return
-          }
-
-          if (doc.path) {
-            choices.set(doc.path, choice)
-          }
-        }
-
-        // Persist each document's chosen mode so processAttachmentsForSend
-        // can pick it up at send time.
-        if (choices.size > 0) {
-          setAttachmentsForThread(attachmentsKey, (prev) =>
-            prev.map((att) => {
-              const mode = att.path ? choices.get(att.path) : undefined
-              return mode ? { ...att, parseMode: mode } : att
-            })
-          )
-        }
-      }
-    },
-    [
-      ATTACHMENT_AUTO_INLINE_FALLBACK_BYTES,
-      attachmentsKey,
-      parsePreference,
-      setAttachmentsForThread,
-    ]
-  )
-
-  const handleAttachDocsIngest = async () => {
-    try {
-      if (!attachmentsEnabled) {
-        toast.info('Attachments are disabled in Settings')
-        return
-      }
-      const selection = await serviceHub.dialog().open({
-        multiple: true,
-        filters: [
-          {
-            name: 'Documents & Code',
-            extensions: [
-              // Documents
-              'pdf',
-              'docx',
-              'txt',
-              'md',
-              'csv',
-              'xlsx',
-              'xls',
-              'ods',
-              'pptx',
-              'html',
-              'htm',
-              // JavaScript / TypeScript
-              'js',
-              'mjs',
-              'cjs',
-              'ts',
-              'mts',
-              'cts',
-              'jsx',
-              'tsx',
-              // Python
-              'py',
-              'pyw',
-              'pyi',
-              // C / C++
-              'c',
-              'h',
-              'cpp',
-              'cc',
-              'cxx',
-              'hpp',
-              'hh',
-              // Systems languages
-              'rs',
-              'go',
-              'swift',
-              'zig',
-              // JVM languages
-              'java',
-              'kt',
-              'kts',
-              'scala',
-              'groovy',
-              // Scripting languages
-              'rb',
-              'php',
-              'lua',
-              'pl',
-              'r',
-              'jl',
-              // .NET
-              'cs',
-              'fs',
-              'vb',
-              'xaml',
-              'csproj',
-              'sln',
-              // CUDA
-              'cu',
-              'cuh',
-              // Shaders
-              'hlsl',
-              'glsl',
-              'cg',
-              'shader',
-              // Shell
-              'sh',
-              'bash',
-              'zsh',
-              'fish',
-              'ps1',
-              'bat',
-              'cmd',
-              'vbs',
-              // More languages
-              'asm',
-              's',
-              'm',
-              'mm',
-              'pas',
-              'pp',
-              'erl',
-              'hrl',
-              'ex',
-              'exs',
-              'clj',
-              'cljs',
-              'hs',
-              'lhs',
-              'ml',
-              'mli',
-              'f',
-              'f90',
-              // Web
-              'css',
-              'scss',
-              'sass',
-              'less',
-              'vue',
-              'svelte',
-              'astro',
-              'php',
-              'asp',
-              'aspx',
-              'jsp',
-              // Data / config formats
-              'json',
-              'jsonc',
-              'yaml',
-              'yml',
-              'toml',
-              'xml',
-              'ini',
-              'cfg',
-              'conf',
-              'env',
-              'properties',
-              'dockerfile',
-              'makefile',
-              'cmake',
-              'lock',
-              // Query / markup
-              'sql',
-              'graphql',
-              'gql',
-              'tex',
-              'rst',
-              'adoc',
-              'textile',
-              // Misc text
-              'log',
-              'diff',
-              'patch',
-              'gitignore',
-            ],
-          },
-          {
-            name: 'All Files',
-            extensions: ['*'],
-          },
-        ],
-      })
-      if (!selection) return
-      const paths = Array.isArray(selection) ? selection : [selection]
-      if (!paths.length) return
-
-      // Prepare attachments with file sizes
-      const preparedAttachments: Attachment[] = []
-      for (const p of paths) {
-        const name = p.split(/[\\/]/).pop() || p
-        const fileType = name.split('.').pop()?.toLowerCase()
-        let size: number | undefined = undefined
-        try {
-          const stat = await fs.fileStat(p)
-          size = stat?.size ? Number(stat.size) : undefined
-        } catch (e) {
-          console.warn('Failed to read file size for', p, e)
-        }
-        preparedAttachments.push(
-          createDocumentAttachment({
-            name,
-            path: p,
-            fileType,
-            size,
-            parseMode: parsePreference,
-          })
-        )
-      }
-
-      const maxFileSizeBytes =
-        typeof maxFileSizeMB === 'number' && maxFileSizeMB > 0
-          ? maxFileSizeMB * 1024 * 1024
-          : undefined
-
-      if (maxFileSizeBytes !== undefined) {
-        const hasOversized = preparedAttachments.some(
-          (att) => typeof att.size === 'number' && att.size > maxFileSizeBytes
-        )
-        if (hasOversized) {
-          toast.error('File too large', {
-            description: `One or more files exceed the ${maxFileSizeMB}MB limit`,
-          })
-          return
-        }
-      }
-
-      let duplicates: string[] = []
-      let newDocAttachments: Attachment[] = []
-
-      setAttachmentsForThread(attachmentsKey, (currentAttachments) => {
-        const existingPaths = new Set(
-          currentAttachments
-            .filter((a) => a.type === 'document' && a.path)
-            .map((a) => a.path)
-        )
-
-        duplicates = []
-        newDocAttachments = []
-
-        for (const att of preparedAttachments) {
-          if (existingPaths.has(att.path)) {
-            duplicates.push(att.name)
-            continue
-          }
-          newDocAttachments.push(att)
-        }
-
-        return newDocAttachments.length > 0
-          ? [...currentAttachments, ...newDocAttachments]
-          : currentAttachments
-      })
-
-      if (duplicates.length > 0) {
-        toast.warning('Files already attached', {
-          description: `${duplicates.join(', ')} ${duplicates.length === 1 ? 'is' : 'are'} already in the list`,
-        })
-      }
-
-      if (newDocAttachments.length > 0) {
-        await processNewDocumentAttachments(newDocAttachments)
-      }
-    } catch (e) {
-      console.error('Failed to attach documents:', e)
-      const desc = e instanceof Error ? e.message : JSON.stringify(e)
-      toast.error('Failed to attach documents', { description: desc })
-    }
-  }
-
   const handleRemoveAttachment = async (indexToRemove: number) => {
-    const attachmentToRemove = attachments[indexToRemove]
-
-    // If attachment was ingested (has an ID), delete it from the backend
-    if (attachmentToRemove?.id && currentThreadId) {
-      try {
-        if (attachmentToRemove.type === 'document') {
-          const vectorDBExtension = ExtensionManager.getInstance().get(
-            ExtensionTypeEnum.VectorDB
-          ) as VectorDBExtension | undefined
-
-          if (vectorDBExtension?.deleteFile) {
-            await vectorDBExtension.deleteFile(
-              currentThreadId,
-              attachmentToRemove.id
-            )
-          }
-        }
-      } catch (error) {
-        console.error('Failed to delete attachment from backend:', error)
-        toast.error('Failed to remove attachment', {
-          description: error instanceof Error ? error.message : String(error),
-        })
-        return
-      }
-    }
-
     setAttachmentsForThread(attachmentsKey, (prev) =>
       prev.filter((_, index) => index !== indexToRemove)
     )
@@ -1514,7 +1149,7 @@ const ChatInput = memo(function ChatInput({
     }
   }, [serviceHub, processImageFiles])
 
-  const dropAcceptsAnything = hasMmproj || audioSupported || videoSupported
+  const dropAcceptsAnything = supportsVision || audioSupported || videoSupported
 
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault()
@@ -1580,7 +1215,7 @@ const ChatInput = memo(function ChatInput({
       (f) => !audioOnes.includes(f) && !videoOnes.includes(f)
     )
 
-    if (otherOnes.length > 0 && hasMmproj) {
+    if (otherOnes.length > 0 && supportsVision) {
       const dt = new DataTransfer()
       otherOnes.forEach((f) => dt.items.add(f))
       const syntheticEvent = {
@@ -1620,7 +1255,7 @@ const ChatInput = memo(function ChatInput({
       }
     }
 
-    if (hasMmproj) {
+    if (supportsVision) {
       const clipboardItems = e.clipboardData?.items
       let hasProcessedImage = false
 
@@ -1720,7 +1355,7 @@ const ChatInput = memo(function ChatInput({
         'No image data found in clipboard, allowing normal text paste'
       )
     }
-    // If hasMmproj is false or no images found, allow normal text pasting to continue
+    // If vision is unavailable or no images were found, preserve normal paste.
   }
 
   const isStreaming = chatStatus === 'submitted' || chatStatus === 'streaming'
@@ -1971,7 +1606,7 @@ const ChatInput = memo(function ChatInput({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start">
-                    {hasMmproj && (
+                    {supportsVision && (
                       <DropdownMenuItem onClick={() => void openImagePicker()}>
                         <IconPhoto size={18} className="text-muted-foreground" />
                         <span>Add Images</span>
@@ -2012,39 +1647,9 @@ const ChatInput = memo(function ChatInput({
                         />
                       </DropdownMenuItem>
                     )}
-                    {/* RAG document attachments - desktop-only via dialog; shown when feature enabled */}
-                    <DropdownMenuItem
-                      onClick={handleAttachDocsIngest}
-                      disabled={!selectedModel?.capabilities?.includes('tools')}
-                    >
-                      {ingestingDocs ? (
-                        <IconLoader2
-                          size={18}
-                          className="text-muted-foreground animate-spin"
-                        />
-                      ) : (
-                        <IconPaperclip
-                          size={18}
-                          className="text-muted-foreground"
-                        />
-                      )}
-                      <span>
-                        {ingestingDocs
-                          ? 'Indexing documents…'
-                          : 'Add documents or files'}
-                      </span>
-                    </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
-                {/* {model?.provider === 'llamacpp' && loadingModel ? (
-                  <ModelLoader />
-                ) : (
-                  <DropdownModelProvider
-                    model={model}
-                    useLastUsedModel={initialMessage}
-                  />
-                )} */}
                 <AssistantSwitcher
                   assistants={assistants}
                   currentThread={currentThread}
@@ -2101,25 +1706,6 @@ const ChatInput = memo(function ChatInput({
                             ? 'Browse (Active)'
                             : 'Browse'}
                       </p>
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-
-                {!effectiveAgentMode && selectedModel?.capabilities?.includes('embeddings') && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                          variant="ghost"
-                          size="icon-xs"
-                        >
-                        <IconCodeCircle2
-                          size={18}
-                          className="text-muted-foreground"
-                        />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{t('embeddings')}</p>
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -2247,16 +1833,11 @@ const ChatInput = memo(function ChatInput({
                 )}
 
                 {!effectiveAgentMode &&
-                  (selectedProvider === 'llamacpp' ||
-                    selectedProvider === 'google' ||
+                  (selectedProvider === 'google' ||
                     selectedProvider === 'gemini' ||
                     selectedProvider === 'anthropic' ||
                     selectedProvider === 'openai') &&
                   (() => {
-                    // The token-budget submenu only applies to local llama.cpp
-                    // (budget resolved against live n_ctx). Cloud providers size
-                    // their own budget dynamically, so on/off/auto is enough.
-                    const showThinkingBudget = selectedProvider === 'llamacpp'
                     const reasoningValue =
                       (selectedModel?.settings?.reasoning?.controller_props
                         ?.value as 'auto' | 'on' | 'off' | undefined) ?? 'auto'
@@ -2431,34 +2012,6 @@ const ChatInput = memo(function ChatInput({
                           ? 'Reasoning disabled for every request.'
                           : "Reasoning uses the model's default."
 
-                    // Stored as a symbolic level, not an absolute token count:
-                    // the live context size (post auto-fit) is only known once
-                    // the model is actually loaded, so resolving to tokens
-                    // happens at send time (custom-chat-transport.ts) against
-                    // whatever the context size turns out to be then.
-                    const rawBudgetLevel =
-                      selectedModel?.settings?.thinking_budget_tokens
-                        ?.controller_props?.value
-                    const currentBudgetLevel = isThinkingBudgetLevelKey(
-                      rawBudgetLevel
-                    )
-                      ? rawBudgetLevel
-                      : DEFAULT_THINKING_BUDGET_LEVEL
-                    const setThinkingBudget = (level: ThinkingBudgetLevelKey) =>
-                      updateModelSetting(
-                        'thinking_budget_tokens',
-                        'Thinking Budget',
-                        'dropdown',
-                        level
-                      )
-                    const currentBudgetLabel = THINKING_BUDGET_LEVELS.find(
-                      (l) => l.key === currentBudgetLevel
-                    )!.label
-                    // Best-effort preview only; the request-time value may
-                    // differ once the model is loaded and fit settles n_ctx.
-                    const approxContextSize =
-                      liveMaxTokens || configuredCtxLen || 8192
-
                     return (
                       <DropdownMenu>
                         <Tooltip>
@@ -2509,53 +2062,6 @@ const ChatInput = memo(function ChatInput({
                               </span>
                             )}
                           </DropdownMenuItem>
-                          {showThinkingBudget && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>
-                                  <span className="flex-1">Thinking Budget</span>
-                                  <span className="text-xs text-muted-foreground">
-                                    {currentBudgetLabel}
-                                  </span>
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent
-                                  collisionPadding={{ bottom: 16 }}
-                                >
-                                  {THINKING_BUDGET_LEVELS.map((level) => {
-                                    const approxTokens =
-                                      tokensForThinkingBudgetLevel(
-                                        level.key,
-                                        approxContextSize
-                                      )
-                                    return (
-                                      <DropdownMenuItem
-                                        key={level.key}
-                                        onClick={() =>
-                                          setThinkingBudget(level.key)
-                                        }
-                                        className="gap-2"
-                                      >
-                                        <span className="flex-1">
-                                          {level.label}
-                                        </span>
-                                        <span className="w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
-                                          {approxTokens === -1
-                                            ? ''
-                                            : `~${approxTokens}`}
-                                        </span>
-                                        <span className="w-3 shrink-0 text-xs text-muted-foreground">
-                                          {currentBudgetLevel === level.key
-                                            ? '✓'
-                                            : ''}
-                                        </span>
-                                      </DropdownMenuItem>
-                                    )
-                                  })}
-                                </DropdownMenuSubContent>
-                              </DropdownMenuSub>
-                            </>
-                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     )

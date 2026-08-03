@@ -31,7 +31,12 @@ def _runtime() -> tuple[object, object, ConcordiaMemoryBank]:
             model_profile_id="actor",
             content_locale="en-US",
         ),
-        actor_params={"name": "actor-a", "identity": "An impatient detective."},
+        actor_params={
+            "name": "actor-a",
+            "identity": "An impatient detective.",
+            "project_root": ".",
+            "branch_id": "main",
+        },
         memory=ConcordiaMemoryBank(
             owner_id="actor-a",
             scope=MemoryScope.CHARACTER,
@@ -46,7 +51,12 @@ def _runtime() -> tuple[object, object, ConcordiaMemoryBank]:
             model_profile_id="gm",
             content_locale="en-US",
         ),
-        gm_params={"name": "gm", "scene_goal": "Enter the archive."},
+        gm_params={
+            "name": "gm",
+            "scene_goal": "Enter the archive.",
+            "project_root": ".",
+            "branch_id": "main",
+        },
         actors=(actor,),
         shared_memory=gm_memory,
     )

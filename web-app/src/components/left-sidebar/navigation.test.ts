@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { primaryRoutes, storyRoutes } from './navigation'
 
 describe('Story navigation', () => {
-  it('exposes the V1 story workspace and keeps Jan model infrastructure', () => {
+  it('exposes the story workspace and cloud-provider entry points', () => {
     expect(storyRoutes.map(({ title, url }) => [title, url])).toEqual([
       ['工作台', '/'],
       ['推进故事', '/evolve'],
@@ -14,7 +14,6 @@ describe('Story navigation', () => {
     ])
     expect(primaryRoutes.map(({ title }) => title)).toEqual([
       '投稿',
-      '模型中心',
       '全局设置',
     ])
   })

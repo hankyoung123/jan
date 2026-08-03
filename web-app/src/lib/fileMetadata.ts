@@ -1,5 +1,5 @@
 /**
- * Utility functions for embedding and extracting file metadata from user prompts
+ * Utilities for preserving legacy inline-file metadata in user prompts.
  */
 
 export interface FileMetadata {
@@ -8,7 +8,7 @@ export interface FileMetadata {
   type?: string
   size?: number
   chunkCount?: number
-  injectionMode?: 'inline' | 'embeddings'
+  injectionMode?: 'inline'
 }
 
 const FILE_METADATA_START = '[ATTACHED_FILES]'
@@ -97,7 +97,7 @@ export function extractFilesFromPrompt(prompt: string): {
       fileObj.chunkCount = chunkCount;
     }
     const injectionMode = map['mode']
-    if (injectionMode === 'inline' || injectionMode === 'embeddings') {
+    if (injectionMode === 'inline') {
       fileObj.injectionMode = injectionMode
     }
     files.push(fileObj);

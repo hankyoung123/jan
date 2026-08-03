@@ -45,7 +45,12 @@ def test_actor_persists_for_ten_steps_and_restores_equivalent_state() -> None:
     )
     actor = factory.build_actor(
         recipe,
-        actor_params={"name": "actor-a", "identity": "A careful investigator."},
+        actor_params={
+            "name": "actor-a",
+            "identity": "A careful investigator.",
+            "project_root": ".",
+            "branch_id": "main",
+        },
         memory=memory,
     )
 
@@ -71,7 +76,12 @@ def test_actor_persists_for_ten_steps_and_restores_equivalent_state() -> None:
     restored_factory = ConcordiaActorFactory({"actor": restored_model})
     restored_actor = restored_factory.build_actor(
         recipe,
-        actor_params={"name": "actor-a", "identity": "A careful investigator."},
+        actor_params={
+            "name": "actor-a",
+            "identity": "A careful investigator.",
+            "project_root": ".",
+            "branch_id": "main",
+        },
         memory=restored_memory,
         initial_state=entity_checkpoint,
     )
@@ -103,7 +113,12 @@ def test_game_master_selects_actor_and_generates_dynamic_action_spec() -> None:
     actors = tuple(
         factory.build_actor(
             character_recipe,
-            actor_params={"name": actor_id, "identity": actor_id},
+                actor_params={
+                    "name": actor_id,
+                    "identity": actor_id,
+                    "project_root": ".",
+                    "branch_id": "main",
+                },
             memory=ConcordiaMemoryBank(
                 owner_id=actor_id,
                 scope=MemoryScope.CHARACTER,
@@ -116,7 +131,12 @@ def test_game_master_selects_actor_and_generates_dynamic_action_spec() -> None:
             model_profile_id="gm",
             content_locale="en-US",
         ),
-        gm_params={"name": "gm", "scene_goal": "Question the witness."},
+        gm_params={
+            "name": "gm",
+            "scene_goal": "Question the witness.",
+            "project_root": ".",
+            "branch_id": "main",
+        },
         actors=actors,
         shared_memory=ConcordiaMemoryBank(
             owner_id="gm",

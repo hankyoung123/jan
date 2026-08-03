@@ -8,7 +8,7 @@ import pytest
 
 from story_engine.domain.errors import InvalidTransitionError
 from story_engine.domain.models import Character, Fact
-from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.contracts import ModelProfile, ModelStreamChunk
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.registry import ProfileRegistry
 from story_engine.promotion.service import CharacterPromotionService
@@ -90,8 +90,16 @@ def _service(
     tmp_path: Path,
     transport: PromotionTransport,
 ) -> CharacterPromotionService:
+    registry = ProfileRegistry(tmp_path / "profiles.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="editor",
+            task_type="editor",
+            model_ref="test-provider/test-editor",
+        )
+    )
     reviewer = EditorPromotionReviewer(
-        ModelGateway(ProfileRegistry(tmp_path / "profiles.json"), transport)
+        ModelGateway(registry, transport)
     )
     return CharacterPromotionService(root, reviewer=reviewer)
 
@@ -128,7 +136,7 @@ def test_editor_creates_derived_promotion_candidate_without_promoting_npc(
     assert (root / "characters/npc/temporary-pilot.md").exists()
     assert not (root / "characters/active/temporary-pilot.md").exists()
     assert PromotionProposalStore(root).load("temporary-pilot") == assessment.candidate
-    assert transport.calls[0]["model"] == "gpt-5-mini"
+    assert transport.calls[0]["model"] == "test-provider/test-editor"
     prompt = transport.calls[0]["messages"][0]["content"]
     assert "promotion_review" in prompt
     assert "临时引航员" in prompt

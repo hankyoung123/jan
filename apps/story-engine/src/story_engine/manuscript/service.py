@@ -61,7 +61,7 @@ def _source_context(source: NarrativeContext) -> str:
                 record.model_dump(mode="json")
                 for record in source.viewpoint_memories
             ],
-            "world_bible": source.world_bible_text,
+            "world_wiki": source.world_wiki_context,
         },
         ensure_ascii=False,
         default=str,
@@ -71,8 +71,16 @@ def _source_context(source: NarrativeContext) -> str:
 class GatewayManuscriptAgent:
     """Run Writer and Editor directly over a privacy-filtered runtime source."""
 
-    def __init__(self, gateway: ModelGateway) -> None:
+    def __init__(
+        self,
+        gateway: ModelGateway,
+        *,
+        writer_profile_id: str = "writer",
+        editor_profile_id: str = "editor",
+    ) -> None:
         self.gateway = gateway
+        self.writer_profile_id = writer_profile_id
+        self.editor_profile_id = editor_profile_id
 
     async def generate(
         self,
@@ -95,7 +103,7 @@ class GatewayManuscriptAgent:
         )
         response = await self.gateway.complete(
             ModelRequest(
-                profile_id="writer",
+                profile_id=self.writer_profile_id,
                 task_type="writer",
                 messages=(Message(role="system", content=prompt),),
                 output_schema=json.dumps(
@@ -128,7 +136,7 @@ class GatewayManuscriptAgent:
         )
         response = await self.gateway.complete(
             ModelRequest(
-                profile_id="editor",
+                profile_id=self.editor_profile_id,
                 task_type="editor",
                 messages=(Message(role="system", content=prompt),),
                 output_schema=json.dumps(

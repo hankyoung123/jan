@@ -16,20 +16,6 @@ vi.mock('@jan/extensions-web', () => ({
   WEB_EXTENSIONS: {}
 }))
 
-// Mock @janhq/core EngineManager to prevent initialization issues
-vi.mock('@janhq/core', () => ({
-  EngineManager: {
-    instance: vi.fn(() => ({
-      engines: new Map()
-    }))
-  }
-}))
-
-// Mock token.js to avoid initialization issues
-vi.mock('token.js', () => ({
-  models: {}
-}))
-
 // Mock ExtensionManager to avoid initialization issues
 vi.mock('@/lib/extension', () => ({
   ExtensionManager: {
@@ -99,10 +85,6 @@ vi.mock('../events/tauri', () => ({
     emit: vi.fn(),
     listen: vi.fn()
   }))
-}))
-
-vi.mock('../hardware/tauri', () => ({
-  TauriHardwareService: vi.fn().mockImplementation(() => ({}))
 }))
 
 vi.mock('../app/tauri', () => ({
@@ -182,8 +164,8 @@ describe('ServiceHub Integration Tests', () => {
   describe('Service Access', () => {
     it('should provide access to all required services', () => {
       const services = [
-        'theme', 'window', 'events', 'hardware', 'app', 'analytic',
-        'messages', 'mcp', 'threads', 'providers', 'models', 'assistants',
+        'theme', 'window', 'events', 'app', 'analytic',
+        'messages', 'mcp', 'threads', 'providers', 'assistants',
         'dialog', 'opener', 'updater', 'path', 'core', 'deeplink'
       ]
 

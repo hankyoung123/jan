@@ -110,7 +110,7 @@ export function StageInspector({
               <Cpu size={12} /> {t('inspector.models')}
             </dt>
             <dd className="mt-1 break-all font-mono">
-              {stage.model_ids.join(', ') || t('inspector.noModel')}
+              {stage.model_refs.join(', ') || t('inspector.noModel')}
             </dd>
           </div>
           <div className="border p-2.5">

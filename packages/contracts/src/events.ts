@@ -58,8 +58,7 @@ export interface SimulationStageEventPayload {
   output_record_ids: string[];
   visible_to: string[];
   profile_ids: string[];
-  provider_ids: string[];
-  model_ids: string[];
+  model_refs: string[];
   prompt_tokens: number;
   completion_tokens: number;
   duration_ms: number | null;

@@ -1,11 +1,11 @@
 /**
- * Unified attachment type for images, documents, and audio
+ * Unified attachment type for remote multimodal requests and legacy inline files.
  */
 export type Attachment = {
   name: string
   type: 'image' | 'document' | 'audio' | 'video'
 
-  /** For audio attachments: 'wav' or 'mp3' per llama.cpp mtmd support. */
+  /** Audio encoding accepted by the configured remote model API. */
   audioFormat?: 'wav' | 'mp3'
   /** Audio/video duration in seconds (decoded client-side for the chip preview). */
   durationSec?: number
@@ -26,11 +26,11 @@ export type Attachment = {
   // For documents (local files)
   path?: string
   fileType?: string // e.g., 'pdf', 'docx'
-  parseMode?: 'auto' | 'inline' | 'embeddings' | 'prompt'
+  parseMode?: 'auto' | 'inline' | 'prompt'
 
   // After processing (images uploaded, documents ingested)
   id?: string
-  injectionMode?: 'inline' | 'embeddings'
+  injectionMode?: 'inline'
   inlineContent?: string
 }
 
@@ -93,7 +93,7 @@ export function createDocumentAttachment(data: {
   path: string
   fileType?: string
   size?: number
-  parseMode?: 'auto' | 'inline' | 'embeddings' | 'prompt'
+  parseMode?: 'auto' | 'inline' | 'prompt'
 }): Attachment {
   return {
     ...data,

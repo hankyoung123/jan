@@ -13,11 +13,6 @@ default-run = "story-engine-desktop"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
-[[bin]]
-name = "story-engine-cli"
-path = "src/bin/story-engine-cli.rs"
-required-features = ["cli"]
-
 [features]
 default = [
     "tauri/wry",
@@ -30,13 +25,9 @@ default = [
     "tauri/custom-protocol",
     "desktop",
 ]
-hardware = ["dep:tauri-plugin-hardware"]
 deep-link = ["dep:tauri-plugin-deep-link"]
-# MLX (tauri-plugin-mlx) is Apple-Silicon-only; it's a macOS-target dependency
-# (see [target.'cfg(target_os = "macos")'.dependencies]) rather than a feature.
 desktop = [
     "deep-link",
-    "hardware",
 ]
 mobile = [
     "tauri/protocol-asset",
@@ -52,9 +43,7 @@ test-tauri = [
     "tauri/tray-icon",
     "tauri/test",
     "deep-link",
-    "hardware",
 ]
-cli = ["dep:env_logger", "dep:dialoguer", "dep:indicatif", "dep:console"]
 
 [build-dependencies]
 tauri-build = { version = "2.0.2", features = [] }
@@ -94,8 +83,6 @@ sha2 = "0.10"
 tar = "0.4"
 zip = "0.6"
 tauri-plugin-deep-link = { version = "2", optional = true }
-tauri-plugin-hardware = { path = "./plugins/tauri-plugin-hardware", optional = true }
-tauri-plugin-llamacpp = { path = "./plugins/tauri-plugin-llamacpp" }
 tauri-plugin-websearch = { path = "./plugins/tauri-plugin-websearch" }
 # `default-features = false` drops the plugin's default `rustls-tls` (bundled
 # Mozilla roots) so `native-tls` reads the OS trust store instead. Other
@@ -133,10 +120,6 @@ hostname = "0.4"
 base64 = "0.22"
 glob = "0.3"
 clap = { version = "4", features = ["derive"] }
-dialoguer = { version = "0.11", optional = true }
-env_logger = { version = "0.11", optional = true }
-indicatif = { version = "0.17", optional = true }
-console = { version = "0.15", optional = true }
 keyring = { version = "3", features = [
     "apple-native",
     "windows-native",
@@ -165,10 +148,6 @@ gtk = "0.18"
 [target.'cfg(windows)'.dependencies]
 libc = "0.2.172"
 windows-sys = { version = "0.60.2", features = ["Win32_Storage_FileSystem"] }
-
-# MLX runs only on Apple Silicon, so the plugin is built solely for macOS.
-[target.'cfg(target_os = "macos")'.dependencies]
-tauri-plugin-mlx = { path = "./plugins/tauri-plugin-mlx" }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 reqwest = { version = "0.12", features = ["json", "blocking", "stream", "native-tls"] }

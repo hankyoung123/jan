@@ -294,7 +294,11 @@ async fn test_get_server_summaries_with_capabilities_in_active_config() {
     let result = get_server_summaries(state).await;
     assert!(result.is_ok());
     let summaries = result.unwrap();
-    assert_eq!(summaries.len(), 1, "enabled server appears even when disconnected");
+    assert_eq!(
+        summaries.len(),
+        1,
+        "enabled server appears even when disconnected"
+    );
     assert_eq!(summaries[0].name, "filesystem");
     assert_eq!(summaries[0].capabilities, vec!["filesystem", "files"]);
     assert_eq!(summaries[0].description, "Read and write local files");
@@ -372,7 +376,11 @@ async fn test_get_tools_falls_back_to_last_known_when_server_enabled_but_disconn
     let result = get_tools(app.handle().clone(), state).await;
     assert!(result.is_ok());
     let tools = result.unwrap();
-    assert_eq!(tools.len(), 1, "disconnected-but-enabled server's last-known tools still present");
+    assert_eq!(
+        tools.len(),
+        1,
+        "disconnected-but-enabled server's last-known tools still present"
+    );
     assert_eq!(tools[0].name, "web_search_exa");
     assert_eq!(tools[0].server, "exa");
 }
@@ -408,7 +416,10 @@ async fn test_get_tools_omits_disabled_server_even_with_stale_last_known_entry()
 
     let result = get_tools(app.handle().clone(), state).await;
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty(), "disabled server must not contribute stale tools");
+    assert!(
+        result.unwrap().is_empty(),
+        "disabled server must not contribute stale tools"
+    );
 }
 
 // ============================================================================
@@ -652,7 +663,9 @@ fn test_mcp_settings_default_matches_constants() {
         s.max_restart_delay_ms,
         constants::DEFAULT_MCP_MAX_RESTART_DELAY_MS
     );
-    assert!((s.backoff_multiplier - constants::DEFAULT_MCP_BACKOFF_MULTIPLIER).abs() < f64::EPSILON);
+    assert!(
+        (s.backoff_multiplier - constants::DEFAULT_MCP_BACKOFF_MULTIPLIER).abs() < f64::EPSILON
+    );
     assert!(s.enable_smart_tool_routing);
     assert!(!s.use_lightweight_router_model);
     assert!(s.router_model_provider.is_empty());
@@ -803,7 +816,10 @@ fn test_extract_command_args_full_config() {
     assert_eq!(parsed.transport_type.as_deref(), Some("http"));
     assert_eq!(parsed.url.as_deref(), Some("https://mcp.example.com/mcp"));
     assert_eq!(parsed.timeout, Some(Duration::from_secs(45)));
-    assert_eq!(parsed.envs.get("API_KEY").and_then(|v| v.as_str()), Some("abc"));
+    assert_eq!(
+        parsed.envs.get("API_KEY").and_then(|v| v.as_str()),
+        Some("abc")
+    );
     assert_eq!(parsed.envs.get("DEBUG").and_then(|v| v.as_str()), Some("1"));
     assert_eq!(
         parsed.headers.get("Authorization").and_then(|v| v.as_str()),
@@ -969,19 +985,25 @@ async fn test_check_and_cleanup_stale_lock_no_lock_returns_false() {
     let app = mock_app();
     let port: u16 = 53_114;
     let _ = delete_lock_file(app.handle(), port);
-    let cleaned = check_and_cleanup_stale_lock(app.handle(), port).await.unwrap();
+    let cleaned = check_and_cleanup_stale_lock(app.handle(), port)
+        .await
+        .unwrap();
     assert!(!cleaned);
 }
 
 #[tokio::test]
 async fn test_check_and_cleanup_stale_lock_keeps_live_lock() {
-    use super::lockfile::{check_and_cleanup_stale_lock, create_lock_file, delete_lock_file, read_lock_file};
+    use super::lockfile::{
+        check_and_cleanup_stale_lock, create_lock_file, delete_lock_file, read_lock_file,
+    };
     let app = mock_app();
     let port: u16 = 53_115;
     let _ = delete_lock_file(app.handle(), port);
     create_lock_file(app.handle(), port, "live", std::process::id()).unwrap();
     // Lock pid is the current process (alive) → must NOT be removed
-    let cleaned = check_and_cleanup_stale_lock(app.handle(), port).await.unwrap();
+    let cleaned = check_and_cleanup_stale_lock(app.handle(), port)
+        .await
+        .unwrap();
     assert!(!cleaned);
     assert!(read_lock_file(app.handle(), port).is_some());
     let _ = delete_lock_file(app.handle(), port);
@@ -1010,7 +1032,10 @@ async fn test_check_and_cleanup_stale_lock_removes_dead_pid_lock() {
         hostname: "x".to_string(),
     };
     std::fs::write(&lock_path, serde_json::to_string(&lock).unwrap()).unwrap();
-    assert!(read_lock_file(app.handle(), port).is_some(), "seed lock readable");
+    assert!(
+        read_lock_file(app.handle(), port).is_some(),
+        "seed lock readable"
+    );
 
     let cleaned = check_and_cleanup_stale_lock(app.handle(), port)
         .await

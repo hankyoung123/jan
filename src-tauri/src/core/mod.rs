@@ -1,7 +1,4 @@
 pub mod app;
-#[cfg(feature = "cli")]
-pub mod cli;
-pub mod downloads;
 pub mod filesystem;
 pub mod mcp;
 pub mod server;

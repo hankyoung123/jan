@@ -14,6 +14,9 @@ class SessionManifest(RuntimeModel):
     current_step: int = Field(ge=0)
     completed_scenes: int = Field(ge=0)
     head_checkpoint_id: Identifier | None
+    resolved_model_profile_ids: dict[Identifier, Identifier] = Field(
+        default_factory=dict
+    )
     started_at: datetime
     updated_at: datetime
     termination_reason_text: str | None = None
@@ -43,6 +46,7 @@ class SessionManifest(RuntimeModel):
             current_step=snapshot.current_step,
             completed_scenes=snapshot.completed_scenes,
             head_checkpoint_id=snapshot.checkpoint_id,
+            resolved_model_profile_ids=snapshot.resolved_model_profile_ids,
             started_at=snapshot.started_at,
             updated_at=snapshot.updated_at,
             termination_reason_text=snapshot.termination_reason_text,

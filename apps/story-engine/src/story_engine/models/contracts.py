@@ -7,27 +7,25 @@ from story_engine.domain.models import DomainModel
 ModelTask = Literal[
     "actor",
     "game_master",
-    "reflection",
-    "memory_consolidation",
-    "projection",
+    "wiki_maintenance",
     "editor",
     "writer",
-    "embedding",
 ]
 MessageRole = Literal["system", "user", "assistant"]
 
 
 class ModelProfile(DomainModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
-    name: str = Field(min_length=1, max_length=80)
     task_type: ModelTask
-    provider_id: str = Field(min_length=1)
-    model: str = Field(min_length=1, max_length=200)
+    model_ref: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=200,
+        pattern=r"^[^/\s]+/.+$",
+    )
     max_output_tokens: int = Field(default=2048, ge=1, le=8192)
     timeout_seconds: int = Field(default=60, ge=1, le=120)
     temperature: float | None = Field(default=None, ge=0, le=2)
-    reasoning_effort: Literal["disabled", "low", "high", "max"] = "disabled"
-    enabled: bool = True
 
 
 class Message(DomainModel):
@@ -53,8 +51,7 @@ class ModelUsage(DomainModel):
 
 class ModelResponse(DomainModel):
     profile_id: str
-    provider_id: str
-    model: str
+    model_ref: str | None = None
     content: str
     parsed_output: JsonValue = None
     finish_reason: str | None = None

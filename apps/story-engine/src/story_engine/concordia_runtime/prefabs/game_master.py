@@ -16,7 +16,11 @@ from concordia.document import interactive_document  # type: ignore[import-untyp
 from concordia.language_model import language_model  # type: ignore[import-untyped]
 from concordia.typing import prefab as prefab_lib  # type: ignore[import-untyped]
 
-from story_engine.concordia_runtime.components import LocalePolicy, PacingContext
+from story_engine.concordia_runtime.components import (
+    LocalePolicy,
+    PacingContext,
+    WorldWikiContext,
+)
 from story_engine.domain.recipe import AgentRecipe
 
 
@@ -69,6 +73,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         roster_key = "player_characters"
         observation_to_memory_key = "observation_to_memory"
         recent_events_key = "recent_events"
+        world_wiki_key = "world_wiki"
         make_observation_key = (
             gm_components.make_observation.DEFAULT_MAKE_OBSERVATION_COMPONENT_KEY
         )
@@ -84,7 +89,13 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         next_acting = gm_components.next_acting.NextActing(
             model=model,
             player_names=player_names,
-            components=(instruction_key, locale_key, pacing_key, recent_events_key),
+            components=(
+                instruction_key,
+                locale_key,
+                pacing_key,
+                world_wiki_key,
+                recent_events_key,
+            ),
         )
         components: dict[str, Any] = {
             "story_instruction": agent_components.constant.Constant(
@@ -98,6 +109,10 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                     "pacing",
                     "Let consequences emerge before escalating conflict.",
                 ),
+            ),
+            world_wiki_key: WorldWikiContext(
+                project_root=self.params["project_root"],
+                branch_id=self.params["branch_id"],
             ),
             roster_key: agent_components.constant.Constant(
                 state=", ".join(player_names),
@@ -121,6 +136,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                     instruction_key,
                     locale_key,
                     pacing_key,
+                    world_wiki_key,
                     roster_key,
                     recent_events_key,
                 ),
@@ -129,12 +145,24 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
             next_action_spec_key: gm_components.next_acting.NextActionSpec(
                 model=model,
                 player_names=player_names,
-                components=(instruction_key, locale_key, pacing_key, recent_events_key),
+                components=(
+                    instruction_key,
+                    locale_key,
+                    pacing_key,
+                    world_wiki_key,
+                    recent_events_key,
+                ),
             ),
             resolution_key: gm_components.event_resolution.EventResolution(
                 model=model,
                 event_resolution_steps=(_resolve_story_event,),
-                components=(instruction_key, locale_key, pacing_key, recent_events_key),
+                components=(
+                    instruction_key,
+                    locale_key,
+                    pacing_key,
+                    world_wiki_key,
+                    recent_events_key,
+                ),
                 notify_observers=False,
             ),
         }

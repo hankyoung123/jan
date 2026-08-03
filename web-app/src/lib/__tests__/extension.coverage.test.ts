@@ -4,15 +4,12 @@ import { ExtensionTypeEnum } from '@janhq/core'
 
 // Mock dependencies
 vi.mock('@janhq/core', () => ({
-  AIEngine: class MockAIEngine {},
   BaseExtension: class MockBaseExtension {
     type() { return 'base' }
     onLoad() { return Promise.resolve() }
     onUnload() {}
   },
   ExtensionTypeEnum: {
-    SystemMonitor: 'system-monitor',
-    Model: 'model',
     Assistant: 'assistant',
   },
 }))
@@ -55,17 +52,6 @@ describe('ExtensionManager - coverage', () => {
       expect(manager.getByName('my-ext')).toBe(ext)
     })
 
-    it('registers AI engine when extension has provider', () => {
-      const ext = {
-        type: () => 'model',
-        provider: 'openai',
-        onLoad: vi.fn(),
-        onUnload: vi.fn(),
-      } as any
-      manager.register('engine-ext', ext)
-      expect(manager.getEngine('openai')).toBe(ext)
-    })
-
     it('get by type returns matching extension', () => {
       const ext = { type: () => 'assistant', onLoad: vi.fn(), onUnload: vi.fn() } as any
       manager.register('asst', ext)
@@ -73,11 +59,7 @@ describe('ExtensionManager - coverage', () => {
     })
 
     it('get by type returns undefined when no match', () => {
-      expect(manager.get(ExtensionTypeEnum.SystemMonitor)).toBeUndefined()
-    })
-
-    it('getEngine returns undefined for unknown engine', () => {
-      expect(manager.getEngine('nonexistent')).toBeUndefined()
+      expect(manager.get(ExtensionTypeEnum.Assistant)).toBeUndefined()
     })
 
     it('getAll returns all registered extensions', () => {

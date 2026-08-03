@@ -10,7 +10,6 @@ const workspaceRoot = existsSync(resolve(process.cwd(), 'web-app'))
 const updaterSources = [
   'src-tauri/src/core/updater/hmac_client.rs',
   'src-tauri/src/core/updater/custom_updater.rs',
-  'src-tauri/src/core/downloads/helpers.rs',
 ]
 
 describe('Story Engine updater security boundary', () => {
@@ -32,14 +31,9 @@ describe('Story Engine updater security boundary', () => {
       join(workspaceRoot, 'src-tauri/src/core/updater/custom_updater.rs'),
       'utf8'
     )
-    const downloads = readFileSync(
-      join(workspaceRoot, 'src-tauri/src/core/downloads/helpers.rs'),
-      'utf8'
-    )
 
     expect(hmacClient).toContain('STORY_ENGINE_UPDATE_SIGNING_KEY')
     expect(hmacClient).toContain('configured_signing_key')
     expect(customUpdater).toContain('SigningKeyUnavailable')
-    expect(downloads).toContain('Story Engine update signing key is not configured')
   })
 })

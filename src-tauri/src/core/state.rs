@@ -3,10 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::core::{
-    downloads::models::DownloadManagerState,
-    mcp::models::{McpSettings, ToolWithServer},
-};
+use crate::core::mcp::models::{McpSettings, ToolWithServer};
 use rmcp::{
     model::{CallToolRequestParam, CallToolResult, InitializeRequestParam, Tool},
     service::RunningService,
@@ -63,7 +60,6 @@ pub type SharedMcpServers = Arc<Mutex<HashMap<String, RunningServiceEnum>>>;
 pub struct AppState {
     pub app_token: Option<String>,
     pub mcp_servers: SharedMcpServers,
-    pub download_manager: Arc<Mutex<DownloadManagerState>>,
     pub mcp_active_servers: Arc<Mutex<HashMap<String, serde_json::Value>>>,
     pub server_handle: Arc<Mutex<Option<ServerHandle>>>,
     pub tool_call_cancellations: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
@@ -78,10 +74,6 @@ pub struct AppState {
     pub mcp_server_pids: Arc<Mutex<HashMap<String, u32>>>,
     /// Remote provider configurations (e.g., Anthropic, OpenAI, etc.)
     pub provider_configs: Arc<Mutex<HashMap<String, ProviderConfig>>>,
-    /// Per-model sampling defaults the API server injects when the caller omits
-    /// them (MLX path; llamacpp uses the router preset instead). Keyed by model
-    /// id; values are objects already in the target's request-body key form.
-    pub model_param_defaults: Arc<Mutex<HashMap<String, serde_json::Value>>>,
     /// Wakes up MCP monitors to trigger an immediate health check + reconnect
     pub mcp_reconnect_notify: Arc<Notify>,
     /// Last successful tool listing per enabled server, served when a server
@@ -97,7 +89,6 @@ impl Default for AppState {
         Self {
             app_token: None,
             mcp_servers: Default::default(),
-            download_manager: Default::default(),
             mcp_active_servers: Default::default(),
             server_handle: Default::default(),
             tool_call_cancellations: Default::default(),
@@ -108,7 +99,6 @@ impl Default for AppState {
             background_cleanup_handle: Default::default(),
             mcp_server_pids: Default::default(),
             provider_configs: Default::default(),
-            model_param_defaults: Default::default(),
             mcp_reconnect_notify: Arc::new(Notify::new()),
             mcp_last_known_tools: Default::default(),
         }

@@ -17,7 +17,7 @@ from story_engine.domain.models import (
 )
 from story_engine.models.contracts import Message, ModelRequest
 from story_engine.models.gateway import ModelGateway
-from story_engine.projection.world_bible import WorldBibleProjector
+from story_engine.wiki.store import WikiStore
 from story_engine.workspace.project_store import (
     ProjectSeed,
     ProjectSnapshot,
@@ -299,7 +299,7 @@ class SubmissionDiscussionService:
                 summary="初始设定包尚未达到可运行条件。",
                 issues=(*review.issues, *deterministic_issues),
             )
-        runnable = output.draft.to_package() is not None and review.passed
+        runnable = output.draft.to_package() is not None
         return SubmissionConversationResponse(
             reply=output.reply,
             draft=output.draft,
@@ -360,7 +360,7 @@ class SubmissionService:
         )
         root = self.projects_root / package.id
         snapshot = ProjectStore(root).create(seed)
-        WorldBibleProjector(root).initialize(snapshot)
+        WikiStore(root, "main").initialize(snapshot)
         return snapshot
 
     @staticmethod
