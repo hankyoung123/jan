@@ -1,7 +1,9 @@
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from threading import Event
+
+from pydantic import ValidationError
 
 from story_engine.concordia_runtime.memory import ConcordiaMemoryCodec
 from story_engine.domain.action import ActionOutputType, ActionSpec
@@ -10,6 +12,7 @@ from story_engine.domain.projection import (
     EffectOperation,
     EffectTarget,
     EventVisibility,
+    ResolutionEnvelope,
     ResolvedEvent,
     ResolvedTurn,
     SimulationBoundary,
@@ -58,79 +61,48 @@ class ConcordiaResolverKernel:
             raise ResolutionEnvelopeError(
                 "Game Master resolution JSON must be an object"
             )
-        event_text = payload.get("event_text")
-        if not isinstance(event_text, str) or not event_text.strip():
-            raise ResolutionEnvelopeError(
-                "Game Master resolution JSON must include event_text"
-            )
         try:
-            boundary = SimulationBoundary(payload.get("boundary", "none"))
-            visibility = EventVisibility(payload.get("visibility", "participants"))
-        except ValueError as error:
+            envelope = ResolutionEnvelope.model_validate(payload)
+        except ValidationError as error:
+            location = ".".join(str(item) for item in error.errors()[0]["loc"])
             raise ResolutionEnvelopeError(
-                "Game Master resolution JSON has an invalid boundary or visibility"
+                f"Game Master resolution JSON failed schema validation at {location}"
             ) from error
 
-        def string_tuple(value: object) -> tuple[str, ...]:
-            if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-                return ()
-            return tuple(item for item in value if isinstance(item, str))
-
-        observer_ids = string_tuple(payload.get("observer_ids"))
-        participant_ids = string_tuple(payload.get("participant_ids")) or (
-            context.acting_actor_id,
-        )
-        if visibility == EventVisibility.RESTRICTED and not observer_ids:
+        observer_ids = envelope.observer_ids
+        if envelope.visibility == EventVisibility.RESTRICTED and not observer_ids:
             observer_ids = (context.acting_actor_id,)
+        participant_ids = envelope.participant_ids or (context.acting_actor_id,)
         effects: list[StateEffect] = []
-        changes = payload.get("entity_changes", ())
-        if isinstance(changes, Sequence) and not isinstance(changes, (str, bytes)):
-            for index, value in enumerate(changes):
-                if not isinstance(value, Mapping):
-                    continue
-                operation = value.get("operation")
-                entity_id = value.get("entity_id")
-                if operation not in {"create", "archive"} or not isinstance(
-                    entity_id, str
-                ):
-                    continue
-                after = (
-                    {
-                        "entity_id": entity_id,
-                        "display_name": value.get("display_name", entity_id),
-                        "identity": value.get(
-                            "identity", "A newly introduced character."
-                        ),
-                        "goal": value.get("goal", "Respond to the current situation."),
-                        "location": value.get("location"),
-                        "active": True,
-                    }
-                    if operation == "create"
-                    else None
+        for index, change in enumerate(envelope.entity_changes):
+            effects.append(
+                StateEffect(
+                    effect_id=(
+                        f"entity-effect:{context.session_id}:{context.step}:{index}"
+                    ),
+                    operation=EffectOperation.CREATE_CHARACTER,
+                    target=EffectTarget.CHARACTER_PROJECTION,
+                    target_id=change.entity_id,
+                    after=(
+                        {
+                            "entity_id": change.entity_id,
+                            "display_name": change.display_name,
+                            "identity": change.identity,
+                            "core_desire": change.core_desire,
+                            "location": change.location,
+                        }
+                    ),
+                    reason_text=envelope.event_text,
                 )
-                effects.append(
-                    StateEffect(
-                        effect_id=(
-                            f"entity-effect:{context.session_id}:{context.step}:{index}"
-                        ),
-                        operation=(
-                            EffectOperation.CREATE_ENTITY
-                            if operation == "create"
-                            else EffectOperation.ARCHIVE_ENTITY
-                        ),
-                        target=EffectTarget.CHARACTER_PROJECTION,
-                        target_id=entity_id,
-                        after=after,
-                        reason_text=event_text,
-                    )
-                )
+            )
+        event_text = envelope.event_text.strip()
         event = ResolvedEvent(
             event_id=f"event:{context.session_id}:{context.step}",
             session_id=context.session_id,
             step=context.step,
             actor_id=context.acting_actor_id,
-            event_text=event_text.strip(),
-            visibility=visibility,
+            event_text=event_text,
+            visibility=envelope.visibility,
             observer_ids=observer_ids,
             participant_ids=participant_ids,
             source_intent_ids=(f"putative:{context.session_id}:{context.step}",),
@@ -138,7 +110,7 @@ class ConcordiaResolverKernel:
             content_locale=context.content_locale,
             occurred_at=datetime.now(UTC),
         )
-        return event_text.strip(), boundary, (event,), tuple(effects)
+        return event_text, envelope.boundary, (event,), tuple(effects)
 
     def resolve(
         self,

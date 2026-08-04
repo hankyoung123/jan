@@ -13,6 +13,7 @@ from story_engine.concordia_runtime.replay import ReplayLanguageModel
 from story_engine.concordia_runtime.resolver import SimulationCancelledError
 from story_engine.domain.action import TaskType
 from story_engine.domain.memory import MemoryScope
+from story_engine.domain.models import Character
 from story_engine.domain.simulation import (
     ControlMode,
     ControlPolicy,
@@ -108,6 +109,16 @@ def _runtime_factory(
             content_locale=request.content_locale,
             actors=(actor,),
             game_master=gm,
+            characters=(
+                Character(
+                    id="actor-a",
+                    display_name="Actor A",
+                    type="active",
+                    identity="Investigator",
+                    core_desire="Discover the truth",
+                    current_goal="Enter the archive",
+                ),
+            ),
         )
 
     return build

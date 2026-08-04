@@ -1,7 +1,7 @@
 import type { SimulationStage } from '@story-engine/contracts'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, Play, RotateCcw } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import { useActiveStoryProjectId } from '../activeProject'
 import { PageHeader, primaryButton, StoryPage } from '../components/StoryLayout'
 import { ActorRail } from './ActorRail'
 import { BranchNavigator } from './BranchNavigator'
+import { MemoryRoutingView } from './MemoryRoutingView'
 import { SimulationControls } from './SimulationControls'
 import { SimulationHeader } from './SimulationHeader'
 import { SimulationTimeline } from './SimulationTimeline'
@@ -23,6 +24,11 @@ import {
   useSimulationSession,
 } from './useSimulationSession'
 import { useSimulationStream } from './useSimulationStream'
+import {
+  applyViewLocation,
+  readViewLocation,
+  type ViewLocation,
+} from './viewUrl'
 
 const CONTROL_MODES: ControlMode[] = ['step', 'scene', 'chapter', 'autonomous']
 
@@ -167,13 +173,35 @@ export function EvolutionView() {
   const projectId = useActiveStoryProjectId()
   const simulation = useSimulationSession(projectId ?? undefined)
   const [notice, setNotice] = useState<string | null>(null)
-  const { viewState, chooseStage } = useSimulationStream({
+  const [actor, setActor] = useState<string | undefined>(undefined)
+  const [panel, setPanel] = useState<'trace' | 'memory'>('trace')
+  const sessionId = simulation.session?.session_id
+  const initialLocation = useMemo<ViewLocation | undefined>(() => {
+    if (typeof window === 'undefined') return undefined
+    void sessionId
+    return readViewLocation(window.location.search)
+  }, [sessionId])
+  const syncViewUrl = useCallback((location: ViewLocation) => {
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    url.search = applyViewLocation(url.search, location)
+    window.history.pushState({}, '', url)
+  }, [])
+  const handleViewLocationChange = useCallback(
+    (location: ViewLocation) => {
+      syncViewUrl({ ...location, actor, panel })
+    },
+    [actor, panel, syncViewUrl]
+  )
+  const { viewState, chooseStage, applyLocation } = useSimulationStream({
     projectId: projectId ?? undefined,
     sessionId: simulation.session?.session_id,
     sessionStatus: simulation.session?.status,
     currentStep: simulation.session?.current_step,
     branchId: simulation.session?.branch_id,
     onSessionChanged: simulation.refreshSession,
+    initialLocation,
+    onLocationChange: handleViewLocationChange,
   })
 
   const selectedStep = viewState.steps[viewState.selectedStep]
@@ -197,6 +225,18 @@ export function EvolutionView() {
   useEffect(() => {
     if (simulation.error) setNotice(null)
   }, [simulation.error])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onPopState = () => {
+      const location = readViewLocation(window.location.search)
+      applyLocation(location)
+      setActor(location.actor)
+      setPanel(location.panel === 'memory' ? 'memory' : 'trace')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [applyLocation])
 
   const selectTimelineStep = (step: StepViewModel) => {
     const preferred: SimulationStage = step.stages.resolution
@@ -313,7 +353,17 @@ export function EvolutionView() {
           {simulation.project && (
             <div className="grid min-h-[560px] gap-4 xl:grid-cols-[260px_minmax(360px,1fr)_minmax(300px,0.85fr)]">
               <ActorRail
+                onSelectActor={(actorId) => {
+                  setActor(actorId)
+                  syncViewUrl({
+                    actor: actorId,
+                    panel,
+                    stage: viewState.selectedStage,
+                    step: viewState.selectedStep,
+                  })
+                }}
                 project={simulation.project}
+                selectedActor={actor}
                 session={simulation.session}
                 step={selectedStep}
               />
@@ -322,14 +372,45 @@ export function EvolutionView() {
                 selectedStage={viewState.selectedStage}
                 step={selectedStep}
               />
-              <StageInspector
-                onRetry={
-                  retryCheckpointId
-                    ? () => void simulation.restore(retryCheckpointId)
-                    : undefined
-                }
-                stage={selectedStage}
-              />
+              <div className="min-w-0 space-y-2">
+                <div className="flex items-center gap-2 border bg-background p-1.5">
+                  {(['trace', 'memory'] as const).map((value) => (
+                    <button
+                      aria-pressed={panel === value}
+                      className={`h-8 flex-1 text-xs font-medium ${
+                        panel === value
+                          ? 'bg-foreground text-background'
+                          : 'text-muted-foreground hover:bg-muted/50'
+                      }`}
+                      key={value}
+                      onClick={() => {
+                        setPanel(value)
+                        syncViewUrl({
+                          actor,
+                          panel: value,
+                          stage: viewState.selectedStage,
+                          step: viewState.selectedStep,
+                        })
+                      }}
+                      type="button"
+                    >
+                      {value === 'trace' ? 'Trace' : 'Memory'}
+                    </button>
+                  ))}
+                </div>
+                {panel === 'memory' && selectedStage?.stage === 'memory_routing' ? (
+                  <MemoryRoutingView stage={selectedStage} />
+                ) : (
+                  <StageInspector
+                    onRetry={
+                      retryCheckpointId
+                        ? () => void simulation.restore(retryCheckpointId)
+                        : undefined
+                    }
+                    stage={selectedStage}
+                  />
+                )}
+              </div>
             </div>
           )}
           <SimulationTimeline state={viewState} onSelect={selectTimelineStep} />
@@ -344,11 +425,6 @@ export function EvolutionView() {
             onLocale={async (locale) => {
               const result = await simulation.switchLocale(locale)
               if (result) setNotice(t('notice.localeChanged', { locale }))
-              return result
-            }}
-            onProjection={async () => {
-              const result = await simulation.rebuildProjection()
-              if (result) setNotice(t('notice.projectionBuilt'))
               return result
             }}
             onRestore={async (checkpointId) => {

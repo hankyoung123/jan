@@ -18,18 +18,26 @@ from story_engine.concordia_runtime.memory import (
     ConcordiaMemoryBank,
     concordia_hash_embedder,
 )
-from story_engine.concordia_runtime.roster import ConcordiaRosterPlanner
+from story_engine.concordia_runtime.roster import (
+    MAX_SCENE_ROSTER_SIZE,
+    ConcordiaRosterPlanner,
+)
+from story_engine.domain.action import ActionSpecEnvelope
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
+from story_engine.domain.models import Character
+from story_engine.domain.projection import ResolutionEnvelope, ResolvedEvent
 from story_engine.domain.simulation import (
-    DynamicEntityDefinition,
+    PromotionDecision,
     TurnSessionRequest,
     TurnSessionSnapshot,
 )
 from story_engine.domain.trace import ModelCallTrace
+from story_engine.models.contracts import ModelTask
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.review.promotion import AutomaticPromotionReviewer
 from story_engine.simulation.runtime import StorySimulationRuntime
 from story_engine.workspace.project_store import ProjectStore
 
@@ -85,15 +93,18 @@ class ProjectRuntimeFactory:
             except FileNotFoundError:
                 pass
         snapshot = ProjectStore(self._projects_root / request.project_id).load()
-        project_actors = tuple(
-            character for character in snapshot.characters if character.type == "active"
+        characters = (
+            restored.characters if restored is not None else snapshot.characters
+        )
+        active_characters = tuple(
+            character for character in characters if character.type == "active"
         )
         if request.actor_ids:
-            by_id = {character.id: character for character in project_actors}
+            by_id = {character.id: character for character in active_characters}
             unknown = set(request.actor_ids) - set(by_id)
             if unknown:
                 raise ValueError(f"unknown or inactive actor IDs: {sorted(unknown)}")
-        if not project_actors:
+        if not active_characters:
             raise ValueError("simulation requires at least one active character")
 
         if restored is not None and restored.resolved_model_profile_ids:
@@ -117,6 +128,24 @@ class ProjectRuntimeFactory:
                 }
             )
 
+        policy_store = ProjectModelPolicyStore(
+            project_root,
+            self._gateway.registry,
+        )
+
+        def resolve_actor_profile_id(actor_id: str) -> str:
+            policy = policy_store.load()
+            return policy.agent_profile_ids.get(
+                actor_id,
+                policy.task_profile_ids["actor"],
+            )
+
+        def resolve_task_profile_id(task_type: ModelTask) -> str:
+            return policy_store.load().task_profile_ids[task_type]
+
+        def make_actor_profile_resolver(actor_id: str) -> Callable[[], str]:
+            return lambda: resolve_actor_profile_id(actor_id)
+
         cancellation = Event()
         model_traces: list[ModelCallTrace] = []
 
@@ -138,6 +167,7 @@ class ProjectRuntimeFactory:
                 profile_id=profile_id,
                 task_type="actor",
                 content_locale=request.content_locale,
+                profile_resolver=make_actor_profile_resolver(actor_id),
                 session_id=session_id,
                 branch_id=request.branch_id,
                 actor_id=actor_id,
@@ -147,70 +177,104 @@ class ProjectRuntimeFactory:
             models[key] = model
             return model
 
-        for character in project_actors:
+        for character in active_characters:
             create_actor_model(character.id)
-        for definition in restored.dynamic_entities if restored is not None else ():
-            create_actor_model(definition.entity_id)
         gm_model_key = "game-master"
         models[gm_model_key] = JanConcordiaLanguageModel(
             self._gateway,
             profile_id=resolved_profile_ids["task:game_master"],
             task_type="game_master",
             content_locale=request.content_locale,
+            profile_resolver=lambda: resolve_task_profile_id("game_master"),
             session_id=session_id,
             branch_id=request.branch_id,
             cancellation=cancellation,
             trace_sink=record_trace,
         )
-        roster_planner = None
-        if not request.actor_ids and restored is None:
-            actor_ids = [character.id for character in project_actors]
-            roster_schema = json.dumps(
-                {
-                    "type": "object",
-                    "required": ["actor_ids"],
-                    "properties": {
-                        "actor_ids": {
-                            "type": "array",
-                            "minItems": 1,
-                            "uniqueItems": True,
-                            "items": {"enum": actor_ids},
-                        }
-                    },
-                    "additionalProperties": False,
-                },
-                separators=(",", ":"),
-            )
-            roster_model = JanConcordiaLanguageModel(
+        gm_component_models = {
+            "next_action_spec": JanConcordiaLanguageModel(
                 self._gateway,
                 profile_id=resolved_profile_ids["task:game_master"],
                 task_type="game_master",
                 content_locale=request.content_locale,
-                output_schema=roster_schema,
+                profile_resolver=lambda: resolve_task_profile_id("game_master"),
+                output_schema=json.dumps(
+                    ActionSpecEnvelope.model_json_schema(),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
                 session_id=session_id,
                 branch_id=request.branch_id,
                 cancellation=cancellation,
                 trace_sink=record_trace,
-            )
-            models["roster-planner"] = roster_model
-            roster_planner = ConcordiaRosterPlanner(
-                model=roster_model,
-                premise_text=request.premise_text,
-                candidates={
-                    character.id: (
-                        f"{character.identity}; goal: "
-                        f"{character.current_goal or character.core_desire}; "
-                        f"location: {character.location or 'unknown'}"
-                    )
-                    for character in project_actors
-                },
+            ),
+            "resolution": JanConcordiaLanguageModel(
+                self._gateway,
+                profile_id=resolved_profile_ids["task:game_master"],
+                task_type="game_master",
                 content_locale=request.content_locale,
-            )
+                profile_resolver=lambda: resolve_task_profile_id("game_master"),
+                output_schema=json.dumps(
+                    ResolutionEnvelope.model_json_schema(),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                session_id=session_id,
+                branch_id=request.branch_id,
+                cancellation=cancellation,
+                trace_sink=record_trace,
+            ),
+        }
+        models.update(gm_component_models)
+        promotion_model = JanConcordiaLanguageModel(
+            self._gateway,
+            profile_id=resolved_profile_ids["task:editor"],
+            task_type="editor",
+            content_locale=request.content_locale,
+            profile_resolver=lambda: resolve_task_profile_id("editor"),
+            output_schema=json.dumps(
+                PromotionDecision.model_json_schema(),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            session_id=session_id,
+            branch_id=request.branch_id,
+            cancellation=cancellation,
+            trace_sink=record_trace,
+        )
+        models["promotion-reviewer"] = promotion_model
+        promotion_reviewer = AutomaticPromotionReviewer(promotion_model)
+        roster_model = JanConcordiaLanguageModel(
+            self._gateway,
+            profile_id=resolved_profile_ids["task:game_master"],
+            task_type="game_master",
+            content_locale=request.content_locale,
+            profile_resolver=lambda: resolve_task_profile_id("game_master"),
+            session_id=session_id,
+            branch_id=request.branch_id,
+            cancellation=cancellation,
+            trace_sink=record_trace,
+        )
+        models["roster-planner"] = roster_model
+        roster_planner = ConcordiaRosterPlanner(
+            model=roster_model,
+            premise_text=request.premise_text,
+            content_locale=request.content_locale,
+        )
         factory = ConcordiaActorFactory(models)
         actors: list[ConcordiaStoryActor] = []
         facts_by_id = {fact.id: fact for fact in snapshot.facts}
         public_fact_ids = set(snapshot.world.public_fact_ids)
-        for character in project_actors:
+
+        def build_character_actor(
+            character: Character,
+            evidence: tuple[ResolvedEvent, ...] = (),
+        ) -> tuple[ConcordiaStoryActor, JanConcordiaLanguageModel]:
+            key = f"actor:{character.id}"
+            model = models.get(key)
+            if model is None:
+                model = create_actor_model(character.id)
+                factory.register_model(key, model)
             memory = ConcordiaMemoryBank(
                 owner_id=character.id,
                 scope=MemoryScope.CHARACTER,
@@ -218,7 +282,9 @@ class ProjectRuntimeFactory:
             )
             visible_fact_ids = public_fact_ids | set(character.known_fact_ids)
             for fact_id in sorted(visible_fact_ids):
-                fact = facts_by_id[fact_id]
+                fact = facts_by_id.get(fact_id)
+                if fact is None:
+                    continue
                 memory.add(
                     MemoryRecord(
                         record_id=f"seed:{fact.id}:{character.id}",
@@ -236,60 +302,28 @@ class ProjectRuntimeFactory:
                         tags=("project_seed",),
                     )
                 )
+            for event in evidence:
+                memory.add(
+                    MemoryRecord(
+                        record_id=f"promotion-evidence:{event.event_id}:{character.id}",
+                        record_type=MemoryRecordType.OBSERVATION,
+                        scope=MemoryScope.CHARACTER,
+                        owner_id=character.id,
+                        session_id=session_id,
+                        branch_id=request.branch_id,
+                        step=event.step,
+                        text=event.event_text,
+                        content_locale=request.content_locale,
+                        created_at=event.occurred_at,
+                        actor_ids=event.participant_ids,
+                        visible_to=(character.id,),
+                        source_record_ids=(event.event_id,),
+                        tags=("promotion_evidence",),
+                    )
+                )
             relationships = "; ".join(
                 f"{relationship.character_id}: {relationship.description}"
                 for relationship in character.relationships
-            )
-            actors.append(
-                factory.build_actor(
-                    default_character_recipe(
-                        model_profile_id=f"actor:{character.id}",
-                        content_locale=request.content_locale,
-                    ),
-                    actor_params={
-                        "name": character.id,
-                        "identity": character.identity,
-                        "goal": character.current_goal or character.core_desire,
-                        "relationships": relationships,
-                        "project_root": str(project_root),
-                        "branch_id": request.branch_id,
-                    },
-                    memory=memory,
-                )
-            )
-
-        def build_dynamic_actor(
-            definition: DynamicEntityDefinition,
-        ) -> tuple[ConcordiaStoryActor, JanConcordiaLanguageModel]:
-            key = f"actor:{definition.entity_id}"
-            model = models.get(key)
-            if model is None:
-                model = create_actor_model(definition.entity_id)
-                factory.register_model(key, model)
-            memory = ConcordiaMemoryBank(
-                owner_id=definition.entity_id,
-                scope=MemoryScope.CHARACTER,
-                embedder=self._embedder,
-            )
-            memory.add(
-                MemoryRecord(
-                    record_id=f"seed:{session_id}:dynamic:{definition.entity_id}",
-                    record_type=MemoryRecordType.PREMISE,
-                    scope=MemoryScope.CHARACTER,
-                    owner_id=definition.entity_id,
-                    session_id=session_id,
-                    branch_id=request.branch_id,
-                    step=0,
-                    text=(
-                        f"{definition.identity}\nGoal: {definition.goal}\n"
-                        f"Location: {definition.location or 'unknown'}"
-                    ),
-                    content_locale=request.content_locale,
-                    created_at=datetime.now(UTC),
-                    actor_ids=(definition.entity_id,),
-                    visible_to=(definition.entity_id,),
-                    tags=("dynamic_entity",),
-                )
             )
             actor = factory.build_actor(
                 default_character_recipe(
@@ -297,10 +331,10 @@ class ProjectRuntimeFactory:
                     content_locale=request.content_locale,
                 ),
                 actor_params={
-                    "name": definition.entity_id,
-                    "identity": definition.identity,
-                    "goal": definition.goal,
-                    "relationships": "",
+                    "name": character.id,
+                    "identity": character.identity,
+                    "goal": character.current_goal or character.core_desire,
+                    "relationships": relationships,
                     "project_root": str(project_root),
                     "branch_id": request.branch_id,
                 },
@@ -308,9 +342,8 @@ class ProjectRuntimeFactory:
             )
             return actor, model
 
-        dynamic_definitions = restored.dynamic_entities if restored is not None else ()
-        for definition in dynamic_definitions:
-            actor, _ = build_dynamic_actor(definition)
+        for character in active_characters:
+            actor, _ = build_character_actor(character)
             actors.append(actor)
 
         gm_id = "story-game-master"
@@ -370,12 +403,14 @@ class ProjectRuntimeFactory:
                     tags=("project_seed", fact.visibility),
                 )
             )
-        if restored is not None and restored.active_entity_ids:
-            active_ids = set(restored.active_entity_ids)
+        if restored is not None and restored.roster_actor_ids:
+            active_ids = set(restored.roster_actor_ids)
         elif request.actor_ids:
             active_ids = set(request.actor_ids)
         else:
-            active_ids = {actor.name for actor in actors}
+            active_ids = {
+                actor.name for actor in actors[:MAX_SCENE_ROSTER_SIZE]
+            }
         active_actors = tuple(actor for actor in actors if actor.name in active_ids)
         game_master = factory.build_game_master(
             default_game_master_recipe(
@@ -390,6 +425,7 @@ class ProjectRuntimeFactory:
             },
             actors=active_actors,
             shared_memory=gm_memory,
+            component_models=gm_component_models,
         )
 
         def rebuild_game_master(
@@ -410,6 +446,7 @@ class ProjectRuntimeFactory:
                 },
                 actors=current_actors,
                 shared_memory=previous.memory,
+                component_models=gm_component_models,
             )
 
         runtime = StorySimulationRuntime(
@@ -423,12 +460,16 @@ class ProjectRuntimeFactory:
             cancellation=cancellation,
             model_traces=model_traces,
             language_models=tuple(models.values()),
-            allow_dynamic_entities=request.control.allow_dynamic_entities,
-            dynamic_entities=dynamic_definitions,
-            dynamic_actor_builder=build_dynamic_actor,
+            characters=characters,
+            pending_scene_events=(
+                restored.pending_scene_events if restored is not None else ()
+            ),
+            promoted_actor_builder=build_character_actor,
+            promotion_reviewer=promotion_reviewer.review,
             game_master_rebuilder=rebuild_game_master,
             available_actors=tuple(actors),
             roster_planner=roster_planner,
+            initial_roster_selected=restored is not None or bool(request.actor_ids),
         )
         if restored is not None:
             runtime.restore_states(

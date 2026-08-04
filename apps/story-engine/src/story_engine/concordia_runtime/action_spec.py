@@ -1,6 +1,6 @@
 import json
 from collections.abc import Mapping
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from concordia.typing import entity as concordia_entity  # type: ignore[import-untyped]
 from pydantic import ValidationError
@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from story_engine.domain.action import (
     ActionOutputType,
     ActionSpec,
+    ActionSpecEnvelope,
     StoryActionKind,
 )
 
@@ -45,6 +46,7 @@ class ConcordiaActionSpecCodec:
         spec_id: str,
         content_locale: str,
         action_kind: StoryActionKind | None = None,
+        option_ids: tuple[str, ...] | None = None,
     ) -> ActionSpec:
         call_to_action = spec.call_to_action or "Skip this simulation step."
         inferred_kind = action_kind or cls._KINDS_BY_TAG.get(spec.tag or "")
@@ -62,6 +64,7 @@ class ConcordiaActionSpecCodec:
                 options=tuple(spec.options),
                 tag=spec.tag,
                 content_locale=content_locale,
+                option_ids=tuple(option_ids) if option_ids else (),
             )
         except ValidationError as error:
             raise ActionSpecDecodeError("invalid Concordia ActionSpec") from error
@@ -81,19 +84,27 @@ class ConcordiaActionSpecCodec:
             raise ActionSpecDecodeError("ActionSpec must be valid JSON") from error
         if not isinstance(payload, dict):
             raise ActionSpecDecodeError("ActionSpec JSON must be an object")
-        allowed = {"call_to_action", "output_type", "options", "tag"}
+        allowed = {"call_to_action", "output_type", "options", "option_ids", "tag"}
         if set(payload) - allowed:
             raise ActionSpecDecodeError("ActionSpec JSON contains unknown fields")
         try:
-            concordia_spec = concordia_entity.action_spec_from_dict(
-                dict[str, Any](payload)
-            )
-        except (TypeError, ValueError) as error:
-            raise ActionSpecDecodeError("ActionSpec JSON has invalid fields") from error
+            envelope = ActionSpecEnvelope.model_validate(payload)
+        except ValidationError as error:
+            location = ".".join(str(item) for item in error.errors()[0]["loc"])
+            raise ActionSpecDecodeError(
+                f"ActionSpec JSON has invalid fields at {location}"
+            ) from error
+        concordia_spec = concordia_entity.ActionSpec(
+            call_to_action=envelope.call_to_action,
+            output_type=concordia_entity.OutputType(envelope.output_type.value),
+            options=list(envelope.options),
+            tag=envelope.tag,
+        )
         spec = cls.from_concordia(
             concordia_spec,
             spec_id=spec_id,
             content_locale=content_locale,
+            option_ids=tuple(envelope.option_ids) if envelope.option_ids else None,
         )
         if spec.output_type == ActionOutputType.NEXT_ACTING:
             if actor_ids is None:

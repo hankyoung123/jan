@@ -100,7 +100,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Patch Model Profile */
+        patch: operations["patch_model_profile_models_profiles__profile_id__patch"];
         trace?: never;
     };
     "/models/stream": {
@@ -327,23 +328,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/branches/{branch_id}/projection": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Rebuild Projection */
-        post: operations["rebuild_projection_projects__project_id__branches__branch_id__projection_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/projects/{project_id}/branches/{branch_id}/rollback": {
         parameters: {
             query?: never;
@@ -421,7 +405,8 @@ export interface paths {
         };
         /** Get Wiki Page */
         get: operations["get_wiki_page_projects__project_id__branches__branch_id__wiki_page_get"];
-        put?: never;
+        /** Update Wiki Page */
+        put: operations["update_wiki_page_projects__project_id__branches__branch_id__wiki_page_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -480,40 +465,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/characters/{character_id}/promote": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Confirm Promotion */
-        post: operations["confirm_promotion_projects__project_id__characters__character_id__promote_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/characters/{character_id}/promotion-review": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Review Promotion */
-        post: operations["review_promotion_projects__project_id__characters__character_id__promotion_review_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/projects/{project_id}/close": {
         parameters: {
             query?: never;
@@ -546,7 +497,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Patch Project Model Policy */
+        patch: operations["patch_project_model_policy_projects__project_id__model_policy_patch"];
         trace?: never;
     };
     "/projects/{project_id}/open": {
@@ -1015,11 +967,6 @@ export interface components {
         /** ControlPolicy */
         ControlPolicy: {
             /**
-             * Allow Dynamic Entities
-             * @default true
-             */
-            allow_dynamic_entities: boolean;
-            /**
              * Allow User Override
              * @default true
              */
@@ -1082,29 +1029,11 @@ export interface components {
             /** Text */
             text: string;
         };
-        /** DynamicEntityDefinition */
-        DynamicEntityDefinition: {
-            /**
-             * Active
-             * @default true
-             */
-            active: boolean;
-            /** Display Name */
-            display_name: string;
-            /** Entity Id */
-            entity_id: string;
-            /** Goal */
-            goal: string;
-            /** Identity */
-            identity: string;
-            /** Location */
-            location?: string | null;
-        };
         /**
          * EffectOperation
          * @enum {string}
          */
-        EffectOperation: "set" | "append" | "remove" | "create_entity" | "archive_entity" | "emit_signal";
+        EffectOperation: "set" | "append" | "remove" | "create_character" | "emit_signal";
         /**
          * EffectTarget
          * @enum {string}
@@ -1294,6 +1223,10 @@ export interface components {
             duration_ms: number;
             /** Error Code */
             error_code?: string | null;
+            /** Finish Reason */
+            finish_reason?: string | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
             /** Model Ref */
             model_ref?: string | null;
             /** Profile Id */
@@ -1307,6 +1240,10 @@ export interface components {
             prompt_tokens: number;
             /** Prompt Version */
             prompt_version: string;
+            /** Reasoning Effort */
+            reasoning_effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
+            /** Reasoning Tokens */
+            reasoning_tokens?: number | null;
             /**
              * Retry Count
              * @default 0
@@ -1330,6 +1267,10 @@ export interface components {
             /** Task Id */
             task_id: string;
             task_type: components["schemas"]["TaskType"];
+            /** Temperature */
+            temperature?: number | null;
+            /** Timeout Seconds */
+            timeout_seconds?: number | null;
             /**
              * Validation Errors
              * @default []
@@ -1353,7 +1294,7 @@ export interface components {
             /** Model Ref */
             model_ref?: string | null;
             /** Reasoning Effort */
-            reasoning_effort?: ("disabled" | "low" | "medium" | "high" | "xhigh") | null;
+            reasoning_effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
             /**
              * Task Type
              * @enum {string}
@@ -1367,18 +1308,39 @@ export interface components {
              */
             timeout_seconds: number;
         };
+        /** ModelProfilePatch */
+        ModelProfilePatch: {
+            /** Max Output Tokens */
+            max_output_tokens?: number | null;
+            /** Model Ref */
+            model_ref?: string | null;
+            /** Reasoning Effort */
+            reasoning_effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
+            /** Temperature */
+            temperature?: number | null;
+            /** Timeout Seconds */
+            timeout_seconds?: number | null;
+        };
         /** ModelRequest */
         ModelRequest: {
+            /** First Content Timeout Seconds */
+            first_content_timeout_seconds?: number | null;
             /** Max Output Tokens */
             max_output_tokens?: number | null;
             /** Messages */
             messages: components["schemas"]["Message"][];
             /** Output Schema */
             output_schema?: string | null;
+            /**
+             * Output Token Limit
+             * @default profile
+             * @enum {string}
+             */
+            output_token_limit: "profile" | "provider";
             /** Profile Id */
             profile_id: string;
             /** Reasoning Effort */
-            reasoning_effort?: ("disabled" | "low" | "medium" | "high" | "xhigh") | null;
+            reasoning_effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
             /**
              * Task Type
              * @enum {string}
@@ -1395,11 +1357,18 @@ export interface components {
             content: string;
             /** Finish Reason */
             finish_reason?: string | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
             /** Model Ref */
             model_ref?: string | null;
             parsed_output?: components["schemas"]["JsonValue"];
             /** Profile Id */
             profile_id: string;
+            /**
+             * Retry Count
+             * @default 0
+             */
+            retry_count: number;
             usage?: components["schemas"]["ModelUsage"];
         };
         /** ModelUsage */
@@ -1414,6 +1383,8 @@ export interface components {
              * @default 0
              */
             prompt_tokens: number;
+            /** Reasoning Tokens */
+            reasoning_tokens?: number | null;
             /**
              * Total Tokens
              * @default 0
@@ -1507,6 +1478,17 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** ProjectModelPolicyPatch */
+        ProjectModelPolicyPatch: {
+            /** Agent Profile Ids */
+            agent_profile_ids?: {
+                [key: string]: string | null;
+            } | null;
+            /** Task Profile Ids */
+            task_profile_ids?: {
+                [key: string]: string;
+            } | null;
+        };
         /** ProjectSnapshot */
         ProjectSnapshot: {
             /** Characters */
@@ -1516,60 +1498,21 @@ export interface components {
             project: components["schemas"]["ProjectDocument"];
             world: components["schemas"]["WorldState"];
         };
-        /** ProjectionRequest */
-        ProjectionRequest: {
-            /** Checkpoint Id */
-            checkpoint_id?: string | null;
-        };
-        /** ProjectionResponse */
-        ProjectionResponse: {
-            /** Branch Id */
-            branch_id: string;
-            /** Checkpoint Id */
-            checkpoint_id: string;
-            /** Written Paths */
-            written_paths: string[];
-        };
-        /** PromotionAssessment */
-        PromotionAssessment: {
-            candidate?: components["schemas"]["PromotionCandidate"] | null;
+        /** PromotionDecision */
+        PromotionDecision: {
             /** Character Id */
             character_id: string;
-            /** Project Id */
-            project_id: string;
-            review: components["schemas"]["ReviewResult"];
-        };
-        /** PromotionCandidate */
-        PromotionCandidate: {
-            /** Base Character Version */
-            base_character_version: number;
-            /** Base Workspace Revision */
-            base_workspace_revision?: string | null;
-            /** Character Id */
-            character_id: string;
-            /** Id */
-            id: string;
-            /** Project Id */
-            project_id: string;
-            /** Proposed Goal */
-            proposed_goal: string;
-            review: components["schemas"]["ReviewResult"];
             /**
-             * Status
-             * @default pending
-             * @enum {string}
+             * Evidence Event Ids
+             * @default []
              */
-            status: "pending" | "committed";
-        };
-        /** PromotionCommitResult */
-        PromotionCommitResult: {
-            candidate: components["schemas"]["PromotionCandidate"];
-            character: components["schemas"]["Character"];
-        };
-        /** PromotionConfirmationRequest */
-        PromotionConfirmationRequest: {
-            /** Candidate Id */
-            candidate_id: string;
+            evidence_event_ids: string[];
+            /** Promote */
+            promote: boolean;
+            /** Proposed Goal */
+            proposed_goal?: string | null;
+            /** Reason */
+            reason: string;
         };
         /** Relationship */
         Relationship: {
@@ -2041,6 +1984,11 @@ export interface components {
             branch_id: string;
             /** Checkpoint Id */
             checkpoint_id?: string | null;
+            /**
+             * Promotion Decisions
+             * @default []
+             */
+            promotion_decisions: components["schemas"]["PromotionDecision"][];
             resolved_turn: components["schemas"]["ResolvedTurn"] | null;
             /** Session Id */
             session_id: string;
@@ -2225,11 +2173,6 @@ export interface components {
         TurnSessionSnapshot: {
             /** Active Actor Id */
             active_actor_id?: string | null;
-            /**
-             * Active Entity Ids
-             * @default []
-             */
-            active_entity_ids: string[];
             /** Actor States */
             actor_states: {
                 [key: string]: {
@@ -2238,6 +2181,11 @@ export interface components {
             };
             /** Branch Id */
             branch_id: string;
+            /**
+             * Characters
+             * @default []
+             */
+            characters: components["schemas"]["Character"][];
             /** Checkpoint Id */
             checkpoint_id?: string | null;
             /**
@@ -2255,11 +2203,6 @@ export interface components {
             current_action_spec?: components["schemas"]["ActionSpec"] | null;
             /** Current Step */
             current_step: number;
-            /**
-             * Dynamic Entities
-             * @default []
-             */
-            dynamic_entities: components["schemas"]["DynamicEntityDefinition"][];
             /** Game Master States */
             game_master_states: {
                 [key: string]: {
@@ -2280,6 +2223,11 @@ export interface components {
             };
             /** @default none */
             pending_control: components["schemas"]["PendingControl"];
+            /**
+             * Pending Scene Events
+             * @default []
+             */
+            pending_scene_events: components["schemas"]["ResolvedEvent"][];
             /** Project Id */
             project_id: string;
             /** Raw Log Offset */
@@ -2291,6 +2239,11 @@ export interface components {
             };
             /** Restoration Notice Text */
             restoration_notice_text?: string | null;
+            /**
+             * Roster Actor Ids
+             * @default []
+             */
+            roster_actor_ids: string[];
             /** Session Id */
             session_id: string;
             /**
@@ -2448,8 +2401,18 @@ export interface components {
             confidence: number;
             /** Content */
             content: string;
+            /**
+             * Content Hash
+             * @default
+             */
+            content_hash: string;
             /** Path */
             path: string;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
             /**
              * Source Ids
              * @default []
@@ -2482,6 +2445,15 @@ export interface components {
             title: string;
             /** Updated At Step */
             updated_at_step: number;
+        };
+        /** WikiPageUpdateRequest */
+        WikiPageUpdateRequest: {
+            /** Content */
+            content: string;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Path */
+            path: string;
         };
         /** WikiRebuildRequest */
         WikiRebuildRequest: {
@@ -2712,6 +2684,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ModelProfile"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProfile"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_model_profile_models_profiles__profile_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelProfilePatch"];
             };
         };
         responses: {
@@ -3241,42 +3248,6 @@ export interface operations {
             };
         };
     };
-    rebuild_projection_projects__project_id__branches__branch_id__projection_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                branch_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProjectionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProjectionResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     rollback_branch_projects__project_id__branches__branch_id__rollback_post: {
         parameters: {
             query?: never;
@@ -3445,6 +3416,42 @@ export interface operations {
             };
         };
     };
+    update_wiki_page_projects__project_id__branches__branch_id__wiki_page_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WikiPageUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WikiPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     rebuild_wiki_projects__project_id__branches__branch_id__wiki_rebuild_post: {
         parameters: {
             query?: never;
@@ -3483,7 +3490,9 @@ export interface operations {
     };
     list_characters_projects__project_id__characters_get: {
         parameters: {
-            query?: never;
+            query?: {
+                branch_id?: string;
+            };
             header?: never;
             path: {
                 project_id: string;
@@ -3514,7 +3523,9 @@ export interface operations {
     };
     get_character_projects__project_id__characters__character_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                branch_id?: string;
+            };
             header?: never;
             path: {
                 project_id: string;
@@ -3531,76 +3542,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Character"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    confirm_promotion_projects__project_id__characters__character_id__promote_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                character_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PromotionConfirmationRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PromotionCommitResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    review_promotion_projects__project_id__characters__character_id__promotion_review_post: {
-        parameters: {
-            query: {
-                branch_id: string;
-            };
-            header?: never;
-            path: {
-                project_id: string;
-                character_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PromotionAssessment"];
                 };
             };
             /** @description Validation Error */
@@ -3688,6 +3629,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ProjectModelPolicy"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectModelPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_project_model_policy_projects__project_id__model_policy_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectModelPolicyPatch"];
             };
         };
         responses: {

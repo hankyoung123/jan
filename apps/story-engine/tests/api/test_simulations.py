@@ -186,6 +186,25 @@ def test_simulation_api_start_step_resume_and_terminate(tmp_path: Path) -> None:
     assert app.state.event_bus.sequence >= 9
 
 
+def test_simulation_start_rejects_an_opening_roster_larger_than_four(
+    tmp_path: Path,
+) -> None:
+    client, _ = _client(tmp_path)
+
+    response = client.post(
+        "/projects/fog-harbor/simulations",
+        headers=AUTH,
+        json={
+            "premise_text": "The whole cast gathers at the harbor.",
+            "actor_ids": [f"agent-{index}" for index in range(5)],
+            "content_locale": "en-US",
+            "control": {"mode": "step", "max_steps": 4},
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_background_run_accepts_pause_while_atomic_step_is_in_flight(
     tmp_path: Path,
 ) -> None:
@@ -397,7 +416,7 @@ def test_failed_stage_is_durable_and_identifies_the_failure_location(
         assert restored.json()["status"] == "paused"
 
 
-def test_simulation_api_checkpoint_branch_rollback_and_projection(
+def test_simulation_api_checkpoint_branch_rollback(
     tmp_path: Path,
 ) -> None:
     client, _ = _client(tmp_path)
@@ -429,11 +448,6 @@ def test_simulation_api_checkpoint_branch_rollback_and_projection(
             "content_locale": "zh-CN",
         },
     )
-    projected = client.post(
-        "/projects/fog-harbor/branches/main/projection",
-        headers=AUTH,
-        json={"checkpoint_id": checkpoint_id},
-    )
     rolled_back = client.post(
         "/projects/fog-harbor/branches/main/rollback",
         headers=AUTH,
@@ -451,11 +465,6 @@ def test_simulation_api_checkpoint_branch_rollback_and_projection(
     assert checkpointed.status_code == 200
     assert forked.status_code == 201
     assert forked.json()["parent_branch_id"] == "main"
-    assert projected.status_code == 200
-    assert any(
-        path.endswith("wiki/branches/main/world/state.md")
-        for path in projected.json()["written_paths"]
-    )
     assert rolled_back.status_code == 200
     assert rolled_back.json()["head_checkpoint_id"] == checkpoint_id
     assert {branch["branch_id"] for branch in branches.json()} == {
@@ -570,4 +579,3 @@ def test_openapi_exposes_session_control_surface(tmp_path: Path) -> None:
     assert "/projects/{project_id}/branches" in paths
     assert "/projects/{project_id}/branches/compare" in paths
     assert "/projects/{project_id}/branches/{branch_id}/rollback" in paths
-    assert "/projects/{project_id}/branches/{branch_id}/projection" in paths

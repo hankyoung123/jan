@@ -68,6 +68,35 @@ fn resolve_provider(
         .map(|config| (config, model_ref.to_owned()))
 }
 
+fn normalize_deepseek_reasoning(object: &mut serde_json::Map<String, Value>) {
+    let Some(Value::String(requested)) = object.remove("reasoning_effort") else {
+        return;
+    };
+    let (effort, thinking) = match requested.as_str() {
+        "none" => (None, "disabled"),
+        "minimal" | "low" => (Some("low"), "enabled"),
+        "medium" | "high" | "xhigh" => (Some("high"), "enabled"),
+        "max" => (Some("max"), "enabled"),
+        _ => return,
+    };
+    object.insert("thinking".to_owned(), json!({ "type": thinking }));
+    if let Some(effort) = effort {
+        object.insert("reasoning_effort".to_owned(), json!(effort));
+    }
+}
+
+fn passthrough_payload(body: &Value, provider: &ProviderConfig) -> Value {
+    let mut payload = body.clone();
+    if let Some(object) = payload.as_object_mut() {
+        if provider.provider.eq_ignore_ascii_case("deepseek") {
+            normalize_deepseek_reasoning(object);
+        } else if !provider.provider.eq_ignore_ascii_case("openai") {
+            object.remove("reasoning_effort");
+        }
+    }
+    payload
+}
+
 async fn models(
     provider_configs: &Arc<Mutex<HashMap<String, ProviderConfig>>>,
 ) -> Response<ResponseBody> {
@@ -141,7 +170,7 @@ async fn forward_completion(
     let payload = converter
         .as_ref()
         .map(|item| item.convert_request(&body))
-        .unwrap_or_else(|| body.clone());
+        .unwrap_or_else(|| passthrough_payload(&body, &provider));
     let streaming = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let client = Client::new();
     let keys = provider.bearer_key_chain();
@@ -362,5 +391,80 @@ mod tests {
     fn rejects_unknown_model_reference() {
         let configs = HashMap::from([("cloud".to_owned(), provider("cloud", &["story-model"]))]);
         assert!(resolve_provider("missing", &configs).is_none());
+    }
+
+    #[test]
+    fn maps_deepseek_reasoning_effort_to_chat_completions_contract() {
+        let config = provider("deepseek", &["story-model"]);
+        let cases = [
+            ("none", None, "disabled"),
+            ("minimal", Some("low"), "enabled"),
+            ("low", Some("low"), "enabled"),
+            ("medium", Some("high"), "enabled"),
+            ("high", Some("high"), "enabled"),
+            ("xhigh", Some("high"), "enabled"),
+            ("max", Some("max"), "enabled"),
+        ];
+
+        for (requested, expected_effort, expected_thinking) in cases {
+            let body = json!({
+                "model": "story-model",
+                "messages": [],
+                "reasoning_effort": requested
+            });
+
+            let payload = passthrough_payload(&body, &config);
+
+            assert_eq!(
+                payload.get("reasoning_effort").and_then(Value::as_str),
+                expected_effort,
+                "requested effort: {requested}"
+            );
+            assert_eq!(
+                payload["thinking"]["type"],
+                json!(expected_thinking),
+                "requested effort: {requested}"
+            );
+        }
+    }
+
+    #[test]
+    fn leaves_deepseek_thinking_at_provider_default_when_effort_is_unset() {
+        let config = provider("deepseek", &["story-model"]);
+        let body = json!({"model": "story-model", "messages": []});
+
+        let payload = passthrough_payload(&body, &config);
+
+        assert!(payload.get("reasoning_effort").is_none());
+        assert!(payload.get("thinking").is_none());
+    }
+
+    #[test]
+    fn strips_openai_reasoning_effort_from_unsupported_generic_provider() {
+        let config = provider("mistral", &["story-model"]);
+        let body = json!({
+            "model": "story-model",
+            "messages": [],
+            "reasoning_effort": "high"
+        });
+
+        let payload = passthrough_payload(&body, &config);
+
+        assert!(payload.get("reasoning_effort").is_none());
+        assert_eq!(payload["model"], json!("story-model"));
+    }
+
+    #[test]
+    fn preserves_reasoning_effort_for_openai_request() {
+        let config = provider("openai", &["gpt-5"]);
+        let body = json!({
+            "model": "gpt-5",
+            "messages": [],
+            "reasoning_effort": "high"
+        });
+
+        let payload = passthrough_payload(&body, &config);
+
+        assert_eq!(payload["reasoning_effort"], json!("high"));
     }
 }

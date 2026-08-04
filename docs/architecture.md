@@ -36,7 +36,8 @@ resolution.
 The branch head checkpoint is canonical for a running simulation. A checkpoint
 contains actor/component state, Game Master state, private/shared memory
 snapshots, current step, raw-log offset, locale, status, and a canonical SHA-256
-state hash.
+state hash. It also contains the branch-local Character projection, current
+Actor roster, and unclosed-scene events needed for automatic NPC review.
 
 The commit order is:
 
@@ -48,10 +49,10 @@ A failure before step 3 can leave unreachable data, but never a branch head
 that references a missing checkpoint. Model calls occur outside filesystem
 locks. One live writer is allowed per project branch.
 
-Markdown under `.story-engine/projections/<branch>/` is a disposable human
-view. World, timeline, and character projections can be deleted and rebuilt
-from a selected checkpoint without affecting recovery. Project Markdown still
-provides editable seed material and manuscript export.
+The branch Wiki under `wiki/branches/<branch>/` is the maintained human view.
+World, character, and timeline Wiki pages are rebuilt from durable history and
+checkpoints without affecting recovery. Project Markdown still provides
+editable seed material and manuscript export.
 
 ## Privacy and locale
 
@@ -64,13 +65,24 @@ owner and scope metadata and are hash-verified.
 references, paths, and hashes remain locale-independent. UI locale remains a
 front-end concern.
 
+## NPC lifecycle
+
+The Game Master may introduce a recurring ordinary person as an `npc`. This
+does not allocate an Actor or model. At a scene boundary, the Editor evaluates
+NPCs that participated in confirmed scene events. A positive, evidence-backed
+decision atomically changes `npc` to `active`, creates its private memory and
+Actor, and adds it to the branch-local Active Agent Pool. The decision is logged
+with the step; there is no confirmation API. At each scene boundary, the Game
+Master selects one to four Active Agents for the next Scene Roster. V1 does not
+retire them automatically.
+
 ## Control and recovery
 
 The session API supports start, get, step, run, pause, resume, terminate, and
 explicit checkpoint operations. Control policies expose step, scene, chapter,
 and autonomous modes plus hard step, runtime, token, and failure budgets.
 Branch APIs create a branch from any project checkpoint, roll a branch head
-back, and rebuild projections.
+back, and rebuild the Wiki.
 
 WebSocket events report simulation start, step completion, pause, checkpoint,
 termination, failure, and resynchronization. HTTP state remains authoritative
@@ -79,7 +91,7 @@ when an event is missed.
 ## Model access and observability
 
 `ModelGateway` is the only provider boundary. Runtime model tasks are `actor`,
-`game_master`, `reflection`, `memory_consolidation`, `projection`, `editor`,
-`writer`, and `embedding`. Every Concordia bridge call can record profile,
+`game_master`, `wiki_maintenance`, `editor`, and `writer`. Every Concordia
+bridge call can record profile,
 provider, model, prompt version/hash, components, memory sources, token counts,
 duration, retries, and structured errors in the step trace.

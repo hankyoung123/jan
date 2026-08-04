@@ -28,9 +28,7 @@ from story_engine.workspace.transaction import recover_incomplete_transactions
 
 _PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _DERIVED_DIRECTORIES = (
-    ".story-engine/reviews",
     ".story-engine/manuscript",
-    ".story-engine/projections",
     ".story-engine/runtime/sessions",
     ".story-engine/cache",
     ".story-engine/index",

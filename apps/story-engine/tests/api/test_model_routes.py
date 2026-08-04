@@ -104,6 +104,67 @@ def test_complete_uses_task_profile_through_injected_bridge(tmp_path: Path) -> N
     assert completed.json()["usage"]["total_tokens"] == 2
 
 
+def test_model_profile_patch_updates_only_provided_fields(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+
+    patched = client.patch(
+        "/models/profiles/writer",
+        headers=HEADERS,
+        json={"max_output_tokens": 4096},
+    )
+
+    assert patched.status_code == 200
+    body = patched.json()
+    assert body["id"] == "writer"
+    assert body["max_output_tokens"] == 4096
+    assert body["timeout_seconds"] == 60
+    assert body["model_ref"] == "test-provider/test-writer"
+
+    empty = client.patch("/models/profiles/writer", headers=HEADERS, json={})
+    assert empty.status_code == 422
+
+
+def test_model_policy_patch_merges_agent_overrides_and_deletes_with_null(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    SubmissionService(settings.projects_root).finalize(fog_harbor_submission())
+    client = _client(tmp_path)
+    profile = {
+        "id": "actor-secondary",
+        "task_type": "actor",
+        "model_ref": "test-provider/test-actor-secondary",
+        "max_output_tokens": 2048,
+        "timeout_seconds": 60,
+        "temperature": 0.4,
+    }
+    assert client.put(
+        "/models/profiles/actor-secondary",
+        headers=HEADERS,
+        json=profile,
+    ).status_code == 200
+
+    assigned = client.patch(
+        "/projects/fog-harbor/model-policy",
+        headers=HEADERS,
+        json={"agent_profile_ids": {"chen-mo": "actor-secondary"}},
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["agent_profile_ids"] == {
+        "chen-mo": "actor-secondary"
+    }
+
+    cleared = client.patch(
+        "/projects/fog-harbor/model-policy",
+        headers=HEADERS,
+        json={"agent_profile_ids": {"chen-mo": None}},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["agent_profile_ids"] == {}
+
+
 def test_project_model_policy_is_authenticated_and_persists_agent_overrides(
     tmp_path: Path,
 ) -> None:

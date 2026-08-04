@@ -465,11 +465,6 @@
       "ControlPolicy": {
         "additionalProperties": false,
         "properties": {
-          "allow_dynamic_entities": {
-            "default": true,
-            "title": "Allow Dynamic Entities",
-            "type": "boolean"
-          },
           "allow_user_override": {
             "default": true,
             "title": "Allow User Override",
@@ -586,66 +581,12 @@
         "title": "DirectorInstructionRequest",
         "type": "object"
       },
-      "DynamicEntityDefinition": {
-        "additionalProperties": false,
-        "properties": {
-          "active": {
-            "default": true,
-            "title": "Active",
-            "type": "boolean"
-          },
-          "display_name": {
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "Display Name",
-            "type": "string"
-          },
-          "entity_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Entity Id",
-            "type": "string"
-          },
-          "goal": {
-            "maxLength": 16384,
-            "minLength": 1,
-            "title": "Goal",
-            "type": "string"
-          },
-          "identity": {
-            "maxLength": 16384,
-            "minLength": 1,
-            "title": "Identity",
-            "type": "string"
-          },
-          "location": {
-            "anyOf": [
-              {
-                "maxLength": 1024,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Location"
-          }
-        },
-        "required": [
-          "entity_id",
-          "display_name",
-          "identity",
-          "goal"
-        ],
-        "title": "DynamicEntityDefinition",
-        "type": "object"
-      },
       "EffectOperation": {
         "enum": [
           "set",
           "append",
           "remove",
-          "create_entity",
-          "archive_entity",
+          "create_character",
           "emit_signal"
         ],
         "title": "EffectOperation",
@@ -1142,6 +1083,31 @@
             ],
             "title": "Error Code"
           },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Reason"
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "maximum": 8192.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
           "model_ref": {
             "anyOf": [
               {
@@ -1173,6 +1139,38 @@
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Prompt Version",
             "type": "string"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "reasoning_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Tokens"
           },
           "retry_count": {
             "default": 0,
@@ -1228,6 +1226,32 @@
           },
           "task_type": {
             "$ref": "#/components/schemas/TaskType"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Seconds"
           },
           "validation_errors": {
             "default": [],
@@ -1303,11 +1327,13 @@
             "anyOf": [
               {
                 "enum": [
-                  "disabled",
+                  "none",
+                  "minimal",
                   "low",
                   "medium",
                   "high",
-                  "xhigh"
+                  "xhigh",
+                  "max"
                 ],
                 "type": "string"
               },
@@ -1356,9 +1382,102 @@
         "title": "ModelProfile",
         "type": "object"
       },
+      "ModelProfilePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "max_output_tokens": {
+            "anyOf": [
+              {
+                "maximum": 8192.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Output Tokens"
+          },
+          "model_ref": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 3,
+                "pattern": "^[^/\\s]+/.+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Ref"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Seconds"
+          }
+        },
+        "title": "ModelProfilePatch",
+        "type": "object"
+      },
       "ModelRequest": {
         "additionalProperties": false,
         "properties": {
+          "first_content_timeout_seconds": {
+            "anyOf": [
+              {
+                "maximum": 300.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Content Timeout Seconds"
+          },
           "max_output_tokens": {
             "anyOf": [
               {
@@ -1393,6 +1512,15 @@
             ],
             "title": "Output Schema"
           },
+          "output_token_limit": {
+            "default": "profile",
+            "enum": [
+              "profile",
+              "provider"
+            ],
+            "title": "Output Token Limit",
+            "type": "string"
+          },
           "profile_id": {
             "minLength": 1,
             "title": "Profile Id",
@@ -1402,11 +1530,13 @@
             "anyOf": [
               {
                 "enum": [
-                  "disabled",
+                  "none",
+                  "minimal",
                   "low",
                   "medium",
                   "high",
-                  "xhigh"
+                  "xhigh",
+                  "max"
                 ],
                 "type": "string"
               },
@@ -1474,6 +1604,19 @@
             ],
             "title": "Finish Reason"
           },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "maximum": 8192.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
           "model_ref": {
             "anyOf": [
               {
@@ -1491,6 +1634,12 @@
           "profile_id": {
             "title": "Profile Id",
             "type": "string"
+          },
+          "retry_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Retry Count",
+            "type": "integer"
           },
           "usage": {
             "$ref": "#/components/schemas/ModelUsage"
@@ -1517,6 +1666,18 @@
             "minimum": 0.0,
             "title": "Prompt Tokens",
             "type": "integer"
+          },
+          "reasoning_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Tokens"
           },
           "total_tokens": {
             "default": 0,
@@ -1749,6 +1910,57 @@
         "title": "ProjectModelPolicy",
         "type": "object"
       },
+      "ProjectModelPolicyPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_profile_ids": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Profile Ids"
+          },
+          "task_profile_ids": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "enum": [
+                    "actor",
+                    "game_master",
+                    "wiki_maintenance",
+                    "editor",
+                    "writer"
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Profile Ids"
+          }
+        },
+        "title": "ProjectModelPolicyPatch",
+        "type": "object"
+      },
       "ProjectSnapshot": {
         "additionalProperties": false,
         "properties": {
@@ -1782,181 +1994,52 @@
         "title": "ProjectSnapshot",
         "type": "object"
       },
-      "ProjectionRequest": {
+      "PromotionDecision": {
         "additionalProperties": false,
         "properties": {
-          "checkpoint_id": {
-            "anyOf": [
-              {
-                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Checkpoint Id"
-          }
-        },
-        "title": "ProjectionRequest",
-        "type": "object"
-      },
-      "ProjectionResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "branch_id": {
+          "character_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Branch Id",
+            "title": "Character Id",
             "type": "string"
           },
-          "checkpoint_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Checkpoint Id",
-            "type": "string"
-          },
-          "written_paths": {
+          "evidence_event_ids": {
+            "default": [],
             "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
               "type": "string"
             },
-            "title": "Written Paths",
+            "title": "Evidence Event Ids",
             "type": "array"
-          }
-        },
-        "required": [
-          "branch_id",
-          "checkpoint_id",
-          "written_paths"
-        ],
-        "title": "ProjectionResponse",
-        "type": "object"
-      },
-      "PromotionAssessment": {
-        "additionalProperties": false,
-        "properties": {
-          "candidate": {
+          },
+          "promote": {
+            "title": "Promote",
+            "type": "boolean"
+          },
+          "proposed_goal": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/PromotionCandidate"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "character_id": {
-            "title": "Character Id",
-            "type": "string"
-          },
-          "project_id": {
-            "title": "Project Id",
-            "type": "string"
-          },
-          "review": {
-            "$ref": "#/components/schemas/ReviewResult"
-          }
-        },
-        "required": [
-          "project_id",
-          "character_id",
-          "review"
-        ],
-        "title": "PromotionAssessment",
-        "type": "object"
-      },
-      "PromotionCandidate": {
-        "additionalProperties": false,
-        "properties": {
-          "base_character_version": {
-            "minimum": 0.0,
-            "title": "Base Character Version",
-            "type": "integer"
-          },
-          "base_workspace_revision": {
-            "anyOf": [
-              {
-                "pattern": "^[0-9a-f]{64}$",
+                "maxLength": 16384,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Base Workspace Revision"
+            "title": "Proposed Goal"
           },
-          "character_id": {
-            "pattern": "^[a-z0-9][a-z0-9-]*$",
-            "title": "Character Id",
-            "type": "string"
-          },
-          "id": {
-            "pattern": "^promotion-[a-z0-9][a-z0-9-]*-v[0-9]+$",
-            "title": "Id",
-            "type": "string"
-          },
-          "project_id": {
+          "reason": {
+            "maxLength": 16384,
             "minLength": 1,
-            "title": "Project Id",
-            "type": "string"
-          },
-          "proposed_goal": {
-            "minLength": 1,
-            "title": "Proposed Goal",
-            "type": "string"
-          },
-          "review": {
-            "$ref": "#/components/schemas/ReviewResult"
-          },
-          "status": {
-            "default": "pending",
-            "enum": [
-              "pending",
-              "committed"
-            ],
-            "title": "Status",
+            "title": "Reason",
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "project_id",
           "character_id",
-          "base_character_version",
-          "proposed_goal",
-          "review"
+          "promote",
+          "reason"
         ],
-        "title": "PromotionCandidate",
-        "type": "object"
-      },
-      "PromotionCommitResult": {
-        "additionalProperties": false,
-        "properties": {
-          "candidate": {
-            "$ref": "#/components/schemas/PromotionCandidate"
-          },
-          "character": {
-            "$ref": "#/components/schemas/Character"
-          }
-        },
-        "required": [
-          "character",
-          "candidate"
-        ],
-        "title": "PromotionCommitResult",
-        "type": "object"
-      },
-      "PromotionConfirmationRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "candidate_id": {
-            "pattern": "^promotion-[a-z0-9][a-z0-9-]*-v[0-9]+$",
-            "title": "Candidate Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "candidate_id"
-        ],
-        "title": "PromotionConfirmationRequest",
+        "title": "PromotionDecision",
         "type": "object"
       },
       "Relationship": {
@@ -2888,6 +2971,7 @@
               "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
               "type": "string"
             },
+            "maxItems": 4,
             "title": "Actor Ids",
             "type": "array"
           },
@@ -3278,6 +3362,14 @@
             ],
             "title": "Checkpoint Id"
           },
+          "promotion_decisions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PromotionDecision"
+            },
+            "title": "Promotion Decisions",
+            "type": "array"
+          },
           "resolved_turn": {
             "anyOf": [
               {
@@ -3660,6 +3752,7 @@
               "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
               "type": "string"
             },
+            "maxItems": 4,
             "title": "Actor Ids",
             "type": "array"
           },
@@ -3733,15 +3826,6 @@
             ],
             "title": "Active Actor Id"
           },
-          "active_entity_ids": {
-            "default": [],
-            "items": {
-              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-              "type": "string"
-            },
-            "title": "Active Entity Ids",
-            "type": "array"
-          },
           "actor_states": {
             "patternProperties": {
               "^[a-z0-9][a-z0-9._:-]{0,127}$": {
@@ -3758,6 +3842,14 @@
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Branch Id",
             "type": "string"
+          },
+          "characters": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Character"
+            },
+            "title": "Characters",
+            "type": "array"
           },
           "checkpoint_id": {
             "anyOf": [
@@ -3804,14 +3896,6 @@
             "minimum": 0.0,
             "title": "Current Step",
             "type": "integer"
-          },
-          "dynamic_entities": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/DynamicEntityDefinition"
-            },
-            "title": "Dynamic Entities",
-            "type": "array"
           },
           "game_master_states": {
             "patternProperties": {
@@ -3869,6 +3953,14 @@
             "$ref": "#/components/schemas/PendingControl",
             "default": "none"
           },
+          "pending_scene_events": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResolvedEvent"
+            },
+            "title": "Pending Scene Events",
+            "type": "array"
+          },
           "project_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Project Id",
@@ -3902,6 +3994,16 @@
               }
             ],
             "title": "Restoration Notice Text"
+          },
+          "roster_actor_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Roster Actor Ids",
+            "type": "array"
           },
           "session_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
@@ -4330,11 +4432,23 @@
             "title": "Content",
             "type": "string"
           },
+          "content_hash": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Content Hash",
+            "type": "string"
+          },
           "path": {
             "maxLength": 512,
             "minLength": 1,
             "title": "Path",
             "type": "string"
+          },
+          "revision": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
           },
           "source_ids": {
             "default": [],
@@ -4428,6 +4542,34 @@
           "confidence"
         ],
         "title": "WikiPageSummary",
+        "type": "object"
+      },
+      "WikiPageUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 65536,
+            "title": "Content",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "path": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content",
+          "expected_revision"
+        ],
+        "title": "WikiPageUpdateRequest",
         "type": "object"
       },
       "WikiRebuildRequest": {
@@ -4856,6 +4998,61 @@
       }
     },
     "/models/profiles/{profile_id}": {
+      "patch": {
+        "operationId": "patch_model_profile_models_profiles__profile_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelProfilePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Patch Model Profile",
+        "tags": [
+          "models"
+        ]
+      },
       "put": {
         "operationId": "put_model_profile_models_profiles__profile_id__put",
         "parameters": [
@@ -5801,72 +5998,6 @@
         ]
       }
     },
-    "/projects/{project_id}/branches/{branch_id}/projection": {
-      "post": {
-        "operationId": "rebuild_projection_projects__project_id__branches__branch_id__projection_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "branch_id",
-            "required": true,
-            "schema": {
-              "title": "Branch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProjectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectionResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Rebuild Projection",
-        "tags": [
-          "simulations"
-        ]
-      }
-    },
     "/projects/{project_id}/branches/{branch_id}/rollback": {
       "post": {
         "operationId": "rollback_branch_projects__project_id__branches__branch_id__rollback_post",
@@ -6180,6 +6311,70 @@
         "tags": [
           "wiki"
         ]
+      },
+      "put": {
+        "operationId": "update_wiki_page_projects__project_id__branches__branch_id__wiki_page_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WikiPageUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WikiPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Update Wiki Page",
+        "tags": [
+          "wiki"
+        ]
       }
     },
     "/projects/{project_id}/branches/{branch_id}/wiki/rebuild": {
@@ -6260,6 +6455,16 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "branch_id",
+            "required": false,
+            "schema": {
+              "default": "main",
+              "title": "Branch Id",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6320,6 +6525,16 @@
               "title": "Character Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "branch_id",
+            "required": false,
+            "schema": {
+              "default": "main",
+              "title": "Branch Id",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6350,137 +6565,6 @@
           }
         ],
         "summary": "Get Character",
-        "tags": [
-          "characters"
-        ]
-      }
-    },
-    "/projects/{project_id}/characters/{character_id}/promote": {
-      "post": {
-        "operationId": "confirm_promotion_projects__project_id__characters__character_id__promote_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "character_id",
-            "required": true,
-            "schema": {
-              "title": "Character Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PromotionConfirmationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PromotionCommitResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Confirm Promotion",
-        "tags": [
-          "characters"
-        ]
-      }
-    },
-    "/projects/{project_id}/characters/{character_id}/promotion-review": {
-      "post": {
-        "operationId": "review_promotion_projects__project_id__characters__character_id__promotion_review_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "character_id",
-            "required": true,
-            "schema": {
-              "title": "Character Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "branch_id",
-            "required": true,
-            "schema": {
-              "title": "Branch Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PromotionAssessment"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Review Promotion",
         "tags": [
           "characters"
         ]
@@ -6575,6 +6659,61 @@
           }
         ],
         "summary": "Get Project Model Policy",
+        "tags": [
+          "models"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_project_model_policy_projects__project_id__model_policy_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectModelPolicyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModelPolicy"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Patch Project Model Policy",
         "tags": [
           "models"
         ]

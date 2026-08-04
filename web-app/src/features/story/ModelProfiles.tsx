@@ -6,12 +6,11 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  Save,
   Settings2,
   UsersRound,
   Workflow,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -58,14 +57,17 @@ const reasoningEffortOptions: Array<{
   label: string
 }> = [
   { value: null, label: '跟随模型默认' },
-  { value: 'disabled', label: '关闭思考' },
+  { value: 'none', label: '关闭思考' },
+  { value: 'minimal', label: '最小' },
   { value: 'low', label: '低' },
   { value: 'medium', label: '中' },
   { value: 'high', label: '高' },
   { value: 'xhigh', label: '极高' },
+  { value: 'max', label: '最大' },
 ]
 
 type CloudModelOption = { id: string; label: string }
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 function profileLabel(profile: ModelProfile): string {
   const task = taskLabels[profile.task_type]
@@ -85,48 +87,107 @@ function ProfileRow({
 }) {
   const [draft, setDraft] = useState(profile)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState<SaveStatus>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [temperatureText, setTemperatureText] = useState(
+    String(profile.temperature ?? '')
+  )
+  const [tokensText, setTokensText] = useState(String(profile.max_output_tokens))
+  const [timeoutText, setTimeoutText] = useState(String(profile.timeout_seconds))
+  const confirmedRef = useRef(profile)
+  const pendingRef = useRef<Record<string, unknown>>({})
+  const savingRef = useRef(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     setDraft(profile)
+    pendingRef.current = {}
+    const changed =
+      JSON.stringify(profile) !== JSON.stringify(confirmedRef.current)
+    confirmedRef.current = profile
+    if (changed) setStatus('idle')
     setSaveError(null)
+    setTemperatureText(String(profile.temperature ?? ''))
+    setTokensText(String(profile.max_output_tokens))
+    setTimeoutText(String(profile.timeout_seconds))
   }, [profile])
 
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    },
+    []
+  )
+
+  const save = useCallback(() => {
+    if (savingRef.current) return
+    const patch = pendingRef.current
+    if (Object.keys(patch).length === 0) return
+    pendingRef.current = {}
+    savingRef.current = true
+    setStatus('saving')
+    setSaveError(null)
+    engineRequest<ModelProfile>(`/models/profiles/${profile.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    })
+      .then((saved) => {
+        confirmedRef.current = saved
+        setDraft(saved)
+        setStatus('saved')
+        onSaved(saved)
+      })
+      .catch((cause) => {
+        setDraft(confirmedRef.current)
+        setStatus('error')
+        setSaveError(
+          cause instanceof Error ? cause.message : '任务模型配置更新失败'
+        )
+      })
+      .finally(() => {
+        savingRef.current = false
+        if (Object.keys(pendingRef.current).length > 0) saveRef.current()
+      })
+  }, [onSaved, profile.id])
+  saveRef.current = save
+
+  const queuePatch = useCallback((patch: Record<string, unknown>) => {
+    pendingRef.current = { ...pendingRef.current, ...patch }
+    setDraft((current) => ({ ...current, ...patch }) as ModelProfile)
+    saveRef.current()
+  }, [])
+
+  const queueDebounced = useCallback((patch: Record<string, unknown>) => {
+    pendingRef.current = { ...pendingRef.current, ...patch }
+    setDraft((current) => ({ ...current, ...patch }) as ModelProfile)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => saveRef.current(), 400)
+  }, [])
+
+  const commitNumeric = (
+    field: 'temperature' | 'max_output_tokens' | 'timeout_seconds',
+    text: string,
+    min: number,
+    max: number
+  ) => {
+    if (text === '') {
+      if (field === 'temperature') queueDebounced({ temperature: null })
+      return
+    }
+    const parsed = Number(text)
+    if (!Number.isFinite(parsed) || parsed < min || parsed > max) return
+    queueDebounced({ [field]: parsed })
+  }
+
   const label = profileLabel(draft)
-  const dirty = JSON.stringify(draft) !== JSON.stringify(profile)
-  const valid =
-    draft.max_output_tokens >= 1 &&
-    draft.max_output_tokens <= 8192 &&
-    draft.timeout_seconds >= 1 &&
-    draft.timeout_seconds <= 120 &&
-    (draft.temperature === null ||
-      draft.temperature === undefined ||
-      (draft.temperature >= 0 && draft.temperature <= 2))
   const selectedUnavailable =
     draft.model_ref && !models.some((model) => model.id === draft.model_ref)
-
-  const save = async () => {
-    if (!dirty || !valid || saving) return
-    setSaving(true)
-    setSaveError(null)
-    try {
-      const saved = await engineRequest<ModelProfile>(
-        `/models/profiles/${draft.id}`,
-        { method: 'PUT', body: JSON.stringify(draft) }
-      )
-      onSaved(saved)
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : '任务模型配置保存失败')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   return (
     <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
       <div className="p-3">
-        <div className="grid min-w-0 grid-cols-1 items-end gap-3 lg:grid-cols-[minmax(9rem,0.8fr)_minmax(15rem,2fr)_auto_auto]">
+        <div className="grid min-w-0 grid-cols-1 items-end gap-3 lg:grid-cols-[minmax(9rem,0.8fr)_minmax(15rem,2fr)_auto]">
           <div className="self-center">
             <span className="block text-sm font-medium">{taskLabels[draft.task_type]}</span>
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
@@ -140,10 +201,7 @@ function ProfileRow({
               className="h-9 w-full rounded-md border bg-background px-3 text-sm"
               id={`${draft.id}-model`}
               onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  model_ref: event.target.value || null,
-                }))
+                queuePatch({ model_ref: event.target.value || null })
               }
               value={draft.model_ref ?? ''}
             >
@@ -170,15 +228,6 @@ function ProfileRow({
               />
             </Button>
           </CollapsibleTrigger>
-          <Button
-            aria-label={`保存${label}`}
-            disabled={!dirty || !valid || saving}
-            onClick={() => void save()}
-            size="sm"
-          >
-            {saving ? <Loader2 className="animate-spin" /> : <Save />}
-            保存
-          </Button>
         </div>
 
         <CollapsibleContent>
@@ -189,16 +238,13 @@ function ProfileRow({
                 id={`${draft.id}-temperature`}
                 max={2}
                 min={0}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    temperature:
-                      event.target.value === '' ? null : Number(event.target.value),
-                  }))
-                }
+                onChange={(event) => {
+                  setTemperatureText(event.target.value)
+                  commitNumeric('temperature', event.target.value, 0, 2)
+                }}
                 step={0.1}
                 type="number"
-                value={draft.temperature ?? ''}
+                value={temperatureText}
               />
             </div>
             <div className="space-y-1.5">
@@ -208,11 +254,11 @@ function ProfileRow({
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                 id={`${draft.id}-reasoning`}
                 onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
+                  queuePatch({
                     reasoning_effort:
-                      (event.target.value || null) as ModelProfile['reasoning_effort'],
-                  }))
+                      (event.target.value ||
+                        null) as ModelProfile['reasoning_effort'],
+                  })
                 }
                 value={draft.reasoning_effort ?? ''}
               >
@@ -223,47 +269,47 @@ function ProfileRow({
                 ))}
               </select>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor={`${draft.id}-tokens`}>最大输出 Token</Label>
-              <Input
-                id={`${draft.id}-tokens`}
-                max={8192}
-                min={1}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    max_output_tokens: Number(event.target.value),
-                  }))
-                }
-                type="number"
-                value={draft.max_output_tokens}
-              />
-            </div>
+            {draft.task_type !== 'writer' && (
+              <div className="space-y-1.5">
+                <Label htmlFor={`${draft.id}-tokens`}>最大输出 Token</Label>
+                <Input
+                  id={`${draft.id}-tokens`}
+                  max={8192}
+                  min={1}
+                  onChange={(event) => {
+                    setTokensText(event.target.value)
+                    commitNumeric('max_output_tokens', event.target.value, 1, 8192)
+                  }}
+                  type="number"
+                  value={tokensText}
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor={`${draft.id}-timeout`}>超时（秒）</Label>
               <Input
                 id={`${draft.id}-timeout`}
                 max={120}
                 min={1}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    timeout_seconds: Number(event.target.value),
-                  }))
-                }
+                onChange={(event) => {
+                  setTimeoutText(event.target.value)
+                  commitNumeric('timeout_seconds', event.target.value, 1, 120)
+                }}
                 type="number"
-                value={draft.timeout_seconds}
+                value={timeoutText}
               />
             </div>
           </div>
         </CollapsibleContent>
         <div className="mt-2 flex h-4 items-center gap-1.5 text-xs text-muted-foreground">
-          {saving ? (
-            <><Loader2 className="size-3 animate-spin" />保存中</>
-          ) : dirty ? (
-            '有未保存修改'
-          ) : (
-            <><Check className="size-3" />已保存</>
+          {status === 'saving' && (
+            <><Loader2 className="size-3 animate-spin" />正在更新…</>
+          )}
+          {status === 'saved' && (
+            <><Check className="size-3" />已更新</>
+          )}
+          {status === 'error' && (
+            <span className="text-destructive">更新失败</span>
           )}
         </div>
         {saveError && (
@@ -290,27 +336,37 @@ function AgentProfileRow({
   onSaved: (profileId: string | null) => Promise<void>
 }) {
   const [draft, setDraft] = useState(selectedProfileId ?? '')
-  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState<SaveStatus>('idle')
   const [error, setError] = useState<string | null>(null)
+  const confirmedRef = useRef(selectedProfileId ?? '')
   const displayName = character.display_name || character.id
-  const dirty = draft !== (selectedProfileId ?? '')
 
   useEffect(() => {
+    const changed = (selectedProfileId ?? '') !== confirmedRef.current
+    confirmedRef.current = selectedProfileId ?? ''
     setDraft(selectedProfileId ?? '')
+    if (changed) setStatus('idle')
     setError(null)
   }, [selectedProfileId])
 
-  const save = async () => {
-    if (!dirty || saving) return
-    setSaving(true)
+  const save = (value: string) => {
+    if (value === confirmedRef.current) return
+    const next = value || null
+    setDraft(value)
+    setStatus('saving')
     setError(null)
-    try {
-      await onSaved(draft || null)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Agent Profile 保存失败')
-    } finally {
-      setSaving(false)
-    }
+    onSaved(next)
+      .then(() => {
+        confirmedRef.current = value
+        setStatus('saved')
+      })
+      .catch((caught) => {
+        setDraft(confirmedRef.current)
+        setStatus('error')
+        setError(
+          caught instanceof Error ? caught.message : 'Agent Profile 更新失败'
+        )
+      })
   }
 
   return (
@@ -327,7 +383,7 @@ function AgentProfileRow({
           aria-label={`${displayName} Agent Profile`}
           className="h-9 w-full rounded-md border bg-background px-3 text-sm"
           id={`agent-${character.id}`}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => save(event.target.value)}
           value={draft}
         >
           <option value="">跟随角色默认（{defaultProfileId}）</option>
@@ -336,17 +392,19 @@ function AgentProfileRow({
               {profile.id} · {profile.model_ref ?? '未选择模型'}
             </option>
           ))}
-        </select>
+          </select>
+        </div>
+      <div className="flex h-9 items-center gap-1.5 text-xs text-muted-foreground">
+        {status === 'saving' && (
+          <><Loader2 className="size-3 animate-spin" />正在更新…</>
+        )}
+        {status === 'saved' && (
+          <><Check className="size-3" />已更新</>
+        )}
+        {status === 'error' && (
+          <span className="text-destructive">更新失败</span>
+        )}
       </div>
-      <Button
-        aria-label={`保存${displayName} Agent Profile`}
-        disabled={!dirty || saving}
-        onClick={() => void save()}
-        size="sm"
-      >
-        {saving ? <Loader2 className="animate-spin" /> : <Save />}
-        保存
-      </Button>
       {error && (
         <p className="text-xs text-destructive lg:col-start-2" role="alert">
           {error}
@@ -389,22 +447,25 @@ export function ModelProfiles() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [nextProfiles, nextUsage, projectData] = await Promise.all([
-        engineRequest<ModelProfile[]>('/models/profiles'),
-        engineRequest<UsageTotals>('/models/usage').catch(() => emptyUsage),
-        projectId
-          ? Promise.all([
-              engineRequest<ProjectModelPolicy>(
+      const [nextProfiles, nextUsage, nextPolicy, nextCharacters] =
+        await Promise.all([
+          engineRequest<ModelProfile[]>('/models/profiles'),
+          engineRequest<UsageTotals>('/models/usage').catch(() => emptyUsage),
+          projectId
+            ? engineRequest<ProjectModelPolicy>(
                 `/projects/${projectId}/model-policy`
-              ),
-              engineRequest<Character[]>(`/projects/${projectId}/characters`),
-            ])
-          : Promise.resolve(null),
-      ])
+              ).catch(() => null)
+            : Promise.resolve(null),
+          projectId
+            ? engineRequest<Character[]>(
+                `/projects/${projectId}/characters`
+              ).catch(() => [])
+            : Promise.resolve([]),
+        ])
       setProfiles(nextProfiles)
       setUsage(nextUsage)
-      setPolicy(projectData?.[0] ?? null)
-      setCharacters(projectData?.[1] ?? [])
+      setPolicy(nextPolicy)
+      setCharacters(nextCharacters)
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : '任务模型配置加载失败')
     } finally {
@@ -421,17 +482,12 @@ export function ModelProfiles() {
     profileId: string | null
   ) => {
     if (!projectId || !policy) return
-    const nextAssignments = { ...(policy.agent_profile_ids ?? {}) }
-    if (profileId) nextAssignments[characterId] = profileId
-    else delete nextAssignments[characterId]
     const saved = await engineRequest<ProjectModelPolicy>(
       `/projects/${projectId}/model-policy`,
       {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify({
-          ...policy,
-          task_profile_ids: taskProfileIds,
-          agent_profile_ids: nextAssignments,
+          agent_profile_ids: { [characterId]: profileId },
         }),
       }
     )

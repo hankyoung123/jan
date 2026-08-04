@@ -2,12 +2,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.wiki import WikiPatch, WikiPatchOperation
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.wiki.context import WikiContextBuilder
-from story_engine.wiki.store import WikiStore
+from story_engine.wiki.store import WikiRevisionConflictError, WikiStore
 
 
 def _root(tmp_path: Path) -> Path:
@@ -42,6 +43,7 @@ def test_fork_uses_wiki_version_at_or_before_the_checkpoint(tmp_path: Path) -> N
                 operation=WikiPatchOperation.APPEND_HISTORY,
                 content="## Scene 10\n\nThe bell rings once.",
                 source_ids=("event:scene:10",),
+                expected_revision=0,
             ),
         ),
         checkpoint_id="checkpoint:ten",
@@ -54,6 +56,7 @@ def test_fork_uses_wiki_version_at_or_before_the_checkpoint(tmp_path: Path) -> N
                 operation=WikiPatchOperation.APPEND_HISTORY,
                 content="## Scene 20\n\nThe bell rings twice.",
                 source_ids=("event:scene:20",),
+                expected_revision=1,
             ),
         ),
         checkpoint_id="checkpoint:twenty",
@@ -85,6 +88,7 @@ def test_one_thousand_scene_updates_keep_context_bounded(tmp_path: Path) -> None
                     operation=WikiPatchOperation.REPLACE_SECTION,
                     content=f"Current bounded thread at scene {step}.",
                     source_ids=(f"event:scene:{step}",),
+                    expected_revision=step - 1,
                 ),
             ),
             checkpoint_id=f"checkpoint:{step}",
@@ -194,8 +198,101 @@ def test_store_rejects_a_page_that_would_exceed_the_limit(tmp_path: Path) -> Non
                     operation=WikiPatchOperation.APPEND_HISTORY,
                     content="x" * 65_536,
                     source_ids=("event:too-large",),
+                    expected_revision=0,
                 ),
             ),
             checkpoint_id="checkpoint:large",
             step=1,
+        )
+
+
+def test_stale_revision_patch_is_rejected_without_partial_writes(
+    tmp_path: Path,
+) -> None:
+    root = _root(tmp_path)
+    store = WikiStore(root, "main")
+    before = store.load_page("world/state.md")
+    rules_before = store.load_page("world/rules.md")
+
+    with pytest.raises(WikiRevisionConflictError, match="current revision 0"):
+        store.apply_patches(
+            (
+                WikiPatch(
+                    path="world/state.md",
+                    operation=WikiPatchOperation.APPEND_HISTORY,
+                    content="## Scene 1\n\nFirst writer.",
+                    source_ids=("event:scene:1",),
+                    expected_revision=0,
+                ),
+                WikiPatch(
+                    path="world/rules.md",
+                    operation=WikiPatchOperation.APPEND_HISTORY,
+                    content="## Rule\n\nSecond writer.",
+                    source_ids=("event:scene:1",),
+                    expected_revision=1,
+                ),
+            ),
+            checkpoint_id="checkpoint:one",
+            step=1,
+        )
+
+    after = store.load_page("world/state.md")
+    rules = store.load_page("world/rules.md")
+    assert after.revision == before.revision == 0
+    assert after.content == before.content
+    assert rules.revision == rules_before.revision == 0
+    assert rules.content == rules_before.content
+    log = (root / "wiki/branches/main/log.md").read_text(encoding="utf-8")
+    assert "First writer" not in log
+
+
+def test_content_hash_mismatch_is_rejected(tmp_path: Path) -> None:
+    store = WikiStore(_root(tmp_path), "main")
+
+    with pytest.raises(WikiRevisionConflictError):
+        store.apply_patches(
+            (
+                WikiPatch(
+                    path="world/state.md",
+                    operation=WikiPatchOperation.APPEND_HISTORY,
+                    content="## Scene 1\n\nStale base.",
+                    source_ids=("event:scene:1",),
+                    expected_revision=0,
+                    expected_content_hash="0" * 64,
+                ),
+            ),
+            checkpoint_id="checkpoint:one",
+            step=1,
+        )
+
+
+def test_save_page_bumps_revision_and_rejects_stale_edits(tmp_path: Path) -> None:
+    store = WikiStore(_root(tmp_path), "main")
+
+    updated = store.save_page(
+        "world/state.md",
+        "# Current World State\n\nEdited by hand.",
+        expected_revision=0,
+    )
+
+    assert updated.revision == 1
+    assert len(updated.content_hash) == 64
+    assert "Edited by hand" in updated.content
+    assert store.load_page("world/state.md").revision == 1
+    with pytest.raises(WikiRevisionConflictError, match="current revision 1"):
+        store.save_page(
+            "world/state.md",
+            "# Current World State\n\nToo late.",
+            expected_revision=0,
+        )
+
+
+def test_create_patch_cannot_carry_expected_revision() -> None:
+    with pytest.raises(ValidationError, match="create patch"):
+        WikiPatch(
+            path="world/new.md",
+            operation=WikiPatchOperation.CREATE,
+            content="# New\n\nContent.",
+            source_ids=("event:new",),
+            expected_revision=0,
         )

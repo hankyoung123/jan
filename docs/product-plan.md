@@ -105,7 +105,8 @@
 
 - 初始活跃角色：2～4 个。
 - 普通人物默认不是 Agent。
-- 普通人物只有形成独立目标并可能主动影响后续故事时，才提出升级建议。
+- 普通人物只有形成独立目标并可能主动影响后续故事时，才由 Editor
+  在场景边界自动升级。
 - V1 不使用多 Agent 投票和复杂角色等级。
 
 ---
@@ -385,13 +386,16 @@ World Resolver 可以为了回应角色行动创建最小普通人物。
 不能：创建普通人物
 ```
 
-普通人物形成独立目标并可能主动影响后续故事时，Editor 提出：
+普通人物形成独立目标并可能主动影响后续故事时，Editor 在场景边界判断：
 
 ```text
-建议升级为活跃角色 Agent
+自动升级为活跃角色 Agent
 ```
 
-必须由用户确认。系统不得自动升级。
+决策必须引用本场已确认事件作为证据，并随 Step 日志持久化。升级在下一场景
+生效，无需用户确认。分支中的活跃 Agent 总数不设固定上限；每个场景由 Game
+Master 从全部活跃 Agent 中选择 1 至 4 个组成 Scene Roster，每个行动步骤再从
+Roster 中选择 1 个 Acting Agent。系统不自动退休角色。
 
 ## 5.4 正文生成
 
@@ -548,7 +552,6 @@ project/
 ├── sources/
 └── .story-engine/
     ├── turns/
-    ├── reviews/
     ├── cache/
     ├── index/
     └── recovery/
@@ -937,7 +940,7 @@ POST   /projects/{id}/turns/{turn_id}/discard
 
 GET    /projects/{id}/characters
 GET    /projects/{id}/characters/{character_id}
-POST   /projects/{id}/characters/{character_id}/promote
+GET    /projects/{id}/characters?branch_id={branch_id}
 
 GET    /projects/{id}/events
 GET    /projects/{id}/events/{event_id}
@@ -1126,7 +1129,7 @@ turn.cancelled
 - 用户确认；
 - 乐观并发检查；
 - EventCommitService；
-- NPC 升级建议。
+- 场景边界自动 NPC 晋升。
 
 验收：
 
@@ -1316,7 +1319,7 @@ tauri build smoke test
 - 无限后台自动演化；
 - 角色常驻进程；
 - 复杂角色等级；
-- 自动角色晋升；
+- 回合中途创建或晋升 Agent；
 - 多 Agent 投票；
 - 多个常驻编辑 Agent；
 - 角色自我修改 Prompt；

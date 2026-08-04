@@ -24,6 +24,8 @@ from story_engine.persistence.branch_store import BranchStore
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.scene_store import SceneDraftStore, SceneStore
 
+WRITER_FIRST_CONTENT_TIMEOUT_SECONDS = 300
+
 
 class VersionConflictError(RuntimeError):
     """Raised when a scene changed since the client loaded it."""
@@ -101,6 +103,7 @@ class GatewayManuscriptAgent:
             f"Project: {project.model_dump_json()}. Viewpoint: {viewpoint}. "
             f"Runtime source: {_source_context(source)}"
         )
+        writer_profile = self.gateway.registry.get_profile(self.writer_profile_id)
         response = await self.gateway.complete(
             ModelRequest(
                 profile_id=self.writer_profile_id,
@@ -110,8 +113,9 @@ class GatewayManuscriptAgent:
                     WriterOutput.model_json_schema(),
                     ensure_ascii=False,
                 ),
-                max_output_tokens=4096,
-                timeout_seconds=60,
+                output_token_limit="provider",
+                first_content_timeout_seconds=WRITER_FIRST_CONTENT_TIMEOUT_SECONDS,
+                timeout_seconds=writer_profile.timeout_seconds,
                 temperature=0.7,
             )
         )

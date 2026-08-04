@@ -5,6 +5,8 @@ import type {
   SimulationStageEventPayload,
 } from '@story-engine/contracts'
 
+import type { ViewLocation } from './viewUrl'
+
 type SimulationLogRecord = components['schemas']['SimulationLogRecord']
 
 export const simulationStages: SimulationStage[] = [
@@ -15,6 +17,7 @@ export const simulationStages: SimulationStage[] = [
   'actor_action',
   'resolution',
   'memory_routing',
+  'promotion',
   'commit',
 ]
 
@@ -281,4 +284,26 @@ export function selectStage(
   stage: SimulationStage
 ): SimulationViewState {
   return { ...state, selectedStep: step, selectedStage: stage }
+}
+
+export function selectViewLocation(
+  state: SimulationViewState,
+  location: ViewLocation
+): SimulationViewState {
+  const step =
+    location.step !== undefined && state.steps[location.step]
+      ? location.step
+      : state.selectedStep
+  const available = Object.keys(
+    state.steps[step]?.stages ?? {}
+  ) as SimulationStage[]
+  const fallback = available.includes('resolution') ? 'resolution' : available[0]
+  const selectedStage =
+    location.stage && available.includes(location.stage)
+      ? location.stage
+      : state.selectedStage !== undefined &&
+          available.includes(state.selectedStage)
+        ? state.selectedStage
+        : fallback
+  return { ...state, selectedStep: step, selectedStage }
 }

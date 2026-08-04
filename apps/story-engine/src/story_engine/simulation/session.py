@@ -63,12 +63,9 @@ class SimulationSession:
         actor_states = self.runtime.actor_states()
         game_master_states = self.runtime.game_master_states()
         memory_snapshots = self.runtime.memory_snapshots()
-        active_ids = getattr(self.runtime, "active_entity_ids", None)
-        dynamic_definitions = getattr(
-            self.runtime,
-            "dynamic_entity_definitions",
-            None,
-        )
+        roster_ids = getattr(self.runtime, "roster_actor_ids", None)
+        character_states = getattr(self.runtime, "character_states", None)
+        pending_scene_events = getattr(self.runtime, "pending_scene_events", None)
         model_profile_ids = getattr(
             self.runtime,
             "resolved_model_profile_ids",
@@ -85,11 +82,12 @@ class SimulationSession:
             resolved_model_profile_ids=(
                 model_profile_ids() if model_profile_ids is not None else {}
             ),
-            active_entity_ids=(
-                active_ids() if active_ids is not None else tuple(actor_states)
+            roster_actor_ids=(
+                roster_ids() if roster_ids is not None else tuple(actor_states)
             ),
-            dynamic_entities=(
-                dynamic_definitions() if dynamic_definitions is not None else ()
+            characters=(character_states() if character_states is not None else ()),
+            pending_scene_events=(
+                pending_scene_events() if pending_scene_events is not None else ()
             ),
             current_step=self.current_step,
             completed_scenes=self.completed_scenes,

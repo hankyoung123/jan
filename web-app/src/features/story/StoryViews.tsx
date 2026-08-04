@@ -9,7 +9,6 @@ import {
   FolderOpen,
   LockKeyhole,
   Network,
-  Sparkles,
   TriangleAlert,
   UsersRound,
 } from 'lucide-react'
@@ -55,8 +54,6 @@ type ProjectSnapshot = components['schemas']['ProjectSnapshot']
 type StoryCharacter = components['schemas']['Character']
 type ProjectCatalogEntry = components['schemas']['ProjectCatalogEntry']
 type WorkspaceState = components['schemas']['WorkspaceState']
-type PromotionAssessment = components['schemas']['PromotionAssessment']
-type PromotionCommitResult = components['schemas']['PromotionCommitResult']
 
 export function WorkbenchView() {
   const activeProjectId = useActiveStoryProjectId()
@@ -816,25 +813,26 @@ export function CharactersView() {
   const projectId = useActiveStoryProjectId()
   const [project, setProject] = useState<ProjectSnapshot | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [assessment, setAssessment] = useState<PromotionAssessment | null>(null)
-  const [working, setWorking] = useState<'review' | 'promote' | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(projectId !== null)
   const [viewMode, setViewMode] = useState<'wiki' | 'roster' | 'relations'>('wiki')
 
   const loadProject = useCallback(async () => {
     if (!projectId) return
-    const snapshot = await engineRequest<ProjectSnapshot>(
-      `/projects/${projectId}`
-    )
+    const [base, characters] = await Promise.all([
+      engineRequest<ProjectSnapshot>(`/projects/${projectId}`),
+      engineRequest<StoryCharacter[]>(
+        `/projects/${projectId}/characters?branch_id=${encodeURIComponent(branchId)}`
+      ),
+    ])
+    const snapshot = { ...base, characters }
     setProject(snapshot)
     setSelectedId((current) =>
       snapshot.characters.some((character) => character.id === current)
         ? current
         : (snapshot.characters[0]?.id ?? null)
     )
-  }, [projectId])
+  }, [branchId, projectId])
 
   useEffect(() => {
     if (!projectId) {
@@ -865,48 +863,6 @@ export function CharactersView() {
       null,
     [project, selectedId]
   )
-
-  async function reviewPromotion() {
-    if (!projectId || !current) return
-    setWorking('review')
-    setError(null)
-    setNotice(null)
-    try {
-      const result = await engineRequest<PromotionAssessment>(
-        `/projects/${projectId}/characters/${current.id}/promotion-review?branch_id=${encodeURIComponent(branchId)}`,
-        { method: 'POST' }
-      )
-      setAssessment(result)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '升级评估失败')
-    } finally {
-      setWorking(null)
-    }
-  }
-
-  async function confirmPromotion() {
-    if (!projectId || !current || !assessment?.candidate) return
-    setWorking('promote')
-    setError(null)
-    try {
-      const result = await engineRequest<PromotionCommitResult>(
-        `/projects/${projectId}/characters/${current.id}/promote`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ candidate_id: assessment.candidate.id }),
-        }
-      )
-      await loadProject()
-      setAssessment(null)
-      setNotice(
-        `${result.character.display_name || result.character.id} 已升级为活跃角色`
-      )
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '角色升级失败')
-    } finally {
-      setWorking(null)
-    }
-  }
 
   if (!projectId) {
     return (
@@ -967,11 +923,7 @@ export function CharactersView() {
             <Button
               className="mb-1 h-auto w-full justify-start px-3 py-3 text-left"
               key={character.id}
-              onClick={() => {
-                setSelectedId(character.id)
-                setAssessment(null)
-                setNotice(null)
-              }}
+              onClick={() => setSelectedId(character.id)}
               variant={character.id === current.id ? 'secondary' : 'ghost'}
             >
               <span className="min-w-0">
@@ -1065,58 +1017,6 @@ export function CharactersView() {
               <p className="text-sm text-muted-foreground">暂无关系记录</p>
             )}
           </section>
-          {current.type === 'npc' && (
-            <section className="mt-7 border-t pt-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">Editor</p>
-                  <h3 className="mt-1 text-sm font-medium">角色升级建议</h3>
-                </div>
-                {!assessment?.candidate && (
-                  <Button
-                    disabled={working !== null}
-                    onClick={() => void reviewPromotion()}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <Sparkles size={15} />
-                    {working === 'review' ? '正在评估' : '评估升级建议'}
-                  </Button>
-                )}
-              </div>
-              {assessment && (
-                <div className="mt-4 border-l-2 border-primary/40 pl-4">
-                  <p className="text-sm">{assessment.review.summary}</p>
-                  {assessment.candidate && (
-                    <>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        建议目标：{assessment.candidate.proposed_goal}
-                      </p>
-                      <Button
-                        className="mt-4"
-                        disabled={working !== null}
-                        onClick={() => void confirmPromotion()}
-                        size="sm"
-                      >
-                        <Check size={15} />
-                        {working === 'promote'
-                          ? '正在升级'
-                          : '确认升级为活跃角色'}
-                      </Button>
-                    </>
-                  )}
-                </div>
-              )}
-            </section>
-          )}
-          {notice && (
-            <p
-              className="mt-5 bg-emerald-500/10 p-3 text-sm text-emerald-700"
-              role="status"
-            >
-              {notice}
-            </p>
-          )}
           {error && (
             <p
               className="mt-5 bg-destructive/10 p-3 text-sm text-destructive"

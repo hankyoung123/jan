@@ -5,6 +5,7 @@ import {
   initialSimulationViewState,
   reduceSimulationEvent,
   restoreSimulationTrace,
+  selectViewLocation,
 } from './simulationViewModel'
 
 function event(
@@ -160,5 +161,45 @@ describe('simulationViewModel', () => {
 
     expect(failed.steps[0].status).toBe('failed')
     expect(retried.steps).toEqual({})
+  })
+
+  it('selects URL step and stage and falls back when stale', () => {
+    const first = reduceSimulationEvent(
+      initialSimulationViewState,
+      event(1, 'simulation.stage.completed', {
+        ...stagePayload,
+        step: 2,
+        stage: 'actor_selection',
+      })
+    )
+    const state = reduceSimulationEvent(
+      first,
+      event(2, 'simulation.stage.completed', {
+        ...stagePayload,
+        step: 5,
+        stage: 'resolution',
+      })
+    )
+
+    const selected = selectViewLocation(state, {
+      step: 5,
+      stage: 'resolution',
+    })
+    expect(selected.selectedStep).toBe(5)
+    expect(selected.selectedStage).toBe('resolution')
+
+    const stale = selectViewLocation(state, {
+      step: 99,
+      stage: 'actor_selection',
+    })
+    expect(stale.selectedStep).toBe(5)
+    expect(stale.selectedStage).toBe('resolution')
+
+    const missingStage = selectViewLocation(state, {
+      step: 2,
+      stage: 'commit',
+    })
+    expect(missingStage.selectedStep).toBe(2)
+    expect(missingStage.selectedStage).toBe('actor_selection')
   })
 })

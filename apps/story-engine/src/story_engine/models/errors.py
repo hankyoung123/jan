@@ -31,6 +31,9 @@ class ResponseLimitError(ModelGatewayError):
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.usage: ModelUsage | None = None
+        self.retry_count = 0
+        self.finish_reason: str | None = None
+        self.max_tokens: int | None = None
 
 
 class StructuredOutputError(ModelGatewayError):
@@ -40,6 +43,7 @@ class StructuredOutputError(ModelGatewayError):
         super().__init__(message)
         self.retryable = retryable
         self.usage: ModelUsage | None = None
+        self.retry_count = 0
 
 
 class ModelConfigurationError(ModelGatewayError):

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import shutil
@@ -47,6 +48,10 @@ pages are maintained interpretations and must never be treated as new events.
 """
 
 
+def _content_hash(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
 def _validate_relative(path: str) -> PurePosixPath:
     relative = PurePosixPath(path)
     if (
@@ -64,10 +69,14 @@ def _validate_relative(path: str) -> PurePosixPath:
 
 
 def _render(page: WikiPage) -> str:
-    metadata = page.model_dump(
-        mode="json",
-        exclude={"content", "path"},
+    metadata = dict(
+        page.model_dump(
+            mode="json",
+            exclude={"content", "path"},
+        )
     )
+    if not metadata.get("content_hash"):
+        metadata["content_hash"] = _content_hash(page.content)
     return (
         "---\n"
         + json.dumps(metadata, ensure_ascii=False, sort_keys=True)
@@ -85,9 +94,21 @@ def _parse(path: str, text: str) -> WikiPage:
         metadata = json.loads(raw_metadata)
     except (ValueError, json.JSONDecodeError) as error:
         raise ValueError(f"wiki page {path!r} has invalid front matter") from error
-    return WikiPage.model_validate(
+    page = WikiPage.model_validate(
         {**metadata, "path": path, "content": content.lstrip("\n").rstrip()}
     )
+    if not page.content_hash:
+        page = page.model_copy(update={"content_hash": _content_hash(page.content)})
+    return page
+
+
+class WikiRevisionConflictError(ValueError):
+    def __init__(self, path: str, current_revision: int) -> None:
+        super().__init__(
+            f"wiki page {path!r} changed (current revision {current_revision})"
+        )
+        self.path = path
+        self.current_revision = current_revision
 
 
 def _title(content: str, fallback: str) -> str:
@@ -277,6 +298,12 @@ class WikiStore:
         path = self.page_path(relative_path)
         return _parse(relative_path, path.read_text(encoding="utf-8"))
 
+    def load_branch_index(self) -> WikiPage:
+        return _parse(
+            "world/index.md",
+            (self.branch_root / "index.md").read_text(encoding="utf-8"),
+        )
+
     def list_pages(self) -> tuple[WikiPage, ...]:
         if not self.branch_root.exists():
             return ()
@@ -401,6 +428,8 @@ class WikiStore:
                 source_ids=patch.source_ids,
                 confidence=patch.confidence,
                 content=patch.content,
+                revision=0,
+                content_hash=_content_hash(patch.content),
             )
         if page is None:
             raise FileNotFoundError(self.page_path(patch.path))
@@ -423,6 +452,8 @@ class WikiStore:
                 ),
                 "confidence": patch.confidence,
                 "content": content,
+                "revision": page.revision + 1,
+                "content_hash": _content_hash(content),
             }
         )
 
@@ -439,14 +470,35 @@ class WikiStore:
         changed: dict[str, WikiPage] = {}
         for patch in patches:
             _validate_relative(patch.path)
-            current = changed.get(patch.path, pages.get(patch.path))
+            original = pages.get(patch.path)
+            if patch.operation == WikiPatchOperation.CREATE:
+                if original is not None:
+                    raise ValueError(f"wiki page {patch.path!r} already exists")
+            else:
+                if original is None:
+                    raise FileNotFoundError(self.page_path(patch.path))
+                if patch.expected_revision is None:
+                    raise ValueError(
+                        f"wiki patch for {patch.path!r} must declare expected_revision"
+                    )
+                if patch.expected_revision != original.revision:
+                    raise WikiRevisionConflictError(patch.path, original.revision)
+                if (
+                    patch.expected_content_hash
+                    and patch.expected_content_hash != original.content_hash
+                ):
+                    raise WikiRevisionConflictError(patch.path, original.revision)
+            current = changed.get(patch.path, original)
             changed[patch.path] = self._apply_to_page(current, patch, step)
         candidate = {**pages, **changed}
-        owned_indexes = self._owned_indexes(
-            list(candidate.values()),
-            step=step,
-            checkpoint_id=checkpoint_id,
-        )
+        owned_indexes = {
+            path: self._bump_revision(index, pages.get(path))
+            for path, index in self._owned_indexes(
+                list(candidate.values()),
+                step=step,
+                checkpoint_id=checkpoint_id,
+            ).items()
+        }
         candidate.update(owned_indexes)
         changed.update(owned_indexes)
         self._validate_links(candidate)
@@ -496,6 +548,68 @@ class WikiStore:
         )
         batch.commit()
         return tuple(self.page_path(path) for path in changed)
+
+    @staticmethod
+    def _bump_revision(page: WikiPage, current: WikiPage | None) -> WikiPage:
+        return page.model_copy(
+            update={
+                "revision": 0 if current is None else current.revision + 1,
+                "content_hash": _content_hash(page.content),
+            }
+        )
+
+    def save_page(
+        self,
+        relative_path: str,
+        content: str,
+        expected_revision: int,
+    ) -> WikiPage:
+        """Apply a user edit with an optimistic revision guard."""
+        _validate_relative(relative_path)
+        current = self.load_page(relative_path)
+        if expected_revision != current.revision:
+            raise WikiRevisionConflictError(relative_path, current.revision)
+        if len(content) > _MAX_PAGE_CHARS:
+            raise ValueError("Wiki page exceeds the page length limit")
+        updated = current.model_copy(
+            update={
+                "content": content.rstrip(),
+                "revision": current.revision + 1,
+                "content_hash": _content_hash(content.rstrip()),
+            }
+        )
+        pages = {page.path: page for page in self.list_pages()}
+        pages[updated.path] = updated
+        indexes = {
+            path: self._bump_revision(index, pages.get(path))
+            for path, index in self._owned_indexes(
+                list(pages.values()),
+                step=current.updated_at_step,
+                checkpoint_id=current.checkpoint_id,
+            ).items()
+        }
+        pages.update(indexes)
+        self._validate_links(pages)
+        batch = AtomicBatch(self.root)
+        batch.add(
+            self._relative_to_project(self.page_path(updated.path)),
+            _render(updated),
+            overwrite=True,
+        )
+        for index_path, index in indexes.items():
+            batch.add(
+                self._relative_to_project(self.page_path(index_path)),
+                _render(index),
+                overwrite=True,
+            )
+        existing_log = (self.branch_root / "log.md").read_text(encoding="utf-8")
+        batch.add(
+            self._relative_to_project(self.branch_root / "log.md"),
+            existing_log.rstrip()
+            + f"\n- manual edit: `{updated.path}` revision {updated.revision}\n",
+        )
+        batch.commit()
+        return updated
 
     def set_head(self, checkpoint_id: str, step: int, *, stale: bool) -> None:
         pages = list(self.list_pages())

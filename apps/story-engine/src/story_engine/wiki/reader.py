@@ -118,7 +118,8 @@ class WikiSourceReader:
         sources = [
             source
             for source in self.project_sources()
-            if source.subject_id == subject_id
+            if source.kind == WikiSourceKind.PROJECT
+            or source.subject_id == subject_id
         ]
         for record in records:
             result = record.result

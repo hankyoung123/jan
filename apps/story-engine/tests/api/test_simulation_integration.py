@@ -24,6 +24,7 @@ class ReplayGatewayTransport:
         self,
         *,
         entity_change: str | None = None,
+        promote_npc: bool = False,
         boundary: str = "none",
         event_text: str = "Chen Mo finds a deliberately severed wire.",
         fail_writer: bool = False,
@@ -31,6 +32,7 @@ class ReplayGatewayTransport:
     ) -> None:
         self.calls: list[str] = []
         self.entity_change = entity_change
+        self.promote_npc = promote_npc
         self.boundary = boundary
         self.event_text = event_text
         self.fail_writer = fail_writer
@@ -44,17 +46,78 @@ class ReplayGatewayTransport:
             else {}
         )
         properties = schema.get("properties", {})
+        if not isinstance(properties, Mapping):
+            properties = {}
         actor_ids = (
             properties.get("actor_ids") if isinstance(properties, Mapping) else None
         )
         if isinstance(actor_ids, Mapping):
             items = actor_ids.get("items", {})
             candidates = items.get("enum", []) if isinstance(items, Mapping) else []
-            selected = [candidate for candidate in candidates if candidate == "chen-mo"]
+            selected = [
+                candidate
+                for candidate in candidates
+                if candidate == "chen-mo"
+                or (self.promote_npc and candidate == "harbor-guard")
+            ]
             if not selected and candidates:
                 selected = [candidates[0]]
             return json.dumps({"actor_ids": selected})
-        enum = schema.get("properties", {}).get("choice", {}).get("enum", [])
+        if "output_type" in properties:
+            return json.dumps(
+                {
+                    "call_to_action": "Inspect the damaged mechanism.",
+                    "output_type": "free",
+                    "options": [],
+                    "tag": "investigation",
+                }
+            )
+        if "event_text" in properties:
+            entity_changes = []
+            if self.entity_change == "create":
+                entity_changes = [
+                    {
+                        "operation": "create_npc",
+                        "entity_id": "harbor-guard",
+                        "display_name": "Harbor Guard",
+                        "identity": "A wary guard.",
+                        "core_desire": "Keep the harbor safe.",
+                        "location": "lighthouse",
+                    }
+                ]
+            return json.dumps(
+                {
+                    "event_text": self.event_text,
+                    "boundary": self.boundary,
+                    "visibility": "participants",
+                    "observer_ids": [],
+                    "participant_ids": [
+                        "chen-mo",
+                        *(["harbor-guard"] if self.entity_change == "create" else []),
+                    ],
+                    "entity_changes": entity_changes,
+                }
+            )
+        if "promote" in properties:
+            event_ids = re.findall(r'"event_id":\s*"([^"]+)"', prompt)
+            return json.dumps(
+                {
+                    "character_id": "harbor-guard",
+                    "promote": self.promote_npc,
+                    "proposed_goal": (
+                        "Find who sabotaged the lighthouse"
+                        if self.promote_npc
+                        else None
+                    ),
+                    "evidence_event_ids": event_ids[-1:] if self.promote_npc else [],
+                    "reason": (
+                        "The guard independently pursues the saboteur."
+                        if self.promote_npc
+                        else "The guard remains an ordinary participant."
+                    ),
+                }
+            )
+        enum = properties.get("choice", {}).get("enum", [])
         semantic = "No"
         if "Whose turn is next" in prompt:
             semantic = "chen-mo"
@@ -73,8 +136,9 @@ class ReplayGatewayTransport:
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
     ) -> Mapping[str, Any]:
-        del timeout_seconds
+        del timeout_seconds, first_content_timeout_seconds
         messages = payload["messages"]
         prompt = str(messages[-1]["content"])
         self.calls.append(prompt)
@@ -147,12 +211,11 @@ class ReplayGatewayTransport:
             entity_changes = "[]"
             if self.entity_change == "create":
                 entity_changes = (
-                    '[{"operation":"create","entity_id":"harbor-guard",'
+                    '[{"operation":"create_npc","entity_id":"harbor-guard",'
                     '"display_name":"Harbor Guard","identity":"A wary guard.",'
-                    '"goal":"Secure the lighthouse.","location":"lighthouse"}]'
+                    '"core_desire":"Keep the harbor safe.",'
+                    '"location":"lighthouse"}]'
                 )
-            elif self.entity_change == "archive":
-                entity_changes = '[{"operation":"archive","entity_id":"harbor-guard"}]'
             content = (
                 json.dumps(
                     {
@@ -160,7 +223,14 @@ class ReplayGatewayTransport:
                         "boundary": self.boundary,
                         "visibility": "participants",
                         "observer_ids": [],
-                        "participant_ids": ["chen-mo"],
+                        "participant_ids": [
+                            "chen-mo",
+                            *(
+                                ["harbor-guard"]
+                                if self.entity_change == "create"
+                                else []
+                            ),
+                        ],
                         "entity_changes": json.loads(entity_changes),
                     }
                 )
@@ -218,10 +288,11 @@ def test_real_application_chain_checkpoints_rebuilds_and_resumes(
                 "premise_text": "The lighthouse suddenly goes dark.",
                 "actor_ids": ["chen-mo", "lin-lan"],
                 "content_locale": "en-US",
-                "control": {
-                    "mode": "step",
-                    "max_steps": 3,
-                    "checkpoint_every_steps": 1,
+                    "control": {
+                        "mode": "step",
+                        "max_steps": 3,
+                        "max_scenes": 2,
+                        "checkpoint_every_steps": 1,
                 },
             },
         )
@@ -296,6 +367,7 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
                 "control": {
                     "mode": "step",
                     "max_steps": 3,
+                    "max_scenes": 2,
                     "checkpoint_every_steps": 1,
                 },
             },
@@ -772,7 +844,9 @@ def test_session_manifest_restores_on_get_and_keeps_terminal_history(
         assert archived.json()["status"] == "terminated"
 
 
-def test_dynamic_npc_join_archive_and_checkpoint_restore(tmp_path: Path) -> None:
+def test_new_npc_remains_a_non_agent_before_the_scene_boundary(
+    tmp_path: Path,
+) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     with TestClient(
         create_app(
@@ -787,10 +861,54 @@ def test_dynamic_npc_join_archive_and_checkpoint_restore(tmp_path: Path) -> None
                 "premise_text": "The lighthouse suddenly goes dark.",
                 "actor_ids": ["chen-mo"],
                 "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+            },
+        ).json()
+        stepped = client.post(
+            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
+            headers=AUTH,
+        ).json()
+        snapshot = client.get(
+            f"/projects/fog-harbor/simulations/{started['session_id']}",
+            headers=AUTH,
+        ).json()
+
+        guard = next(
+            item for item in snapshot["characters"] if item["id"] == "harbor-guard"
+        )
+        assert guard["type"] == "npc"
+        assert guard["current_goal"] is None
+        assert "harbor-guard" not in snapshot["roster_actor_ids"]
+        assert "harbor-guard" not in snapshot["memory_snapshots"]
+        assert snapshot["pending_scene_events"]
+        assert stepped["promotion_decisions"] == []
+
+
+def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    with TestClient(
+        create_app(
+            _settings(tmp_path),
+            model_transport=ReplayGatewayTransport(
+                entity_change="create",
+                promote_npc=True,
+                boundary="scene",
+            ),
+        )
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
                 "control": {
                     "mode": "step",
                     "max_steps": 3,
-                    "allow_dynamic_entities": True,
+                    "max_scenes": 2,
                     "checkpoint_every_steps": 1,
                 },
             },
@@ -805,34 +923,31 @@ def test_dynamic_npc_join_archive_and_checkpoint_restore(tmp_path: Path) -> None
             f"/projects/fog-harbor/simulations/{session_id}",
             headers=AUTH,
         ).json()
-        assert "harbor-guard" in snapshot["active_entity_ids"]
-        assert snapshot["dynamic_entities"][0]["active"] is True
+        guard = next(
+            item for item in snapshot["characters"] if item["id"] == "harbor-guard"
+        )
+        assert guard["type"] == "active"
+        assert guard["current_goal"] == "Find who sabotaged the lighthouse"
+        assert "harbor-guard" in snapshot["roster_actor_ids"]
         assert "harbor-guard" in snapshot["memory_snapshots"]
+        assert created["promotion_decisions"][0]["promote"] is True
 
     with TestClient(
-        create_app(
-            _settings(tmp_path),
-            model_transport=ReplayGatewayTransport(entity_change="archive"),
-        )
+        create_app(_settings(tmp_path), model_transport=ReplayGatewayTransport())
     ) as client:
-        restored = client.post(
+        restored_response = client.post(
             "/projects/fog-harbor/simulations/restore",
             headers=AUTH,
             json={"checkpoint_id": checkpoint_id},
-        ).json()
-        assert "harbor-guard" in restored["active_entity_ids"]
-        archived = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
         )
-        assert archived.status_code == 200
-        snapshot = client.get(
-            f"/projects/fog-harbor/simulations/{session_id}",
-            headers=AUTH,
-        ).json()
-        assert "harbor-guard" not in snapshot["active_entity_ids"]
-        assert snapshot["dynamic_entities"][0]["active"] is False
-        assert "harbor-guard" in snapshot["actor_states"]
+        assert restored_response.status_code == 200, restored_response.text
+        restored = restored_response.json()
+        assert "harbor-guard" in restored["roster_actor_ids"]
+        restored_guard = next(
+            item for item in restored["characters"] if item["id"] == "harbor-guard"
+        )
+        assert restored_guard["type"] == "active"
+        assert "harbor-guard" in restored["actor_states"]
 
 
 def test_game_master_selects_initial_roster_when_actors_are_not_pinned(
@@ -868,9 +983,9 @@ def test_game_master_selects_initial_roster_when_actors_are_not_pinned(
         ).json()[0]["trace"]
 
         assert stepped.status_code == 200
-        assert snapshot["active_entity_ids"] == ["chen-mo"]
+        assert snapshot["roster_actor_ids"] == ["chen-mo"]
         assert any(
-            "Select only the project characters" in prompt for prompt in transport.calls
+            "Select the opening scene roster" in prompt for prompt in transport.calls
         )
         assert any(
             "game-master:roster-selection" in call["component_ids"]

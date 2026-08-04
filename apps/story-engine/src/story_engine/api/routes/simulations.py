@@ -40,7 +40,7 @@ _PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 class SimulationStartRequest(RuntimeModel):
     branch_id: Identifier = "main"
     premise_text: str = Field(min_length=1, max_length=131_072)
-    actor_ids: tuple[Identifier, ...] = ()
+    actor_ids: tuple[Identifier, ...] = Field(default=(), max_length=4)
     content_locale: LocaleCode = "zh-CN"
     control: ControlPolicy
     output: OutputPolicy = OutputPolicy()
@@ -72,16 +72,6 @@ class BranchCreateRequest(RuntimeModel):
 
 class BranchRollbackRequest(RuntimeModel):
     checkpoint_id: Identifier
-
-
-class ProjectionRequest(RuntimeModel):
-    checkpoint_id: Identifier | None = None
-
-
-class ProjectionResponse(RuntimeModel):
-    branch_id: Identifier
-    checkpoint_id: Identifier
-    written_paths: tuple[str, ...]
 
 
 class BranchComparisonResponse(RuntimeModel):
@@ -466,11 +456,9 @@ def create_simulations_router(
                 if right_branch.head_checkpoint_id
                 else None
             )
-            left_entities = set(
-                left_snapshot.active_entity_ids if left_snapshot else ()
-            )
+            left_entities = set(left_snapshot.roster_actor_ids if left_snapshot else ())
             right_entities = set(
-                right_snapshot.active_entity_ids if right_snapshot else ()
+                right_snapshot.roster_actor_ids if right_snapshot else ()
             )
             return BranchComparisonResponse(
                 left=left_branch,
@@ -528,10 +516,14 @@ def create_simulations_router(
                 "task:wiki_maintenance"
             )
             if profile_id is None:
-                profile_id = ProjectModelPolicyStore(
-                    settings.projects_root / project_id,
-                    gateway.registry,
-                ).load().task_profile_ids["wiki_maintenance"]
+                profile_id = (
+                    ProjectModelPolicyStore(
+                        settings.projects_root / project_id,
+                        gateway.registry,
+                    )
+                    .load()
+                    .task_profile_ids["wiki_maintenance"]
+                )
             await WikiBoundaryProcessor(
                 settings.projects_root / project_id,
                 consolidator=GatewayWikiConsolidator(
@@ -547,36 +539,6 @@ def create_simulations_router(
             raise HTTPException(status_code=404, detail="Branch not found") from error
         except ModelGatewayError as error:
             raise model_http_error(error) from error
-        except (OSError, ValueError) as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @router.post(
-        "/projects/{project_id}/branches/{branch_id}/projection",
-        response_model=ProjectionResponse,
-    )
-    async def rebuild_projection(
-        project_id: str,
-        branch_id: str,
-        request: ProjectionRequest,
-    ) -> ProjectionResponse:
-        kernel = kernel_for(project_id)
-        try:
-            branch = kernel.branches.load(branch_id)
-            selected = request.checkpoint_id or branch.head_checkpoint_id
-            if selected is None:
-                raise ValueError("branch has no checkpoint")
-            paths = kernel.project_markdown(
-                project_id,
-                branch_id,
-                checkpoint_id=selected,
-            )
-            return ProjectionResponse(
-                branch_id=branch_id,
-                checkpoint_id=selected,
-                written_paths=tuple(str(path) for path in paths),
-            )
-        except FileNotFoundError as error:
-            raise HTTPException(status_code=404, detail="Branch not found") from error
         except (OSError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 

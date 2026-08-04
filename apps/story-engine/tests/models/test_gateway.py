@@ -22,7 +22,11 @@ from story_engine.models.errors import (
     ResponseLimitError,
     StructuredOutputError,
 )
-from story_engine.models.gateway import ModelGateway, OpenAICompatibleTransport
+from story_engine.models.gateway import (
+    ModelGateway,
+    OpenAICompatibleTransport,
+    initial_budget,
+)
 from story_engine.models.registry import ProfileRegistry
 
 
@@ -118,6 +122,14 @@ def _gateway(
         )
     )
     return ModelGateway(registry, transport), registry
+
+
+def test_initial_budget_separates_choice_short_json_and_full_calls() -> None:
+    assert initial_budget("choice", 4096) == 1024
+    assert initial_budget("choice", 512) == 512
+    assert initial_budget("short_json", 4096) == 2048
+    assert initial_budget("short_json", 1024) == 1024
+    assert initial_budget("full", 4096) == 4096
 
 
 def test_profiles_send_provider_qualified_model_references(
@@ -370,6 +382,30 @@ def test_profile_budget_is_authoritative_when_request_omits_tokens(
     assert transport.calls[0]["max_tokens"] == 3072
 
 
+def test_provider_managed_output_omits_max_tokens(tmp_path: Path) -> None:
+    transport = FakeTransport("confirmed prose")
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+            max_output_tokens=4096,
+        )
+    )
+    gateway = ModelGateway(registry, transport)
+
+    request = _request().model_copy(
+        update={
+            "max_output_tokens": None,
+            "output_token_limit": "provider",
+        }
+    )
+    asyncio.run(gateway.complete(request))
+
+    assert "max_tokens" not in transport.calls[0]
+
+
 def test_reasoning_effort_comes_from_profile_and_request_override(
     tmp_path: Path,
 ) -> None:
@@ -396,6 +432,42 @@ def test_reasoning_effort_comes_from_profile_and_request_override(
     assert transport.calls[0]["reasoning_effort"] == "high"
     assert transport.calls[1]["reasoning_effort"] == "low"
     assert transport.calls[2]["reasoning_effort"] == "high"
+
+
+@pytest.mark.parametrize(
+    "effort",
+    ("none", "minimal", "low", "medium", "high", "xhigh", "max"),
+)
+def test_reasoning_effort_matches_bridge_contract(
+    tmp_path: Path,
+    effort: str,
+) -> None:
+    transport = FakeTransport("confirmed prose")
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+            reasoning_effort=effort,  # type: ignore[arg-type]
+        )
+    )
+    gateway = ModelGateway(registry, transport)
+
+    asyncio.run(gateway.complete(_request()))
+
+    assert transport.calls[0]["reasoning_effort"] == effort
+
+
+def test_null_reasoning_effort_is_omitted(tmp_path: Path) -> None:
+    transport = FakeTransport("confirmed prose")
+    gateway, _ = _gateway(tmp_path, transport)
+
+    asyncio.run(
+        gateway.complete(_request().model_copy(update={"reasoning_effort": None}))
+    )
+
+    assert "reasoning_effort" not in transport.calls[0]
 
 
 class SequenceTransport:
@@ -435,6 +507,114 @@ class SequenceTransport:
         }
 
 
+def test_first_content_deadline_uses_streaming_and_ignores_reasoning(
+    tmp_path: Path,
+) -> None:
+    observed: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(json.loads(request.content))
+        stream = "\n".join(
+            (
+                'data: {"model":"test-writer","choices":[{"delta":'
+                '{"reasoning_content":"thinking"},"finish_reason":null}]}',
+                "",
+                'data: {"model":"test-writer","choices":[{"delta":'
+                '{"content":"{\\"decision\\":\\"accept\\"}"},'
+                '"finish_reason":null}]}',
+                "",
+                'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+                '"usage":{"prompt_tokens":5,"completion_tokens":9,'
+                '"total_tokens":14,"completion_tokens_details":'
+                '{"reasoning_tokens":4}}}',
+                "",
+                "data: [DONE]",
+                "",
+            )
+        )
+        return httpx.Response(
+            200,
+            text=stream,
+            headers={"content-type": "text/event-stream"},
+        )
+
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        ModelProfile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+        )
+    )
+    gateway = ModelGateway(
+        registry,
+        OpenAICompatibleTransport(
+            "http://127.0.0.1:49152/v1",
+            "",
+            httpx.MockTransport(handler),
+        ),
+    )
+    schema = json.dumps(
+        {
+            "type": "object",
+            "required": ["decision"],
+            "properties": {"decision": {"const": "accept"}},
+        }
+    )
+    request = _request(output_schema=schema).model_copy(
+        update={
+            "max_output_tokens": None,
+            "output_token_limit": "provider",
+            "first_content_timeout_seconds": 300,
+        }
+    )
+
+    response = asyncio.run(gateway.complete(request))
+
+    assert response.parsed_output == {"decision": "accept"}
+    assert response.usage.reasoning_tokens == 4
+    assert observed[0]["stream"] is True
+    assert observed[0]["stream_options"] == {"include_usage": True}
+    assert "max_tokens" not in observed[0]
+
+
+class DelayedContentStream(httpx.AsyncByteStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield (
+            b'data: {"choices":[{"delta":{"reasoning_content":"thinking"},'
+            b'"finish_reason":null}]}\n\n'
+        )
+        await asyncio.sleep(1)
+        yield b'data: {"choices":[{"delta":{"content":"late"}}]}\n\n'
+
+
+def test_first_content_deadline_cancels_reasoning_only_stream() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            stream=DelayedContentStream(),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    transport = OpenAICompatibleTransport(
+        "http://127.0.0.1:49152/v1",
+        "",
+        httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(
+        ModelTimeoutError,
+        match=r"no content token within 0\.01s",
+    ):
+        asyncio.run(
+            transport.complete(
+                {"model": "test-provider/test-writer", "messages": []},
+                timeout_seconds=1,
+                first_content_timeout_seconds=0.01,
+            )
+        )
+
+
 def test_truncated_structured_output_retries_with_expanded_budget(
     tmp_path: Path,
 ) -> None:
@@ -467,6 +647,8 @@ def test_truncated_structured_output_retries_with_expanded_budget(
     )
 
     assert response.parsed_output == {"decision": "accept"}
+    assert response.retry_count == 1
+    assert response.finish_reason == "stop"
     assert transport.observed[0]["max_tokens"] == 512
     assert transport.observed[1]["max_tokens"] == 1024
     assert gateway.usage.totals().requests == 2
@@ -483,11 +665,52 @@ def test_free_text_truncation_retries_then_fails_loudly(tmp_path: Path) -> None:
     )
     gateway, _ = _gateway(tmp_path, transport)
 
-    with pytest.raises(ResponseLimitError, match="truncated at max_tokens"):
+    with pytest.raises(ResponseLimitError, match="truncated at max_tokens") as caught:
         asyncio.run(gateway.complete(_request()))
 
     assert len(transport.observed) == 3
     assert gateway.usage.totals().requests == 3
+    assert caught.value.retry_count == 2
+    assert caught.value.finish_reason == "length"
+
+
+def test_empty_free_text_is_retried_then_fails(tmp_path: Path) -> None:
+    transport = FakeTransport("   ")
+    gateway, _ = _gateway(tmp_path, transport)
+
+    with pytest.raises(StructuredOutputError, match="empty text content") as caught:
+        asyncio.run(gateway.complete(_request()))
+
+    assert len(transport.calls) == 3
+    assert caught.value.retry_count == 2
+    assert gateway.usage.totals().requests == 3
+
+
+def test_empty_free_text_recovers_on_retry(tmp_path: Path) -> None:
+    transport = SequenceTransport(
+        [
+            ("", "stop", None),
+            ("The keeper lights the lamp.", "stop", None),
+        ]
+    )
+    gateway, _ = _gateway(tmp_path, transport)  # type: ignore[arg-type]
+
+    response = asyncio.run(gateway.complete(_request()))
+
+    assert response.content == "The keeper lights the lamp."
+    assert response.retry_count == 1
+    assert len(transport.observed) == 2
+
+
+def test_usage_parses_reasoning_tokens_from_provider_details(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport("confirmed prose", reasoning_tokens=7)
+    gateway, _ = _gateway(tmp_path, transport)
+
+    response = asyncio.run(gateway.complete(_request()))
+
+    assert response.usage.reasoning_tokens == 7
 
 
 def test_task_mismatch_fails_before_the_jan_bridge(tmp_path: Path) -> None:
@@ -590,7 +813,10 @@ def test_gateway_enforces_total_deadline(tmp_path: Path) -> None:
     async def exercise() -> None:
         gateway, _ = _gateway(tmp_path, SlowTransport("unused"))
         request = _request().model_copy(update={"timeout_seconds": 1})
-        with pytest.raises(ModelTimeoutError, match="total deadline"):
+        with pytest.raises(
+            ModelTimeoutError,
+            match="profile 'writer' exceeded its 1s total deadline",
+        ):
             await gateway.complete(request)
 
     asyncio.run(exercise())

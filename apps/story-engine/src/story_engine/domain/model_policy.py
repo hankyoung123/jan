@@ -34,3 +34,8 @@ class ProjectModelPolicy(DomainModel):
         if any(not agent_id for agent_id in self.agent_profile_ids):
             raise ValueError("model policy agent IDs must not be empty")
         return self
+
+
+class ProjectModelPolicyPatch(DomainModel):
+    task_profile_ids: dict[ModelTask, str] | None = None
+    agent_profile_ids: dict[str, str | None] | None = None

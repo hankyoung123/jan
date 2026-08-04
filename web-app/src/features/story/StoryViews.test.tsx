@@ -505,7 +505,6 @@ const baseSimulationSession = {
       max_total_tokens: 500000,
       max_runtime_seconds: 3600,
       max_consecutive_model_failures: 3,
-      allow_dynamic_entities: true,
       allow_user_override: true,
       checkpoint_every_steps: 5,
     },
@@ -517,8 +516,9 @@ const baseSimulationSession = {
   },
   current_step: 0,
   completed_scenes: 0,
-  active_entity_ids: ['ara', 'bo'],
-  dynamic_entities: [],
+  roster_actor_ids: ['ara', 'bo'],
+  characters: projectSnapshot.characters,
+  pending_scene_events: [],
   actor_states: {},
   game_master_states: {},
   memory_snapshots: {},
@@ -631,7 +631,6 @@ describe('Story simulation', () => {
         max_runtime_seconds: 3600,
         max_consecutive_model_failures: 3,
         pause_after_scene: true,
-        allow_dynamic_entities: true,
         allow_user_override: true,
         checkpoint_every_steps: 5,
       },
@@ -736,8 +735,9 @@ describe('Story simulation', () => {
       },
       current_step: 3,
       completed_scenes: 1,
-      active_entity_ids: ['ara'],
-      dynamic_entities: [],
+      roster_actor_ids: ['ara'],
+      characters: projectSnapshot.characters,
+      pending_scene_events: [],
       actor_states: {},
       game_master_states: {},
       memory_snapshots: {},
@@ -815,7 +815,7 @@ describe('Character workspace', () => {
     window.history.replaceState({}, '', '/')
   })
 
-  it('keeps an Editor promotion suggestion derived until explicit confirmation', async () => {
+  it('shows an NPC after the Editor automatically promotes it on the branch', async () => {
     setActiveStoryProjectId('north-star')
     const npc = {
       id: 'temporary-pilot',
@@ -831,56 +831,20 @@ describe('Character workspace', () => {
       resources: [],
       version: 2,
     }
-    const withNpc = {
-      ...projectSnapshot,
-      characters: [...projectSnapshot.characters, npc],
-    }
     const promotedCharacter = {
       ...npc,
       type: 'active',
       current_goal: '主动校准备用通信阵列',
       version: 3,
     }
-    const promotedProject = {
-      ...projectSnapshot,
-      characters: [...projectSnapshot.characters, promotedCharacter],
-    }
-    const promotionCandidate = {
-      id: 'promotion-temporary-pilot-v2',
-      project_id: 'north-star',
-      character_id: 'temporary-pilot',
-      base_character_version: 2,
-      proposed_goal: '主动校准备用通信阵列',
-      review: {
-        mode: 'promotion_review',
-        passed: true,
-        summary: '该人物已经形成独立目标并可能主动影响后续局势。',
-        issues: [],
-      },
-      status: 'pending',
-    }
-    let projectReads = 0
-    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+    h.engineRequest.mockImplementation((path: string) => {
       if (path === '/projects/north-star') {
-        projectReads += 1
-        return Promise.resolve(projectReads === 1 ? withNpc : promotedProject)
+        return Promise.resolve(projectSnapshot)
       }
-      if (path.endsWith('/promotion-review?branch_id=main')) {
-        return Promise.resolve({
-          project_id: 'north-star',
-          character_id: 'temporary-pilot',
-          review: promotionCandidate.review,
-          candidate: promotionCandidate,
-        })
-      }
-      if (path.endsWith('/promote')) {
-        expect(init?.body).toBe(
-          JSON.stringify({ candidate_id: 'promotion-temporary-pilot-v2' })
+      if (path === '/projects/north-star/characters?branch_id=main') {
+        return Promise.resolve(
+          [...projectSnapshot.characters, promotedCharacter]
         )
-        return Promise.resolve({
-          candidate: { ...promotionCandidate, status: 'committed' },
-          character: promotedCharacter,
-        })
       }
       throw new Error(`Unexpected request: ${path}`)
     })
@@ -888,21 +852,11 @@ describe('Character workspace', () => {
     render(<CharactersView />)
     fireEvent.click(await screen.findByRole('button', { name: /角色档案/ }))
     fireEvent.click(await screen.findByRole('button', { name: /临时导航员/ }))
-    expect(screen.getByText('普通人物')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '评估升级建议' }))
-
-    expect(
-      await screen.findByText('建议目标：主动校准备用通信阵列')
-    ).toBeInTheDocument()
-    expect(screen.getByText('普通人物')).toBeInTheDocument()
-    expect(projectReads).toBe(1)
-    fireEvent.click(screen.getByRole('button', { name: '确认升级为活跃角色' }))
-
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      '临时导航员 已升级为活跃角色'
-    )
     expect(screen.getByText('活跃角色')).toBeInTheDocument()
-    expect(projectReads).toBe(2)
+    expect(screen.getByText('主动校准备用通信阵列')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: '确认升级为活跃角色' })
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -931,6 +885,9 @@ describe('Character relationship graph', () => {
   function mockProject(snapshot: typeof relationshipProject | typeof projectSnapshot) {
     h.engineRequest.mockImplementation((path: string) => {
       if (path === '/projects/north-star') return Promise.resolve(snapshot)
+      if (path === '/projects/north-star/characters?branch_id=main') {
+        return Promise.resolve(snapshot.characters)
+      }
       throw new Error(`Unexpected request: ${path}`)
     })
   }

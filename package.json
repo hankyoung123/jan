@@ -25,6 +25,7 @@
     "build:sidecar": "uv run --project apps/story-engine --extra packaging pyinstaller --noconfirm --clean --distpath src-tauri/resources --workpath .build/pyinstaller apps/story-engine/packaging/story-engine.spec",
     "prepare:release": "node scripts/prepare-release-config.mjs",
     "test:sidecar": "uv run --project apps/story-engine python scripts/smoke_story_engine_sidecar.py",
+    "test:provider": "uv run --project apps/story-engine python scripts/provider_e2e_check.py",
     "contracts:generate": "node scripts/generate-contracts.mjs",
     "contracts:check": "yarn contracts:generate && git diff --exit-code -- packages/contracts",
     "story-engine:dev": "uv run --project apps/story-engine story-engine serve --port 39281 --session-token development-token",

@@ -279,6 +279,7 @@ class ConcordiaActorFactory:
         actors: Sequence[ConcordiaStoryActor],
         shared_memory: ConcordiaMemoryBank,
         initial_state: Mapping[str, JsonValue] | None = None,
+        component_models: Mapping[str, language_model.LanguageModel] | None = None,
     ) -> ConcordiaGameMasterActor:
         if recipe.role != EntityRole.GAME_MASTER:
             raise ValueError("Game Master factory requires a game_master recipe")
@@ -292,7 +293,11 @@ class ConcordiaActorFactory:
                 params=dict(gm_params),
                 entities=raw_actors,
                 recipe=recipe,
-            ).build(self._model_for(recipe), shared_memory.raw_bank)
+            ).build(
+                self._model_for(recipe),
+                shared_memory.raw_bank,
+                component_models=component_models,
+            )
             if initial_state is not None:
                 entity.set_state(cast(dict[str, Any], initial_state))
         except Exception:

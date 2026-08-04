@@ -1,191 +1,103 @@
 import json
-from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
 
 import pytest
 
-from story_engine.domain.errors import InvalidTransitionError
-from story_engine.domain.models import Character, Fact
-from story_engine.models.contracts import ModelProfile, ModelStreamChunk
-from story_engine.models.gateway import ModelGateway
-from story_engine.models.registry import ProfileRegistry
-from story_engine.promotion.service import CharacterPromotionService
-from story_engine.review.promotion import EditorPromotionReviewer
-from story_engine.submission.service import SubmissionService, fog_harbor_submission
-from story_engine.workspace.fact_store import FactStore
-from story_engine.workspace.project_store import ProjectStore
-from story_engine.workspace.promotion_store import PromotionProposalStore
+from story_engine.domain.models import Character
+from story_engine.domain.projection import EventVisibility, ResolvedEvent
+from story_engine.review.promotion import AutomaticPromotionReviewer
 
 
-class PromotionTransport:
+class PromotionModel:
     def __init__(self, output: dict[str, object]) -> None:
         self.output = output
-        self.calls: list[Mapping[str, Any]] = []
+        self.prompts: list[str] = []
 
-    async def complete(
-        self,
-        payload: Mapping[str, Any],
-        *,
-        timeout_seconds: int,
-    ) -> Mapping[str, Any]:
-        del timeout_seconds
-        self.calls.append(payload)
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "content": json.dumps(self.output, ensure_ascii=False),
-                    },
-                    "finish_reason": "stop",
-                }
-            ]
+    def sample_text(self, prompt: str, **kwargs: object) -> str:
+        assert kwargs["temperature"] == 0.1
+        self.prompts.append(prompt)
+        return json.dumps(self.output, ensure_ascii=False)
+
+
+def _npc() -> Character:
+    return Character(
+        id="temporary-pilot",
+        display_name="临时引航员",
+        type="npc",
+        identity="暴风雨中赶到港口的引航员",
+        core_desire="让客船安全避开暗礁",
+        location="近港码头",
+    )
+
+
+def _event() -> ResolvedEvent:
+    return ResolvedEvent(
+        event_id="event:session:1:4",
+        session_id="session:1",
+        step=4,
+        event_text="引航员违抗命令, 独自驾艇去警告客船。",
+        visibility=EventVisibility.PARTICIPANTS,
+        participant_ids=("temporary-pilot",),
+        content_locale="zh-CN",
+        occurred_at=datetime(2026, 8, 4, tzinfo=UTC),
+    )
+
+
+def test_editor_automatically_recommends_promotion_from_scene_evidence() -> None:
+    model = PromotionModel(
+        {
+            "character_id": "temporary-pilot",
+            "promote": True,
+            "proposed_goal": "主动引导客船避开近港暗礁",
+            "evidence_event_ids": ["event:session:1:4"],
+            "reason": "已经表现出独立、持续的行动目标。",
         }
-
-    async def stream(
-        self,
-        payload: Mapping[str, Any],
-        *,
-        timeout_seconds: int,
-    ) -> AsyncIterator[ModelStreamChunk]:
-        del payload, timeout_seconds
-        if False:
-            yield ModelStreamChunk()
-        raise AssertionError("promotion review does not stream")
-
-
-def _root(tmp_path: Path) -> Path:
-    SubmissionService(tmp_path).finalize(fog_harbor_submission())
-    root = tmp_path / "fog-harbor"
-    FactStore(root).save(
-        Fact(
-            id="fact:near-harbor-reefs",
-            statement="近港航道分布着暗礁。",
-            visibility="private",
-            known_by=("temporary-pilot",),
-            source_event_id="submission:fog-harbor",
-            introduced_at=datetime(2026, 7, 31, tzinfo=UTC),
-        )
-    )
-    ProjectStore(root).save_character(
-        Character(
-            id="temporary-pilot",
-            display_name="临时引航员",
-            type="npc",
-            identity="暴风雨中赶到港口的引航员",
-            core_desire="让客船安全避开暗礁",
-            current_goal="观察近港水流",
-            known_fact_ids=("fact:near-harbor-reefs",),
-            location="近港码头",
-            version=2,
-        ),
-        overwrite=False,
-    )
-    return root
-
-
-def _service(
-    root: Path,
-    tmp_path: Path,
-    transport: PromotionTransport,
-) -> CharacterPromotionService:
-    registry = ProfileRegistry(tmp_path / "profiles.json")
-    registry.upsert_profile(
-        ModelProfile(
-            id="editor",
-            task_type="editor",
-            model_ref="test-provider/test-editor",
-        )
-    )
-    reviewer = EditorPromotionReviewer(
-        ModelGateway(registry, transport)
-    )
-    return CharacterPromotionService(root, reviewer=reviewer)
-
-
-def _recommended_output() -> dict[str, object]:
-    return {
-        "review": {
-            "mode": "promotion_review",
-            "passed": True,
-            "summary": "该人物已经形成独立目标并可能主动影响后续局势。",
-            "issues": [],
-        },
-        "proposed_goal": "主动引导客船避开近港暗礁",
-    }
-
-
-def test_editor_creates_derived_promotion_candidate_without_promoting_npc(
-    tmp_path: Path,
-) -> None:
-    root = _root(tmp_path)
-    transport = PromotionTransport(_recommended_output())
-
-    assessment = _service(root, tmp_path, transport).review("temporary-pilot", "main")
-    snapshot = ProjectStore(root).load()
-    character = next(
-        item for item in snapshot.characters if item.id == "temporary-pilot"
     )
 
-    assert assessment.review.mode == "promotion_review"
-    assert assessment.candidate is not None
-    assert assessment.candidate.id == "promotion-temporary-pilot-v2"
-    assert assessment.candidate.status == "pending"
-    assert character.type == "npc"
-    assert (root / "characters/npc/temporary-pilot.md").exists()
-    assert not (root / "characters/active/temporary-pilot.md").exists()
-    assert PromotionProposalStore(root).load("temporary-pilot") == assessment.candidate
-    assert transport.calls[0]["model"] == "test-provider/test-editor"
-    prompt = transport.calls[0]["messages"][0]["content"]
-    assert "promotion_review" in prompt
-    assert "临时引航员" in prompt
-    assert "not user approval" in prompt
+    decision = AutomaticPromotionReviewer(model).review(_npc(), (_event(),))
+
+    assert decision.promote is True
+    assert decision.proposed_goal == "主动引导客船避开近港暗礁"
+    assert "completed scene boundary" in model.prompts[0]
+    assert "event:session:1:4" in model.prompts[0]
 
 
-def test_rejected_reassessment_removes_stale_derived_suggestion(
-    tmp_path: Path,
-) -> None:
-    root = _root(tmp_path)
-    transport = PromotionTransport(_recommended_output())
-    service = _service(root, tmp_path, transport)
-    service.review("temporary-pilot", "main")
-    transport.output = {
-        "review": {
-            "mode": "promotion_review",
-            "passed": False,
-            "summary": "该人物尚未形成独立目标。",
-            "issues": [],
-        },
-        "proposed_goal": None,
-    }
-
-    assessment = service.review("temporary-pilot", "main")
-
-    assert assessment.candidate is None
-    assert not (root / ".story-engine/reviews/promotion-temporary-pilot.json").exists()
-    assert (
-        next(
-            item
-            for item in ProjectStore(root).load().characters
-            if item.id == "temporary-pilot"
-        ).type
-        == "npc"
+def test_editor_may_leave_an_ordinary_person_as_npc() -> None:
+    model = PromotionModel(
+        {
+            "character_id": "temporary-pilot",
+            "promote": False,
+            "proposed_goal": None,
+            "evidence_event_ids": [],
+            "reason": "该人物只是在履行临时职责。",
+        }
     )
 
+    decision = AutomaticPromotionReviewer(model).review(_npc(), (_event(),))
 
-def test_only_explicit_confirmation_commits_promotion(tmp_path: Path) -> None:
-    root = _root(tmp_path)
-    transport = PromotionTransport(_recommended_output())
-    service = _service(root, tmp_path, transport)
-    assessment = service.review("temporary-pilot", "main")
-    assert assessment.candidate is not None
+    assert decision.promote is False
 
-    result = service.confirm("temporary-pilot", assessment.candidate.id)
 
-    assert result.character.type == "active"
-    assert result.candidate.status == "committed"
-    assert PromotionProposalStore(root).load("temporary-pilot").status == "committed"
-    assert not (root / "events").exists()
-    with pytest.raises(InvalidTransitionError, match="pending promotion"):
-        service.confirm("temporary-pilot", assessment.candidate.id)
+def test_editor_cannot_cite_evidence_outside_the_completed_scene() -> None:
+    model = PromotionModel(
+        {
+            "character_id": "temporary-pilot",
+            "promote": True,
+            "proposed_goal": "追查幕后指使者",
+            "evidence_event_ids": ["event:invented:99"],
+            "reason": "引用了不存在的证据。",
+        }
+    )
+
+    with pytest.raises(ValueError, match="unknown evidence"):
+        AutomaticPromotionReviewer(model).review(_npc(), (_event(),))
+
+
+def test_only_npcs_can_receive_automatic_promotion_review() -> None:
+    active = _npc().model_copy(
+        update={"type": "active", "current_goal": "引导客船"}
+    )
+    model = PromotionModel({})
+
+    with pytest.raises(ValueError, match="only an NPC"):
+        AutomaticPromotionReviewer(model).review(active, (_event(),))

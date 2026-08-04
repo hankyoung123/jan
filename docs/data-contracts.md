@@ -21,6 +21,10 @@ All persisted models reject unknown fields. Datetimes are timezone-aware.
 Checkpoint load recalculates the canonical JSON hash (excluding only
 `state_hash` and `checkpoint_id`) and rejects tampering.
 
+`TurnSessionSnapshot.characters` contains the complete branch-local character
+projection. `roster_actor_ids` contains only the current Scene Roster and is
+limited to four Active Agent IDs.
+
 ## Commit semantics
 
 Step identity is `(session_id, step)`. Re-appending the identical log record is
@@ -28,14 +32,14 @@ idempotent; conflicting duplicates and non-increasing step sequences are
 rejected. Branch head updates use an expected-head compare-and-swap and reject
 concurrent writers.
 
-## Projection files
+## Wiki files
 
-`.story-engine/projections/<branch-id>/world.md`, `timeline.md`, and
-`characters.md` are written as one recoverable `AtomicBatch`. They include only
-history at or before the selected checkpoint boundary. Branch-local log records
-provide step traces, while the checkpoint's Game Master memory supplies
-inherited world events after a fork. Removing projections does not alter branch
-manifests, checkpoints, or logs.
+`wiki/branches/<branch-id>/` pages and their version snapshots are written as
+one recoverable `AtomicBatch`. They include only history at or before the
+selected checkpoint boundary. Branch-local log records provide step traces,
+while the checkpoint's Game Master memory supplies inherited world events after
+a fork. Removing Wiki pages does not alter branch manifests, checkpoints, or
+logs.
 
 ## HTTP and TypeScript
 
@@ -48,6 +52,6 @@ The production control surface is session-based:
 
 - `/projects/{project_id}/simulations` and session control subroutes;
 - `/projects/{project_id}/branches` for forks;
-- branch rollback and projection rebuild routes.
+- branch rollback and Wiki rebuild routes.
 
 WebSocket envelopes use `subject_id` and the `simulation.*` event family.

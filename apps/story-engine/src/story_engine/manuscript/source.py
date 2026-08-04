@@ -176,7 +176,7 @@ class NarrativeSourceReader:
                     boundary=boundary,
                     title_hint=first_line[:120] or f"Steps {from_step}-{to_step}",
                     event_summary_text=summary_text,
-                    available_viewpoint_ids=tuple(snapshot.active_entity_ids),
+                    available_viewpoint_ids=tuple(snapshot.roster_actor_ids),
                     already_written=(from_step, to_step) in written_ranges,
                 )
             )
@@ -210,7 +210,7 @@ class NarrativeSourceReader:
         if not events:
             raise ValueError("narrative source contains no resolved events")
         if viewpoint_actor_id is not None and (
-            viewpoint_actor_id not in snapshot.active_entity_ids
+            viewpoint_actor_id not in snapshot.roster_actor_ids
             or viewpoint_actor_id not in snapshot.memory_snapshots
         ):
             raise ValueError("viewpoint actor is unavailable at this checkpoint")

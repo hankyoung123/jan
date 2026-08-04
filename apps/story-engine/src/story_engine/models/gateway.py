@@ -40,12 +40,22 @@ MAX_STRUCTURED_ATTEMPTS = 3
 STRUCTURED_RETRY_BACKOFF_SECONDS = 0.5
 
 
+def initial_budget(task_kind: str, ceiling: int) -> int:
+    """First-attempt budget for a call kind; the Profile remains the ceiling."""
+    if task_kind == "choice":
+        return min(1024, ceiling)
+    if task_kind == "short_json":
+        return min(2048, ceiling)
+    return ceiling
+
+
 class ModelTransport(Protocol):
     async def complete(
         self,
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
     ) -> Mapping[str, Any]: ...
 
     def stream(
@@ -54,6 +64,7 @@ class ModelTransport(Protocol):
         *,
         timeout_seconds: float,
     ) -> AsyncIterator[ModelStreamChunk]: ...
+
 
 class _TransientProviderError(Exception):
     def __init__(self, message: str, *, retry_after: float | None = None) -> None:
@@ -195,14 +206,26 @@ class OpenAICompatibleTransport:
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
     ) -> Mapping[str, Any]:
         deadline = time.monotonic() + timeout_seconds
+        if first_content_timeout_seconds is not None:
+            deadline += first_content_timeout_seconds
         for attempt in range(MAX_ATTEMPTS):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ModelTimeoutError("model request exceeded its total deadline")
             retry_error: httpx.NetworkError | _TransientProviderError | None = None
             try:
+                if first_content_timeout_seconds is not None:
+                    return await self._complete_streamed(
+                        payload,
+                        timeout_seconds=timeout_seconds,
+                        first_content_timeout_seconds=min(
+                            first_content_timeout_seconds,
+                            remaining,
+                        ),
+                    )
                 async with (
                     self._client(remaining) as client,
                     asyncio.timeout(remaining),
@@ -220,6 +243,11 @@ class OpenAICompatibleTransport:
                     raise ProviderResponseError("provider response must be an object")
                 return cast(dict[str, Any], parsed)
             except (TimeoutError, httpx.TimeoutException) as error:
+                if first_content_timeout_seconds is not None:
+                    raise ModelTimeoutError(
+                        "model request produced no content token within "
+                        f"{first_content_timeout_seconds:g}s"
+                    ) from error
                 raise ModelTimeoutError("model provider request timed out") from error
             except (httpx.NetworkError, _TransientProviderError) as error:
                 if attempt == MAX_ATTEMPTS - 1:
@@ -244,6 +272,133 @@ class OpenAICompatibleTransport:
                 ) from retry_error
             await asyncio.sleep(delay)
         raise ProviderResponseError("provider request failed")
+
+    async def _complete_streamed(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+        first_content_timeout_seconds: float,
+    ) -> Mapping[str, Any]:
+        streamed_payload = {
+            **payload,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        started_at = time.monotonic()
+        first_content_deadline = started_at + first_content_timeout_seconds
+        completion_deadline: float | None = None
+        content: list[str] = []
+        finish_reason: str | None = None
+        model: str | None = None
+        usage: Mapping[str, Any] = {}
+        received = 0
+        client_timeout = max(timeout_seconds, first_content_timeout_seconds)
+
+        async with (
+            self._client(client_timeout) as client,
+            client.stream(
+                "POST",
+                _endpoint(self._base_url, "chat/completions"),
+                headers=_headers(self._api_key),
+                json=streamed_payload,
+            ) as response,
+        ):
+            await _raise_for_status(response)
+            lines = response.aiter_lines()
+            while True:
+                deadline = completion_deadline or first_content_deadline
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._raise_content_timeout(
+                        content_started=completion_deadline is not None,
+                        timeout_seconds=(
+                            timeout_seconds
+                            if completion_deadline is not None
+                            else first_content_timeout_seconds
+                        ),
+                    )
+                try:
+                    async with asyncio.timeout(remaining):
+                        line = await anext(lines)
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    self._raise_content_timeout(
+                        content_started=completion_deadline is not None,
+                        timeout_seconds=(
+                            timeout_seconds
+                            if completion_deadline is not None
+                            else first_content_timeout_seconds
+                        ),
+                    )
+
+                received += len(line.encode("utf-8")) + 1
+                if received > MAX_RESPONSE_BYTES:
+                    raise ResponseLimitError(
+                        f"provider response exceeded {MAX_RESPONSE_BYTES} bytes"
+                    )
+                if not line.startswith("data:"):
+                    continue
+                data = line.removeprefix("data:").strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    event = json.loads(data)
+                except json.JSONDecodeError as error:
+                    raise ProviderResponseError(
+                        "provider returned an invalid stream event"
+                    ) from error
+                if not isinstance(event, Mapping):
+                    continue
+                event_model = event.get("model")
+                if isinstance(event_model, str):
+                    model = event_model
+                event_usage = event.get("usage")
+                if isinstance(event_usage, Mapping):
+                    usage = event_usage
+                choices = event.get("choices")
+                if (
+                    isinstance(choices, Sequence)
+                    and not isinstance(choices, (str, bytes))
+                    and choices
+                    and isinstance(choices[0], Mapping)
+                ):
+                    event_finish_reason = choices[0].get("finish_reason")
+                    if isinstance(event_finish_reason, str):
+                        finish_reason = event_finish_reason
+                delta = _stream_delta(event)
+                if delta:
+                    if completion_deadline is None:
+                        completion_deadline = time.monotonic() + timeout_seconds
+                    content.append(delta)
+
+        return {
+            "model": model,
+            "choices": [
+                {
+                    "message": {"content": "".join(content)},
+                    "finish_reason": finish_reason,
+                }
+            ],
+            "usage": usage,
+        }
+
+    @staticmethod
+    def _raise_content_timeout(
+        *,
+        content_started: bool,
+        timeout_seconds: float,
+    ) -> None:
+        if content_started:
+            raise ModelTimeoutError(
+                "model response did not finish within "
+                f"{timeout_seconds:g}s after content started"
+            )
+        raise ModelTimeoutError(
+            "model request produced no content token within "
+            f"{timeout_seconds:g}s"
+        )
 
     async def stream(
         self,
@@ -309,7 +464,9 @@ class UnavailableModelTransport:
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
     ) -> Mapping[str, Any]:
+        del payload, timeout_seconds, first_content_timeout_seconds
         raise ModelConfigurationError("Story Engine model runtime is unavailable")
 
     async def stream(
@@ -339,10 +496,29 @@ def _usage_from_mapping(value: Mapping[str, Any]) -> ModelUsage:
     prompt = value.get("prompt_tokens", 0)
     completion = value.get("completion_tokens", 0)
     total = value.get("total_tokens", 0)
+    reasoning: int | None = None
+    details = value.get("completion_tokens_details")
+    if isinstance(details, Mapping):
+        detail_value = details.get("reasoning_tokens")
+        if (
+            isinstance(detail_value, int)
+            and not isinstance(detail_value, bool)
+            and detail_value >= 0
+        ):
+            reasoning = detail_value
+    if reasoning is None:
+        top_level = value.get("reasoning_tokens")
+        if (
+            isinstance(top_level, int)
+            and not isinstance(top_level, bool)
+            and top_level >= 0
+        ):
+            reasoning = top_level
     return ModelUsage(
         prompt_tokens=prompt if isinstance(prompt, int) else 0,
         completion_tokens=completion if isinstance(completion, int) else 0,
         total_tokens=total if isinstance(total, int) else 0,
+        reasoning_tokens=reasoning,
     )
 
 
@@ -416,12 +592,13 @@ class ModelGateway:
         messages = [message.model_dump(mode="json") for message in request.messages]
         payload: dict[str, Any] = {
             "messages": messages,
-            "max_tokens": (
+        }
+        if request.output_token_limit == "profile":
+            payload["max_tokens"] = (
                 request.max_output_tokens
                 if request.max_output_tokens is not None
                 else profile.max_output_tokens
-            ),
-        }
+            )
         if profile.model_ref is not None:
             payload["model"] = profile.model_ref
         temperature = (
@@ -562,30 +739,48 @@ class ModelGateway:
         schema = self._schema(request)
         payload = self._payload(request, profile, schema)
         can_fallback_to_prompt = schema is not None
-        budget_ceiling = min(
-            8192,
-            max(
-                profile.max_output_tokens,
-                request.max_output_tokens or 0,
-            ),
+        budget_ceiling = (
+            min(
+                8192,
+                max(
+                    profile.max_output_tokens,
+                    request.max_output_tokens or 0,
+                ),
+            )
+            if request.output_token_limit == "profile"
+            else None
         )
+
+        async def transport_complete(
+            current_payload: Mapping[str, Any],
+        ) -> Mapping[str, Any]:
+            if request.first_content_timeout_seconds is None:
+                return await self.transport.complete(
+                    current_payload,
+                    timeout_seconds=request.timeout_seconds,
+                )
+            return await self.transport.complete(
+                current_payload,
+                timeout_seconds=request.timeout_seconds,
+                first_content_timeout_seconds=(
+                    request.first_content_timeout_seconds
+                ),
+            )
+
+        total_timeout = request.timeout_seconds
+        if request.first_content_timeout_seconds is not None:
+            total_timeout += request.first_content_timeout_seconds
         try:
-            async with asyncio.timeout(request.timeout_seconds):
+            async with asyncio.timeout(total_timeout):
                 for attempt in range(MAX_STRUCTURED_ATTEMPTS):
                     try:
-                        raw = await self.transport.complete(
-                            payload,
-                            timeout_seconds=request.timeout_seconds,
-                        )
+                        raw = await transport_complete(payload)
                     except UnsupportedResponseFormatError:
                         if not can_fallback_to_prompt or schema is None:
                             raise
                         payload = self._prompt_only_structured_payload(payload, schema)
                         can_fallback_to_prompt = False
-                        raw = await self.transport.complete(
-                            payload,
-                            timeout_seconds=request.timeout_seconds,
-                        )
+                        raw = await transport_complete(payload)
                     content, finish_reason, usage = self._parse_content(raw)
                     self.usage.record(usage)
                     if finish_reason in TRUNCATED_FINISH_REASONS:
@@ -603,6 +798,14 @@ class ModelGateway:
                         else:
                             message += f" (finish_reason={finish_reason})"
                         current_budget = payload.get("max_tokens")
+                        if budget_ceiling is None:
+                            error = ResponseLimitError(
+                                f"{message}; the provider reached its own output limit"
+                            )
+                            error.usage = usage
+                            error.retry_count = attempt
+                            error.finish_reason = finish_reason
+                            raise error
                         if not isinstance(current_budget, int):
                             current_budget = request.max_output_tokens or (
                                 profile.max_output_tokens
@@ -618,13 +821,30 @@ class ModelGateway:
                         ):
                             error = ResponseLimitError(message)
                             error.usage = usage
+                            error.retry_count = attempt
+                            error.finish_reason = finish_reason
+                            error.max_tokens = current_budget
                             raise error
                         payload["max_tokens"] = expanded
+                        continue
+                    if schema is None and not content.strip():
+                        empty_error = StructuredOutputError(
+                            "model returned empty text content",
+                            retryable=True,
+                        )
+                        empty_error.usage = usage
+                        empty_error.retry_count = attempt
+                        if attempt == MAX_STRUCTURED_ATTEMPTS - 1:
+                            raise empty_error
+                        await asyncio.sleep(
+                            STRUCTURED_RETRY_BACKOFF_SECONDS * (2**attempt)
+                        )
                         continue
                     try:
                         parsed_output = self._validate_output(content, schema)
                     except StructuredOutputError as error:
                         error.usage = usage
+                        error.retry_count = attempt
                         if (
                             not error.retryable
                             or attempt == MAX_STRUCTURED_ATTEMPTS - 1
@@ -645,10 +865,13 @@ class ModelGateway:
                         parsed_output=parsed_output,
                         finish_reason=finish_reason,
                         usage=usage,
+                        retry_count=attempt,
+                        max_tokens=payload.get("max_tokens"),
                     )
         except TimeoutError as error:
             raise ModelTimeoutError(
-                "model request exceeded its total deadline"
+                f"model request for profile '{request.profile_id}' exceeded "
+                f"its {total_timeout}s total deadline"
             ) from error
         raise ProviderResponseError("model request failed")
 

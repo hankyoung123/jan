@@ -70,6 +70,7 @@
     "actor_action": "Actor action",
     "resolution": "Game Master resolution",
     "memory_routing": "Route memories",
+    "promotion": "Evaluate NPC agency",
     "commit": "Commit and checkpoint"
   },
   "stageStatus": {
@@ -122,7 +123,6 @@
     "navigator": "Branch navigator",
     "newId": "New branch ID",
     "create": "Create branch",
-    "projection": "Rebuild Markdown",
     "compareWith": "Compare branch",
     "compare": "Compare"
   },
@@ -134,7 +134,6 @@
   "notice": {
     "branchCreated": "Branch {{branch}} created.",
     "localeChanged": "Content locale changed to {{locale}}.",
-    "projectionBuilt": "Markdown projection rebuilt.",
     "restored": "Session restored from checkpoint."
   }
 }

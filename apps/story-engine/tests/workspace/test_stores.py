@@ -93,7 +93,7 @@ def test_project_store_creates_and_loads_markdown_workspace(tmp_path: Path) -> N
     assert not (root / "scenes").exists()
     assert (root / ".story-engine/runtime/sessions").is_dir()
     assert (root / ".story-engine/manuscript").is_dir()
-    assert (root / ".story-engine/projections").is_dir()
+    assert not (root / ".story-engine/projections").exists()
 
 
 def test_project_load_does_not_depend_on_derived_index(tmp_path: Path) -> None:

@@ -20,11 +20,17 @@ from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.wiki.boundary import WikiBoundaryProcessor, branch_records
 from story_engine.wiki.consolidator import GatewayWikiConsolidator
 from story_engine.wiki.lint import WikiLinter
-from story_engine.wiki.store import WikiStore
+from story_engine.wiki.store import WikiRevisionConflictError, WikiStore
 
 
 class WikiRebuildRequest(RuntimeModel):
     checkpoint_id: Identifier | None = None
+
+
+class WikiPageUpdateRequest(RuntimeModel):
+    path: str = Field(min_length=1, max_length=512)
+    content: str = Field(max_length=65_536)
+    expected_revision: int = Field(ge=0)
 
 
 class DirectorInstructionRequest(RuntimeModel):
@@ -61,6 +67,34 @@ def create_wiki_router(settings: EngineSettings, gateway: ModelGateway) -> APIRo
     ) -> WikiPage:
         try:
             return WikiStore(root_for(project_id), branch_id).load_page(path)
+        except FileNotFoundError as error:
+            raise HTTPException(
+                status_code=404,
+                detail="Wiki page not found",
+            ) from error
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.put(
+        "/projects/{project_id}/branches/{branch_id}/wiki/page",
+        response_model=WikiPage,
+    )
+    async def update_wiki_page(
+        project_id: str,
+        branch_id: str,
+        request: WikiPageUpdateRequest,
+    ) -> WikiPage:
+        try:
+            return WikiStore(
+                root_for(project_id),
+                branch_id,
+            ).save_page(
+                request.path,
+                request.content,
+                request.expected_revision,
+            )
+        except WikiRevisionConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except FileNotFoundError as error:
             raise HTTPException(
                 status_code=404,

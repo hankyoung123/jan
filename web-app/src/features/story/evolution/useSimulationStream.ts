@@ -11,8 +11,10 @@ import {
   reduceSimulationEvent,
   restoreSimulationTrace,
   selectStage,
+  selectViewLocation,
   type SimulationViewState,
 } from './simulationViewModel'
+import type { ViewLocation } from './viewUrl'
 
 interface UseSimulationStreamOptions {
   projectId?: string
@@ -21,6 +23,8 @@ interface UseSimulationStreamOptions {
   currentStep?: number
   branchId?: string
   onSessionChanged?: () => void
+  initialLocation?: ViewLocation
+  onLocationChange?: (location: ViewLocation) => void
 }
 
 export function useSimulationStream({
@@ -30,6 +34,8 @@ export function useSimulationStream({
   currentStep,
   branchId,
   onSessionChanged,
+  initialLocation,
+  onLocationChange,
 }: UseSimulationStreamOptions) {
   const [viewState, setViewState] = useState<SimulationViewState>(
     initialSimulationViewState
@@ -101,6 +107,9 @@ export function useSimulationStream({
           }
         }
       }
+      if (initialLocation) {
+        restored = selectViewLocation(restored, initialLocation)
+      }
       setViewState(restored)
       unsubscribe = await subscribeProjectEvents(
         activeProjectId,
@@ -118,6 +127,7 @@ export function useSimulationStream({
     applyEvent,
     branchId,
     currentStep,
+    initialLocation,
     onSessionChanged,
     projectId,
     revision,
@@ -127,7 +137,12 @@ export function useSimulationStream({
 
   const chooseStage = useCallback((step: number, stage: SimulationStage) => {
     setViewState((current) => selectStage(current, step, stage))
+    onLocationChange?.({ step, stage })
+  }, [onLocationChange])
+
+  const applyLocation = useCallback((location: ViewLocation) => {
+    setViewState((current) => selectViewLocation(current, location))
   }, [])
 
-  return { viewState, chooseStage }
+  return { viewState, chooseStage, applyLocation }
 }

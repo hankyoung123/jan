@@ -68,6 +68,43 @@ def _result(step: int) -> StepResult:
     )
 
 
+def _snapshot_with_observation(
+    *,
+    current_step: int,
+    observation_step: int,
+    text: str,
+    status: TurnSessionStatus,
+) -> TurnSessionSnapshot:
+    snapshot = _snapshot(step=current_step, status=status)
+    memory = ConcordiaMemoryBank(
+        owner_id="actor-a",
+        scope=MemoryScope.CHARACTER,
+    )
+    memory.add(
+        MemoryRecord(
+            record_id=f"observation:session:1:{observation_step}:actor-a",
+            record_type=MemoryRecordType.OBSERVATION,
+            scope=MemoryScope.CHARACTER,
+            owner_id="actor-a",
+            session_id="session:1",
+            branch_id="main",
+            step=observation_step,
+            text=text,
+            content_locale="en-US",
+            created_at=datetime.now(UTC),
+            actor_ids=("actor-a",),
+            tags=("observation",),
+            visible_to=("actor-a",),
+        )
+    )
+    provisional = snapshot.model_copy(
+        update={"memory_snapshots": {"actor-a": memory.snapshot()}}
+    )
+    return provisional.model_copy(
+        update={"state_hash": calculate_snapshot_state_hash(provisional)}
+    )
+
+
 def _trace(
     step: int,
     *,
@@ -209,6 +246,86 @@ def test_failed_step_trace_can_be_followed_by_successful_checkpoint_retry(
     assert kernel.branches.load("main").head_step == 1
 
 
+def test_failed_step_trace_does_not_persist_uncommitted_observations(
+    tmp_path: Path,
+) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    failed_result = _result(0).model_copy(update={"status": TurnSessionStatus.FAILED})
+    failed_snapshot = _snapshot_with_observation(
+        current_step=0,
+        observation_step=0,
+        text="uncommitted observation",
+        status=TurnSessionStatus.FAILED,
+    )
+
+    kernel.append_step(
+        failed_result,
+        failed_snapshot,
+        _trace(0, status=ModelCallStatus.FAILED),
+        checkpoint=False,
+    )
+
+    assert kernel.logs.read_observations("main") == ()
+
+
+def test_successful_retry_replaces_legacy_observation_from_failed_attempt(
+    tmp_path: Path,
+) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    failed_result = _result(0).model_copy(update={"status": TurnSessionStatus.FAILED})
+    failed_snapshot = _snapshot_with_observation(
+        current_step=0,
+        observation_step=0,
+        text="legacy failed observation",
+        status=TurnSessionStatus.FAILED,
+    )
+    kernel.append_step(
+        failed_result,
+        failed_snapshot,
+        _trace(0, status=ModelCallStatus.FAILED),
+        checkpoint=False,
+    )
+    ((legacy_path, legacy_content),) = kernel.logs.prepare_observations(
+        failed_snapshot,
+        step=0,
+    )
+    legacy_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_path.write_text(legacy_content, encoding="utf-8")
+
+    retry_snapshot = _snapshot_with_observation(
+        current_step=1,
+        observation_step=0,
+        text="committed retry observation",
+        status=TurnSessionStatus.PAUSED,
+    )
+    committed = kernel.append_step(
+        _result(0),
+        retry_snapshot,
+        _trace(0, attempt=1),
+    )
+
+    assert committed is not None
+    assert [item.text for item in kernel.logs.read_observations("main")] == [
+        "committed retry observation"
+    ]
+    with pytest.raises(ValueError, match="already committed"):
+        kernel.append_step(
+            _result(0),
+            _snapshot_with_observation(
+                current_step=1,
+                observation_step=0,
+                text="must not replace committed history",
+                status=TurnSessionStatus.PAUSED,
+            ),
+            _trace(0, attempt=2),
+        )
+    assert [item.text for item in kernel.logs.read_observations("main")] == [
+        "committed retry observation"
+    ]
+
+
 def test_branch_fork_and_rollback_keep_independent_heads(tmp_path: Path) -> None:
     kernel = SimulationCommitKernel(tmp_path)
     first = kernel.save_checkpoint(_snapshot(step=0), reason="created")
@@ -232,69 +349,3 @@ def test_branch_fork_and_rollback_keep_independent_heads(tmp_path: Path) -> None
     assert rolled_back.head_checkpoint_id == first.checkpoint_id
     assert kernel.branches.load("branch-b").head_checkpoint_id == first.checkpoint_id
     assert second.checkpoint_id != first.checkpoint_id
-
-
-def test_markdown_projection_is_disposable_and_rebuildable(tmp_path: Path) -> None:
-    kernel = SimulationCommitKernel(tmp_path)
-    kernel.save_checkpoint(_snapshot(step=0), reason="created")
-    committed = kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
-
-    paths = kernel.project_markdown("fog-harbor", "main")
-    contents = tuple(path.read_text(encoding="utf-8") for path in paths)
-    for path in paths:
-        path.unlink()
-
-    rebuilt = kernel.project_markdown(
-        "fog-harbor",
-        "main",
-        checkpoint_id=committed.checkpoint_id,
-    )
-
-    assert tuple(path.read_text(encoding="utf-8") for path in rebuilt) == contents
-    timeline = tmp_path / ".story-engine/projections/main/timeline.md"
-    assert "action 0" in timeline.read_text(encoding="utf-8")
-    restored = kernel.load_checkpoint("fog-harbor", committed.checkpoint_id)
-    assert restored.current_step == 1
-
-
-def test_fork_projection_recovers_inherited_events_from_checkpoint(
-    tmp_path: Path,
-) -> None:
-    now = datetime.now(UTC)
-    memory = ConcordiaMemoryBank(owner_id="gm", scope=MemoryScope.GAME_MASTER)
-    memory.add(
-        MemoryRecord(
-            record_id="event:session-1:0",
-            record_type=MemoryRecordType.WORLD_EVENT,
-            scope=MemoryScope.GAME_MASTER,
-            owner_id="gm",
-            session_id="session:1",
-            branch_id="main",
-            step=0,
-            text="The lighthouse beam returns.",
-            content_locale="en-US",
-            created_at=now,
-        )
-    )
-    provisional = _snapshot(step=1).model_copy(
-        update={"memory_snapshots": {"gm": memory.snapshot()}}
-    )
-    snapshot = provisional.model_copy(
-        update={"state_hash": calculate_snapshot_state_hash(provisional)}
-    )
-    kernel = SimulationCommitKernel(tmp_path)
-    committed = kernel.save_checkpoint(snapshot, reason="fork point")
-    kernel.create_branch(
-        "fog-harbor",
-        source_checkpoint_id=committed.checkpoint_id,
-        branch_id="branch-b",
-        parent_branch_id="main",
-        content_locale="en-US",
-    )
-
-    kernel.project_markdown("fog-harbor", "branch-b")
-
-    timeline = tmp_path / ".story-engine/projections/branch-b/timeline.md"
-    world = tmp_path / ".story-engine/projections/branch-b/world.md"
-    assert "event:session-1:0" in timeline.read_text(encoding="utf-8")
-    assert "The lighthouse beam returns." in world.read_text(encoding="utf-8")

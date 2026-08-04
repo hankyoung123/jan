@@ -16,17 +16,22 @@ from story_engine.concordia_runtime.resolver import (
     ConcordiaResolverKernel,
     SimulationCancelledError,
 )
-from story_engine.concordia_runtime.roster import ConcordiaRosterPlanner
+from story_engine.concordia_runtime.roster import (
+    MAX_SCENE_ROSTER_SIZE,
+    ConcordiaRosterPlanner,
+)
 from story_engine.domain.action import ActionOutputType, ActionSpec
 from story_engine.domain.memory import MemorySnapshot
+from story_engine.domain.models import Character
 from story_engine.domain.projection import (
     EffectOperation,
     EventVisibility,
+    ResolvedEvent,
     ResolvedTurn,
 )
 from story_engine.domain.recipe import PerceptionFrame
 from story_engine.domain.simulation import (
-    DynamicEntityDefinition,
+    PromotionDecision,
     ResolverContext,
     StepResult,
     TurnSessionSnapshot,
@@ -60,10 +65,15 @@ class StorySimulationRuntime:
         initial_snapshot: TurnSessionSnapshot | None = None,
         language_models: Sequence[object] = (),
         observer: SimulationObserver | None = None,
-        allow_dynamic_entities: bool = False,
-        dynamic_entities: tuple[DynamicEntityDefinition, ...] = (),
-        dynamic_actor_builder: Callable[
-            [DynamicEntityDefinition], tuple[ConcordiaStoryActor, object]
+        characters: tuple[Character, ...] = (),
+        pending_scene_events: tuple[ResolvedEvent, ...] = (),
+        promoted_actor_builder: Callable[
+            [Character, tuple[ResolvedEvent, ...]],
+            tuple[ConcordiaStoryActor, object],
+        ]
+        | None = None,
+        promotion_reviewer: Callable[
+            [Character, tuple[ResolvedEvent, ...]], PromotionDecision
         ]
         | None = None,
         game_master_rebuilder: Callable[
@@ -73,9 +83,14 @@ class StorySimulationRuntime:
         | None = None,
         available_actors: tuple[ConcordiaStoryActor, ...] = (),
         roster_planner: ConcordiaRosterPlanner | None = None,
+        initial_roster_selected: bool = False,
     ) -> None:
         if not actors:
             raise ValueError("simulation runtime requires at least one actor")
+        if len(actors) > MAX_SCENE_ROSTER_SIZE:
+            raise ValueError(
+                f"scene roster cannot exceed {MAX_SCENE_ROSTER_SIZE} active Agents"
+            )
         self.project_id = project_id
         self.session_id = session_id
         self.branch_id = branch_id
@@ -95,29 +110,31 @@ class StorySimulationRuntime:
         self._all_actors_by_name = {
             actor.name: actor for actor in (*actors, *available_actors)
         }
-        self._allow_dynamic_entities = allow_dynamic_entities
-        self._dynamic_entities = {
-            definition.entity_id: definition for definition in dynamic_entities
-        }
-        self._dynamic_actor_builder = dynamic_actor_builder
+        self._characters_by_id = {character.id: character for character in characters}
+        self._pending_scene_events = list(pending_scene_events)
+        self._promoted_actor_builder = promoted_actor_builder
+        self._promotion_reviewer = promotion_reviewer
         self._game_master_rebuilder = game_master_rebuilder
         self._roster_planner = roster_planner
-        self._roster_planned = initial_snapshot is not None
+        self._roster_planned = initial_snapshot is not None or initial_roster_selected
         if len(self._actors_by_name) != len(actors):
             raise ValueError("simulation actor IDs must be unique")
 
-    def active_entity_ids(self) -> tuple[str, ...]:
+    def roster_actor_ids(self) -> tuple[str, ...]:
         return tuple(actor.name for actor in self.actors)
 
     def resolved_model_profile_ids(self) -> dict[str, str]:
         return dict(self._resolved_model_profile_ids)
 
-    def dynamic_entity_definitions(self) -> tuple[DynamicEntityDefinition, ...]:
+    def character_states(self) -> tuple[Character, ...]:
         return tuple(
-            self._dynamic_entities[key] for key in sorted(self._dynamic_entities)
+            self._characters_by_id[key] for key in sorted(self._characters_by_id)
         )
 
-    def _apply_entity_effects(self, resolved: ResolvedTurn) -> tuple[str, ...]:
+    def pending_scene_events(self) -> tuple[ResolvedEvent, ...]:
+        return tuple(self._pending_scene_events)
+
+    def _apply_character_effects(self, resolved: ResolvedTurn) -> tuple[str, ...]:
         candidate_effects = (
             *resolved.effects,
             *(effect for event in resolved.events for effect in event.effects),
@@ -126,85 +143,155 @@ class StorySimulationRuntime:
             {effect.effect_id: effect for effect in candidate_effects}.values()
         )
         changed: list[str] = []
-        roster_changed = False
+        new_characters: dict[str, Character] = {}
         for effect in effects:
-            if effect.operation not in {
-                EffectOperation.CREATE_ENTITY,
-                EffectOperation.ARCHIVE_ENTITY,
-            }:
+            if effect.operation != EffectOperation.CREATE_CHARACTER:
                 continue
-            if not self._allow_dynamic_entities:
-                if effect.required:
-                    raise ValueError(
-                        "required dynamic entity effect is disabled by policy"
-                    )
-                continue
-            if effect.operation == EffectOperation.CREATE_ENTITY:
-                if effect.target_id in self._all_actors_by_name:
-                    actor = self._all_actors_by_name[effect.target_id]
-                    if actor.name not in self._actors_by_name:
-                        self._actors_by_name[actor.name] = actor
-                        self.actors = (*self.actors, actor)
-                        changed.append(f"entity-joined:{actor.name}")
-                        roster_changed = True
-                    continue
-                if self._dynamic_actor_builder is None or not isinstance(
-                    effect.after, dict
-                ):
-                    if effect.required:
-                        raise ValueError("dynamic entity builder is unavailable")
-                    continue
-                payload = dict(effect.after)
-                if effect.target_id is not None:
-                    payload.setdefault("entity_id", effect.target_id)
-                definition = DynamicEntityDefinition.model_validate(payload)
-                if definition.entity_id in self._all_actors_by_name:
-                    continue
-                actor, model = self._dynamic_actor_builder(definition)
-                self._all_actors_by_name[actor.name] = actor
-                self._actors_by_name[actor.name] = actor
-                self.actors = (*self.actors, actor)
-                self._language_models.append(model)
-                self._dynamic_entities[definition.entity_id] = definition.model_copy(
-                    update={"active": True}
-                )
-                changed.append(f"entity-created:{definition.entity_id}")
-                roster_changed = True
-            elif effect.target_id in self._actors_by_name:
-                entity_id = effect.target_id
-                if len(self.actors) == 1:
-                    if effect.required:
-                        raise ValueError("cannot archive the last active entity")
-                    continue
-                self.actors = tuple(
-                    actor for actor in self.actors if actor.name != entity_id
-                )
-                self._actors_by_name.pop(entity_id, None)
-                archived_definition = self._dynamic_entities.get(entity_id)
-                if archived_definition is not None:
-                    self._dynamic_entities[entity_id] = archived_definition.model_copy(
-                        update={"active": False}
-                    )
-                changed.append(f"entity-archived:{entity_id}")
-                roster_changed = True
-        if roster_changed:
-            if self._game_master_rebuilder is None:
-                raise ValueError("Game Master roster rebuilder is unavailable")
-            self.game_master = self._game_master_rebuilder(
-                self.actors, self.game_master
+            if effect.target_id is None or not isinstance(effect.after, dict):
+                raise ValueError("create_character requires a target and payload")
+            if (
+                effect.target_id in self._characters_by_id
+                or effect.target_id in new_characters
+            ):
+                raise ValueError(f"character {effect.target_id!r} already exists")
+            payload = dict(effect.after)
+            character = Character(
+                id=effect.target_id,
+                display_name=str(payload.get("display_name") or effect.target_id),
+                type="npc",
+                identity=str(payload.get("identity") or ""),
+                core_desire=str(payload.get("core_desire") or ""),
+                location=(
+                    str(payload["location"]) if payload.get("location") else None
+                ),
             )
+            new_characters[character.id] = character
+            changed.append(f"npc-created:{character.id}")
+
+        character_ids = {*self._characters_by_id, *new_characters}
+        actor_ids = set(self._actors_by_name)
+        for event in resolved.events:
+            unknown_participants = set(event.participant_ids) - character_ids
+            if unknown_participants:
+                raise ValueError(
+                    "event contains unregistered participant IDs: "
+                    f"{sorted(unknown_participants)}"
+                )
+            unknown_observers = set(event.observer_ids) - actor_ids
+            if unknown_observers:
+                raise ValueError(
+                    "event contains non-actor observer IDs: "
+                    f"{sorted(unknown_observers)}"
+                )
+        self._characters_by_id.update(new_characters)
         return tuple(changed)
+
+    def _evaluate_promotions(
+        self,
+        resolved: ResolvedTurn,
+    ) -> tuple[PromotionDecision, ...]:
+        self._pending_scene_events.extend(resolved.events)
+        if resolved.boundary.value == "none":
+            return ()
+        scene_events = tuple(self._pending_scene_events)
+        candidates = tuple(
+            character
+            for character in self.character_states()
+            if character.type == "npc"
+            and any(character.id in event.participant_ids for event in scene_events)
+        )
+        if candidates and (
+            self._promotion_reviewer is None or self._promoted_actor_builder is None
+        ):
+            raise ValueError("automatic NPC promotion is unavailable")
+        decisions: list[PromotionDecision] = []
+        for character in candidates:
+            evidence = tuple(
+                event for event in scene_events if character.id in event.participant_ids
+            )
+            assert self._promotion_reviewer is not None
+            decision = self._promotion_reviewer(character, evidence)
+            decisions.append(decision)
+            if not decision.promote:
+                continue
+            promoted = Character.model_validate(
+                character.model_copy(
+                    update={
+                        "type": "active",
+                        "current_goal": decision.proposed_goal,
+                        "version": character.version + 1,
+                    }
+                )
+            )
+            assert self._promoted_actor_builder is not None
+            actor, model = self._promoted_actor_builder(promoted, evidence)
+            self._characters_by_id[promoted.id] = promoted
+            self._all_actors_by_name[actor.name] = actor
+            self._language_models.append(model)
+        self._pending_scene_events.clear()
+        if self._roster_planner is not None:
+            self._set_trace_context(
+                step=resolved.step,
+                component_ids=("game-master:roster-selection",),
+                source_record_ids=tuple(event.event_id for event in scene_events),
+            )
+            self._plan_next_roster(scene_events)
+        return tuple(decisions)
+
+    def _active_roster_candidates(self) -> dict[str, str]:
+        return {
+            character.id: (
+                f"{character.identity}; goal: "
+                f"{character.current_goal or character.core_desire}; "
+                f"location: {character.location or 'unknown'}"
+            )
+            for character in self.character_states()
+            if character.type == "active"
+            and character.id in self._all_actors_by_name
+        }
+
+    def _replace_roster(self, selected: tuple[str, ...]) -> bool:
+        if not selected:
+            raise ValueError("scene roster requires at least one active Agent")
+        if len(selected) > MAX_SCENE_ROSTER_SIZE:
+            raise ValueError(
+                f"scene roster cannot exceed {MAX_SCENE_ROSTER_SIZE} active Agents"
+            )
+        unknown = set(selected) - set(self._all_actors_by_name)
+        if unknown:
+            raise ValueError(f"scene roster contains unknown Agents: {sorted(unknown)}")
+        if selected == self.roster_actor_ids():
+            return False
+        if self._game_master_rebuilder is None:
+            raise ValueError("Game Master roster rebuilder is unavailable")
+        actors = tuple(self._all_actors_by_name[actor_id] for actor_id in selected)
+        self.actors = actors
+        self._actors_by_name = {actor.name: actor for actor in actors}
+        self.game_master = self._game_master_rebuilder(actors, self.game_master)
+        return True
 
     def _plan_initial_roster(self) -> tuple[str, ...]:
         if self._roster_planner is None or self._roster_planned:
             return ()
-        selected = self._roster_planner.select_initial()
-        actors = tuple(self._all_actors_by_name[actor_id] for actor_id in selected)
-        if self._game_master_rebuilder is None:
-            raise ValueError("Game Master roster rebuilder is unavailable")
-        self.actors = actors
-        self._actors_by_name = {actor.name: actor for actor in actors}
-        self.game_master = self._game_master_rebuilder(actors, self.game_master)
+        selected = self._roster_planner.select_initial(
+            self._active_roster_candidates()
+        )
+        self._replace_roster(selected)
+        self._roster_planned = True
+        return selected
+
+    def _plan_next_roster(
+        self,
+        scene_events: tuple[ResolvedEvent, ...],
+    ) -> tuple[str, ...]:
+        if self._roster_planner is None:
+            return ()
+        selected = self._roster_planner.select_next(
+            self._active_roster_candidates(),
+            current_roster=self.roster_actor_ids(),
+            scene_events=scene_events,
+        )
+        self._replace_roster(selected)
         self._roster_planned = True
         return selected
 
@@ -533,7 +620,7 @@ class StorySimulationRuntime:
                 cancellation=self.cancellation,
             )
             event_id = f"event:{self.session_id}:{step}"
-            entity_effect_ids = self._apply_entity_effects(resolved)
+            character_effect_ids = self._apply_character_effects(resolved)
             self._publish_stage(
                 step=step,
                 stage=current_stage,
@@ -542,7 +629,7 @@ class StorySimulationRuntime:
                 actor_id=actor.name,
                 summary_text=resolved.raw_resolution_text,
                 input_record_ids=(putative_id,),
-                output_record_ids=(event_id, *entity_effect_ids),
+                output_record_ids=(event_id, *character_effect_ids),
             )
 
             current_stage = SimulationStage.MEMORY_ROUTING
@@ -557,9 +644,7 @@ class StorySimulationRuntime:
             )
             self._set_trace_context(
                 step=step,
-                component_ids=(
-                    "memory:routing",
-                ),
+                component_ids=("memory:routing",),
                 source_record_ids=(event_id,),
             )
             observer_ids: set[str] = set() if resolved.events else {actor.name}
@@ -600,6 +685,47 @@ class StorySimulationRuntime:
                 output_record_ids=tuple(routed_ids),
                 visible_to=tuple(sorted(observer_ids)),
             )
+            promotion_decisions: tuple[PromotionDecision, ...]
+            if resolved.boundary.value == "none":
+                promotion_decisions = self._evaluate_promotions(resolved)
+            else:
+                current_stage = SimulationStage.PROMOTION
+                stage_started = datetime.now(UTC)
+                self._set_trace_context(
+                    step=step,
+                    component_ids=("editor:automatic-promotion",),
+                    source_record_ids=tuple(
+                        event.event_id for event in self._pending_scene_events
+                    )
+                    + tuple(event.event_id for event in resolved.events),
+                )
+                self._publish_stage(
+                    step=step,
+                    stage=current_stage,
+                    status=StageStatus.RUNNING,
+                    started_at=stage_started,
+                    input_record_ids=(event_id,),
+                )
+                promotion_decisions = self._evaluate_promotions(resolved)
+                self._publish_stage(
+                    step=step,
+                    stage=current_stage,
+                    status=StageStatus.SUCCEEDED,
+                    started_at=stage_started,
+                    summary_text=(
+                        "; ".join(
+                            f"{decision.character_id}: "
+                            f"{'promoted' if decision.promote else 'remains npc'}"
+                            for decision in promotion_decisions
+                        )
+                        or "No NPC promotion candidates"
+                    ),
+                    input_record_ids=(event_id,),
+                    output_record_ids=tuple(
+                        f"promotion:{self.session_id}:{step}:{decision.character_id}"
+                        for decision in promotion_decisions
+                    ),
+                )
             return StepResult(
                 session_id=self.session_id,
                 branch_id=self.branch_id,
@@ -610,6 +736,7 @@ class StorySimulationRuntime:
                 resolved_turn=resolved,
                 status=TurnSessionStatus.RUNNING,
                 boundary=resolved.boundary,
+                promotion_decisions=promotion_decisions,
             )
         except Exception as error:
             status = (
@@ -670,7 +797,7 @@ class StorySimulationRuntime:
         game_master_states: Mapping[str, Mapping[str, JsonValue]],
         memory_snapshots: Mapping[str, MemorySnapshot],
     ) -> None:
-        for actor in self.actors:
+        for actor in self._all_actors_by_name.values():
             actor.memory.restore(memory_snapshots[actor.name])
             actor.set_state(actor_states[actor.name])
         self.game_master.memory.restore(memory_snapshots[self.game_master.name])

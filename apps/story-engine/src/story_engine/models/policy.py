@@ -3,7 +3,7 @@ from threading import RLock
 
 from pydantic import ValidationError
 
-from story_engine.domain.model_policy import ProjectModelPolicy
+from story_engine.domain.model_policy import ProjectModelPolicy, ProjectModelPolicyPatch
 from story_engine.models.contracts import ModelProfile
 from story_engine.models.errors import ModelConfigurationError, ProfileNotFoundError
 from story_engine.models.registry import ProfileRegistry
@@ -55,6 +55,25 @@ class ProjectModelPolicyStore:
             )
             atomic_write_text(self.path, content)
             return validated
+
+    def patch(self, patch: ProjectModelPolicyPatch) -> ProjectModelPolicy:
+        current = self.load()
+        task_profile_ids = dict(current.task_profile_ids)
+        if patch.task_profile_ids is not None:
+            task_profile_ids.update(patch.task_profile_ids)
+        agent_profile_ids = dict(current.agent_profile_ids)
+        if patch.agent_profile_ids is not None:
+            for agent_id, profile_id in patch.agent_profile_ids.items():
+                if profile_id is None:
+                    agent_profile_ids.pop(agent_id, None)
+                else:
+                    agent_profile_ids[agent_id] = profile_id
+        return self.save(
+            ProjectModelPolicy(
+                task_profile_ids=task_profile_ids,
+                agent_profile_ids=agent_profile_ids,
+            )
+        )
 
     def _validate_assignments(
         self,

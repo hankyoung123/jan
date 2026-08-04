@@ -1,4 +1,4 @@
-import { GitBranch, Languages, RotateCcw, Save } from 'lucide-react'
+import { GitBranch, Languages, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -10,9 +10,8 @@ import type { BranchComparison, BranchManifest } from './useSimulationSession'
 interface Props {
   session: SessionSnapshot
   branches: BranchManifest[]
-  pending: (name: 'fork' | 'projection' | 'restore' | 'locale' | 'compare') => boolean
+  pending: (name: 'fork' | 'restore' | 'locale' | 'compare') => boolean
   onFork: (branchId: string) => Promise<unknown>
-  onProjection: () => Promise<unknown>
   onRestore: (checkpointId: string) => Promise<unknown>
   onLocale: (locale: string) => Promise<unknown>
   onCompare: (left: string, right: string) => Promise<BranchComparison | null>
@@ -46,13 +45,6 @@ export function BranchNavigator(props: Props) {
             variant="outline"
           >
             <GitBranch size={14} /> {t('branch.create')}
-          </Button>
-          <Button
-            disabled={!props.session.checkpoint_id || props.pending('projection')}
-            onClick={() => void props.onProjection()}
-            variant="outline"
-          >
-            <Save size={14} /> {t('branch.projection')}
           </Button>
         </div>
       </div>

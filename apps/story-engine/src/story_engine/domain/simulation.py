@@ -1,16 +1,20 @@
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
-from pathlib import Path
 from threading import Event
 from typing import Protocol
 
-from pydantic import Field, JsonValue
+from pydantic import Field, JsonValue, model_validator
 
 from story_engine.domain.action import ActionSpec, EntityRole
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 from story_engine.domain.memory import MemoryBank, MemorySnapshot
-from story_engine.domain.projection import ResolvedTurn, SimulationBoundary
+from story_engine.domain.models import Character
+from story_engine.domain.projection import (
+    ResolvedEvent,
+    ResolvedTurn,
+    SimulationBoundary,
+)
 from story_engine.domain.recipe import AgentRecipe, PerceptionFrame
 from story_engine.domain.trace import TurnTrace
 
@@ -134,7 +138,6 @@ class ControlPolicy(RuntimeModel):
     max_total_tokens: int = Field(default=500_000, ge=1)
     max_runtime_seconds: int = Field(default=3_600, ge=1)
     max_consecutive_model_failures: int = Field(default=3, ge=1, le=20)
-    allow_dynamic_entities: bool = True
     allow_user_override: bool = True
     checkpoint_every_steps: int = Field(default=1, ge=1, le=1_000)
 
@@ -183,20 +186,27 @@ class TurnSessionRequest(RuntimeModel):
     project_id: Identifier
     branch_id: Identifier
     premise_text: str = Field(min_length=1, max_length=131_072)
-    actor_ids: tuple[Identifier, ...] = ()
+    actor_ids: tuple[Identifier, ...] = Field(default=(), max_length=4)
     content_locale: LocaleCode
     control: ControlPolicy
     output: OutputPolicy = OutputPolicy()
     seed: int | None = None
 
 
-class DynamicEntityDefinition(RuntimeModel):
-    entity_id: Identifier
-    display_name: str = Field(min_length=1, max_length=256)
-    identity: str = Field(min_length=1, max_length=16_384)
-    goal: str = Field(min_length=1, max_length=16_384)
-    location: str | None = Field(default=None, max_length=1_024)
-    active: bool = True
+class PromotionDecision(RuntimeModel):
+    character_id: Identifier
+    promote: bool
+    proposed_goal: str | None = Field(default=None, max_length=16_384)
+    evidence_event_ids: tuple[Identifier, ...] = ()
+    reason: str = Field(min_length=1, max_length=16_384)
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> "PromotionDecision":
+        if self.promote and (not self.proposed_goal or not self.evidence_event_ids):
+            raise ValueError("promotion requires a goal and evidence events")
+        if not self.promote and self.proposed_goal is not None:
+            raise ValueError("a rejected promotion cannot propose a goal")
+        return self
 
 
 class TurnSessionSnapshot(RuntimeModel):
@@ -210,8 +220,9 @@ class TurnSessionSnapshot(RuntimeModel):
     resolved_model_profile_ids: dict[Identifier, Identifier] = Field(
         default_factory=dict
     )
-    active_entity_ids: tuple[Identifier, ...] = ()
-    dynamic_entities: tuple[DynamicEntityDefinition, ...] = ()
+    roster_actor_ids: tuple[Identifier, ...] = Field(default=(), max_length=4)
+    characters: tuple[Character, ...] = ()
+    pending_scene_events: tuple[ResolvedEvent, ...] = ()
     current_step: int = Field(ge=0)
     completed_scenes: int = Field(default=0, ge=0)
     active_actor_id: Identifier | None = None
@@ -244,6 +255,7 @@ class StepResult(RuntimeModel):
     resolved_turn: ResolvedTurn | None
     status: TurnSessionStatus
     boundary: SimulationBoundary = SimulationBoundary.NONE
+    promotion_decisions: tuple[PromotionDecision, ...] = ()
     checkpoint_id: Identifier | None = None
 
 
@@ -338,11 +350,3 @@ class CommitKernel(Protocol):
         *,
         checkpoint_id: str,
     ) -> BranchManifest: ...
-
-    def project_markdown(
-        self,
-        project_id: str,
-        branch_id: str,
-        *,
-        checkpoint_id: str | None = None,
-    ) -> tuple[Path, ...]: ...

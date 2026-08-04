@@ -16,7 +16,6 @@ def test_openapi_contains_core_paths_and_bearer_security() -> None:
         "/projects/{project_id}/simulations/{session_id}/checkpoint",
         "/projects/{project_id}/branches",
         "/projects/{project_id}/branches/{branch_id}/rollback",
-        "/projects/{project_id}/branches/{branch_id}/projection",
         "/projects/{project_id}/branches/{branch_id}/narrative-sources",
         "/projects/{project_id}/branches/{branch_id}/manuscript/scenes",
         "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/generate",

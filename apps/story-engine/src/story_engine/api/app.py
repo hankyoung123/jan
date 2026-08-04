@@ -174,7 +174,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=list(runtime_settings.allowed_origins),
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
 
@@ -224,7 +224,7 @@ def create_app(
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(
-        create_characters_router(runtime_settings, gateway, workspace_manager),
+        create_characters_router(runtime_settings),
         dependencies=[Depends(require_session_token)],
     )
     app.include_router(

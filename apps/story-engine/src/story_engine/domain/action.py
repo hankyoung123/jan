@@ -71,6 +71,35 @@ class ActionSpec(RuntimeModel):
         return self
 
 
+class ActionSpecEnvelope(RuntimeModel):
+    """Model-written subset of an ActionSpec; system fields are filled locally."""
+
+    call_to_action: str = Field(min_length=1, max_length=32_768)
+    output_type: ActionOutputType
+    options: tuple[str, ...] = ()
+    option_ids: tuple[str, ...] = ()
+    tag: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_options(self) -> Self:
+        choice_like = {
+            ActionOutputType.CHOICE,
+            ActionOutputType.NEXT_ACTING,
+            ActionOutputType.TERMINATE,
+            ActionOutputType.NEXT_GAME_MASTER,
+        }
+        if self.output_type in choice_like:
+            if not self.options:
+                raise ValueError("choice-like ActionSpec requires options")
+            if len(self.options) != len(set(self.options)):
+                raise ValueError("ActionSpec options must be unique")
+        elif self.options:
+            raise ValueError("non-choice ActionSpec cannot contain options")
+        if self.option_ids and len(self.option_ids) != len(self.options):
+            raise ValueError("option_ids must align with options")
+        return self
+
+
 class TaskType(StrEnum):
     ACTOR = "actor"
     GAME_MASTER = "game_master"

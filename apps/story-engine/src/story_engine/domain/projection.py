@@ -12,8 +12,7 @@ class EffectOperation(StrEnum):
     SET = "set"
     APPEND = "append"
     REMOVE = "remove"
-    CREATE_ENTITY = "create_entity"
-    ARCHIVE_ENTITY = "archive_entity"
+    CREATE_CHARACTER = "create_character"
     EMIT_SIGNAL = "emit_signal"
 
 
@@ -49,6 +48,40 @@ class SimulationBoundary(StrEnum):
     NONE = "none"
     SCENE = "scene"
     CHAPTER = "chapter"
+
+
+class EntityChangeOperation(StrEnum):
+    CREATE_NPC = "create_npc"
+
+
+class EntityChange(RuntimeModel):
+    """One ordinary NPC introduced by the Game Master resolution envelope."""
+
+    operation: EntityChangeOperation
+    entity_id: Identifier
+    display_name: str | None = Field(default=None, max_length=256)
+    identity: str | None = Field(default=None, max_length=16_384)
+    core_desire: str | None = Field(default=None, max_length=16_384)
+    location: str | None = Field(default=None, max_length=1024)
+
+    @model_validator(mode="after")
+    def validate_operation_fields(self) -> Self:
+        if not self.display_name or not self.identity or not self.core_desire:
+            raise ValueError(
+                "create_npc requires display_name, identity and core_desire"
+            )
+        return self
+
+
+class ResolutionEnvelope(RuntimeModel):
+    """Structured Game Master resolution for one putative action."""
+
+    event_text: str = Field(min_length=1, max_length=65_536)
+    boundary: SimulationBoundary
+    visibility: EventVisibility
+    observer_ids: tuple[Identifier, ...] = ()
+    participant_ids: tuple[Identifier, ...] = ()
+    entity_changes: tuple[EntityChange, ...] = ()
 
 
 class ResolvedEvent(RuntimeModel):

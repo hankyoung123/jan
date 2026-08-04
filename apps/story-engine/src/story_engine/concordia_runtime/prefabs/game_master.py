@@ -19,6 +19,7 @@ from concordia.typing import prefab as prefab_lib  # type: ignore[import-untyped
 from story_engine.concordia_runtime.components import (
     LocalePolicy,
     PacingContext,
+    SchemaNextActionSpec,
     WorldWikiContext,
 )
 from story_engine.domain.recipe import AgentRecipe
@@ -38,11 +39,15 @@ def _resolve_story_event(
                 f"{active_player_name}'s putative action? Return one compact JSON "
                 "object with event_text, boundary (none|scene|chapter), visibility "
                 "(public|participants|restricted|gm_only), observer_ids, "
-                "participant_ids, and entity_changes. Each entity change is either "
-                "{operation:create,entity_id,display_name,identity,goal,location} "
-                "or {operation:archive,entity_id}. Use entity_changes only when the "
-                "story event truly introduces or removes a participant. Do not "
-                "include reasoning or Markdown."
+                "participant_ids, and entity_changes. An entity change may only "
+                "introduce a recurring ordinary person as "
+                "{operation:create_npc,entity_id,display_name,identity,core_desire,"
+                "location}. Do not create an NPC when an existing character can fill "
+                "the role. Do not assign IDs to incidental people mentioned only in "
+                "event_text. observer_ids may contain only active player character "
+                "IDs. participant_ids may contain only existing character IDs or an "
+                "NPC created in this same response. Do not include reasoning or "
+                "Markdown."
             ),
             terminators=(),
         ),
@@ -62,6 +67,8 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         self,
         model: language_model.LanguageModel,
         memory_bank: basic_associative_memory.AssociativeMemoryBank,
+        *,
+        component_models: Mapping[str, language_model.LanguageModel] | None = None,
     ) -> entity_agent_with_logging.EntityAgentWithLogging:
         if self.recipe is None:
             raise ValueError("StoryGameMasterPrefab requires an AgentRecipe")
@@ -85,6 +92,9 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         player_names = tuple(entity.name for entity in self.entities)
         if not player_names:
             raise ValueError("Story Game Master requires at least one character")
+        per_component = component_models or {}
+        next_action_spec_model = per_component.get("next_action_spec", model)
+        resolution_model = per_component.get("resolution", model)
 
         next_acting = gm_components.next_acting.NextActing(
             model=model,
@@ -142,8 +152,8 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                 ),
             ),
             next_acting_key: next_acting,
-            next_action_spec_key: gm_components.next_acting.NextActionSpec(
-                model=model,
+            next_action_spec_key: SchemaNextActionSpec(
+                model=next_action_spec_model,
                 player_names=player_names,
                 components=(
                     instruction_key,
@@ -152,9 +162,10 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                     world_wiki_key,
                     recent_events_key,
                 ),
+                content_locale=self.recipe.content_locale,
             ),
             resolution_key: gm_components.event_resolution.EventResolution(
-                model=model,
+                model=resolution_model,
                 event_resolution_steps=(_resolve_story_event,),
                 components=(
                     instruction_key,

@@ -33,6 +33,7 @@ export type SimulationStage =
   | "actor_action"
   | "resolution"
   | "memory_routing"
+  | "promotion"
   | "commit";
 
 export type SimulationStageStatus =

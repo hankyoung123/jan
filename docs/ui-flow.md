@@ -40,9 +40,11 @@ SDK details.
 
 ## Other workspaces
 
-Characters, World, and Events load server-owned project or projection data.
-NPC promotion remains an explicit editorial workflow separate from simulation
-world-event validity. Manuscript changes and amendments retain their own review
+Characters, World, and Events load server-owned project or Wiki data.
+NPC promotion is an automatic Editor decision at a completed scene boundary.
+The decision cites committed event evidence, is stored in the branch history,
+and takes effect for the next scene without a confirmation control. Manuscript
+changes and amendments retain their own review
 and commit semantics; they do not gate the Game Master's world resolution.
 
 Submission starts from a non-canonical setting draft. Its discussion panel
@@ -58,8 +60,8 @@ story-domain state and simulation.
 ## Model Center and Workbench
 
 Model Center keeps Jan's catalog, download, Provider, and local-runtime
-workflows. The task-model band configures Actor, Game Master, Reflection,
-Memory Consolidation, Projection, Editor, Writer, and Embedding profiles. It
+workflows. The task-model band configures Actor, Game Master, Wiki Maintenance,
+Editor, and Writer profiles. It
 contains no credential fields and links to Jan Provider settings.
 
 Workbench is a compact operational overview of the active project, current

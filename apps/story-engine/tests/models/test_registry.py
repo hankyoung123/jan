@@ -18,6 +18,44 @@ def test_model_profile_requires_provider_qualified_model_reference() -> None:
         )
 
 
+def test_legacy_disabled_reasoning_effort_normalizes_to_none() -> None:
+    profile = ModelProfile(
+        id="editor",
+        task_type="editor",
+        model_ref="provider/model",
+        reasoning_effort="disabled",
+    )
+
+    assert profile.reasoning_effort == "none"
+    assert profile.model_dump(mode="json")["reasoning_effort"] == "none"
+
+
+def test_saved_disabled_reasoning_effort_loads_without_failure(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "model-registry.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "profiles": [
+                    {
+                        "id": "editor",
+                        "task_type": "editor",
+                        "model_ref": "provider/model",
+                        "reasoning_effort": "disabled",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    profile = ProfileRegistry(path).load().profiles[0]
+
+    assert profile.reasoning_effort == "none"
+
+
 def test_default_registry_has_each_required_task_profile(tmp_path: Path) -> None:
     registry = ProfileRegistry(tmp_path / "model-registry.json")
 
@@ -55,72 +93,31 @@ def test_registry_persists_only_task_profiles_atomically(tmp_path: Path) -> None
     assert not list(path.parent.glob("*.tmp"))
 
 
-def test_schema_three_registry_is_migrated_with_recoverable_backup(
+def test_schema_three_registry_is_rejected_without_migration(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "model-registry.json"
-    legacy_payload = {
-        "schema_version": 3,
-        "profiles": [
+    path.write_text(
+        json.dumps(
             {
-                "id": "actor",
-                "name": "Actor",
-                "task_type": "actor",
-                "provider_id": "deepseek",
-                "model": "deepseek-v4-flash",
-                "max_output_tokens": 2048,
-                "timeout_seconds": 60,
-                "temperature": 0.7,
-                "reasoning_effort": "disabled",
-                "enabled": True,
-            },
-            {
-                "id": "projection",
-                "name": "Projection",
-                "task_type": "projection",
-                "provider_id": "openai",
-                "model": "gpt-5-mini",
-                "max_output_tokens": 4096,
-                "timeout_seconds": 120,
-                "temperature": 0.1,
-                "reasoning_effort": "disabled",
-                "enabled": True,
-            },
-            {
-                "id": "embedding",
-                "name": "Embedding",
-                "task_type": "embedding",
-                "provider_id": "local",
-                "model": "bge-m3",
-                "max_output_tokens": 2048,
-                "timeout_seconds": 60,
-                "temperature": None,
-                "reasoning_effort": "disabled",
-                "enabled": True,
-            },
-        ],
-    }
-    path.write_text(json.dumps(legacy_payload), encoding="utf-8")
-
-    state = ProfileRegistry(path).load()
-
-    assert state.schema_version == 4
-    assert ProfileRegistry(path).get_profile("actor").model_ref == (
-        "deepseek/deepseek-v4-flash"
+                "schema_version": 3,
+                "profiles": [
+                    {
+                        "id": "actor",
+                        "task_type": "actor",
+                        "provider_id": "deepseek",
+                        "model": "deepseek-v4-flash",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
     )
-    assert ProfileRegistry(path).get_profile("wiki-maintenance").model_ref == (
-        "openai/gpt-5-mini"
-    )
-    assert {profile.task_type for profile in state.profiles} == {
-        "actor",
-        "game_master",
-        "wiki_maintenance",
-        "editor",
-        "writer",
-    }
-    backup = path.with_suffix(".json.schema-3.bak")
-    assert json.loads(backup.read_text(encoding="utf-8")) == legacy_payload
-    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 4
+
+    with pytest.raises(ModelConfigurationError, match="registry is invalid"):
+        ProfileRegistry(path).load()
+
+    assert not path.with_suffix(".json.schema-3.bak").exists()
 
 
 def test_unsupported_registry_schema_is_rejected(

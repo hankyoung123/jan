@@ -16,12 +16,13 @@ from story_engine.domain.action import TaskType
 from story_engine.domain.trace import ModelCallStatus, ModelCallTrace
 from story_engine.models.contracts import (
     Message,
+    ModelProfile,
     ModelRequest,
     ModelResponse,
     ModelTask,
 )
 from story_engine.models.errors import ModelTimeoutError
-from story_engine.models.gateway import ModelGateway
+from story_engine.models.gateway import ModelGateway, initial_budget
 
 TraceSink = Callable[[ModelCallTrace], None]
 
@@ -45,11 +46,12 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         self,
         gateway: ModelGateway,
         *,
-        profile_id: str,
+        profile_id: str | None = None,
         task_type: ModelTask,
         content_locale: str,
         prompt_version: str = "concordia-runtime-v1",
         output_schema: str | None = None,
+        profile_resolver: Callable[[], str] | None = None,
         max_output_tokens: int | None = None,
         timeout_seconds: float | None = None,
         cancellation: Event | None = None,
@@ -61,23 +63,17 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         component_ids: tuple[str, ...] = (),
         source_record_ids: tuple[str, ...] = (),
     ) -> None:
+        if profile_id is None and profile_resolver is None:
+            raise ValueError("profile_id or profile_resolver is required")
         self._gateway = gateway
         self._profile_id = profile_id
+        self._profile_resolver = profile_resolver
         self._task_type = task_type
         self._content_locale = content_locale
         self._prompt_version = prompt_version
         self._output_schema = output_schema
-        profile = self._gateway.registry.get_profile(profile_id)
-        self._max_output_tokens: int = (
-            max_output_tokens
-            if max_output_tokens is not None
-            else profile.max_output_tokens
-        )
-        self._timeout_seconds: float = (
-            timeout_seconds
-            if timeout_seconds is not None
-            else profile.timeout_seconds
-        )
+        self._max_output_tokens = max_output_tokens
+        self._timeout_seconds = timeout_seconds
         self._cancellation = cancellation
         self._trace_sink = trace_sink
         self._session_id = session_id
@@ -86,6 +82,13 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         self._actor_id = actor_id
         self._component_ids = component_ids
         self._source_record_ids = source_record_ids
+
+    def _current_profile_id(self) -> str:
+        if self._profile_resolver is not None:
+            return self._profile_resolver()
+        if self._profile_id is None:
+            raise ValueError("model has no profile resolver")
+        return self._profile_id
 
     def set_content_locale(self, content_locale: str) -> None:
         self._content_locale = content_locale
@@ -128,6 +131,8 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         duration_ms: int,
         response: ModelResponse | None,
         error: Exception | None,
+        request: ModelRequest,
+        profile: ModelProfile,
     ) -> None:
         if self._trace_sink is None:
             return
@@ -139,7 +144,6 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
             status = ModelCallStatus.FAILED
         else:
             status = ModelCallStatus.SUCCEEDED
-        profile = self._gateway.registry.get_profile(self._profile_id)
         attempt_usage = getattr(error, "usage", None) if error is not None else None
         trace = ModelCallTrace(
             call_id=call_id,
@@ -150,7 +154,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
             branch_id=self._branch_id,
             step=self._step,
             actor_id=self._actor_id,
-            profile_id=self._profile_id,
+            profile_id=request.profile_id,
             model_ref=response.model_ref if response else profile.model_ref,
             prompt_version=self._prompt_version,
             content_locale=self._content_locale,
@@ -167,6 +171,35 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
                 if response
                 else getattr(attempt_usage, "completion_tokens", 0)
             ),
+            reasoning_tokens=(
+                response.usage.reasoning_tokens
+                if response
+                else getattr(attempt_usage, "reasoning_tokens", None)
+            ),
+            finish_reason=(
+                response.finish_reason
+                if response
+                else getattr(error, "finish_reason", None)
+            ),
+            max_tokens=(
+                response.max_tokens
+                if response
+                else getattr(error, "max_tokens", request.max_output_tokens)
+            ),
+            reasoning_effort=(
+                request.reasoning_effort
+                if request.reasoning_effort is not None
+                else profile.reasoning_effort
+            ),
+            temperature=(
+                request.temperature
+                if request.temperature is not None
+                else profile.temperature
+            ),
+            timeout_seconds=request.timeout_seconds,
+            retry_count=(
+                response.retry_count if response else getattr(error, "retry_count", 0)
+            ),
             duration_ms=duration_ms,
             error_code=(
                 getattr(error, "code", type(error).__name__.lower())
@@ -182,10 +215,11 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         self,
         prompt: str,
         *,
-        max_tokens: int,
-        timeout: float,
+        max_tokens: int | None,
+        timeout: float | None,
         temperature: float | None,
         output_schema: str | None,
+        budget_kind: str = "full",
     ) -> tuple[str, object]:
         try:
             asyncio.get_running_loop()
@@ -194,13 +228,24 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         else:
             raise RuntimeError("model calls must run outside the API event loop")
 
+        profile_id = self._current_profile_id()
+        profile = self._gateway.registry.get_profile(profile_id)
+        if max_tokens is not None:
+            initial = max_tokens
+        elif self._max_output_tokens is not None:
+            initial = self._max_output_tokens
+        else:
+            initial = initial_budget(budget_kind, profile.max_output_tokens)
+        effective_timeout = (
+            timeout if timeout is not None else profile.timeout_seconds
+        )
         request = ModelRequest(
-            profile_id=self._profile_id,
+            profile_id=profile_id,
             task_type=self._task_type,
             messages=(Message(role="user", content=prompt),),
             output_schema=output_schema,
-            max_output_tokens=min(max(max_tokens, 1), 8192),
-            timeout_seconds=min(max(math.ceil(timeout), 1), 120),
+            max_output_tokens=min(max(initial, 1), 8192),
+            timeout_seconds=min(max(math.ceil(effective_timeout), 1), 120),
             temperature=temperature,
         )
         started_at = datetime.now(UTC)
@@ -222,6 +267,8 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
                 duration_ms=max(0, int((time.monotonic() - started) * 1000)),
                 response=response,
                 error=error,
+                request=request,
+                profile=profile,
             )
 
     def sample_text(
@@ -239,10 +286,13 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         del top_p, top_k, seed
         content, _ = self._complete(
             prompt,
-            max_tokens=self._max_output_tokens,
-            timeout=self._timeout_seconds,
+            max_tokens=None,
+            timeout=None,
             temperature=temperature,
             output_schema=self._output_schema,
+            budget_kind=(
+                "short_json" if self._output_schema is not None else "full"
+            ),
         )
         if self._output_schema is not None:
             return content
@@ -273,10 +323,11 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         )
         _, parsed = self._complete(
             f"{prompt}\nReturn the selected option in the required JSON schema.",
-            max_tokens=self._max_output_tokens,
-            timeout=self._timeout_seconds,
+            max_tokens=None,
+            timeout=None,
             temperature=0,
             output_schema=schema,
+            budget_kind="choice",
         )
         if not isinstance(parsed, dict) or not isinstance(parsed.get("choice"), str):
             raise ValueError("model gateway returned an invalid choice")
@@ -284,3 +335,23 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         if choice not in responses:
             raise ValueError("model gateway returned an unknown choice")
         return responses.index(choice), choice, {}
+
+    def sample_json(
+        self,
+        prompt: str,
+        schema: Mapping[str, Any],
+        *,
+        temperature: float = 0.1,
+    ) -> Mapping[str, Any]:
+        """Request one structured object with a call-specific schema."""
+        _, parsed = self._complete(
+            prompt,
+            max_tokens=None,
+            timeout=None,
+            temperature=temperature,
+            output_schema=json.dumps(schema, ensure_ascii=False),
+            budget_kind="short_json",
+        )
+        if not isinstance(parsed, dict):
+            raise ValueError("model gateway returned a non-object JSON result")
+        return parsed

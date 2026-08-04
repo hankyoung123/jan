@@ -70,6 +70,7 @@
     "actor_action": "角色行动",
     "resolution": "Game Master 结算",
     "memory_routing": "分发并写入记忆",
+    "promotion": "评估 NPC 行动能力",
     "commit": "提交日志与检查点"
   },
   "stageStatus": {
@@ -122,7 +123,6 @@
     "navigator": "分支导航",
     "newId": "新分支 ID",
     "create": "创建分支",
-    "projection": "重建 Markdown",
     "compareWith": "比较分支",
     "compare": "比较"
   },
@@ -134,7 +134,6 @@
   "notice": {
     "branchCreated": "分支 {{branch}} 已创建。",
     "localeChanged": "内容语言已切换为 {{locale}}。",
-    "projectionBuilt": "Markdown 投影已重建。",
     "restored": "已从检查点恢复会话。"
   }
 }

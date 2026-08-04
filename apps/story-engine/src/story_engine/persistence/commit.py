@@ -7,7 +7,7 @@ from story_engine.domain.simulation import (
     StepResult,
     TurnSessionSnapshot,
 )
-from story_engine.domain.trace import TurnTrace
+from story_engine.domain.trace import ModelCallStatus, TurnTrace
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.persistence.session_store import SessionStore
@@ -15,7 +15,6 @@ from story_engine.persistence.simulation_log import (
     SimulationLogRecord,
     SimulationLogStore,
 )
-from story_engine.projection.markdown import MarkdownProjector
 from story_engine.wiki.store import WikiStore
 from story_engine.workspace.transaction import AtomicBatch
 
@@ -29,7 +28,6 @@ class SimulationCommitKernel:
         self.branches = BranchStore(root)
         self.logs = SimulationLogStore(root)
         self.sessions = SessionStore(root)
-        self.projector = MarkdownProjector(root)
 
     def save_checkpoint(
         self,
@@ -118,7 +116,11 @@ class SimulationCommitKernel:
         )
         manifest = SessionManifest.from_snapshot(persisted)
         session_path, session_content = self.sessions.prepare(manifest)
-        observations = self.logs.prepare_observations(snapshot, step=result.step)
+        observations = (
+            self.logs.prepare_observations(snapshot, step=result.step)
+            if trace.status == ModelCallStatus.SUCCEEDED
+            else ()
+        )
 
         batch = AtomicBatch(self.root)
         written: list[Path] = []
@@ -139,7 +141,7 @@ class SimulationCommitKernel:
             batch.add(
                 self._relative(observation_path),
                 observation_content,
-                overwrite=False,
+                overwrite=True,
             )
             written.append(observation_path)
         batch.add(self._relative(session_path), session_content)
@@ -156,12 +158,22 @@ class SimulationCommitKernel:
             batch.add(self._relative(branch_path), branch_content)
             written.append(branch_path)
 
-        batch.commit(
-            precondition=lambda: self.branches.assert_head(
+        def assert_commit_preconditions() -> None:
+            self.branches.assert_head(
                 snapshot.branch_id,
                 branch.head_checkpoint_id,
             )
-        )
+            for existing in self.logs.read(snapshot.branch_id):
+                if (
+                    existing.result.session_id == result.session_id
+                    and existing.result.step == result.step
+                    and existing.trace.status == ModelCallStatus.SUCCEEDED
+                ):
+                    raise ValueError(
+                        f"simulation step {result.step} is already committed"
+                    )
+
+        batch.commit(precondition=assert_commit_preconditions)
         if checkpoint_id is None or checkpoint_path is None:
             return None
         return CommitResult(
@@ -228,27 +240,3 @@ class SimulationCommitKernel:
         if wiki.exists():
             wiki.mark_stale(checkpoint_id, snapshot.current_step)
         return updated
-
-    def project_markdown(
-        self,
-        project_id: str,
-        branch_id: str,
-        *,
-        checkpoint_id: str | None = None,
-    ) -> tuple[Path, ...]:
-        branch = self.branches.load(branch_id)
-        if branch.project_id != project_id:
-            raise ValueError("branch belongs to another project")
-        selected = checkpoint_id or branch.head_checkpoint_id
-        if selected is None:
-            raise ValueError("branch has no checkpoint")
-        snapshot = self.load_checkpoint(project_id, selected)
-        if (self.root / "project.md").is_file():
-            del snapshot
-            store = WikiStore(self.root, branch_id)
-            return tuple(store.branch_root.rglob("*.md"))
-        return self.projector.render(
-            snapshot,
-            self.logs.read(branch_id),
-            branch_id=branch_id,
-        )

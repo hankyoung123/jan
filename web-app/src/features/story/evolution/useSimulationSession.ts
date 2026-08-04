@@ -25,7 +25,6 @@ type Operation =
   | 'checkpoint'
   | 'restore'
   | 'fork'
-  | 'projection'
   | 'locale'
   | 'compare'
   | 'maintenance'
@@ -176,7 +175,6 @@ export function useSimulationSession(projectId?: string) {
           max_runtime_seconds: 3_600,
           max_consecutive_model_failures: 3,
           pause_after_scene: options.mode !== 'autonomous',
-          allow_dynamic_entities: true,
           allow_user_override: true,
           checkpoint_every_steps: 5,
         },
@@ -327,19 +325,6 @@ export function useSimulationSession(projectId?: string) {
     [perform, projectId]
   )
 
-  const rebuildProjection = useCallback(async () => {
-    if (!projectId || !session) return null
-    return perform('projection', () =>
-      engineRequest<components['schemas']['ProjectionResponse']>(
-        `/projects/${projectId}/branches/${session.branch_id}/projection`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ checkpoint_id: session.checkpoint_id }),
-        }
-      )
-    )
-  }, [perform, projectId, session])
-
   const switchLocale = useCallback(
     async (contentLocale: string) => {
       if (!projectId || !session) return null
@@ -403,7 +388,6 @@ export function useSimulationSession(projectId?: string) {
     retryMaintenance,
     restore,
     fork,
-    rebuildProjection,
     switchLocale,
     compareBranches,
     selectSession,

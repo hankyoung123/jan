@@ -35,18 +35,32 @@ function ActorCard({
   actor,
   session,
   step,
+  selected,
+  onSelect,
 }: {
   actor: ActorDisplay
   session: SessionSnapshot
   step?: StepViewModel
+  selected: boolean
+  onSelect?: (actorId: string) => void
 }) {
   const { t } = useTranslation('evolution')
   const status = actorStatus(actor.id, step)
   const active = step?.actingActorId === actor.id
   const memoryCount = session.memory_snapshots[actor.id]?.record_count ?? 0
   const observation = recentObservation(actor.id, step)
+  const highlight = active || selected
   return (
-    <article className={`border-l-2 p-3 ${active ? 'border-l-amber-500 bg-amber-500/8' : 'border-l-transparent'}`}>
+    <button
+      className={`w-full border-l-2 p-3 text-left ${
+        highlight
+          ? 'border-l-amber-500 bg-amber-500/8'
+          : 'border-l-transparent hover:bg-muted/30'
+      }`}
+      disabled={!onSelect}
+      onClick={() => onSelect?.(actor.id)}
+      type="button"
+    >
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">{actor.displayName}</p>
@@ -80,7 +94,7 @@ function ActorCard({
       <p className="mt-3 font-mono text-[10px] text-muted-foreground">
         {t('actor.memories', { count: memoryCount })}
       </p>
-    </article>
+    </button>
   )
 }
 
@@ -88,35 +102,29 @@ export function ActorRail({
   project,
   session,
   step,
+  selectedActor,
+  onSelectActor,
 }: {
   project: ProjectSnapshot
   session: SessionSnapshot
   step?: StepViewModel
+  selectedActor?: string
+  onSelectActor?: (actorId: string) => void
 }) {
   const { t } = useTranslation('evolution')
   const projectById = new Map(project.characters.map((actor) => [actor.id, actor]))
-  const dynamicById = new Map(
-    session.dynamic_entities.map((actor) => [actor.entity_id, actor])
-  )
-  const actors: ActorDisplay[] = session.active_entity_ids.flatMap((actorId) => {
-    const projectActor = projectById.get(actorId)
-    if (projectActor) {
+  const branchById = new Map(session.characters.map((actor) => [actor.id, actor]))
+  const actors: ActorDisplay[] = session.roster_actor_ids.flatMap((actorId) => {
+    const actor = branchById.get(actorId) || projectById.get(actorId)
+    if (actor) {
       return [{
         id: actorId,
-        displayName: projectActor.display_name || actorId,
-        location: projectActor.location,
-        goal: projectActor.current_goal || projectActor.core_desire,
+        displayName: actor.display_name || actorId,
+        location: actor.location,
+        goal: actor.current_goal || actor.core_desire,
       }]
     }
-    const dynamicActor = dynamicById.get(actorId)
-    return dynamicActor
-      ? [{
-          id: actorId,
-          displayName: dynamicActor.display_name,
-          location: dynamicActor.location,
-          goal: dynamicActor.goal,
-        }]
-      : []
+    return []
   })
   return (
     <aside className="border bg-background">
@@ -128,7 +136,14 @@ export function ActorRail({
       </header>
       <div className="divide-y">
         {actors.map((actor) => (
-          <ActorCard actor={actor} key={actor.id} session={session} step={step} />
+          <ActorCard
+            actor={actor}
+            key={actor.id}
+            onSelect={onSelectActor}
+            selected={selectedActor === actor.id}
+            session={session}
+            step={step}
+          />
         ))}
       </div>
     </aside>

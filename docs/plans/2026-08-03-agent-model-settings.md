@@ -18,9 +18,9 @@
 - Test: `apps/story-engine/tests/models/test_registry.py`
 - Test: `apps/story-engine/tests/models/test_gateway.py`
 
-1. Add failing tests for schema 3 migration, explicit `provider/model` references, backup creation, and rejection of model-less requests.
+1. Add failing tests for explicit `provider/model` references and rejection of model-less requests.
 2. Run the focused registry and gateway tests and confirm the new assertions fail.
-3. Implement one-time schema 3 migration to schema 4, retaining supported task settings, mapping the old projection task to wiki maintenance, and writing a recoverable backup before replacement.
+3. Remove the unpublished schema 3 migration; the registry accepts only the current schema.
 4. Require a non-empty explicit model reference for executable model requests; remove the false default-inheritance behavior.
 5. Run the focused tests.
 

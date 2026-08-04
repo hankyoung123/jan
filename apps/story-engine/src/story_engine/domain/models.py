@@ -3,11 +3,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from story_engine.domain.errors import InvalidTransitionError
-
 JsonScalar = str | int | float | bool | None
 CharacterType = Literal["active", "npc", "retired"]
-PromotionStatus = Literal["pending", "committed"]
 ReviewMode = Literal[
     "submission_review",
     "character_review",
@@ -131,28 +128,3 @@ class ReviewResult(DomainModel):
         if self.passed and any(issue.severity == "blocking" for issue in self.issues):
             raise ValueError("passing review cannot contain blocking issues")
         return self
-
-
-class PromotionCandidate(DomainModel):
-    id: str = Field(pattern=r"^promotion-[a-z0-9][a-z0-9-]*-v[0-9]+$")
-    project_id: str = Field(min_length=1)
-    character_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
-    base_character_version: int = Field(ge=0)
-    base_workspace_revision: str | None = Field(
-        default=None,
-        pattern=r"^[0-9a-f]{64}$",
-    )
-    proposed_goal: str = Field(min_length=1)
-    review: ReviewResult
-    status: PromotionStatus = "pending"
-
-    @model_validator(mode="after")
-    def requires_passing_promotion_review(self) -> Self:
-        if self.review.mode != "promotion_review" or not self.review.passed:
-            raise ValueError("promotion candidate requires a passing promotion review")
-        return self
-
-    def mark_committed(self) -> Self:
-        if self.status != "pending":
-            raise InvalidTransitionError("only a pending promotion can be committed")
-        return self.model_copy(update={"status": "committed"})

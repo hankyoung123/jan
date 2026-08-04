@@ -7,10 +7,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from story_engine.api.model_errors import model_http_error
-from story_engine.domain.model_policy import ProjectModelPolicy
+from story_engine.domain.model_policy import ProjectModelPolicy, ProjectModelPolicyPatch
 from story_engine.models.contracts import (
     ModelCatalog,
     ModelProfile,
+    ModelProfilePatch,
     ModelRequest,
     ModelResponse,
     UsageTotals,
@@ -68,6 +69,20 @@ def create_models_router(
         except ModelGatewayError as error:
             raise model_http_error(error) from error
 
+    @router.patch(
+        "/projects/{project_id}/model-policy",
+        response_model=ProjectModelPolicy,
+    )
+    async def patch_project_model_policy(
+        project_id: str,
+        request: ProjectModelPolicyPatch,
+    ) -> ProjectModelPolicy:
+        root = _project_root(projects_root, project_id)
+        try:
+            return ProjectModelPolicyStore(root, registry).patch(request)
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
+
     @router.get("/models/catalog", response_model=ModelCatalog)
     async def get_model_catalog() -> ModelCatalog:
         try:
@@ -97,6 +112,21 @@ def create_models_router(
         try:
             registry.upsert_profile(request)
             return request
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
+
+    @router.patch(
+        "/models/profiles/{profile_id}",
+        response_model=ModelProfile,
+    )
+    async def patch_model_profile(
+        profile_id: str,
+        request: ModelProfilePatch,
+    ) -> ModelProfile:
+        if not request.model_fields_set:
+            raise HTTPException(status_code=422, detail="empty profile patch")
+        try:
+            return registry.patch_profile(profile_id, request)
         except ModelGatewayError as error:
             raise model_http_error(error) from error
 
