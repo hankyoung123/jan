@@ -24,6 +24,8 @@ from story_engine.concordia_runtime.components import (
 )
 from story_engine.domain.recipe import AgentRecipe
 
+EXISTING_CHARACTERS_COMPONENT_KEY = "existing_characters"
+
 
 def _resolve_story_event(
     document: interactive_document.InteractiveDocument,
@@ -43,8 +45,11 @@ def _resolve_story_event(
                 "introduce a recurring ordinary person as "
                 "{operation:create_npc,entity_id,display_name,identity,core_desire,"
                 "location}. Do not create an NPC when an existing character can fill "
-                "the role. Do not assign IDs to incidental people mentioned only in "
-                "event_text. observer_ids may contain only active player character "
+                "the role. An ID shown under Existing characters may only appear in "
+                "participant_ids and must never appear in entity_changes. Do not "
+                "assign IDs to incidental people mentioned only in event_text. "
+                "observer_ids "
+                "may contain only active player character "
                 "IDs. participant_ids may contain only existing character IDs or an "
                 "NPC created in this same response. Do not include reasoning or "
                 "Markdown."
@@ -78,6 +83,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         locale_key = "locale"
         pacing_key = "pacing"
         roster_key = "player_characters"
+        existing_characters_key = EXISTING_CHARACTERS_COMPONENT_KEY
         observation_to_memory_key = "observation_to_memory"
         recent_events_key = "recent_events"
         world_wiki_key = "world_wiki"
@@ -128,6 +134,10 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                 state=", ".join(player_names),
                 pre_act_label="Available characters",
             ),
+            existing_characters_key: agent_components.constant.Constant(
+                state="No character registry supplied.",
+                pre_act_label="Existing characters",
+            ),
             observation_to_memory_key: (
                 agent_components.observation.ObservationToMemory()
             ),
@@ -172,6 +182,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                     locale_key,
                     pacing_key,
                     world_wiki_key,
+                    existing_characters_key,
                     recent_events_key,
                 ),
                 notify_observers=False,

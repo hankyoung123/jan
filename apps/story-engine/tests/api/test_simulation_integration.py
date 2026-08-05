@@ -1000,6 +1000,113 @@ def test_new_npc_remains_a_non_agent_before_the_scene_boundary(
         assert stepped["promotion_decisions"] == []
 
 
+def test_existing_npc_is_reused_across_consecutive_steps(tmp_path: Path) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    transport = ReplayGatewayTransport(entity_change="create")
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 4},
+            },
+        ).json()
+        session_id = started["session_id"]
+
+        first = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        second = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        snapshot = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        assert len(first.json()["resolved_turn"]["effects"]) == 1
+        assert second.json()["resolved_turn"]["effects"] == []
+        assert "harbor-guard" in second.json()["resolved_turn"]["events"][0][
+            "participant_ids"
+        ]
+        assert sum(
+            character["id"] == "harbor-guard"
+            for character in snapshot["characters"]
+        ) == 1
+        assert any(
+            "Existing characters:" in prompt
+            and "- harbor-guard: Harbor Guard, ordinary NPC" in prompt
+            for prompt in transport.calls
+        )
+
+
+def test_checkpoint_restore_reuses_existing_npc_in_next_resolution(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    with TestClient(
+        create_app(
+            _settings(tmp_path),
+            model_transport=ReplayGatewayTransport(entity_change="create"),
+        )
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 4},
+            },
+        ).json()
+        session_id = started["session_id"]
+        created = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert created.status_code == 200, created.text
+        checkpoint_id = created.json()["checkpoint_id"]
+
+    with TestClient(
+        create_app(
+            _settings(tmp_path),
+            model_transport=ReplayGatewayTransport(entity_change="create"),
+        )
+    ) as client:
+        restored = client.post(
+            "/projects/fog-harbor/simulations/restore",
+            headers=AUTH,
+            json={"checkpoint_id": checkpoint_id},
+        )
+        assert restored.status_code == 200, restored.text
+
+        next_step = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        snapshot = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()
+
+        assert next_step.status_code == 200, next_step.text
+        assert next_step.json()["resolved_turn"]["effects"] == []
+        assert sum(
+            character["id"] == "harbor-guard"
+            for character in snapshot["characters"]
+        ) == 1
+
+
 def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
     tmp_path: Path,
 ) -> None:
@@ -1021,6 +1128,7 @@ def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
                 "premise_text": "The lighthouse suddenly goes dark.",
                 "actor_ids": ["chen-mo"],
                 "content_locale": "en-US",
+                "output": {"wiki_mode": "manual"},
                 "control": {
                     "mode": "step",
                     "max_steps": 3,
@@ -1046,6 +1154,16 @@ def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
         assert "harbor-guard" in snapshot["roster_actor_ids"]
         assert "harbor-guard" in snapshot["memory_snapshots"]
         assert created["promotion_decisions"][0]["promote"] is True
+
+        reused = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert reused.status_code == 200, reused.text
+        assert reused.json()["resolved_turn"]["effects"] == []
+        assert "harbor-guard" in reused.json()["resolved_turn"]["events"][0][
+            "participant_ids"
+        ]
 
     with TestClient(
         create_app(_settings(tmp_path), model_transport=ReplayGatewayTransport())

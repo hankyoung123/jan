@@ -1,5 +1,7 @@
 from threading import Event
 
+import pytest
+
 from story_engine.concordia_runtime.factory import (
     ConcordiaActorFactory,
     default_character_recipe,
@@ -13,7 +15,22 @@ from story_engine.concordia_runtime.resolver import (
     SimulationCancelledError,
 )
 from story_engine.domain.memory import MemoryRecordType, MemoryScope
-from story_engine.domain.simulation import ResolverContext
+from story_engine.domain.simulation import CharacterRef, ResolverContext
+
+
+def _character_ref(
+    character_id: str = "actor-a",
+    *,
+    display_name: str | None = None,
+    type: str = "active",
+    location: str | None = None,
+) -> CharacterRef:
+    return CharacterRef(
+        id=character_id,
+        display_name=display_name or character_id,
+        type=type,  # type: ignore[arg-type]
+        location=location,
+    )
 
 
 def _runtime(
@@ -68,6 +85,39 @@ def _runtime(
     return actor, gm, gm_memory
 
 
+def _resolve(
+    resolution_text: str,
+    *,
+    existing_characters: tuple[CharacterRef, ...] | None = None,
+):
+    actor, gm, gm_memory = _runtime(resolution_text=resolution_text)
+    selected = gm.select_next_actor(  # type: ignore[attr-defined]
+        (actor,),
+        session_id="session-1",
+        step=0,
+    )
+    gm.create_action_spec(  # type: ignore[attr-defined]
+        actor,
+        session_id="session-1",
+        step=0,
+        content_locale="en-US",
+    )
+    result = ConcordiaResolverKernel().resolve(
+        gm,  # type: ignore[arg-type]
+        ResolverContext(
+            session_id="session-1",
+            branch_id="main",
+            step=0,
+            acting_actor_id=selected,
+            putative_event_text="I force the door.",
+            content_locale="en-US",
+            existing_characters=existing_characters or (_character_ref(),),
+        ),
+        cancellation=Event(),
+    )
+    return result, gm_memory
+
+
 def test_resolver_separates_putative_action_from_world_event() -> None:
     actor, gm, gm_memory = _runtime()
     selected = gm.select_next_actor((actor,), session_id="session-1", step=0)  # type: ignore[attr-defined]
@@ -88,6 +138,7 @@ def test_resolver_separates_putative_action_from_world_event() -> None:
             acting_actor_id=selected,
             putative_event_text=action,
             content_locale="en-US",
+            existing_characters=(_character_ref(),),
         ),
         cancellation=Event(),
     )
@@ -117,6 +168,7 @@ def test_cancelled_resolution_does_not_write_memory() -> None:
                 acting_actor_id="actor-a",
                 putative_event_text="I force the door.",
                 content_locale="en-US",
+                existing_characters=(_character_ref(),),
             ),
             cancellation=cancellation,
         )
@@ -156,6 +208,7 @@ def test_invalid_resolution_envelope_fails_without_writing_memory() -> None:
                 acting_actor_id=actor.name,  # type: ignore[attr-defined]
                 putative_event_text="I force the door.",
                 content_locale="en-US",
+                existing_characters=(_character_ref(),),
             ),
             cancellation=Event(),
         )
@@ -203,6 +256,7 @@ def test_resolution_envelope_maps_entity_changes_to_effects() -> None:
             acting_actor_id=selected,
             putative_event_text="I force the door.",
             content_locale="en-US",
+            existing_characters=(_character_ref(),),
         ),
         cancellation=Event(),
     )
@@ -212,3 +266,130 @@ def test_resolution_envelope_maps_entity_changes_to_effects() -> None:
     assert result.effects[0].target_id == "npc-1"
     assert result.effects[0].after is not None
     assert result.effects[0].after["display_name"] == "New Figure"  # type: ignore[index]
+
+
+def test_duplicate_create_npc_with_identical_content_creates_once() -> None:
+    entity_change = (
+        '{"operation":"create_npc","entity_id":"npc-1",'
+        '"display_name":"New Figure","identity":"A quiet archivist.",'
+        '"core_desire":"Protect the records.","location":"archive"}'
+    )
+    result, _ = _resolve(
+        '{"event_text":"A new figure enters.","boundary":"none",'
+        '"visibility":"participants","participant_ids":["actor-a","npc-1"],'
+        f'"entity_changes":[{entity_change},{entity_change}]}}'
+    )
+
+    assert len(result.effects) == 1
+    assert result.effects[0].target_id == "npc-1"
+
+
+def test_duplicate_create_npc_with_conflicting_content_is_rejected() -> None:
+    resolution = (
+        '{"event_text":"A figure enters.","boundary":"none",'
+        '"visibility":"participants","participant_ids":["actor-a","npc-1"],'
+        '"entity_changes":['
+        '{"operation":"create_npc","entity_id":"npc-1",'
+        '"display_name":"New Figure","identity":"A quiet archivist.",'
+        '"core_desire":"Protect the records."},'
+        '{"operation":"create_npc","entity_id":"npc-1",'
+        '"display_name":"New Figure","identity":"A harbor guard.",'
+        '"core_desire":"Protect the records."}]}'
+    )
+    actor, gm, gm_memory = _runtime(resolution_text=resolution)
+    selected = gm.select_next_actor(  # type: ignore[attr-defined]
+        (actor,), session_id="session-1", step=0
+    )
+    gm.create_action_spec(  # type: ignore[attr-defined]
+        actor,
+        session_id="session-1",
+        step=0,
+        content_locale="en-US",
+    )
+
+    with pytest.raises(ResolutionEnvelopeError, match="conflicting create_npc"):
+        ConcordiaResolverKernel().resolve(
+            gm,  # type: ignore[arg-type]
+            ResolverContext(
+                session_id="session-1",
+                branch_id="main",
+                step=0,
+                acting_actor_id=selected,
+                putative_event_text="I force the door.",
+                content_locale="en-US",
+                existing_characters=(_character_ref(),),
+            ),
+            cancellation=Event(),
+        )
+
+    assert tuple(
+        record.record_type for record in gm_memory.retrieve_recent(limit=5)
+    ) == (MemoryRecordType.PUTATIVE_EVENT,)
+
+
+def test_existing_character_create_is_converted_to_participant_reference() -> None:
+    result, _ = _resolve(
+        '{"event_text":"The archivist answers.","boundary":"none",'
+        '"visibility":"participants","participant_ids":["actor-a"],'
+        '"entity_changes":[{"operation":"create_npc","entity_id":"npc-1",'
+        '"display_name":"New Figure","identity":"A quiet archivist.",'
+        '"core_desire":"Protect the records."}]}',
+        existing_characters=(
+            _character_ref(),
+            _character_ref(
+                "npc-1",
+                display_name="New Figure",
+                type="npc",
+                location="archive",
+            ),
+        ),
+    )
+
+    assert result.effects == ()
+    assert result.events[0].participant_ids == ("actor-a", "npc-1")
+
+
+def test_existing_character_id_with_different_name_is_rejected() -> None:
+    resolution = (
+        '{"event_text":"A stranger enters.","boundary":"none",'
+        '"visibility":"participants","participant_ids":["actor-a","npc-1"],'
+        '"entity_changes":[{"operation":"create_npc","entity_id":"npc-1",'
+        '"display_name":"Different Person","identity":"A stranger.",'
+        '"core_desire":"Enter the archive."}]}'
+    )
+    actor, gm, gm_memory = _runtime(resolution_text=resolution)
+    selected = gm.select_next_actor(  # type: ignore[attr-defined]
+        (actor,), session_id="session-1", step=0
+    )
+    gm.create_action_spec(  # type: ignore[attr-defined]
+        actor,
+        session_id="session-1",
+        step=0,
+        content_locale="en-US",
+    )
+
+    with pytest.raises(ResolutionEnvelopeError, match="entity_id collision"):
+        ConcordiaResolverKernel().resolve(
+            gm,  # type: ignore[arg-type]
+            ResolverContext(
+                session_id="session-1",
+                branch_id="main",
+                step=0,
+                acting_actor_id=selected,
+                putative_event_text="I force the door.",
+                content_locale="en-US",
+                existing_characters=(
+                    _character_ref(),
+                    _character_ref(
+                        "npc-1",
+                        display_name="New Figure",
+                        type="npc",
+                    ),
+                ),
+            ),
+            cancellation=Event(),
+        )
+
+    assert tuple(
+        record.record_type for record in gm_memory.retrieve_recent(limit=5)
+    ) == (MemoryRecordType.PUTATIVE_EVENT,)

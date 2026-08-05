@@ -9,7 +9,7 @@ from pydantic import Field, JsonValue, model_validator
 from story_engine.domain.action import ActionSpec, EntityRole
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 from story_engine.domain.memory import MemoryBank, MemorySnapshot
-from story_engine.domain.models import Character
+from story_engine.domain.models import Character, CharacterType
 from story_engine.domain.projection import (
     ResolvedEvent,
     ResolvedTurn,
@@ -49,6 +49,8 @@ class StoryActor(Protocol):
 
 
 class GameMasterActor(StoryActor, Protocol):
+    def set_resolution_character_registry(self, registry_text: str) -> None: ...
+
     def make_observation(
         self,
         actor: StoryActor,
@@ -104,6 +106,13 @@ class ActorFactory(Protocol):
     ) -> GameMasterActor: ...
 
 
+class CharacterRef(RuntimeModel):
+    id: Identifier
+    display_name: str = Field(min_length=1, max_length=256)
+    type: CharacterType
+    location: str | None = Field(default=None, max_length=1024)
+
+
 class ResolverContext(RuntimeModel):
     session_id: Identifier
     branch_id: Identifier
@@ -111,6 +120,16 @@ class ResolverContext(RuntimeModel):
     acting_actor_id: Identifier
     putative_event_text: str = Field(min_length=1, max_length=65_536)
     content_locale: LocaleCode
+    existing_characters: tuple[CharacterRef, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def existing_character_ids_are_valid(self) -> "ResolverContext":
+        character_ids = tuple(character.id for character in self.existing_characters)
+        if len(character_ids) != len(set(character_ids)):
+            raise ValueError("existing character IDs must be unique")
+        if self.acting_actor_id not in character_ids:
+            raise ValueError("acting actor must exist in the character registry")
+        return self
 
 
 class ResolverKernel(Protocol):

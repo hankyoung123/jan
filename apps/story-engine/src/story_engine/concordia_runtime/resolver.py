@@ -11,6 +11,7 @@ from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemorySco
 from story_engine.domain.projection import (
     EffectOperation,
     EffectTarget,
+    EntityChange,
     EventVisibility,
     ResolutionEnvelope,
     ResolvedEvent,
@@ -40,6 +41,60 @@ class ConcordiaResolverKernel:
     ) -> None:
         self._memory_codec = memory_codec or ConcordiaMemoryCodec()
         self._projector = projector
+
+    @staticmethod
+    def _existing_characters_prompt(context: ResolverContext) -> str:
+        type_labels = {
+            "active": "active character",
+            "npc": "ordinary NPC",
+            "retired": "retired character",
+        }
+        lines: list[str] = []
+        for character in context.existing_characters:
+            location = f", location: {character.location}" if character.location else ""
+            lines.append(
+                f"- {character.id}: {character.display_name}, "
+                f"{type_labels[character.type]}{location}"
+            )
+        lines.append(
+            "Existing IDs must be referenced through participant_ids and must not "
+            "appear in entity_changes."
+        )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _normalized_entity_changes(
+        envelope: ResolutionEnvelope,
+        context: ResolverContext,
+    ) -> tuple[tuple[EntityChange, ...], tuple[str, ...]]:
+        unique_changes: dict[str, EntityChange] = {}
+        for change in envelope.entity_changes:
+            previous = unique_changes.get(change.entity_id)
+            if previous is not None and previous != change:
+                raise ResolutionEnvelopeError(
+                    "Game Master resolution contains conflicting create_npc "
+                    f"definitions for entity_id {change.entity_id!r}"
+                )
+            unique_changes[change.entity_id] = change
+
+        existing_by_id = {
+            character.id: character for character in context.existing_characters
+        }
+        creations: list[EntityChange] = []
+        existing_references: list[str] = []
+        for change in unique_changes.values():
+            existing = existing_by_id.get(change.entity_id)
+            if existing is None:
+                creations.append(change)
+                continue
+            if existing.display_name.casefold() != str(change.display_name).casefold():
+                raise ResolutionEnvelopeError(
+                    f"entity_id collision for {change.entity_id!r}: existing character "
+                    f"is named {existing.display_name!r}, but create_npc used "
+                    f"{change.display_name!r}"
+                )
+            existing_references.append(change.entity_id)
+        return tuple(creations), tuple(existing_references)
 
     @staticmethod
     def _resolution_envelope(
@@ -72,9 +127,29 @@ class ConcordiaResolverKernel:
         observer_ids = envelope.observer_ids
         if envelope.visibility == EventVisibility.RESTRICTED and not observer_ids:
             observer_ids = (context.acting_actor_id,)
-        participant_ids = envelope.participant_ids or (context.acting_actor_id,)
+        entity_changes, existing_references = (
+            ConcordiaResolverKernel._normalized_entity_changes(envelope, context)
+        )
+        participant_ids = tuple(
+            dict.fromkeys(
+                (
+                    *(envelope.participant_ids or (context.acting_actor_id,)),
+                    *existing_references,
+                )
+            )
+        )
+        known_character_ids = {
+            *(character.id for character in context.existing_characters),
+            *(change.entity_id for change in entity_changes),
+        }
+        unknown_participants = set(participant_ids) - known_character_ids
+        if unknown_participants:
+            raise ResolutionEnvelopeError(
+                "Game Master resolution references unknown participant IDs: "
+                f"{sorted(unknown_participants)}"
+            )
         effects: list[StateEffect] = []
-        for index, change in enumerate(envelope.entity_changes):
+        for index, change in enumerate(entity_changes):
             effects.append(
                 StateEffect(
                     effect_id=(
@@ -137,6 +212,9 @@ class ConcordiaResolverKernel:
             tags=("putative_event",),
         )
         game_master.observe(self._memory_codec.encode(putative))
+        game_master.set_resolution_character_registry(
+            self._existing_characters_prompt(context)
+        )
         raw = game_master.act(
             ActionSpec(
                 spec_id=f"resolve:{context.session_id}:{context.step}",

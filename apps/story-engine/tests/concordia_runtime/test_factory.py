@@ -23,7 +23,7 @@ from story_engine.domain.action import (
 from story_engine.domain.memory import MemoryScope
 from story_engine.domain.projection import ResolutionEnvelope
 from story_engine.domain.recipe import PerceptionFrame
-from story_engine.domain.simulation import ResolverContext
+from story_engine.domain.simulation import CharacterRef, ResolverContext
 from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.registry import ProfileRegistry
@@ -321,6 +321,14 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
             acting_actor_id=selected,
             putative_event_text="I ask the witness a question.",
             content_locale="en-US",
+            existing_characters=(
+                CharacterRef(
+                    id="actor-a",
+                    display_name="Actor A",
+                    type="active",
+                    location="archive",
+                ),
+            ),
         ),
         cancellation=Event(),
     )
@@ -338,3 +346,12 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
     resolution_schema = resolution_call["response_format"]["json_schema"]["schema"]
     assert "event_text" in resolution_schema["properties"]
     assert "entity_changes" in resolution_schema["properties"]
+    resolution_prompt = "\n".join(
+        message["content"] for message in resolution_call["messages"]
+    )
+    assert "Existing characters:" in resolution_prompt
+    assert (
+        "- actor-a: Actor A, active character, location: archive"
+        in resolution_prompt
+    )
+    assert "must not appear in entity_changes" in resolution_prompt

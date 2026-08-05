@@ -203,3 +203,31 @@ def test_unregistered_participant_rejection_is_atomic() -> None:
     assert runtime.character_states() == original_characters
     assert runtime.roster_actor_ids() == original_roster
     assert runtime.pending_scene_events() == ()
+
+
+def test_runtime_rejects_recreating_an_existing_character_with_clear_guidance() -> None:
+    recreate_npc = StateEffect(
+        effect_id="effect:recreate:npc-1",
+        operation=EffectOperation.CREATE_CHARACTER,
+        target=EffectTarget.CHARACTER_PROJECTION,
+        target_id="npc-1",
+        after={
+            "display_name": "NPC One",
+            "identity": "A witness",
+            "core_desire": "Stay safe",
+        },
+    )
+    runtime = _runtime(
+        (_character("actor-0"), _character("npc-1", type="npc"))
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "GM attempted to recreate existing character 'npc-1'; "
+            "reference it through participant_ids instead"
+        ),
+    ):
+        runtime._apply_character_effects(
+            _turn(_event("actor-0", "npc-1", effects=(recreate_npc,)))
+        )

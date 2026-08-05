@@ -31,6 +31,7 @@ from story_engine.domain.projection import (
 )
 from story_engine.domain.recipe import PerceptionFrame
 from story_engine.domain.simulation import (
+    CharacterRef,
     PromotionDecision,
     ResolverContext,
     StepResult,
@@ -144,11 +145,17 @@ class StorySimulationRuntime:
                 continue
             if effect.target_id is None or not isinstance(effect.after, dict):
                 raise ValueError("create_character requires a target and payload")
-            if (
-                effect.target_id in self._characters_by_id
-                or effect.target_id in new_characters
-            ):
-                raise ValueError(f"character {effect.target_id!r} already exists")
+            if effect.target_id in self._characters_by_id:
+                raise ValueError(
+                    "GM attempted to recreate existing character "
+                    f"{effect.target_id!r}; reference it through participant_ids "
+                    "instead."
+                )
+            if effect.target_id in new_characters:
+                raise ValueError(
+                    "GM attempted to create character "
+                    f"{effect.target_id!r} more than once in one resolution"
+                )
             payload = dict(effect.after)
             character = Character(
                 id=effect.target_id,
@@ -611,6 +618,15 @@ class StorySimulationRuntime:
                     acting_actor_id=actor.name,
                     putative_event_text=action,
                     content_locale=self.content_locale,
+                    existing_characters=tuple(
+                        CharacterRef(
+                            id=character.id,
+                            display_name=character.display_name or character.id,
+                            type=character.type,
+                            location=character.location,
+                        )
+                        for character in self.character_states()
+                    ),
                 ),
                 cancellation=self.cancellation,
             )
