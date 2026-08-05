@@ -85,11 +85,46 @@ fn normalize_deepseek_reasoning(object: &mut serde_json::Map<String, Value>) {
     }
 }
 
+fn normalize_deepseek_structured_output(object: &mut serde_json::Map<String, Value>) {
+    let schema = object
+        .get("response_format")
+        .and_then(Value::as_object)
+        .filter(|format| format.get("type").and_then(Value::as_str) == Some("json_schema"))
+        .and_then(|format| format.get("json_schema"))
+        .and_then(Value::as_object)
+        .and_then(|json_schema| json_schema.get("schema"))
+        .cloned();
+    let Some(schema) = schema else {
+        return;
+    };
+
+    object.insert(
+        "response_format".to_owned(),
+        json!({ "type": "json_object" }),
+    );
+    let instruction = json!({
+        "role": "system",
+        "content": format!(
+            "Return only valid JSON matching this JSON Schema. Do not use Markdown fences or add explanatory text. JSON SCHEMA: {}",
+            schema
+        )
+    });
+    let Some(messages) = object.get_mut("messages").and_then(Value::as_array_mut) else {
+        return;
+    };
+    let insert_at = messages
+        .iter()
+        .position(|message| message.get("role").and_then(Value::as_str) != Some("system"))
+        .unwrap_or(messages.len());
+    messages.insert(insert_at, instruction);
+}
+
 fn passthrough_payload(body: &Value, provider: &ProviderConfig) -> Value {
     let mut payload = body.clone();
     if let Some(object) = payload.as_object_mut() {
         if provider.provider.eq_ignore_ascii_case("deepseek") {
             normalize_deepseek_reasoning(object);
+            normalize_deepseek_structured_output(object);
         } else if !provider.provider.eq_ignore_ascii_case("openai") {
             object.remove("reasoning_effort");
         }
@@ -437,6 +472,44 @@ mod tests {
 
         assert!(payload.get("reasoning_effort").is_none());
         assert!(payload.get("thinking").is_none());
+    }
+
+    #[test]
+    fn maps_deepseek_json_schema_to_json_object_with_schema_instruction() {
+        let config = provider("deepseek", &["story-model"]);
+        let body = json!({
+            "model": "story-model",
+            "messages": [
+                {"role": "system", "content": "Maintain the Wiki."},
+                {"role": "user", "content": "Apply the sources."}
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "story_engine_output",
+                    "schema": {
+                        "type": "object",
+                        "required": ["patches"]
+                    }
+                }
+            }
+        });
+
+        let payload = passthrough_payload(&body, &config);
+
+        assert_eq!(payload["response_format"], json!({"type": "json_object"}));
+        assert_eq!(
+            payload["messages"][0]["content"],
+            json!("Maintain the Wiki.")
+        );
+        assert_eq!(
+            payload["messages"][2]["content"],
+            json!("Apply the sources.")
+        );
+        let instruction = payload["messages"][1]["content"].as_str().unwrap();
+        assert!(instruction.contains("Return only valid JSON"));
+        assert!(instruction.contains("JSON SCHEMA"));
+        assert!(instruction.contains("patches"));
     }
 
     #[test]
