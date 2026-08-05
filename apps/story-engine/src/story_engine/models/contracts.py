@@ -3,6 +3,10 @@ from typing import Annotated, Literal
 from pydantic import BeforeValidator, Field, JsonValue
 
 from story_engine.domain.models import DomainModel
+from story_engine.models.limits import (
+    MAX_MODEL_OUTPUT_TOKENS,
+    MAX_MODEL_TIMEOUT_SECONDS,
+)
 
 AgentType = Literal[
     "actor",
@@ -46,8 +50,16 @@ class AgentProfile(DomainModel):
         max_length=200,
         pattern=r"^[^/\s]+/.+$",
     )
-    max_output_tokens: int | None = Field(default=2048, ge=1, le=131_072)
-    timeout_seconds: int = Field(default=60, ge=1, le=600)
+    max_output_tokens: int | None = Field(
+        default=2048,
+        ge=1,
+        le=MAX_MODEL_OUTPUT_TOKENS,
+    )
+    timeout_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=MAX_MODEL_TIMEOUT_SECONDS,
+    )
     temperature: float | None = Field(default=None, ge=0, le=2)
     reasoning_effort: ReasoningEffort | None = Field(default=None)
 
@@ -65,8 +77,16 @@ class AgentProfilePatch(DomainModel):
         max_length=200,
         pattern=r"^[^/\s]+/.+$",
     )
-    max_output_tokens: int | None = Field(default=None, ge=1, le=131_072)
-    timeout_seconds: int | None = Field(default=None, ge=1, le=600)
+    max_output_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_OUTPUT_TOKENS,
+    )
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_TIMEOUT_SECONDS,
+    )
     temperature: float | None = Field(default=None, ge=0, le=2)
     reasoning_effort: ReasoningEffort | None = Field(default=None)
 
@@ -81,14 +101,18 @@ class ModelRequest(DomainModel):
     task_type: ModelTask
     messages: tuple[Message, ...] = Field(min_length=1, max_length=128)
     output_schema: str | None = Field(default=None, max_length=131_072)
-    max_output_tokens: int | None = Field(default=None, ge=1, le=131_072)
+    max_output_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_OUTPUT_TOKENS,
+    )
     output_token_limit: Literal["profile", "provider"] = "profile"
     first_content_timeout_seconds: int | None = Field(
         default=None,
         ge=1,
         le=300,
     )
-    timeout_seconds: int = Field(ge=1, le=600)
+    timeout_seconds: int = Field(ge=1, le=MAX_MODEL_TIMEOUT_SECONDS)
     temperature: float | None = Field(default=None, ge=0, le=2)
     reasoning_effort: ReasoningEffort | None = Field(default=None)
 
@@ -108,7 +132,11 @@ class ModelResponse(DomainModel):
     finish_reason: str | None = None
     usage: ModelUsage = Field(default_factory=ModelUsage)
     retry_count: int = Field(default=0, ge=0)
-    max_tokens: int | None = Field(default=None, ge=1, le=131_072)
+    max_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_OUTPUT_TOKENS,
+    )
 
 
 class ModelStreamChunk(DomainModel):

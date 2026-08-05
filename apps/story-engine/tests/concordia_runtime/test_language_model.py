@@ -106,6 +106,64 @@ def test_runtime_language_model_emits_source_trace(tmp_path: Path) -> None:
     assert trace.retry_count == 0
 
 
+def test_game_master_records_extended_timeout_and_token_limit(
+    tmp_path: Path,
+) -> None:
+    transport = QueueTransport(("The session should continue.",))
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="game-master",
+            task_type="game_master",
+            model_ref="test-provider/test-game-master",
+            max_output_tokens=16_384,
+            timeout_seconds=180,
+        )
+    )
+    traces = []
+    model = JanConcordiaLanguageModel(
+        ModelGateway(registry, transport),
+        profile_id="game_master",
+        task_type="game_master",
+        content_locale="en-US",
+        trace_sink=traces.append,
+    )
+
+    assert model.sample_text("Should the session end?", terminators=()) == (
+        "The session should continue."
+    )
+
+    assert transport.calls[0]["max_tokens"] == 16_384
+    assert len(traces) == 1
+    assert traces[0].status == ModelCallStatus.SUCCEEDED
+    assert traces[0].max_tokens == 16_384
+    assert traces[0].timeout_seconds == 180
+
+
+def test_trace_sink_failure_does_not_override_model_result(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    gateway, _ = _gateway(tmp_path, "The successful answer.")
+
+    def failing_trace_sink(_trace: object) -> None:
+        raise RuntimeError("trace storage unavailable")
+
+    model = JanConcordiaLanguageModel(
+        gateway,
+        profile_id="writer",
+        task_type="writer",
+        content_locale="en-US",
+        trace_sink=failing_trace_sink,
+    )
+
+    with caplog.at_level("ERROR"):
+        result = model.sample_text("Answer despite trace failure.", terminators=())
+
+    assert result == "The successful answer."
+    assert "failed to record model call trace" in caplog.text
+
+
 def test_runtime_language_model_choice_and_precancel(tmp_path: Path) -> None:
     gateway, transport = _gateway(tmp_path, json.dumps({"choice": "b"}))
     model = JanConcordiaLanguageModel(

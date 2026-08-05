@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import time
 import uuid
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -24,6 +25,7 @@ from story_engine.models.errors import ModelTimeoutError
 from story_engine.models.gateway import ModelGateway
 
 TraceSink = Callable[[ModelCallTrace], None]
+logger = logging.getLogger(__name__)
 
 _TASK_TYPES: dict[ModelTask, TaskType] = {
     "actor": TaskType.ACTOR,
@@ -134,8 +136,40 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         request: ModelRequest,
         profile: AgentProfile,
     ) -> None:
-        if self._trace_sink is None:
+        trace_sink = self._trace_sink
+        if trace_sink is None:
             return
+        try:
+            self._record_trace(
+                trace_sink=trace_sink,
+                call_id=call_id,
+                prompt=prompt,
+                started_at=started_at,
+                duration_ms=duration_ms,
+                response=response,
+                error=error,
+                request=request,
+                profile=profile,
+            )
+        except Exception:
+            logger.exception(
+                "failed to record model call trace",
+                extra={"call_id": call_id},
+            )
+
+    def _record_trace(
+        self,
+        *,
+        trace_sink: TraceSink,
+        call_id: str,
+        prompt: str,
+        started_at: datetime,
+        duration_ms: int,
+        response: ModelResponse | None,
+        error: Exception | None,
+        request: ModelRequest,
+        profile: AgentProfile,
+    ) -> None:
         if isinstance(error, ModelCallCancelledError):
             status = ModelCallStatus.CANCELLED
         elif isinstance(error, ModelTimeoutError):
@@ -209,7 +243,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
             started_at=started_at,
             completed_at=datetime.now(UTC),
         )
-        self._trace_sink(trace)
+        trace_sink(trace)
 
     def _complete(
         self,

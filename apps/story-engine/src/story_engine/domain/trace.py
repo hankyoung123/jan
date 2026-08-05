@@ -7,6 +7,10 @@ from pydantic import Field, model_validator
 from story_engine.domain.action import ActionSpec, TaskType
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 from story_engine.models.contracts import ReasoningEffort
+from story_engine.models.limits import (
+    MAX_MODEL_OUTPUT_TOKENS,
+    MAX_MODEL_TIMEOUT_SECONDS,
+)
 
 
 class ModelCallStatus(StrEnum):
@@ -86,10 +90,18 @@ class ModelCallTrace(RuntimeModel):
     completion_tokens: int = Field(default=0, ge=0)
     reasoning_tokens: int | None = Field(default=None, ge=0)
     finish_reason: str | None = Field(default=None, max_length=64)
-    max_tokens: int | None = Field(default=None, ge=1, le=8192)
+    max_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_OUTPUT_TOKENS,
+    )
     reasoning_effort: ReasoningEffort | None = None
     temperature: float | None = Field(default=None, ge=0, le=2)
-    timeout_seconds: int | None = Field(default=None, ge=1, le=120)
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_TIMEOUT_SECONDS,
+    )
     duration_ms: int = Field(ge=0)
     retry_count: int = Field(default=0, ge=0)
     error_code: Identifier | None = None
