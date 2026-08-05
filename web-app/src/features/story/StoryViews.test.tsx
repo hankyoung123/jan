@@ -506,7 +506,6 @@ const baseSimulationSession = {
       max_runtime_seconds: 3600,
       max_consecutive_model_failures: 3,
       allow_user_override: true,
-      checkpoint_every_steps: 5,
     },
     output: {
       manuscript_mode: 'manual',
@@ -632,7 +631,6 @@ describe('Story simulation', () => {
         max_consecutive_model_failures: 3,
         pause_after_scene: true,
         allow_user_override: true,
-        checkpoint_every_steps: 5,
       },
       output: {
         manuscript_mode: 'manual',

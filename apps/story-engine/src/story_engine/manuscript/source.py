@@ -184,7 +184,10 @@ class NarrativeSourceReader:
             first_line = events[0].event_text.splitlines()[0].strip()
             summaries.append(
                 NarrativeSourceSummary(
-                    source_id=f"source:{branch_id}:{from_step}:{to_step}",
+                    source_id=(
+                        f"source:{branch_id}:{source_checkpoint_id}:"
+                        f"{from_step}:{to_step}"
+                    ),
                     branch_id=branch_id,
                     checkpoint_id=source_checkpoint_id,
                     from_step=from_step,
@@ -194,7 +197,7 @@ class NarrativeSourceReader:
                     event_summary_text=summary_text,
                     available_viewpoint_ids=tuple(snapshot.roster_actor_ids),
                     status=source_statuses.get(
-                        (from_step, to_step),
+                        (source_checkpoint_id, from_step, to_step),
                         "available",
                     ),
                 )
@@ -357,6 +360,16 @@ class NarrativeSourceReader:
 
     def load_editor_context(self, source: NarrativeSource) -> EditorContext:
         branch, events, memories = self._load_facts(source)
+        memories = tuple(
+            record
+            for record in memories
+            if record.record_type
+            not in {
+                MemoryRecordType.SYSTEM,
+                MemoryRecordType.PLAN,
+                MemoryRecordType.PUTATIVE_EVENT,
+            }
+        )
         participants, locations = self._routing_ids(events)
         wiki_context = WikiContextBuilder(
             self.root,
@@ -400,6 +413,12 @@ class NarrativeSourceReader:
     ) -> tuple[MemoryRecord, ...]:
         selected = []
         for record in self._decode_snapshot_memories(snapshot):
+            if record.record_type in {
+                MemoryRecordType.PLAN,
+                MemoryRecordType.PUTATIVE_EVENT,
+                MemoryRecordType.SYSTEM,
+            }:
+                continue
             is_relevant = (
                 from_step <= record.step <= to_step
                 or record.record_id in source_memory_ids
@@ -412,9 +431,9 @@ class NarrativeSourceReader:
     def _source_statuses(
         self,
         branch_id: str,
-    ) -> dict[tuple[int, int], NarrativeSourceStatus]:
+    ) -> dict[tuple[str, int, int], NarrativeSourceStatus]:
         directory = self.root / ".story-engine/manuscript" / branch_id / "drafts"
-        statuses: dict[tuple[int, int], NarrativeSourceStatus] = {}
+        statuses: dict[tuple[str, int, int], NarrativeSourceStatus] = {}
         if not directory.exists():
             return statuses
         for path in directory.glob("*.md"):
@@ -424,6 +443,7 @@ class NarrativeSourceReader:
                     schema="story-engine/scene-draft/v1",
                 )
                 key = (
+                    str(payload["source_checkpoint_id"]),
                     int(payload["source_from_step"]),
                     int(payload["source_to_step"]),
                 )

@@ -176,7 +176,6 @@ export function useSimulationSession(projectId?: string) {
           max_consecutive_model_failures: 3,
           pause_after_scene: options.mode !== 'autonomous',
           allow_user_override: true,
-          checkpoint_every_steps: 5,
         },
         output: {
           manuscript_mode:

@@ -299,7 +299,6 @@ def test_real_application_chain_checkpoints_rebuilds_and_resumes(
                         "mode": "step",
                         "max_steps": 3,
                         "max_scenes": 2,
-                        "checkpoint_every_steps": 1,
                 },
             },
         )
@@ -375,7 +374,6 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
                     "mode": "step",
                     "max_steps": 3,
                     "max_scenes": 2,
-                    "checkpoint_every_steps": 1,
                 },
             },
         ).json()
@@ -1027,7 +1025,6 @@ def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
                     "mode": "step",
                     "max_steps": 3,
                     "max_scenes": 2,
-                    "checkpoint_every_steps": 1,
                 },
             },
         ).json()

@@ -33,6 +33,47 @@ def test_seed_creates_schema_world_and_independent_character_indexes(
     assert store.load_page("characters/chen-mo/index.md").subject_id == "chen-mo"
 
 
+def test_wiki_visibility_is_explicit_for_writer_and_editor_contexts(
+    tmp_path: Path,
+) -> None:
+    root = _root(tmp_path)
+    store = WikiStore(root, "main")
+    store.apply_patches(
+        (
+            WikiPatch(
+                path="world/public.md",
+                operation=WikiPatchOperation.CREATE,
+                content="# Public\n\nEveryone can know this.",
+                source_ids=("event:public",),
+            ),
+            WikiPatch(
+                path="world/gm.md",
+                operation=WikiPatchOperation.CREATE,
+                content="# GM\n\nThe hidden answer.",
+                source_ids=("event:gm",),
+                visibility="gm_only",
+            ),
+            WikiPatch(
+                path="characters/lin-lan/secret.md",
+                operation=WikiPatchOperation.CREATE,
+                content="# Secret\n\nLin's private fact.",
+                source_ids=("event:lin",),
+            ),
+        ),
+        checkpoint_id="checkpoint:visibility",
+        step=1,
+    )
+
+    writer = WikiContextBuilder(root, "main").writer("chen-mo")
+    editor = WikiContextBuilder(root, "main").editor()
+
+    assert "Everyone can know this" in writer.content
+    assert "The hidden answer" not in writer.content
+    assert "Lin's private fact" not in writer.content
+    assert "The hidden answer" in editor.content
+    assert "Lin's private fact" in editor.content
+
+
 def test_fork_uses_wiki_version_at_or_before_the_checkpoint(tmp_path: Path) -> None:
     root = _root(tmp_path)
     main = WikiStore(root, "main")

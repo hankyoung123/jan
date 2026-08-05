@@ -1002,11 +1002,6 @@ export interface components {
              */
             allow_user_override: boolean;
             /**
-             * Checkpoint Every Steps
-             * @default 1
-             */
-            checkpoint_every_steps: number;
-            /**
              * Max Consecutive Model Failures
              * @default 3
              */
@@ -2391,6 +2386,11 @@ export interface components {
             subject_id?: string | null;
             /** Updated At Step */
             updated_at_step: number;
+            /**
+             * Visibility
+             * @default public
+             */
+            visibility: string;
         };
         /** WikiPageSummary */
         WikiPageSummary: {
@@ -2409,6 +2409,11 @@ export interface components {
             title: string;
             /** Updated At Step */
             updated_at_step: number;
+            /**
+             * Visibility
+             * @default public
+             */
+            visibility: string;
         };
         /** WikiPageUpdateRequest */
         WikiPageUpdateRequest: {

@@ -41,6 +41,16 @@ export function ManuscriptView() {
   )
 
   useEffect(() => {
+    setSource(null)
+    setSceneId(null)
+    setTitle('')
+    setBody('')
+    setDirty(false)
+    setViewpoint('')
+    setNotice(null)
+  }, [branchId, projectId])
+
+  useEffect(() => {
     if (!source) setSource(manuscript.sources.find((item) => item.status === 'available') ?? manuscript.sources.at(-1) ?? null)
   }, [manuscript.sources, source])
 
@@ -127,7 +137,7 @@ export function ManuscriptView() {
             <div className="mt-5 border-t pt-4">
               <label className="text-xs text-muted-foreground" htmlFor="writer-viewpoint">叙事视角</label>
               <select className="mt-2 h-9 w-full border bg-background px-2 text-sm" id="writer-viewpoint" onChange={(event) => setViewpoint(event.target.value)} value={viewpoint}>
-                <option value="">全知视角</option>
+                <option value="">自动选择主视角</option>
                 {source.available_viewpoint_ids.map((id) => <option key={id} value={id}>{id}</option>)}
               </select>
               <Button className="mt-3 w-full" disabled={manuscript.working !== null} onClick={() => void generate()}><Sparkles size={14} /> 从此片段生成</Button>
@@ -140,10 +150,10 @@ export function ManuscriptView() {
         </nav>
         <main className="min-w-0 p-5 lg:p-7">
           {scene ? (
-            <><Input aria-label="场景标题" className="border-0 px-0 font-studio text-2xl shadow-none" onChange={(event) => { setTitle(event.target.value); setDirty(true) }} value={title} /><div className="my-4 h-px bg-border" /><Suspense fallback={<p className="text-sm text-muted-foreground">正在加载正文编辑器…</p>}><NovelManuscriptEditor initialContent={novelDocumentFromMarkdown(body)} key={scene.id} onChange={(value: NovelManuscriptValue) => { setBody(value.markdown); setDirty(true) }} /></Suspense><div className="mt-5 flex flex-wrap items-center gap-3"><Button disabled={manuscript.working !== null || (!dirty && scene.status === 'saved')} onClick={() => void save()}>保存并检查来源</Button>{scene.review?.unsupported_facts.length ? <Button onClick={() => void sendUnsupportedFactsToDirector()} variant="outline">转为导演指令</Button> : null}<span className="text-xs text-muted-foreground">revision {scene.revision} · scene v{scene.base_scene_version}</span></div></>
+            <><Input aria-label="场景标题" className="border-0 px-0 font-studio text-2xl shadow-none" onChange={(event) => { setTitle(event.target.value); setDirty(true) }} value={title} /><div className="my-4 h-px bg-border" /><Suspense fallback={<p className="text-sm text-muted-foreground">正在加载正文编辑器…</p>}><NovelManuscriptEditor initialContent={novelDocumentFromMarkdown(body)} key={`${branchId}:${scene.id}:${scene.revision}`} onChange={(value: NovelManuscriptValue) => { setBody(value.markdown); setDirty(true) }} /></Suspense><div className="mt-5 flex flex-wrap items-center gap-3"><Button disabled={manuscript.working !== null || (!dirty && scene.status === 'saved')} onClick={() => void save()}>保存并检查来源</Button>{!dirty && scene.review?.unsupported_facts.length ? <Button onClick={() => void sendUnsupportedFactsToDirector()} variant="outline">转为导演指令</Button> : null}<span className="text-xs text-muted-foreground">revision {scene.revision} · scene v{scene.base_scene_version}</span></div></>
           ) : <div className="grid min-h-[520px] place-items-center text-center"><div><FileText className="mx-auto text-muted-foreground" /><h2 className="mt-4 font-studio text-xl">选择模拟片段生成第一幕</h2><p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">Writer 直接读取 Branch、Checkpoint、ResolvedEvent 与合法视角记忆。</p></div></div>}
         </main>
-        <SourceInspector scene={scene} />
+        <SourceInspector scene={scene} showReview={!dirty} />
       </div>
       {notice && <p className="mt-4 bg-primary/10 p-3 text-sm text-primary" role="status">{notice}</p>}
     </StoryPage>

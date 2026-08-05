@@ -3,7 +3,7 @@ from pathlib import Path
 
 from story_engine.domain.memory import MemoryRecordType, MemoryScope
 from story_engine.domain.projection import SimulationBoundary
-from story_engine.domain.simulation import BranchManifest, TurnSessionSnapshot
+from story_engine.domain.simulation import TurnSessionSnapshot
 from story_engine.domain.wiki import (
     WikiPage,
     WikiPatch,
@@ -27,27 +27,12 @@ def branch_records(root: Path, branch_id: str) -> tuple[SimulationLogRecord, ...
     branches = BranchStore(root)
     checkpoints = CheckpointStore(root)
     logs = SimulationLogStore(root)
-
-    def read(branch: BranchManifest) -> tuple[SimulationLogRecord, ...]:
-        inherited: tuple[SimulationLogRecord, ...] = ()
-        if branch.parent_branch_id and branch.fork_checkpoint_id:
-            parent = branches.load(branch.parent_branch_id)
-            fork = checkpoints.load(branch.fork_checkpoint_id)
-            inherited = tuple(
-                record
-                for record in read(parent)
-                if record.result.step < fork.current_step
-            )
-        return (*inherited, *logs.read(branch.branch_id))
-
-    records = read(branches.load(branch_id))
-    by_trace = {record.trace.trace_id: record for record in records}
-    return tuple(
-        sorted(
-            by_trace.values(),
-            key=lambda item: (item.result.step, item.trace.started_at),
-        )
-    )
+    branch = branches.load(branch_id)
+    if branch.head_checkpoint_id is None:
+        return ()
+    # Checkpoint lineage is the authority for reachable history. Scanning branch
+    # logs by step range would reintroduce abandoned turns after a rollback.
+    return logs.reachable(checkpoints, branch.head_checkpoint_id)
 
 
 def _scene_records(

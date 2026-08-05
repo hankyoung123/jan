@@ -139,7 +139,6 @@ class ControlPolicy(RuntimeModel):
     max_runtime_seconds: int = Field(default=3_600, ge=1)
     max_consecutive_model_failures: int = Field(default=3, ge=1, le=20)
     allow_user_override: bool = True
-    checkpoint_every_steps: int = Field(default=1, ge=1, le=1_000)
 
 
 class ManuscriptGenerationMode(StrEnum):

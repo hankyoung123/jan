@@ -118,15 +118,16 @@ class GatewayManuscriptAgent:
         *,
         project: ProjectCreativeContext,
     ) -> WriterOutput:
-        viewpoint = source.source.viewpoint_actor_id or "omniscient"
+        viewpoint = source.source.viewpoint_actor_id or "automatic_primary_viewpoint"
         task_context = (
             "Turn the supplied resolved simulation "
             "history into one novel scene. Every concrete world fact and outcome must "
             "be supported by the supplied source. Sensory description and stylistic "
             "language are allowed, but do not invent causes, objects, locations, "
             "discoveries, or outcomes. The selected viewpoint memory is the only "
-            "character-private memory you may use. When the viewpoint is omniscient, "
-            "no character-private memory is supplied or permitted. "
+            "character-private memory you may use. When the viewpoint is automatic, "
+            "no character-private memory is supplied or permitted. This is automatic "
+            "primary-viewpoint selection, not an omniscient narration mode. "
             f"Project: {project.model_dump_json()}. Viewpoint: {viewpoint}. "
             f"Runtime source: {_writer_source_context(source)}"
         )

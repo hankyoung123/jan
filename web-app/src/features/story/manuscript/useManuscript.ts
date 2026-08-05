@@ -1,5 +1,5 @@
 import type { components } from '@story-engine/contracts'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { engineRequest } from '../engine'
 
@@ -14,6 +14,10 @@ export function useManuscript(projectId: string | undefined, branchId: string) {
   const [loading, setLoading] = useState(Boolean(projectId))
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const requestKeyRef = useRef('')
+
+  const requestKey = `${projectId ?? ''}:${branchId}`
+  requestKeyRef.current = requestKey
 
   const load = useCallback(async () => {
     if (!projectId) {
@@ -33,13 +37,23 @@ export function useManuscript(projectId: string | undefined, branchId: string) {
           `/projects/${projectId}/branches/${branchId}/manuscript/scenes`
         ),
       ])
+      if (requestKeyRef.current !== requestKey) return
       setSources(loadedSources)
       setScenes([...loadedScenes].sort((a, b) => a.sequence - b.sequence))
     } catch (cause) {
+      if (requestKeyRef.current !== requestKey) return
       setError(cause instanceof Error ? cause.message : '正文工作区读取失败')
     } finally {
+      if (requestKeyRef.current !== requestKey) return
       setLoading(false)
     }
+  }, [branchId, projectId, requestKey])
+
+  useEffect(() => {
+    setSources([])
+    setScenes([])
+    setError(null)
+    setLoading(Boolean(projectId))
   }, [branchId, projectId])
 
   useEffect(() => {

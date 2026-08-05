@@ -41,3 +41,14 @@ _Avoid_: GM context, omniscient context
 **Editor Context**:
 The complete manuscript verification context for the same Target Checkpoint and source range.
 _Avoid_: Writer Context, generation context
+
+## Manuscript Access
+
+**Wiki Visibility**:
+The explicit access label on a Wiki page: `public`, `private:<actor_id>`, or `gm_only`.
+Writer access is limited by viewpoint; Editor access may include all legal Wiki visibility levels.
+_Avoid_: path-based permission, implicit privacy
+
+**Automatic Primary Viewpoint**:
+The manuscript option used when no actor is selected. The system chooses the principal acting actor from the source history; it is not an omniscient narration mode.
+_Avoid_: omniscient view,全知视角

@@ -697,13 +697,6 @@
             "title": "Allow User Override",
             "type": "boolean"
           },
-          "checkpoint_every_steps": {
-            "default": 1,
-            "maximum": 1000.0,
-            "minimum": 1.0,
-            "title": "Checkpoint Every Steps",
-            "type": "integer"
-          },
           "max_consecutive_model_failures": {
             "default": 3,
             "maximum": 20.0,
@@ -4457,6 +4450,12 @@
             "minimum": 0.0,
             "title": "Updated At Step",
             "type": "integer"
+          },
+          "visibility": {
+            "default": "public",
+            "pattern": "^(public|gm_only|private:.+)$",
+            "title": "Visibility",
+            "type": "string"
           }
         },
         "required": [
@@ -4510,6 +4509,12 @@
             "minimum": 0.0,
             "title": "Updated At Step",
             "type": "integer"
+          },
+          "visibility": {
+            "default": "public",
+            "pattern": "^(public|gm_only|private:.+)$",
+            "title": "Visibility",
+            "type": "string"
           }
         },
         "required": [

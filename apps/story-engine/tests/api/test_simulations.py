@@ -347,7 +347,6 @@ def test_each_successful_step_is_checkpointed_and_shutdown_does_not_duplicate_it
                 "control": {
                     "mode": "step",
                     "max_steps": 3,
-                    "checkpoint_every_steps": 3,
                 },
             },
         ).json()
@@ -512,7 +511,6 @@ def test_successful_turns_ignore_checkpoint_interval_for_exact_lineage(
             "control": {
                 "mode": "step",
                 "max_steps": 4,
-                "checkpoint_every_steps": 2,
             },
         },
     ).json()

@@ -1,6 +1,6 @@
 import type { SceneDraft } from './useManuscript'
 
-export function SourceInspector({ scene }: { scene: SceneDraft | null }) {
+export function SourceInspector({ scene, showReview = true }: { scene: SceneDraft | null; showReview?: boolean }) {
   return (
     <aside className="border-t bg-muted/15 p-5 lg:border-l lg:border-t-0">
       <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Source Lineage</p>
@@ -16,7 +16,7 @@ export function SourceInspector({ scene }: { scene: SceneDraft | null }) {
           <section>
             <p className="text-muted-foreground">Step Range / Viewpoint</p>
             <p className="mt-1 font-mono">{scene.source_from_step}–{scene.source_to_step}</p>
-            <p className="mt-1">{scene.viewpoint_actor_id || '全知视角'}</p>
+            <p className="mt-1">{scene.viewpoint_actor_id || '自动选择主视角'}</p>
           </section>
           <section>
             <p className="text-muted-foreground">Resolved Events</p>
@@ -26,7 +26,7 @@ export function SourceInspector({ scene }: { scene: SceneDraft | null }) {
             <p className="text-muted-foreground">Memory Records</p>
             <div className="mt-2 max-h-56 space-y-1 overflow-y-auto break-all font-mono text-[10px]">{scene.source_memory_ids.map((id) => <div key={id}>{id}</div>)}</div>
           </section>
-          {scene.review && (
+          {showReview && scene.review && (
             <section className="border-t pt-4">
               <p className="text-muted-foreground">Editor Review</p>
               <p className="mt-2 leading-5">{scene.review.review.summary}</p>

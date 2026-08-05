@@ -24,6 +24,14 @@ class WikiSourceKind(StrEnum):
     DIRECTOR_INSTRUCTION = "director_instruction"
 
 
+def validate_wiki_visibility(value: str) -> str:
+    if value in {"public", "gm_only"}:
+        return value
+    if value.startswith("private:") and len(value.removeprefix("private:")) > 0:
+        return value
+    raise ValueError("Wiki visibility must be public, gm_only, or private:<actor_id>")
+
+
 class WikiSource(RuntimeModel):
     source_id: Identifier
     kind: WikiSourceKind
@@ -42,6 +50,10 @@ class WikiPatch(RuntimeModel):
     confidence: float = Field(default=1.0, ge=0, le=1)
     expected_revision: int | None = Field(default=None, ge=0)
     expected_content_hash: str | None = Field(default=None, max_length=64)
+    visibility: str | None = Field(
+        default=None,
+        pattern=r"^(public|gm_only|private:.+)$",
+    )
 
     @model_validator(mode="after")
     def section_matches_operation(self) -> Self:
@@ -58,6 +70,8 @@ class WikiPatch(RuntimeModel):
             or self.expected_content_hash is not None
         ):
             raise ValueError("create patch must not carry expected revision")
+        if self.visibility is not None:
+            validate_wiki_visibility(self.visibility)
         return self
 
 
@@ -75,8 +89,14 @@ class WikiPage(RuntimeModel):
     checkpoint_id: Identifier | None = None
     stale: bool = False
     content: str = Field(max_length=131_072)
+    visibility: str = Field(default="public", pattern=r"^(public|gm_only|private:.+)$")
     revision: int = Field(default=0, ge=0)
     content_hash: str = Field(default="", max_length=64)
+
+    @model_validator(mode="after")
+    def visibility_is_valid(self) -> Self:
+        validate_wiki_visibility(self.visibility)
+        return self
 
 
 class WikiPageSummary(RuntimeModel):
@@ -86,6 +106,7 @@ class WikiPageSummary(RuntimeModel):
     updated_at_step: int = Field(ge=0)
     source_ids: tuple[Identifier, ...] = ()
     confidence: float = Field(ge=0, le=1)
+    visibility: str = Field(default="public", pattern=r"^(public|gm_only|private:.+)$")
 
 
 class WikiBranchView(RuntimeModel):

@@ -45,7 +45,12 @@ class WikiContextBuilder:
         self.version_id = version_id
         self.excluded_source_ids = excluded_source_ids
 
-    def _pages(self) -> tuple[WikiPage, ...]:
+    def _pages(
+        self,
+        *,
+        viewpoint_actor_id: str | None = None,
+        include_private: bool = False,
+    ) -> tuple[WikiPage, ...]:
         pages = (
             self.store.list_pages()
             if self.version_id is None
@@ -55,6 +60,11 @@ class WikiContextBuilder:
             page
             for page in pages
             if not self.excluded_source_ids.intersection(page.source_ids)
+            and (
+                include_private
+                or page.visibility == "public"
+                or page.visibility == f"private:{viewpoint_actor_id}"
+            )
         )
 
     @staticmethod
@@ -104,8 +114,17 @@ class WikiContextBuilder:
         location_ids: tuple[str, ...] = (),
         entity_ids: tuple[str, ...] = (),
         keywords: tuple[str, ...] = (),
+        viewpoint_actor_id: str | None = None,
+        include_private: bool = False,
     ) -> tuple[_Candidate, ...]:
-        pages = tuple(page for page in self._pages() if page.path.startswith(prefix))
+        pages = tuple(
+            page
+            for page in self._pages(
+                viewpoint_actor_id=viewpoint_actor_id,
+                include_private=include_private,
+            )
+            if page.path.startswith(prefix)
+        )
         linked = self._linked_paths(pages)
         scene_terms = self._terms(
             (*participant_ids, *location_ids, *entity_ids, *keywords)
@@ -191,6 +210,7 @@ class WikiContextBuilder:
                 location_ids=location_ids,
                 entity_ids=entity_ids,
                 keywords=keywords,
+                viewpoint_actor_id=None,
             ),
             self.max_context_chars,
         )
@@ -212,6 +232,7 @@ class WikiContextBuilder:
                 location_ids=location_ids,
                 entity_ids=entity_ids,
                 keywords=keywords,
+                viewpoint_actor_id=subject_id,
             ),
             self.max_context_chars,
         )
@@ -242,6 +263,7 @@ class WikiContextBuilder:
                 participant_ids=participants,
                 location_ids=locations,
                 keywords=keywords,
+                viewpoint_actor_id=subject_id,
             ),
             content_budget // 2,
         )
@@ -308,6 +330,7 @@ class WikiContextBuilder:
                 location_ids=location_ids,
                 entity_ids=entity_ids,
                 keywords=keywords,
+                viewpoint_actor_id=viewpoint_actor_id,
             ),
             content_budget // 2,
         )
@@ -319,6 +342,7 @@ class WikiContextBuilder:
                 location_ids=location_ids,
                 entity_ids=entity_ids,
                 keywords=keywords,
+                viewpoint_actor_id=viewpoint_actor_id,
             ),
             content_budget - len(world.content),
         )
@@ -346,6 +370,7 @@ class WikiContextBuilder:
                 location_ids=location_ids,
                 entity_ids=entity_ids,
                 keywords=keywords,
+                include_private=True,
             ),
             self.max_context_chars,
         )

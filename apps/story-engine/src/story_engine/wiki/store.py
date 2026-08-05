@@ -35,6 +35,7 @@ pages are maintained interpretations and must never be treated as new events.
 - A character page may use only that character's profile, actions, and private
   observations. It must never use another character's private memory.
 - Every material conclusion must list its raw `source_ids` in front matter.
+- Every page declares `visibility`: `public`, `private:<actor_id>`, or `gm_only`.
 - Inferences must be labelled `belief`, `suspected`, or `uncertain`.
 - Conflicts preserve the earlier understanding as history; they do not erase it.
 
@@ -228,6 +229,7 @@ class WikiStore:
                         branch_id=self.branch_id,
                         path=f"characters/{character.id}/self.md",
                         subject_id=character.id,
+                        visibility=f"private:{character.id}",
                         updated_at_step=0,
                         source_ids=character_sources,
                         content=(
@@ -240,6 +242,7 @@ class WikiStore:
                         branch_id=self.branch_id,
                         path=f"characters/{character.id}/goals.md",
                         subject_id=character.id,
+                        visibility=f"private:{character.id}",
                         updated_at_step=0,
                         source_ids=character_sources,
                         content=(
@@ -251,6 +254,7 @@ class WikiStore:
                         branch_id=self.branch_id,
                         path=f"characters/{character.id}/beliefs.md",
                         subject_id=character.id,
+                        visibility=f"private:{character.id}",
                         updated_at_step=0,
                         source_ids=character_sources,
                         content="# Beliefs\n\n"
@@ -355,6 +359,7 @@ class WikiStore:
                     updated_at_step=page.updated_at_step,
                     source_ids=page.source_ids,
                     confidence=page.confidence,
+                    visibility=page.visibility,
                 )
                 for page in self.list_pages()
             ),
@@ -415,6 +420,7 @@ class WikiStore:
                 branch_id=self.branch_id,
                 path=path,
                 subject_id=subject_id,
+                visibility=(f"private:{subject_id}" if subject_id else "public"),
                 updated_at_step=step,
                 source_ids=tuple(
                     dict.fromkeys(
@@ -449,6 +455,10 @@ class WikiStore:
                 updated_at_step=step,
                 source_ids=patch.source_ids,
                 confidence=patch.confidence,
+                visibility=(
+                    patch.visibility
+                    or (f"private:{subject}" if subject is not None else "public")
+                ),
                 content=patch.content,
                 revision=0,
                 content_hash=_content_hash(patch.content),
@@ -473,6 +483,11 @@ class WikiStore:
                     dict.fromkeys((*page.source_ids, *patch.source_ids))
                 ),
                 "confidence": patch.confidence,
+                **(
+                    {"visibility": patch.visibility}
+                    if patch.visibility is not None
+                    else {}
+                ),
                 "content": content,
                 "revision": page.revision + 1,
                 "content_hash": _content_hash(content),
