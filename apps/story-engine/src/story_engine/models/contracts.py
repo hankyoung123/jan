@@ -4,13 +4,15 @@ from pydantic import BeforeValidator, Field, JsonValue
 
 from story_engine.domain.models import DomainModel
 
-ModelTask = Literal[
+AgentType = Literal[
     "actor",
     "game_master",
-    "wiki_maintenance",
-    "editor",
     "writer",
+    "editor",
+    "wiki_maintainer",
+    "submission_editor",
 ]
+ModelTask = AgentType
 
 
 def normalize_reasoning_effort(value: object) -> object:
@@ -34,30 +36,37 @@ ReasoningEffort = Annotated[
 MessageRole = Literal["system", "user", "assistant"]
 
 
-class ModelProfile(DomainModel):
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
-    task_type: ModelTask
-    model_ref: str | None = Field(
+class AgentProfile(DomainModel):
+    name: str = Field(min_length=1, max_length=100)
+    agent_type: AgentType
+    default_system_prompt: str = Field(min_length=1, max_length=65_536)
+    model: str | None = Field(
         default=None,
         min_length=3,
         max_length=200,
         pattern=r"^[^/\s]+/.+$",
     )
-    max_output_tokens: int = Field(default=2048, ge=1, le=8192)
-    timeout_seconds: int = Field(default=60, ge=1, le=120)
+    max_output_tokens: int | None = Field(default=2048, ge=1, le=131_072)
+    timeout_seconds: int = Field(default=60, ge=1, le=600)
     temperature: float | None = Field(default=None, ge=0, le=2)
     reasoning_effort: ReasoningEffort | None = Field(default=None)
 
 
-class ModelProfilePatch(DomainModel):
-    model_ref: str | None = Field(
+class AgentProfilePatch(DomainModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    default_system_prompt: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=65_536,
+    )
+    model: str | None = Field(
         default=None,
         min_length=3,
         max_length=200,
         pattern=r"^[^/\s]+/.+$",
     )
-    max_output_tokens: int | None = Field(default=None, ge=1, le=8192)
-    timeout_seconds: int | None = Field(default=None, ge=1, le=120)
+    max_output_tokens: int | None = Field(default=None, ge=1, le=131_072)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=600)
     temperature: float | None = Field(default=None, ge=0, le=2)
     reasoning_effort: ReasoningEffort | None = Field(default=None)
 
@@ -72,14 +81,14 @@ class ModelRequest(DomainModel):
     task_type: ModelTask
     messages: tuple[Message, ...] = Field(min_length=1, max_length=128)
     output_schema: str | None = Field(default=None, max_length=131_072)
-    max_output_tokens: int | None = Field(default=None, ge=1, le=8192)
+    max_output_tokens: int | None = Field(default=None, ge=1, le=131_072)
     output_token_limit: Literal["profile", "provider"] = "profile"
     first_content_timeout_seconds: int | None = Field(
         default=None,
         ge=1,
         le=300,
     )
-    timeout_seconds: int = Field(ge=1, le=120)
+    timeout_seconds: int = Field(ge=1, le=600)
     temperature: float | None = Field(default=None, ge=0, le=2)
     reasoning_effort: ReasoningEffort | None = Field(default=None)
 
@@ -99,7 +108,7 @@ class ModelResponse(DomainModel):
     finish_reason: str | None = None
     usage: ModelUsage = Field(default_factory=ModelUsage)
     retry_count: int = Field(default=0, ge=0)
-    max_tokens: int | None = Field(default=None, ge=1, le=8192)
+    max_tokens: int | None = Field(default=None, ge=1, le=131_072)
 
 
 class ModelStreamChunk(DomainModel):
@@ -115,5 +124,5 @@ class UsageTotals(DomainModel):
     total_tokens: int = Field(default=0, ge=0)
 
 
-class ModelCatalog(DomainModel):
-    profiles: tuple[ModelProfile, ...]
+class AgentProfileCatalog(DomainModel):
+    profiles: tuple[AgentProfile, ...]

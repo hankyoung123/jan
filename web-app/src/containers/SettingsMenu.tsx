@@ -161,6 +161,7 @@ const SettingsMenu = () => {
       title: 'Story Agent 模型',
       route: route.settings.story_models,
       icon: IconRobot,
+      literalTitle: true,
     },
     {
       title: 'common:https_proxy',
@@ -191,7 +192,7 @@ const SettingsMenu = () => {
               >
                 <div className="flex items-center gap-2">
                   <menu.icon size={18} className="shrink-0 text-muted-foreground" />
-                  <span>{t(menu.title)}</span>
+                  <span>{menu.literalTitle ? menu.title : t(menu.title)}</span>
                 </div>
               </Link>
             </div>

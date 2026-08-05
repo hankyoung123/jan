@@ -81,6 +81,8 @@ class Scene(DomainModel):
     source_to_step: int = Field(ge=0)
     source_event_ids: tuple[Identifier, ...] = Field(min_length=1)
     source_memory_ids: tuple[Identifier, ...]
+    source_wiki_branch_id: Identifier
+    source_wiki_version_id: str = Field(min_length=1)
     viewpoint_actor_id: Identifier | None = None
     version: int = Field(ge=1)
 
@@ -98,6 +100,8 @@ class SceneDraft(DomainModel):
     source_to_step: int = Field(ge=0)
     source_event_ids: tuple[Identifier, ...] = Field(min_length=1)
     source_memory_ids: tuple[Identifier, ...]
+    source_wiki_branch_id: Identifier
+    source_wiki_version_id: str = Field(min_length=1)
     viewpoint_actor_id: Identifier | None = None
     base_scene_version: int = Field(default=0, ge=0)
     revision: int = Field(default=0, ge=0)

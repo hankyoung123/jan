@@ -32,9 +32,7 @@ from story_engine.domain.simulation import (
     TurnSessionSnapshot,
 )
 from story_engine.domain.trace import ModelCallTrace
-from story_engine.models.contracts import ModelTask
 from story_engine.models.gateway import ModelGateway
-from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.review.promotion import AutomaticPromotionReviewer
@@ -107,45 +105,6 @@ class ProjectRuntimeFactory:
         if not active_characters:
             raise ValueError("simulation requires at least one active character")
 
-        if restored is not None and restored.resolved_model_profile_ids:
-            resolved_profile_ids = dict(restored.resolved_model_profile_ids)
-        else:
-            policy = ProjectModelPolicyStore(
-                project_root,
-                self._gateway.registry,
-            ).load()
-            resolved_profile_ids = {
-                f"task:{task_type}": profile_id
-                for task_type, profile_id in policy.task_profile_ids.items()
-            }
-            resolved_profile_ids.update(
-                {
-                    f"agent:{character.id}": policy.agent_profile_ids.get(
-                        character.id,
-                        policy.task_profile_ids["actor"],
-                    )
-                    for character in snapshot.characters
-                }
-            )
-
-        policy_store = ProjectModelPolicyStore(
-            project_root,
-            self._gateway.registry,
-        )
-
-        def resolve_actor_profile_id(actor_id: str) -> str:
-            policy = policy_store.load()
-            return policy.agent_profile_ids.get(
-                actor_id,
-                policy.task_profile_ids["actor"],
-            )
-
-        def resolve_task_profile_id(task_type: ModelTask) -> str:
-            return policy_store.load().task_profile_ids[task_type]
-
-        def make_actor_profile_resolver(actor_id: str) -> Callable[[], str]:
-            return lambda: resolve_actor_profile_id(actor_id)
-
         cancellation = Event()
         model_traces: list[ModelCallTrace] = []
 
@@ -158,16 +117,12 @@ class ProjectRuntimeFactory:
 
         def create_actor_model(actor_id: str) -> JanConcordiaLanguageModel:
             key = f"actor:{actor_id}"
-            profile_id = resolved_profile_ids.get(
-                f"agent:{actor_id}",
-                resolved_profile_ids["task:actor"],
-            )
             model = JanConcordiaLanguageModel(
                 self._gateway,
-                profile_id=profile_id,
+                profile_id="actor",
                 task_type="actor",
                 content_locale=request.content_locale,
-                profile_resolver=make_actor_profile_resolver(actor_id),
+                profile_resolver=lambda: "actor",
                 session_id=session_id,
                 branch_id=request.branch_id,
                 actor_id=actor_id,
@@ -182,10 +137,10 @@ class ProjectRuntimeFactory:
         gm_model_key = "game-master"
         models[gm_model_key] = JanConcordiaLanguageModel(
             self._gateway,
-            profile_id=resolved_profile_ids["task:game_master"],
+            profile_id="game_master",
             task_type="game_master",
             content_locale=request.content_locale,
-            profile_resolver=lambda: resolve_task_profile_id("game_master"),
+            profile_resolver=lambda: "game_master",
             session_id=session_id,
             branch_id=request.branch_id,
             cancellation=cancellation,
@@ -194,10 +149,10 @@ class ProjectRuntimeFactory:
         gm_component_models = {
             "next_action_spec": JanConcordiaLanguageModel(
                 self._gateway,
-                profile_id=resolved_profile_ids["task:game_master"],
+                profile_id="game_master",
                 task_type="game_master",
                 content_locale=request.content_locale,
-                profile_resolver=lambda: resolve_task_profile_id("game_master"),
+                profile_resolver=lambda: "game_master",
                 output_schema=json.dumps(
                     ActionSpecEnvelope.model_json_schema(),
                     ensure_ascii=False,
@@ -210,10 +165,10 @@ class ProjectRuntimeFactory:
             ),
             "resolution": JanConcordiaLanguageModel(
                 self._gateway,
-                profile_id=resolved_profile_ids["task:game_master"],
+                profile_id="game_master",
                 task_type="game_master",
                 content_locale=request.content_locale,
-                profile_resolver=lambda: resolve_task_profile_id("game_master"),
+                profile_resolver=lambda: "game_master",
                 output_schema=json.dumps(
                     ResolutionEnvelope.model_json_schema(),
                     ensure_ascii=False,
@@ -228,10 +183,10 @@ class ProjectRuntimeFactory:
         models.update(gm_component_models)
         promotion_model = JanConcordiaLanguageModel(
             self._gateway,
-            profile_id=resolved_profile_ids["task:editor"],
+            profile_id="editor",
             task_type="editor",
             content_locale=request.content_locale,
-            profile_resolver=lambda: resolve_task_profile_id("editor"),
+            profile_resolver=lambda: "editor",
             output_schema=json.dumps(
                 PromotionDecision.model_json_schema(),
                 ensure_ascii=False,
@@ -246,10 +201,10 @@ class ProjectRuntimeFactory:
         promotion_reviewer = AutomaticPromotionReviewer(promotion_model)
         roster_model = JanConcordiaLanguageModel(
             self._gateway,
-            profile_id=resolved_profile_ids["task:game_master"],
+            profile_id="game_master",
             task_type="game_master",
             content_locale=request.content_locale,
-            profile_resolver=lambda: resolve_task_profile_id("game_master"),
+            profile_resolver=lambda: "game_master",
             session_id=session_id,
             branch_id=request.branch_id,
             cancellation=cancellation,
@@ -456,7 +411,6 @@ class ProjectRuntimeFactory:
             content_locale=request.content_locale,
             actors=active_actors,
             game_master=game_master,
-            resolved_model_profile_ids=resolved_profile_ids,
             cancellation=cancellation,
             model_traces=model_traces,
             language_models=tuple(models.values()),

@@ -24,9 +24,9 @@ def test_openapi_contains_core_paths_and_bearer_security() -> None:
         "/projects/{project_id}/branches/{branch_id}/wiki",
         "/projects/{project_id}/branches/{branch_id}/wiki/page",
         "/projects/{project_id}/branches/{branch_id}/wiki/rebuild",
-        "/models/catalog",
-        "/models/profiles",
-        "/models/profiles/{profile_id}",
+        "/agent-profiles/catalog",
+        "/agent-profiles",
+        "/agent-profiles/{agent_type}",
         "/models/complete",
         "/models/stream",
         "/models/usage",
@@ -50,12 +50,14 @@ def test_openapi_never_contains_runtime_session_token() -> None:
     assert "contract-generation-token" not in serialized
 
 
-def test_openapi_model_profile_exposes_only_jan_model_reference() -> None:
+def test_openapi_agent_profile_contains_behavior_and_model_configuration() -> None:
     schema = build_openapi_schema()
 
-    profile_schema = schema["components"]["schemas"]["ModelProfile"]
+    profile_schema = schema["components"]["schemas"]["AgentProfile"]
     properties = profile_schema["properties"]
 
-    assert "model_ref" in properties
+    assert "model" in properties
+    assert "agent_type" in properties
+    assert "default_system_prompt" in properties
     assert "provider_id" not in properties
     assert "reasoning_effort" in properties

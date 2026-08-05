@@ -13,7 +13,7 @@ from jsonschema.validators import validator_for
 from pydantic import JsonValue
 
 from story_engine.models.contracts import (
-    ModelProfile,
+    AgentProfile,
     ModelRequest,
     ModelResponse,
     ModelStreamChunk,
@@ -40,8 +40,10 @@ MAX_STRUCTURED_ATTEMPTS = 3
 STRUCTURED_RETRY_BACKOFF_SECONDS = 0.5
 
 
-def initial_budget(task_kind: str, ceiling: int) -> int:
+def initial_budget(task_kind: str, ceiling: int | None) -> int | None:
     """First-attempt budget for a call kind; the Profile remains the ceiling."""
+    if ceiling is None:
+        return None
     if task_kind == "choice":
         return min(1024, ceiling)
     if task_kind == "short_json":
@@ -554,16 +556,16 @@ class ModelGateway:
         self.transport = transport
         self.usage = usage or UsageTracker()
 
-    def _resolve(self, request: ModelRequest) -> ModelProfile:
+    def _resolve(self, request: ModelRequest) -> AgentProfile:
         profile = self.registry.get_profile(request.profile_id)
-        if profile.model_ref is None:
+        if profile.model is None:
             raise ModelConfigurationError(
-                f"profile {profile.id!r} has no model selected"
+                f"Agent {profile.agent_type!r} has no model selected"
             )
-        if profile.task_type != request.task_type:
+        if profile.agent_type != request.task_type:
             raise ProfileMismatchError(
-                f"profile {profile.id!r} is for {profile.task_type}, "
-                f"not {request.task_type}"
+                f"Agent {profile.agent_type!r} cannot run task "
+                f"{request.task_type!r}"
             )
         return profile
 
@@ -586,7 +588,7 @@ class ModelGateway:
     @staticmethod
     def _payload(
         request: ModelRequest,
-        profile: ModelProfile,
+        profile: AgentProfile,
         schema: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
         messages = [message.model_dump(mode="json") for message in request.messages]
@@ -594,13 +596,15 @@ class ModelGateway:
             "messages": messages,
         }
         if request.output_token_limit == "profile":
-            payload["max_tokens"] = (
+            max_tokens = (
                 request.max_output_tokens
                 if request.max_output_tokens is not None
                 else profile.max_output_tokens
             )
-        if profile.model_ref is not None:
-            payload["model"] = profile.model_ref
+            if max_tokens is not None:
+                payload["max_tokens"] = max_tokens
+        if profile.model is not None:
+            payload["model"] = profile.model
         temperature = (
             request.temperature
             if request.temperature is not None
@@ -740,14 +744,12 @@ class ModelGateway:
         payload = self._payload(request, profile, schema)
         can_fallback_to_prompt = schema is not None
         budget_ceiling = (
-            min(
-                8192,
-                max(
-                    profile.max_output_tokens,
-                    request.max_output_tokens or 0,
-                ),
+            max(
+                profile.max_output_tokens or 0,
+                request.max_output_tokens or 0,
             )
             if request.output_token_limit == "profile"
+            and (profile.max_output_tokens or request.max_output_tokens)
             else None
         )
 
@@ -810,6 +812,8 @@ class ModelGateway:
                             current_budget = request.max_output_tokens or (
                                 profile.max_output_tokens
                             )
+                        if current_budget is None:
+                            raise ResponseLimitError(message)
                         expanded = self._expanded_budget(
                             current_budget,
                             reasoning_tokens=reasoning_tokens,
@@ -855,11 +859,11 @@ class ModelGateway:
                         )
                         continue
                     return ModelResponse(
-                        profile_id=profile.id,
+                        profile_id=profile.agent_type,
                         model_ref=(
                             raw.get("model")
                             if isinstance(raw.get("model"), str)
-                            else profile.model_ref
+                            else profile.model
                         ),
                         content=content,
                         parsed_output=parsed_output,

@@ -22,7 +22,6 @@ from story_engine.domain.simulation import (
 from story_engine.events.stream import EngineEvent
 from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
-from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.persistence.simulation_log import SimulationLogRecord
 from story_engine.simulation.engine import (
@@ -512,24 +511,9 @@ def create_simulations_router(
                     ),
                 }
             )
-            profile_id = snapshot.resolved_model_profile_ids.get(
-                "task:wiki_maintenance"
-            )
-            if profile_id is None:
-                profile_id = (
-                    ProjectModelPolicyStore(
-                        settings.projects_root / project_id,
-                        gateway.registry,
-                    )
-                    .load()
-                    .task_profile_ids["wiki_maintenance"]
-                )
             await WikiBoundaryProcessor(
                 settings.projects_root / project_id,
-                consolidator=GatewayWikiConsolidator(
-                    gateway,
-                    profile_id=profile_id,
-                ),
+                consolidator=GatewayWikiConsolidator(gateway),
             ).rebuild(
                 branch_snapshot,
                 branch_records(settings.projects_root / project_id, branch_id),

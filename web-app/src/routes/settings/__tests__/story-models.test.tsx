@@ -31,6 +31,6 @@ describe('Story Agent model settings route', () => {
 
     expect(screen.getByTestId('settings-menu')).toBeInTheDocument()
     expect(screen.getByTestId('model-profiles')).toBeInTheDocument()
-    expect(screen.getByText('Story Agent 模型')).toBeInTheDocument()
+    expect(screen.getByText('Story Agent 模型')).toHaveClass('pl-10', 'md:pl-0')
   })
 })

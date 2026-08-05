@@ -43,11 +43,15 @@ class SceneStore:
         raise FileNotFoundError(scene_id)
 
     def save(self, scene: Scene, *, overwrite: bool) -> Path:
+        path, content = self.prepare(scene)
+        atomic_write_text(path, content, overwrite=overwrite)
+        return path
+
+    def prepare(self, scene: Scene) -> tuple[Path, str]:
         if scene.branch_id != self.branch_id:
             raise ValueError("scene belongs to another branch")
         path = self.directory / f"{scene.id}.md"
-        atomic_write_text(path, render_scene(scene), overwrite=overwrite)
-        return path
+        return path, render_scene(scene)
 
     def next_identifier(self) -> tuple[str, int]:
         sequences = [scene.sequence for scene in self.list_scenes()]
@@ -67,10 +71,15 @@ class SceneDraftStore:
         self.directory = _branch_directory(root, branch_id) / "drafts"
 
     def save(self, draft: SceneDraft, *, overwrite: bool = True) -> Path:
+        path, content = self.prepare(draft)
+        atomic_write_text(path, content, overwrite=overwrite)
+        return path
+
+    def prepare(self, draft: SceneDraft) -> tuple[Path, str]:
         if draft.branch_id != self.branch_id:
             raise ValueError("scene draft belongs to another branch")
         path = self.directory / f"{draft.id}.md"
-        atomic_write_text(
+        return (
             path,
             dump_json_envelope(
                 schema="story-engine/scene-draft/v1",
@@ -81,12 +90,10 @@ class SceneDraftStore:
                     "sequence": draft.sequence,
                     "status": str(draft.status),
                 },
-                body=f"# {draft.title}\n\n{draft.body}",
+                body=draft.body,
                 payload=draft.model_dump(mode="json"),
             ),
-            overwrite=overwrite,
         )
-        return path
 
     def load(self, scene_id: str) -> SceneDraft:
         path = self.directory / f"{scene_id}.md"

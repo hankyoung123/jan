@@ -85,7 +85,7 @@ class BoundaryMaintenanceCoordinator:
                     (
                         item
                         for item in reversed(service.list_sources())
-                        if item.to_step == result.step and not item.already_written
+                        if item.to_step == result.step and item.status == "available"
                     ),
                     None,
                 )

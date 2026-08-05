@@ -41,8 +41,26 @@ class SimulationCommitKernel:
             project_id=snapshot.project_id,
             content_locale=snapshot.content_locale,
         )
+        if (
+            branch.head_checkpoint_id is not None
+            and snapshot.checkpoint_id == branch.head_checkpoint_id
+        ):
+            current = self.checkpoints.load(branch.head_checkpoint_id)
+            excluded = {"checkpoint_id", "state_hash", "updated_at"}
+            if current.model_dump(exclude=excluded) == snapshot.model_dump(
+                exclude=excluded
+            ):
+                return CommitResult(
+                    branch=branch,
+                    checkpoint_id=branch.head_checkpoint_id,
+                    session_id=snapshot.session_id,
+                    step=current.current_step,
+                    state_hash=current.state_hash,
+                    written_paths=(),
+                )
         checkpoint_id, checkpoint_path, checkpoint_content = self.checkpoints.prepare(
-            snapshot
+            snapshot,
+            parent_checkpoint_id=branch.head_checkpoint_id,
         )
         updated, branch_path, branch_content = self.branches.prepare_advance(
             snapshot.branch_id,
@@ -102,9 +120,13 @@ class SimulationCommitKernel:
         checkpoint_content: str | None = None
         if checkpoint:
             checkpoint_id, checkpoint_path, checkpoint_content = (
-                self.checkpoints.prepare(snapshot)
+                self.checkpoints.prepare(
+                    snapshot,
+                    parent_checkpoint_id=branch.head_checkpoint_id,
+                )
             )
         record = SimulationLogRecord(
+            parent_checkpoint_id=branch.head_checkpoint_id,
             checkpoint_id=checkpoint_id,
             state_hash=snapshot.state_hash,
             result=result.model_copy(update={"checkpoint_id": checkpoint_id}),
@@ -163,15 +185,6 @@ class SimulationCommitKernel:
                 snapshot.branch_id,
                 branch.head_checkpoint_id,
             )
-            for existing in self.logs.read(snapshot.branch_id):
-                if (
-                    existing.result.session_id == result.session_id
-                    and existing.result.step == result.step
-                    and existing.trace.status == ModelCallStatus.SUCCEEDED
-                ):
-                    raise ValueError(
-                        f"simulation step {result.step} is already committed"
-                    )
 
         batch.commit(precondition=assert_commit_preconditions)
         if checkpoint_id is None or checkpoint_path is None:

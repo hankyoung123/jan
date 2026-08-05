@@ -2,7 +2,9 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
-from story_engine.domain.narrative import NarrativeContext, NarrativeSource
+from profile_factory import agent_profile as _profile
+
+from story_engine.domain.narrative import NarrativeSource, WriterContext
 from story_engine.domain.projection import (
     EventVisibility,
     ResolvedEvent,
@@ -13,7 +15,7 @@ from story_engine.manuscript.service import (
     WRITER_FIRST_CONTENT_TIMEOUT_SECONDS,
     GatewayManuscriptAgent,
 )
-from story_engine.models.contracts import ModelProfile, ModelRequest, ModelResponse
+from story_engine.models.contracts import ModelRequest, ModelResponse
 from story_engine.models.registry import ProfileRegistry
 
 
@@ -33,7 +35,7 @@ class RecordingGateway:
         )
 
 
-def _source() -> NarrativeContext:
+def _source() -> WriterContext:
     event = ResolvedEvent(
         event_id="event-1",
         session_id="session-1",
@@ -54,13 +56,14 @@ def _source() -> NarrativeContext:
         boundary=SimulationBoundary.SCENE,
         event_ids=(event.event_id,),
         memory_record_ids=(),
+        wiki_branch_id="main",
+        wiki_version_id="seed",
         viewpoint_actor_id="chen-mo",
         content_locale="zh-CN",
     )
-    return NarrativeContext(
+    return WriterContext(
         source=source,
         events=(event,),
-        game_master_memories=(),
     )
 
 
@@ -69,11 +72,11 @@ def test_writer_uses_provider_length_and_five_minute_content_deadline(
 ) -> None:
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
-            max_output_tokens=4096,
+            max_output_tokens=None,
             timeout_seconds=90,
         )
     )

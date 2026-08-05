@@ -33,6 +33,8 @@ class WikiContextBuilder:
         *,
         max_context_chars: int = 32_768,
         recent_memory_limit: int = 8,
+        version_id: str | None = None,
+        excluded_source_ids: frozenset[str] = frozenset(),
     ) -> None:
         if max_context_chars <= 0 or not 4 <= recent_memory_limit <= 8:
             raise ValueError("invalid Wiki context bounds")
@@ -40,6 +42,20 @@ class WikiContextBuilder:
         self.branch_id = branch_id
         self.max_context_chars = max_context_chars
         self.recent_memory_limit = recent_memory_limit
+        self.version_id = version_id
+        self.excluded_source_ids = excluded_source_ids
+
+    def _pages(self) -> tuple[WikiPage, ...]:
+        pages = (
+            self.store.list_pages()
+            if self.version_id is None
+            else self.store.list_version_pages(self.version_id)
+        )
+        return tuple(
+            page
+            for page in pages
+            if not self.excluded_source_ids.intersection(page.source_ids)
+        )
 
     @staticmethod
     def _tokens(text: str) -> int:
@@ -89,11 +105,7 @@ class WikiContextBuilder:
         entity_ids: tuple[str, ...] = (),
         keywords: tuple[str, ...] = (),
     ) -> tuple[_Candidate, ...]:
-        pages = tuple(
-            self.store.load_page(summary.path)
-            for summary in self.store.list_pages()
-            if summary.path.startswith(prefix)
-        )
+        pages = tuple(page for page in self._pages() if page.path.startswith(prefix))
         linked = self._linked_paths(pages)
         scene_terms = self._terms(
             (*participant_ids, *location_ids, *entity_ids, *keywords)
@@ -316,4 +328,24 @@ class WikiContextBuilder:
         return WikiContextBundle(
             content=content[: self.max_context_chars].rstrip(),
             manifest=(*world.manifest, *character.manifest),
+        )
+
+    def editor(
+        self,
+        *,
+        participant_ids: tuple[str, ...] = (),
+        location_ids: tuple[str, ...] = (),
+        entity_ids: tuple[str, ...] = (),
+        keywords: tuple[str, ...] = (),
+    ) -> WikiContextBundle:
+        return self._render(
+            self._candidates(
+                prefix="",
+                permission="editor_fact_check",
+                participant_ids=participant_ids,
+                location_ids=location_ids,
+                entity_ids=entity_ids,
+                keywords=keywords,
+            ),
+            self.max_context_chars,
         )

@@ -20,7 +20,6 @@ from story_engine.manuscript.service import (
 )
 from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
-from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.workspace.session import WorkspaceSessionManager
 
 _SCENE_ID = re.compile(r"^scene-[0-9]{6}$")
@@ -42,18 +41,10 @@ def create_manuscript_router(
         workspace_manager.open(project_id)
         try:
             root = _require_project(settings, project_id)
-            policy = ProjectModelPolicyStore(
-                root,
-                model_gateway.registry,
-            ).load()
             return ManuscriptService(
                 root,
                 branch_id,
-                agent=GatewayManuscriptAgent(
-                    model_gateway,
-                    writer_profile_id=policy.task_profile_ids["writer"],
-                    editor_profile_id=policy.task_profile_ids["editor"],
-                ),
+                agent=GatewayManuscriptAgent(model_gateway),
             )
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Branch not found") from error

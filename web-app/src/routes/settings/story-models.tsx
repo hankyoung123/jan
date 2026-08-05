@@ -14,7 +14,9 @@ function StoryModelSettings() {
   return (
     <div className="flex h-svh w-full flex-col">
       <HeaderPage>
-        <span className="font-studio text-base font-medium">Story Agent 模型</span>
+        <span className="block pl-10 font-studio text-base font-medium md:pl-0">
+          Story Agent 模型
+        </span>
       </HeaderPage>
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <SettingsMenu />

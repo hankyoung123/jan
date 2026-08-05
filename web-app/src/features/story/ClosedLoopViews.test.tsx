@@ -33,7 +33,7 @@ const source = {
   title_hint: '灯塔机械室',
   event_summary_text: '陈默发现线路被人为切断。',
   available_viewpoint_ids: ['chen-mo'],
-  already_written: false,
+  status: 'available',
 }
 
 const scene = {

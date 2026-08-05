@@ -1,5 +1,4 @@
 import json
-import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -7,34 +6,22 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from story_engine.api.model_errors import model_http_error
-from story_engine.domain.model_policy import ProjectModelPolicy, ProjectModelPolicyPatch
 from story_engine.models.contracts import (
-    ModelCatalog,
-    ModelProfile,
-    ModelProfilePatch,
+    AgentProfile,
+    AgentProfileCatalog,
+    AgentProfilePatch,
+    AgentType,
     ModelRequest,
     ModelResponse,
     UsageTotals,
 )
 from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
-from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.models.registry import ProfileRegistry
 
-_PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
-
-def _project_root(projects_root: Path, project_id: str) -> Path:
-    if not _PROJECT_ID.fullmatch(project_id):
-        raise HTTPException(status_code=404, detail="Project not found")
-    root = projects_root / project_id
-    if not (root / "project.md").is_file():
-        raise HTTPException(status_code=404, detail="Project not found")
-    return root
-
-
-def _catalog(registry: ProfileRegistry) -> ModelCatalog:
-    return ModelCatalog(profiles=registry.load().profiles)
+def _catalog(registry: ProfileRegistry) -> AgentProfileCatalog:
+    return AgentProfileCatalog(profiles=registry.load().profiles)
 
 
 def create_models_router(
@@ -42,91 +29,35 @@ def create_models_router(
     gateway: ModelGateway,
     projects_root: Path,
 ) -> APIRouter:
+    del projects_root
     router = APIRouter(tags=["models"])
 
-    @router.get(
-        "/projects/{project_id}/model-policy",
-        response_model=ProjectModelPolicy,
-    )
-    async def get_project_model_policy(project_id: str) -> ProjectModelPolicy:
-        root = _project_root(projects_root, project_id)
-        try:
-            return ProjectModelPolicyStore(root, registry).load()
-        except ModelGatewayError as error:
-            raise model_http_error(error) from error
-
-    @router.put(
-        "/projects/{project_id}/model-policy",
-        response_model=ProjectModelPolicy,
-    )
-    async def put_project_model_policy(
-        project_id: str,
-        request: ProjectModelPolicy,
-    ) -> ProjectModelPolicy:
-        root = _project_root(projects_root, project_id)
-        try:
-            return ProjectModelPolicyStore(root, registry).save(request)
-        except ModelGatewayError as error:
-            raise model_http_error(error) from error
-
-    @router.patch(
-        "/projects/{project_id}/model-policy",
-        response_model=ProjectModelPolicy,
-    )
-    async def patch_project_model_policy(
-        project_id: str,
-        request: ProjectModelPolicyPatch,
-    ) -> ProjectModelPolicy:
-        root = _project_root(projects_root, project_id)
-        try:
-            return ProjectModelPolicyStore(root, registry).patch(request)
-        except ModelGatewayError as error:
-            raise model_http_error(error) from error
-
-    @router.get("/models/catalog", response_model=ModelCatalog)
-    async def get_model_catalog() -> ModelCatalog:
+    @router.get("/agent-profiles/catalog", response_model=AgentProfileCatalog)
+    async def get_agent_catalog() -> AgentProfileCatalog:
         try:
             return _catalog(registry)
         except ModelGatewayError as error:
             raise model_http_error(error) from error
 
-    @router.get("/models/profiles", response_model=list[ModelProfile])
-    async def get_model_profiles() -> list[ModelProfile]:
+    @router.get("/agent-profiles", response_model=list[AgentProfile])
+    async def get_agent_profiles() -> list[AgentProfile]:
         try:
             return list(registry.load().profiles)
         except ModelGatewayError as error:
             raise model_http_error(error) from error
 
-    @router.put(
-        "/models/profiles/{profile_id}",
-        response_model=ModelProfile,
-    )
-    async def put_model_profile(
-        profile_id: str,
-        request: ModelProfile,
-    ) -> ModelProfile:
-        if request.id != profile_id:
-            raise HTTPException(
-                status_code=422, detail="profile ID does not match path"
-            )
-        try:
-            registry.upsert_profile(request)
-            return request
-        except ModelGatewayError as error:
-            raise model_http_error(error) from error
-
     @router.patch(
-        "/models/profiles/{profile_id}",
-        response_model=ModelProfile,
+        "/agent-profiles/{agent_type}",
+        response_model=AgentProfile,
     )
-    async def patch_model_profile(
-        profile_id: str,
-        request: ModelProfilePatch,
-    ) -> ModelProfile:
+    async def patch_agent_profile(
+        agent_type: AgentType,
+        request: AgentProfilePatch,
+    ) -> AgentProfile:
         if not request.model_fields_set:
             raise HTTPException(status_code=422, detail="empty profile patch")
         try:
-            return registry.patch_profile(profile_id, request)
+            return registry.patch_profile(agent_type, request)
         except ModelGatewayError as error:
             raise model_http_error(error) from error
 

@@ -3,9 +3,10 @@ from pathlib import Path
 from typing import Protocol
 
 from story_engine.domain.narrative import (
-    NarrativeContext,
+    EditorContext,
     NarrativeSource,
     NarrativeSourceSummary,
+    WriterContext,
 )
 from story_engine.manuscript.models import (
     ManuscriptExport,
@@ -23,8 +24,18 @@ from story_engine.models.gateway import ModelGateway
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.scene_store import SceneDraftStore, SceneStore
+from story_engine.workspace.transaction import AtomicBatch
 
 WRITER_FIRST_CONTENT_TIMEOUT_SECONDS = 300
+WRITER_PROTOCOL = (
+    "Immutable protocol: use only the supplied Writer Context; preserve viewpoint "
+    "permissions; never use Director Instructions as facts; never modify or invent "
+    "simulation history; return exactly the requested JSON schema."
+)
+EDITOR_PROTOCOL = (
+    "Immutable protocol: verify prose only against the supplied Editor Context; "
+    "never modify simulation history; return exactly the requested JSON schema."
+)
 
 
 class VersionConflictError(RuntimeError):
@@ -34,30 +45,35 @@ class VersionConflictError(RuntimeError):
 class ManuscriptAgent(Protocol):
     async def generate(
         self,
-        source: NarrativeContext,
+        source: WriterContext,
         *,
         project: ProjectCreativeContext,
     ) -> WriterOutput: ...
 
     async def review(
         self,
-        source: NarrativeContext,
+        source: EditorContext,
         *,
         title: str,
         body: str,
     ) -> ManuscriptReviewOutput: ...
 
 
-def _source_context(source: NarrativeContext) -> str:
+def _writer_source_context(source: WriterContext) -> str:
     return json.dumps(
         {
-            "lineage": source.source.model_dump(mode="json"),
+            "lineage": {
+                **source.source.model_dump(
+                    mode="json",
+                    exclude={"event_ids", "memory_record_ids"},
+                ),
+                "event_ids": [event.event_id for event in source.events],
+                "memory_record_ids": [
+                    record.record_id for record in source.viewpoint_memories
+                ],
+            },
             "resolved_events": [
                 event.model_dump(mode="json") for event in source.events
-            ],
-            "game_master_memory": [
-                record.model_dump(mode="json")
-                for record in source.game_master_memories
             ],
             "selected_viewpoint_memory": [
                 record.model_dump(mode="json")
@@ -70,86 +86,124 @@ def _source_context(source: NarrativeContext) -> str:
     )
 
 
+def _editor_source_context(source: EditorContext) -> str:
+    return json.dumps(
+        {
+            "lineage": source.source.model_dump(mode="json"),
+            "resolved_events": [
+                event.model_dump(mode="json") for event in source.events
+            ],
+            "factual_memory": [
+                record.model_dump(mode="json") for record in source.memories
+            ],
+            "historical_wiki": source.world_wiki_context,
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+
 class GatewayManuscriptAgent:
     """Run Writer and Editor directly over a privacy-filtered runtime source."""
 
     def __init__(
         self,
         gateway: ModelGateway,
-        *,
-        writer_profile_id: str = "writer",
-        editor_profile_id: str = "editor",
     ) -> None:
         self.gateway = gateway
-        self.writer_profile_id = writer_profile_id
-        self.editor_profile_id = editor_profile_id
 
     async def generate(
         self,
-        source: NarrativeContext,
+        source: WriterContext,
         *,
         project: ProjectCreativeContext,
     ) -> WriterOutput:
         viewpoint = source.source.viewpoint_actor_id or "omniscient"
-        prompt = (
-            "You are the Story Engine Writer. Turn the supplied resolved simulation "
+        task_context = (
+            "Turn the supplied resolved simulation "
             "history into one novel scene. Every concrete world fact and outcome must "
             "be supported by the supplied source. Sensory description and stylistic "
             "language are allowed, but do not invent causes, objects, locations, "
             "discoveries, or outcomes. The selected viewpoint memory is the only "
             "character-private memory you may use. When the viewpoint is omniscient, "
-            "no character-private memory is supplied or permitted. Return exactly the "
-            "requested JSON schema. "
+            "no character-private memory is supplied or permitted. "
             f"Project: {project.model_dump_json()}. Viewpoint: {viewpoint}. "
-            f"Runtime source: {_source_context(source)}"
+            f"Runtime source: {_writer_source_context(source)}"
         )
-        writer_profile = self.gateway.registry.get_profile(self.writer_profile_id)
+        writer_profile = self.gateway.registry.get_profile("writer")
         response = await self.gateway.complete(
             ModelRequest(
-                profile_id=self.writer_profile_id,
+                profile_id="writer",
                 task_type="writer",
-                messages=(Message(role="system", content=prompt),),
+                messages=(
+                    Message(role="system", content=WRITER_PROTOCOL),
+                    Message(
+                        role="system",
+                        content=writer_profile.default_system_prompt,
+                    ),
+                    Message(role="user", content=task_context),
+                ),
                 output_schema=json.dumps(
                     WriterOutput.model_json_schema(),
                     ensure_ascii=False,
                 ),
-                output_token_limit="provider",
+                max_output_tokens=writer_profile.max_output_tokens,
+                output_token_limit=(
+                    "provider"
+                    if writer_profile.max_output_tokens is None
+                    else "profile"
+                ),
                 first_content_timeout_seconds=WRITER_FIRST_CONTENT_TIMEOUT_SECONDS,
                 timeout_seconds=writer_profile.timeout_seconds,
-                temperature=0.7,
+                temperature=writer_profile.temperature,
+                reasoning_effort=writer_profile.reasoning_effort,
             )
         )
         return WriterOutput.model_validate(response.parsed_output)
 
     async def review(
         self,
-        source: NarrativeContext,
+        source: EditorContext,
         *,
         title: str,
         body: str,
     ) -> ManuscriptReviewOutput:
-        prompt = (
-            "You are the Story Engine manuscript Editor. Compare the prose to the "
+        task_context = (
+            "Compare the prose to the "
             "supplied runtime source. List each concrete fact asserted by the prose "
             "that the source does not support in unsupported_facts. Pure description, "
             "simile, rhythm, and wording are not unsupported facts. A passing review "
             "must have no unsupported_facts. Never propose changing simulation "
-            "history. Return exactly the requested JSON schema. "
-            f"Runtime source: {_source_context(source)}. "
+            "history. "
+            f"Runtime source: {_editor_source_context(source)}. "
             f"Scene title: {title}. Prose: {body}"
         )
+        editor_profile = self.gateway.registry.get_profile("editor")
         response = await self.gateway.complete(
             ModelRequest(
-                profile_id=self.editor_profile_id,
+                profile_id="editor",
                 task_type="editor",
-                messages=(Message(role="system", content=prompt),),
+                messages=(
+                    Message(role="system", content=EDITOR_PROTOCOL),
+                    Message(
+                        role="system",
+                        content=editor_profile.default_system_prompt,
+                    ),
+                    Message(role="user", content=task_context),
+                ),
                 output_schema=json.dumps(
                     ManuscriptReviewOutput.model_json_schema(),
                     ensure_ascii=False,
                 ),
-                max_output_tokens=2048,
-                timeout_seconds=60,
-                temperature=0.1,
+                max_output_tokens=editor_profile.max_output_tokens,
+                output_token_limit=(
+                    "provider"
+                    if editor_profile.max_output_tokens is None
+                    else "profile"
+                ),
+                timeout_seconds=editor_profile.timeout_seconds,
+                temperature=editor_profile.temperature,
+                reasoning_effort=editor_profile.reasoning_effort,
             )
         )
         return ManuscriptReviewOutput.model_validate(response.parsed_output)
@@ -210,18 +264,12 @@ class ManuscriptService:
             to_step=to_step,
             viewpoint_actor_id=viewpoint_actor_id,
         )
-        context = self.reader.load_source(source)
+        writer_context = self.reader.load_writer_context(source)
         output = await self.agent.generate(
-            context,
+            writer_context,
             project=self._creative_context(source.content_locale),
         )
-        review = await self.agent.review(
-            context,
-            title=output.title,
-            body=output.body,
-        )
         scene_id, sequence = self.scenes.next_identifier()
-        grounded = review.review.passed and not review.unsupported_facts
         draft = SceneDraft(
             id=scene_id,
             project_id=source.project_id,
@@ -235,12 +283,26 @@ class ManuscriptService:
             source_to_step=source.to_step,
             source_event_ids=source.event_ids,
             source_memory_ids=source.memory_record_ids,
+            source_wiki_branch_id=source.wiki_branch_id,
+            source_wiki_version_id=source.wiki_version_id,
             viewpoint_actor_id=source.viewpoint_actor_id,
-            review=review,
-            status="reviewed" if grounded else "needs_revision",
         )
         self.drafts.save(draft, overwrite=False)
-        return draft
+        editor_context = self.reader.load_editor_context(source)
+        review = await self.agent.review(
+            editor_context,
+            title=output.title,
+            body=output.body,
+        )
+        grounded = review.review.passed and not review.unsupported_facts
+        reviewed = draft.model_copy(
+            update={
+                "review": review,
+                "status": "reviewed" if grounded else "needs_revision",
+            }
+        )
+        self.drafts.save(reviewed)
+        return reviewed
 
     def _source_from_draft(self, draft: SceneDraft) -> NarrativeSource:
         source = self.reader.build_source(
@@ -253,6 +315,8 @@ class ManuscriptService:
         if (
             source.event_ids != draft.source_event_ids
             or source.memory_record_ids != draft.source_memory_ids
+            or source.wiki_branch_id != draft.source_wiki_branch_id
+            or source.wiki_version_id != draft.source_wiki_version_id
         ):
             raise ValueError("scene source lineage changed")
         return source
@@ -280,14 +344,21 @@ class ManuscriptService:
             raise VersionConflictError("scene draft revision changed")
         if draft.base_scene_version != request.expected_scene_version:
             raise VersionConflictError("scene version changed")
-        updated = draft.with_content(title=request.title, body=request.body)
-        source = self._source_from_draft(updated)
-        context = self.reader.load_source(source)
-        review = await self.agent.review(
-            context,
-            title=updated.title,
-            body=updated.body,
+        content_changed = draft.title != request.title or draft.body != request.body
+        updated = (
+            draft.with_content(title=request.title, body=request.body)
+            if content_changed
+            else draft
         )
+        source = self._source_from_draft(updated)
+        review = updated.review
+        if content_changed or review is None:
+            context = self.reader.load_editor_context(source)
+            review = await self.agent.review(
+                context,
+                title=updated.title,
+                body=updated.body,
+            )
         if not review.review.passed or review.unsupported_facts:
             rejected = updated.model_copy(
                 update={"review": review, "status": "needs_revision"}
@@ -313,11 +384,23 @@ class ManuscriptService:
             current is None or current.version != reviewed.base_scene_version
         ):
             raise VersionConflictError("scene version changed")
-        self.scenes.save(scene, overwrite=current is not None)
         saved = reviewed.model_copy(
             update={"base_scene_version": scene.version, "status": "saved"}
         )
-        self.drafts.save(saved)
+        scene_path, scene_content = self.scenes.prepare(scene)
+        draft_path, draft_content = self.drafts.prepare(saved)
+        batch = AtomicBatch(self.root)
+        batch.add(
+            scene_path.relative_to(self.root).as_posix(),
+            scene_content,
+            overwrite=current is not None,
+        )
+        batch.add(
+            draft_path.relative_to(self.root).as_posix(),
+            draft_content,
+            overwrite=True,
+        )
+        batch.commit()
         return SceneMutationResult(
             status="saved",
             draft=saved,
@@ -329,8 +412,12 @@ class ManuscriptService:
         project = self.projects.load().project
         branch = self.branches.load(self.branch_id)
         sections = [f"# {project.title}"]
+        current_chapter: str | None = None
         for scene in self.scenes.list_scenes():
-            sections.append(f"## {scene.title}\n\n{scene.body}")
+            if scene.chapter_id != current_chapter:
+                current_chapter = scene.chapter_id
+                sections.append(f"## {current_chapter}")
+            sections.append(f"### {scene.title}\n\n{scene.body}")
         return ManuscriptExport(
             project_id=project.id,
             branch_id=self.branch_id,
@@ -354,6 +441,8 @@ class ManuscriptService:
             source_to_step=draft.source_to_step,
             source_event_ids=draft.source_event_ids,
             source_memory_ids=draft.source_memory_ids,
+            source_wiki_branch_id=draft.source_wiki_branch_id,
+            source_wiki_version_id=draft.source_wiki_version_id,
             viewpoint_actor_id=draft.viewpoint_actor_id,
             version=draft.base_scene_version + 1,
         )

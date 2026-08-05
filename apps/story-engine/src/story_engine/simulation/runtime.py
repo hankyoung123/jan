@@ -58,7 +58,6 @@ class StorySimulationRuntime:
         content_locale: str,
         actors: tuple[ConcordiaStoryActor, ...],
         game_master: ConcordiaGameMasterActor,
-        resolved_model_profile_ids: Mapping[str, str] | None = None,
         resolver: ConcordiaResolverKernel | None = None,
         cancellation: Event | None = None,
         model_traces: list[ModelCallTrace] | None = None,
@@ -97,7 +96,6 @@ class StorySimulationRuntime:
         self.content_locale = content_locale
         self.actors = actors
         self.game_master = game_master
-        self._resolved_model_profile_ids = dict(resolved_model_profile_ids or {})
         self.resolver = resolver or ConcordiaResolverKernel()
         self.cancellation = cancellation or Event()
         self._model_traces = model_traces if model_traces is not None else []
@@ -122,9 +120,6 @@ class StorySimulationRuntime:
 
     def roster_actor_ids(self) -> tuple[str, ...]:
         return tuple(actor.name for actor in self.actors)
-
-    def resolved_model_profile_ids(self) -> dict[str, str]:
-        return dict(self._resolved_model_profile_ids)
 
     def character_states(self) -> tuple[Character, ...]:
         return tuple(

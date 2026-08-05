@@ -14,7 +14,6 @@ from story_engine.domain.wiki import (
     WikiPage,
 )
 from story_engine.models.gateway import ModelGateway
-from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.wiki.boundary import WikiBoundaryProcessor, branch_records
@@ -132,13 +131,9 @@ def create_wiki_router(settings: EngineSettings, gateway: ModelGateway) -> APIRo
             )
             store = WikiStore(root, branch_id)
             store.mark_stale(selected, snapshot.current_step)
-            policy = ProjectModelPolicyStore(root, gateway.registry).load()
             await WikiBoundaryProcessor(
                 root,
-                consolidator=GatewayWikiConsolidator(
-                    gateway,
-                    profile_id=policy.task_profile_ids["wiki_maintenance"],
-                ),
+                consolidator=GatewayWikiConsolidator(gateway),
             ).rebuild(branch_snapshot, branch_records(root, branch_id))
             return store.view()
         except FileNotFoundError as error:

@@ -315,6 +315,28 @@ class WikiStore:
             pages.append(_parse(relative, path.read_text(encoding="utf-8")))
         return tuple(pages)
 
+    def version_root(self, version_id: str) -> Path:
+        if version_id != "seed" and (
+            not version_id.startswith("checkpoint-") or len(version_id) != 75
+        ):
+            raise ValueError("invalid Wiki version ID")
+        return self.wiki_root / ".versions" / self.branch_id / version_id
+
+    def version_exists(self, version_id: str) -> bool:
+        return (self.version_root(version_id) / "index.md").is_file()
+
+    def list_version_pages(self, version_id: str) -> tuple[WikiPage, ...]:
+        root = self.version_root(version_id)
+        if not (root / "index.md").is_file():
+            raise FileNotFoundError(root)
+        pages = []
+        for path in sorted(root.rglob("*.md")):
+            if path.parent == root:
+                continue
+            relative = path.relative_to(root).as_posix()
+            pages.append(_parse(relative, path.read_text(encoding="utf-8")))
+        return tuple(pages)
+
     def view(self) -> WikiBranchView:
         index = _parse(
             "world/index.md",

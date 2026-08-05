@@ -2,16 +2,16 @@ from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
 
+from profile_factory import agent_profile as _profile
+
 from story_engine.concordia_runtime.memory import concordia_hash_embedder
-from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     ControlMode,
     ControlPolicy,
     TurnSessionRequest,
 )
-from story_engine.models.contracts import ModelProfile, ModelStreamChunk
+from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.gateway import ModelGateway, UnavailableModelTransport
-from story_engine.models.policy import ProjectModelPolicyStore
 from story_engine.models.registry import ProfileRegistry
 from story_engine.simulation.factory import ProjectRuntimeFactory
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
@@ -57,45 +57,24 @@ def test_project_runtime_imports_seed_with_private_memory_isolation(
     assert "未归档的值班表" in gm_memories
 
 
-def test_project_runtime_resolves_and_restores_project_model_assignments(
+def test_project_runtime_uses_fixed_agent_assignments(
     tmp_path: Path,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     registry = ProfileRegistry(tmp_path / "models.json")
     for profile in (
-        ModelProfile(
-            id="actor-dramatic",
+        _profile(
+            id="actor",
             task_type="actor",
             model_ref="provider-a/shared-model",
         ),
-        ModelProfile(
-            id="actor-precise",
-            task_type="actor",
-            model_ref="provider-b/shared-model",
-        ),
-        ModelProfile(
-            id="gm-project",
+        _profile(
+            id="game_master",
             task_type="game_master",
             model_ref="provider-a/game-master",
         ),
     ):
         registry.upsert_profile(profile)
-    policy_store = ProjectModelPolicyStore(tmp_path / "fog-harbor", registry)
-    policy = policy_store.load()
-    policy_store.save(
-        policy.model_copy(
-            update={
-                "task_profile_ids": {
-                    **policy.task_profile_ids,
-                    "game_master": "gm-project",
-                },
-                "agent_profile_ids": {
-                    "chen-mo": "actor-dramatic",
-                    "lin-lan": "actor-precise",
-                },
-            }
-        )
-    )
     gateway = ModelGateway(registry, UnavailableModelTransport())
     factory = ProjectRuntimeFactory(tmp_path, gateway)
     request = TurnSessionRequest(
@@ -106,34 +85,14 @@ def test_project_runtime_resolves_and_restores_project_model_assignments(
         content_locale="zh-CN",
         control=ControlPolicy(mode=ControlMode.STEP),
     )
-    runtime = factory("session:profiles", request)
-
-    assert runtime.resolved_model_profile_ids() == {
-        "task:actor": "actor",
-        "task:game_master": "gm-project",
-        "task:wiki_maintenance": "wiki-maintenance",
-        "task:editor": "editor",
-        "task:writer": "writer",
-        "agent:chen-mo": "actor-dramatic",
-        "agent:lin-lan": "actor-precise",
-    }
+    factory("session:profiles", request)
 
     from story_engine.simulation.engine import StoryTurnEngine
 
     engine = StoryTurnEngine(factory)
     snapshot = engine.create_session(request)
-    manifest = SessionManifest.from_snapshot(snapshot)
-    assert manifest.resolved_model_profile_ids == snapshot.resolved_model_profile_ids
-
-    changed = policy_store.load()
-    policy_store.save(
-        changed.model_copy(
-            update={"agent_profile_ids": {"chen-mo": "actor-precise"}}
-        )
-    )
     restored = factory.from_snapshot(snapshot.session_id, request, snapshot)
-    assert restored.resolved_model_profile_ids() == snapshot.resolved_model_profile_ids
-    assert restored.resolved_model_profile_ids()["agent:chen-mo"] == "actor-dramatic"
+    assert restored.roster_actor_ids() == snapshot.roster_actor_ids
 
 
 class RecordingTransport:
@@ -174,28 +133,16 @@ class RecordingTransport:
         raise AssertionError("factory live mapping tests do not stream")
 
 
-def test_actor_profile_mapping_is_resolved_per_call_after_policy_change(
+def test_actor_profile_is_reloaded_per_call(
     tmp_path: Path,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     registry = ProfileRegistry(tmp_path / "models.json")
-    for profile in (
-        ModelProfile(
-            id="actor-dramatic",
+    registry.upsert_profile(
+        _profile(
+            id="actor",
             task_type="actor",
             model_ref="provider-a/shared-model",
-        ),
-        ModelProfile(
-            id="actor-precise",
-            task_type="actor",
-            model_ref="provider-b/shared-model",
-        ),
-    ):
-        registry.upsert_profile(profile)
-    policy_store = ProjectModelPolicyStore(tmp_path / "fog-harbor", registry)
-    policy_store.save(
-        policy_store.load().model_copy(
-            update={"agent_profile_ids": {"chen-mo": "actor-dramatic"}}
         )
     )
     transport = RecordingTransport()
@@ -219,9 +166,11 @@ def test_actor_profile_mapping_is_resolved_per_call_after_policy_change(
     )
 
     actor_model.sample_text("Probe.", terminators=())
-    policy_store.save(
-        policy_store.load().model_copy(
-            update={"agent_profile_ids": {"chen-mo": "actor-precise"}}
+    registry.upsert_profile(
+        _profile(
+            id="actor",
+            task_type="actor",
+            model_ref="provider-b/shared-model",
         )
     )
     actor_model.sample_text("Probe again.", terminators=())

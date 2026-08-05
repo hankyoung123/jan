@@ -145,23 +145,9 @@ def create_app(
                 runtime_settings.projects_root / snapshot.project_id,
                 consolidator=GatewayWikiConsolidator(
                     gateway,
-                    profile_id=snapshot.resolved_model_profile_ids.get(
-                        "task:wiki_maintenance",
-                        "wiki-maintenance",
-                    ),
                 ),
             ),
-            manuscript_agent=GatewayManuscriptAgent(
-                gateway,
-                writer_profile_id=snapshot.resolved_model_profile_ids.get(
-                    "task:writer",
-                    "writer",
-                ),
-                editor_profile_id=snapshot.resolved_model_profile_ids.get(
-                    "task:editor",
-                    "editor",
-                ),
-            ),
+            manuscript_agent=GatewayManuscriptAgent(gateway),
         ),
     )
     app.state.model_registry = registry

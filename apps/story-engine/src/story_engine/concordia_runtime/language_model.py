@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import json
-import math
 import time
 import uuid
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -15,23 +14,24 @@ from concordia.language_model import language_model  # type: ignore[import-untyp
 from story_engine.domain.action import TaskType
 from story_engine.domain.trace import ModelCallStatus, ModelCallTrace
 from story_engine.models.contracts import (
+    AgentProfile,
     Message,
-    ModelProfile,
     ModelRequest,
     ModelResponse,
     ModelTask,
 )
 from story_engine.models.errors import ModelTimeoutError
-from story_engine.models.gateway import ModelGateway, initial_budget
+from story_engine.models.gateway import ModelGateway
 
 TraceSink = Callable[[ModelCallTrace], None]
 
 _TASK_TYPES: dict[ModelTask, TaskType] = {
     "actor": TaskType.ACTOR,
     "game_master": TaskType.GAME_MASTER,
-    "wiki_maintenance": TaskType.WIKI_MAINTENANCE,
+    "wiki_maintainer": TaskType.WIKI_MAINTENANCE,
     "editor": TaskType.EDITOR,
     "writer": TaskType.WRITER,
+    "submission_editor": TaskType.EDITOR,
 }
 
 
@@ -132,7 +132,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         response: ModelResponse | None,
         error: Exception | None,
         request: ModelRequest,
-        profile: ModelProfile,
+        profile: AgentProfile,
     ) -> None:
         if self._trace_sink is None:
             return
@@ -155,7 +155,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
             step=self._step,
             actor_id=self._actor_id,
             profile_id=request.profile_id,
-            model_ref=response.model_ref if response else profile.model_ref,
+            model_ref=response.model_ref if response else profile.model,
             prompt_version=self._prompt_version,
             content_locale=self._content_locale,
             component_ids=self._component_ids,
@@ -230,23 +230,22 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
 
         profile_id = self._current_profile_id()
         profile = self._gateway.registry.get_profile(profile_id)
-        if max_tokens is not None:
-            initial = max_tokens
-        elif self._max_output_tokens is not None:
-            initial = self._max_output_tokens
-        else:
-            initial = initial_budget(budget_kind, profile.max_output_tokens)
-        effective_timeout = (
-            timeout if timeout is not None else profile.timeout_seconds
-        )
+        del max_tokens, timeout, temperature, budget_kind
         request = ModelRequest(
             profile_id=profile_id,
             task_type=self._task_type,
-            messages=(Message(role="user", content=prompt),),
+            messages=(
+                Message(role="system", content=profile.default_system_prompt),
+                Message(role="user", content=prompt),
+            ),
             output_schema=output_schema,
-            max_output_tokens=min(max(initial, 1), 8192),
-            timeout_seconds=min(max(math.ceil(effective_timeout), 1), 120),
-            temperature=temperature,
+            max_output_tokens=profile.max_output_tokens,
+            output_token_limit=(
+                "provider" if profile.max_output_tokens is None else "profile"
+            ),
+            timeout_seconds=profile.timeout_seconds,
+            temperature=profile.temperature,
+            reasoning_effort=profile.reasoning_effort,
         )
         started_at = datetime.now(UTC)
         started = time.monotonic()

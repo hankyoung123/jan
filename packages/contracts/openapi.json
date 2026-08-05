@@ -98,6 +98,233 @@
         "title": "ActionSpec",
         "type": "object"
       },
+      "AgentProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_type": {
+            "enum": [
+              "actor",
+              "game_master",
+              "writer",
+              "editor",
+              "wiki_maintainer",
+              "submission_editor"
+            ],
+            "title": "Agent Type",
+            "type": "string"
+          },
+          "default_system_prompt": {
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Default System Prompt",
+            "type": "string"
+          },
+          "max_output_tokens": {
+            "anyOf": [
+              {
+                "maximum": 131072.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 2048,
+            "title": "Max Output Tokens"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 3,
+                "pattern": "^[^/\\s]+/.+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "timeout_seconds": {
+            "default": 60,
+            "maximum": 600.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "agent_type",
+          "default_system_prompt"
+        ],
+        "title": "AgentProfile",
+        "type": "object"
+      },
+      "AgentProfileCatalog": {
+        "additionalProperties": false,
+        "properties": {
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/AgentProfile"
+            },
+            "title": "Profiles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "profiles"
+        ],
+        "title": "AgentProfileCatalog",
+        "type": "object"
+      },
+      "AgentProfilePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "default_system_prompt": {
+            "anyOf": [
+              {
+                "maxLength": 65536,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default System Prompt"
+          },
+          "max_output_tokens": {
+            "anyOf": [
+              {
+                "maximum": 131072.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Output Tokens"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 3,
+                "pattern": "^[^/\\s]+/.+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "maximum": 600.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Seconds"
+          }
+        },
+        "title": "AgentProfilePatch",
+        "type": "object"
+      },
       "BranchComparisonResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1277,191 +1504,6 @@
         "title": "ModelCallTrace",
         "type": "object"
       },
-      "ModelCatalog": {
-        "additionalProperties": false,
-        "properties": {
-          "profiles": {
-            "items": {
-              "$ref": "#/components/schemas/ModelProfile"
-            },
-            "title": "Profiles",
-            "type": "array"
-          }
-        },
-        "required": [
-          "profiles"
-        ],
-        "title": "ModelCatalog",
-        "type": "object"
-      },
-      "ModelProfile": {
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
-            "title": "Id",
-            "type": "string"
-          },
-          "max_output_tokens": {
-            "default": 2048,
-            "maximum": 8192.0,
-            "minimum": 1.0,
-            "title": "Max Output Tokens",
-            "type": "integer"
-          },
-          "model_ref": {
-            "anyOf": [
-              {
-                "maxLength": 200,
-                "minLength": 3,
-                "pattern": "^[^/\\s]+/.+$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Ref"
-          },
-          "reasoning_effort": {
-            "anyOf": [
-              {
-                "enum": [
-                  "none",
-                  "minimal",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh",
-                  "max"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reasoning Effort"
-          },
-          "task_type": {
-            "enum": [
-              "actor",
-              "game_master",
-              "wiki_maintenance",
-              "editor",
-              "writer"
-            ],
-            "title": "Task Type",
-            "type": "string"
-          },
-          "temperature": {
-            "anyOf": [
-              {
-                "maximum": 2.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Temperature"
-          },
-          "timeout_seconds": {
-            "default": 60,
-            "maximum": 120.0,
-            "minimum": 1.0,
-            "title": "Timeout Seconds",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "task_type"
-        ],
-        "title": "ModelProfile",
-        "type": "object"
-      },
-      "ModelProfilePatch": {
-        "additionalProperties": false,
-        "properties": {
-          "max_output_tokens": {
-            "anyOf": [
-              {
-                "maximum": 8192.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Output Tokens"
-          },
-          "model_ref": {
-            "anyOf": [
-              {
-                "maxLength": 200,
-                "minLength": 3,
-                "pattern": "^[^/\\s]+/.+$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Ref"
-          },
-          "reasoning_effort": {
-            "anyOf": [
-              {
-                "enum": [
-                  "none",
-                  "minimal",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh",
-                  "max"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reasoning Effort"
-          },
-          "temperature": {
-            "anyOf": [
-              {
-                "maximum": 2.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Temperature"
-          },
-          "timeout_seconds": {
-            "anyOf": [
-              {
-                "maximum": 120.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Timeout Seconds"
-          }
-        },
-        "title": "ModelProfilePatch",
-        "type": "object"
-      },
       "ModelRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1481,7 +1523,7 @@
           "max_output_tokens": {
             "anyOf": [
               {
-                "maximum": 8192.0,
+                "maximum": 131072.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -1550,9 +1592,10 @@
             "enum": [
               "actor",
               "game_master",
-              "wiki_maintenance",
+              "writer",
               "editor",
-              "writer"
+              "wiki_maintainer",
+              "submission_editor"
             ],
             "title": "Task Type",
             "type": "string"
@@ -1571,7 +1614,7 @@
             "title": "Temperature"
           },
           "timeout_seconds": {
-            "maximum": 120.0,
+            "maximum": 600.0,
             "minimum": 1.0,
             "title": "Timeout Seconds",
             "type": "integer"
@@ -1607,7 +1650,7 @@
           "max_tokens": {
             "anyOf": [
               {
-                "maximum": 8192.0,
+                "maximum": 131072.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -1692,10 +1735,6 @@
       "NarrativeSourceSummary": {
         "additionalProperties": false,
         "properties": {
-          "already_written": {
-            "title": "Already Written",
-            "type": "boolean"
-          },
           "available_viewpoint_ids": {
             "items": {
               "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
@@ -1733,6 +1772,16 @@
             "title": "Source Id",
             "type": "string"
           },
+          "status": {
+            "enum": [
+              "available",
+              "drafted",
+              "needs_revision",
+              "saved"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
           "title_hint": {
             "maxLength": 512,
             "minLength": 1,
@@ -1755,7 +1804,7 @@
           "title_hint",
           "event_summary_text",
           "available_viewpoint_ids",
-          "already_written"
+          "status"
         ],
         "title": "NarrativeSourceSummary",
         "type": "object"
@@ -1871,94 +1920,6 @@
           "tone"
         ],
         "title": "ProjectDocument",
-        "type": "object"
-      },
-      "ProjectModelPolicy": {
-        "additionalProperties": false,
-        "properties": {
-          "agent_profile_ids": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Agent Profile Ids",
-            "type": "object"
-          },
-          "schema_version": {
-            "default": 1,
-            "maximum": 1.0,
-            "minimum": 1.0,
-            "title": "Schema Version",
-            "type": "integer"
-          },
-          "task_profile_ids": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "enum": [
-                "actor",
-                "game_master",
-                "wiki_maintenance",
-                "editor",
-                "writer"
-              ]
-            },
-            "title": "Task Profile Ids",
-            "type": "object"
-          }
-        },
-        "title": "ProjectModelPolicy",
-        "type": "object"
-      },
-      "ProjectModelPolicyPatch": {
-        "additionalProperties": false,
-        "properties": {
-          "agent_profile_ids": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Profile Ids"
-          },
-          "task_profile_ids": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "propertyNames": {
-                  "enum": [
-                    "actor",
-                    "game_master",
-                    "wiki_maintenance",
-                    "editor",
-                    "writer"
-                  ]
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Profile Ids"
-          }
-        },
-        "title": "ProjectModelPolicyPatch",
         "type": "object"
       },
       "ProjectSnapshot": {
@@ -2454,6 +2415,16 @@
             "title": "Source To Step",
             "type": "integer"
           },
+          "source_wiki_branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Source Wiki Branch Id",
+            "type": "string"
+          },
+          "source_wiki_version_id": {
+            "minLength": 1,
+            "title": "Source Wiki Version Id",
+            "type": "string"
+          },
           "title": {
             "maxLength": 200,
             "minLength": 1,
@@ -2491,6 +2462,8 @@
           "source_to_step",
           "source_event_ids",
           "source_memory_ids",
+          "source_wiki_branch_id",
+          "source_wiki_version_id",
           "version"
         ],
         "title": "Scene",
@@ -2585,6 +2558,16 @@
             "title": "Source To Step",
             "type": "integer"
           },
+          "source_wiki_branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Source Wiki Branch Id",
+            "type": "string"
+          },
+          "source_wiki_version_id": {
+            "minLength": 1,
+            "title": "Source Wiki Version Id",
+            "type": "string"
+          },
           "status": {
             "default": "draft",
             "enum": [
@@ -2627,7 +2610,9 @@
           "source_from_step",
           "source_to_step",
           "source_event_ids",
-          "source_memory_ids"
+          "source_memory_ids",
+          "source_wiki_branch_id",
+          "source_wiki_version_id"
         ],
         "title": "SceneDraft",
         "type": "object"
@@ -2815,16 +2800,6 @@
             "title": "Project Id",
             "type": "string"
           },
-          "resolved_model_profile_ids": {
-            "patternProperties": {
-              "^[a-z0-9][a-z0-9._:-]{0,127}$": {
-                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-                "type": "string"
-              }
-            },
-            "title": "Resolved Model Profile Ids",
-            "type": "object"
-          },
           "restoration_notice_text": {
             "anyOf": [
               {
@@ -2921,12 +2896,24 @@
             ],
             "title": "Checkpoint Id"
           },
+          "parent_checkpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^checkpoint-[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Checkpoint Id"
+          },
           "result": {
             "$ref": "#/components/schemas/StepResult"
           },
           "schema_version": {
-            "default": 1,
-            "minimum": 1.0,
+            "default": 2,
+            "minimum": 2.0,
             "title": "Schema Version",
             "type": "integer"
           },
@@ -3974,16 +3961,6 @@
           "request": {
             "$ref": "#/components/schemas/TurnSessionRequest"
           },
-          "resolved_model_profile_ids": {
-            "patternProperties": {
-              "^[a-z0-9][a-z0-9._:-]{0,127}$": {
-                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-                "type": "string"
-              }
-            },
-            "title": "Resolved Model Profile Ids",
-            "type": "object"
-          },
           "restoration_notice_text": {
             "anyOf": [
               {
@@ -4848,6 +4825,127 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/agent-profiles": {
+      "get": {
+        "operationId": "get_agent_profiles_agent_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentProfile"
+                  },
+                  "title": "Response Get Agent Profiles Agent Profiles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Agent Profiles",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/agent-profiles/catalog": {
+      "get": {
+        "operationId": "get_agent_catalog_agent_profiles_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProfileCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Agent Catalog",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/agent-profiles/{agent_type}": {
+      "patch": {
+        "operationId": "patch_agent_profile_agent_profiles__agent_type__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_type",
+            "required": true,
+            "schema": {
+              "enum": [
+                "actor",
+                "game_master",
+                "writer",
+                "editor",
+                "wiki_maintainer",
+                "submission_editor"
+              ],
+              "title": "Agent Type",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentProfilePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Patch Agent Profile",
+        "tags": [
+          "models"
+        ]
+      }
+    },
     "/api/status": {
       "get": {
         "operationId": "engine_status_api_status_get",
@@ -4895,32 +4993,6 @@
         ]
       }
     },
-    "/models/catalog": {
-      "get": {
-        "operationId": "get_model_catalog_models_catalog_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelCatalog"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Get Model Catalog",
-        "tags": [
-          "models"
-        ]
-      }
-    },
     "/models/complete": {
       "post": {
         "operationId": "complete_model_models_complete_post",
@@ -4962,148 +5034,6 @@
           }
         ],
         "summary": "Complete Model",
-        "tags": [
-          "models"
-        ]
-      }
-    },
-    "/models/profiles": {
-      "get": {
-        "operationId": "get_model_profiles_models_profiles_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ModelProfile"
-                  },
-                  "title": "Response Get Model Profiles Models Profiles Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Get Model Profiles",
-        "tags": [
-          "models"
-        ]
-      }
-    },
-    "/models/profiles/{profile_id}": {
-      "patch": {
-        "operationId": "patch_model_profile_models_profiles__profile_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "profile_id",
-            "required": true,
-            "schema": {
-              "title": "Profile Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ModelProfilePatch"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelProfile"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Patch Model Profile",
-        "tags": [
-          "models"
-        ]
-      },
-      "put": {
-        "operationId": "put_model_profile_models_profiles__profile_id__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "profile_id",
-            "required": true,
-            "schema": {
-              "title": "Profile Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ModelProfile"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelProfile"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Put Model Profile",
         "tags": [
           "models"
         ]
@@ -6614,163 +6544,6 @@
         "summary": "Close Project",
         "tags": [
           "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}/model-policy": {
-      "get": {
-        "operationId": "get_project_model_policy_projects__project_id__model_policy_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectModelPolicy"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Get Project Model Policy",
-        "tags": [
-          "models"
-        ]
-      },
-      "patch": {
-        "operationId": "patch_project_model_policy_projects__project_id__model_policy_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProjectModelPolicyPatch"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectModelPolicy"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Patch Project Model Policy",
-        "tags": [
-          "models"
-        ]
-      },
-      "put": {
-        "operationId": "put_project_model_policy_projects__project_id__model_policy_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProjectModelPolicy"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectModelPolicy"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Put Project Model Policy",
-        "tags": [
-          "models"
         ]
       }
     },

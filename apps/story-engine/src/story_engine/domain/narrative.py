@@ -1,9 +1,18 @@
+from typing import Literal
+
 from pydantic import Field, model_validator
 
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 from story_engine.domain.memory import MemoryRecord
 from story_engine.domain.projection import ResolvedEvent, SimulationBoundary
 from story_engine.domain.wiki import WikiContextManifestEntry
+
+NarrativeSourceStatus = Literal[
+    "available",
+    "drafted",
+    "needs_revision",
+    "saved",
+]
 
 
 class NarrativeSource(RuntimeModel):
@@ -15,6 +24,8 @@ class NarrativeSource(RuntimeModel):
     boundary: SimulationBoundary
     event_ids: tuple[Identifier, ...]
     memory_record_ids: tuple[Identifier, ...]
+    wiki_branch_id: Identifier
+    wiki_version_id: str = Field(min_length=1)
     viewpoint_actor_id: Identifier | None = None
     content_locale: LocaleCode
 
@@ -39,26 +50,42 @@ class NarrativeSourceSummary(RuntimeModel):
     title_hint: str = Field(min_length=1, max_length=512)
     event_summary_text: str = Field(min_length=1, max_length=32_768)
     available_viewpoint_ids: tuple[Identifier, ...]
-    already_written: bool
+    status: NarrativeSourceStatus
 
 
-class NarrativeContext(RuntimeModel):
+class WriterContext(RuntimeModel):
     source: NarrativeSource
     events: tuple[ResolvedEvent, ...]
-    game_master_memories: tuple[MemoryRecord, ...]
     viewpoint_memories: tuple[MemoryRecord, ...] = ()
     world_wiki_context: str = ""
     wiki_context_manifest: tuple[WikiContextManifestEntry, ...] = ()
 
     @model_validator(mode="after")
-    def source_ids_match_loaded_context(self) -> "NarrativeContext":
-        loaded_event_ids = {event.event_id for event in self.events}
-        if loaded_event_ids != set(self.source.event_ids):
-            raise ValueError("loaded narrative events do not match the source")
-        loaded_memory_ids = {
-            record.record_id
-            for record in (*self.game_master_memories, *self.viewpoint_memories)
-        }
-        if not set(self.source.memory_record_ids).issubset(loaded_memory_ids):
-            raise ValueError("loaded narrative memories do not match the source")
+    def context_stays_within_source(self) -> "WriterContext":
+        if not {event.event_id for event in self.events}.issubset(
+            set(self.source.event_ids)
+        ):
+            raise ValueError("Writer events exceed the narrative source")
+        if not {record.record_id for record in self.viewpoint_memories}.issubset(
+            set(self.source.memory_record_ids)
+        ):
+            raise ValueError("Writer memories exceed the narrative source")
+        return self
+
+
+class EditorContext(RuntimeModel):
+    source: NarrativeSource
+    events: tuple[ResolvedEvent, ...]
+    memories: tuple[MemoryRecord, ...]
+    world_wiki_context: str = ""
+    wiki_context_manifest: tuple[WikiContextManifestEntry, ...] = ()
+
+    @model_validator(mode="after")
+    def source_ids_match_loaded_context(self) -> "EditorContext":
+        if tuple(event.event_id for event in self.events) != self.source.event_ids:
+            raise ValueError("Editor events do not match the narrative source")
+        if tuple(record.record_id for record in self.memories) != (
+            self.source.memory_record_ids
+        ):
+            raise ValueError("Editor memories do not match the narrative source")
         return self

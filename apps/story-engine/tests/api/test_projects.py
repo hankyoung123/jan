@@ -4,10 +4,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
+from profile_factory import agent_profile as _profile
 
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
-from story_engine.models.contracts import ModelProfile, ModelStreamChunk
+from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.registry import ProfileRegistry
 from story_engine.submission.service import SubmissionDraft, fog_harbor_submission
 
@@ -67,10 +68,10 @@ def _client(
 ) -> TestClient:
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
-            id="editor",
-            task_type="editor",
-            model_ref="test-provider/test-editor",
+        _profile(
+            id="submission_editor",
+            task_type="submission_editor",
+            model_ref="test-provider/test-submission-editor",
         )
     )
     return TestClient(
@@ -86,7 +87,7 @@ def _client(
     )
 
 
-def test_submission_message_uses_editor_profile_without_creating_project(
+def test_submission_message_uses_submission_editor_without_creating_project(
     tmp_path: Path,
 ) -> None:
     transport = SubmissionTransport()
@@ -102,7 +103,7 @@ def test_submission_message_uses_editor_profile_without_creating_project(
     assert response.status_code == 200
     assert response.json()["runnable"] is True
     assert not (tmp_path / "fog-harbor").exists()
-    assert transport.calls[0]["model"] == "test-provider/test-editor"
+    assert transport.calls[0]["model"] == "test-provider/test-submission-editor"
 
 
 def test_complete_submission_is_runnable_when_model_review_flag_is_false(

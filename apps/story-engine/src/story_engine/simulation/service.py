@@ -442,12 +442,7 @@ class SimulationApplicationService:
             )
         )
         try:
-            checkpoint_due = (
-                snapshot.current_step % snapshot.request.control.checkpoint_every_steps
-                == 0
-                or snapshot.status == TurnSessionStatus.TERMINATED
-                or result.boundary.value != "none"
-            )
+            checkpoint_due = True
             trace = trace.model_copy(
                 update={
                     "stages": (

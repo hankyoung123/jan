@@ -41,6 +41,7 @@ packages = ["src/story_engine"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+pythonpath = ["src", "tests"]
 
 [tool.ruff]
 line-length = 88

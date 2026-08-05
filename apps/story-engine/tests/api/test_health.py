@@ -37,7 +37,7 @@ def test_desktop_origin_can_preflight_model_patch_requests() -> None:
     client = TestClient(create_app(EngineSettings(session_token="test-token")))
 
     response = client.options(
-        "/models/profiles/actor",
+        "/agent-profiles/actor",
         headers={
             "Origin": "tauri://localhost",
             "Access-Control-Request-Method": "PATCH",

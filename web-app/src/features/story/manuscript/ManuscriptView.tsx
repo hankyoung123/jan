@@ -41,7 +41,7 @@ export function ManuscriptView() {
   )
 
   useEffect(() => {
-    if (!source) setSource(manuscript.sources.find((item) => !item.already_written) ?? manuscript.sources.at(-1) ?? null)
+    if (!source) setSource(manuscript.sources.find((item) => item.status === 'available') ?? manuscript.sources.at(-1) ?? null)
   }, [manuscript.sources, source])
 
   useEffect(() => {

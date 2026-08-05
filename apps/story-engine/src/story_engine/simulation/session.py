@@ -66,11 +66,6 @@ class SimulationSession:
         roster_ids = getattr(self.runtime, "roster_actor_ids", None)
         character_states = getattr(self.runtime, "character_states", None)
         pending_scene_events = getattr(self.runtime, "pending_scene_events", None)
-        model_profile_ids = getattr(
-            self.runtime,
-            "resolved_model_profile_ids",
-            None,
-        )
         provisional = TurnSessionSnapshot(
             session_id=self.session_id,
             project_id=self.request.project_id,
@@ -79,9 +74,6 @@ class SimulationSession:
             pending_control=self.pending_control,
             content_locale=self.request.content_locale,
             request=self.request,
-            resolved_model_profile_ids=(
-                model_profile_ids() if model_profile_ids is not None else {}
-            ),
             roster_actor_ids=(
                 roster_ids() if roster_ids is not None else tuple(actor_states)
             ),

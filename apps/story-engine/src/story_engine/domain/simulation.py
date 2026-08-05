@@ -217,9 +217,6 @@ class TurnSessionSnapshot(RuntimeModel):
     pending_control: PendingControl = PendingControl.NONE
     content_locale: LocaleCode
     request: TurnSessionRequest
-    resolved_model_profile_ids: dict[Identifier, Identifier] = Field(
-        default_factory=dict
-    )
     roster_actor_ids: tuple[Identifier, ...] = Field(default=(), max_length=4)
     characters: tuple[Character, ...] = ()
     pending_scene_events: tuple[ResolvedEvent, ...] = ()

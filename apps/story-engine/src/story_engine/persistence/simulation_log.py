@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,13 +13,20 @@ from story_engine.workspace.atomic import atomic_write_text
 from story_engine.workspace.documents import dump_json_envelope, load_json_envelope
 from story_engine.workspace.lock import ProjectLock
 
+if TYPE_CHECKING:
+    from story_engine.persistence.checkpoint_store import CheckpointStore
+
 _BRANCH_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,127}$")
 
 
 class SimulationLogRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: int = Field(default=1, ge=1)
+    schema_version: int = Field(default=2, ge=2)
+    parent_checkpoint_id: str | None = Field(
+        default=None,
+        pattern=r"^checkpoint-[0-9a-f]{64}$",
+    )
     checkpoint_id: str | None = Field(
         default=None,
         pattern=r"^checkpoint-[0-9a-f]{64}$",
@@ -57,6 +65,7 @@ class SimulationLogStore:
                 "step": record.result.step,
                 "trace_id": record.trace.trace_id,
                 "checkpoint_id": record.checkpoint_id,
+                "parent_checkpoint_id": record.parent_checkpoint_id,
             },
             body=f"# Turn {record.result.step}\n\n## Action\n\n{action}",
             payload=record.model_dump(mode="json"),
@@ -107,21 +116,35 @@ class SimulationLogStore:
                 record.trace.trace_id,
             )
         )
-        latest_by_session: dict[str, SimulationLogRecord] = {}
-        for record in records:
-            previous = latest_by_session.get(record.result.session_id)
-            if previous is not None:
-                if record.result.step < previous.result.step:
-                    raise ValueError("simulation log steps cannot move backwards")
-                if (
-                    record.result.step == previous.result.step
-                    and previous.trace.status.value != "failed"
-                ):
-                    raise ValueError(
-                        "a committed simulation step cannot be attempted again"
-                    )
-            latest_by_session[record.result.session_id] = record
         return tuple(records)
+
+    def read_all(self) -> tuple[SimulationLogRecord, ...]:
+        if not self.directory.exists():
+            return ()
+        return tuple(
+            record
+            for branch_dir in sorted(self.directory.iterdir())
+            if branch_dir.is_dir()
+            for record in self.read(branch_dir.name)
+        )
+
+    def reachable(
+        self,
+        checkpoints: "CheckpointStore",
+        checkpoint_id: str,
+    ) -> tuple[SimulationLogRecord, ...]:
+        lineage = checkpoints.lineage(checkpoint_id)
+        by_checkpoint: dict[str, SimulationLogRecord] = {}
+        for record in self.read_all():
+            if record.checkpoint_id not in lineage:
+                continue
+            assert record.checkpoint_id is not None
+            if record.checkpoint_id in by_checkpoint:
+                raise ValueError("checkpoint has multiple simulation turn records")
+            by_checkpoint[record.checkpoint_id] = record
+        return tuple(
+            by_checkpoint[item] for item in lineage if item in by_checkpoint
+        )
 
     def prepare_observations(
         self,

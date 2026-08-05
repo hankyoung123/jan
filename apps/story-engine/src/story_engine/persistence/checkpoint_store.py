@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,8 +12,12 @@ from story_engine.workspace.documents import dump_json_envelope, load_json_envel
 class CheckpointEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: int = Field(default=1, ge=1)
+    schema_version: int = Field(default=2, ge=2)
     checkpoint_id: str = Field(pattern=r"^checkpoint-[0-9a-f]{64}$")
+    parent_checkpoint_id: str | None = Field(
+        default=None,
+        pattern=r"^checkpoint-[0-9a-f]{64}$",
+    )
     snapshot: TurnSessionSnapshot
 
 
@@ -26,14 +31,28 @@ class CheckpointStore:
             raise ValueError("invalid checkpoint ID")
         return self.directory / f"{checkpoint_id}.md"
 
-    def prepare(self, snapshot: TurnSessionSnapshot) -> tuple[str, Path, str]:
+    @staticmethod
+    def _checkpoint_id(state_hash: str, parent_checkpoint_id: str | None) -> str:
+        lineage_key = f"{parent_checkpoint_id or ''}\0{state_hash}"
+        digest = hashlib.sha256(lineage_key.encode("utf-8")).hexdigest()
+        return f"checkpoint-{digest}"
+
+    def prepare(
+        self,
+        snapshot: TurnSessionSnapshot,
+        *,
+        parent_checkpoint_id: str | None = None,
+    ) -> tuple[str, Path, str]:
         calculated = calculate_snapshot_state_hash(snapshot)
         if calculated != snapshot.state_hash:
             raise ValueError("snapshot state hash mismatch")
-        checkpoint_id = f"checkpoint-{snapshot.state_hash}"
+        if parent_checkpoint_id is not None and not self.exists(parent_checkpoint_id):
+            raise ValueError("parent checkpoint does not exist")
+        checkpoint_id = self._checkpoint_id(snapshot.state_hash, parent_checkpoint_id)
         persisted = snapshot.model_copy(update={"checkpoint_id": checkpoint_id})
         envelope = CheckpointEnvelope(
             checkpoint_id=checkpoint_id,
+            parent_checkpoint_id=parent_checkpoint_id,
             snapshot=persisted,
         )
         content = dump_json_envelope(
@@ -43,13 +62,22 @@ class CheckpointStore:
                 "checkpoint_id": checkpoint_id,
                 "branch_id": snapshot.branch_id,
                 "step": snapshot.current_step,
+                "parent_checkpoint_id": parent_checkpoint_id,
             },
             payload=envelope.model_dump(mode="json"),
         )
         return checkpoint_id, self.path_for(checkpoint_id), content
 
-    def save(self, snapshot: TurnSessionSnapshot) -> tuple[str, Path]:
-        checkpoint_id, path, content = self.prepare(snapshot)
+    def save(
+        self,
+        snapshot: TurnSessionSnapshot,
+        *,
+        parent_checkpoint_id: str | None = None,
+    ) -> tuple[str, Path]:
+        checkpoint_id, path, content = self.prepare(
+            snapshot,
+            parent_checkpoint_id=parent_checkpoint_id,
+        )
         if path.exists():
             existing = path.read_text(encoding="utf-8")
             if existing != content:
@@ -58,7 +86,7 @@ class CheckpointStore:
         atomic_write_text(path, content, overwrite=False)
         return checkpoint_id, path
 
-    def load(self, checkpoint_id: str) -> TurnSessionSnapshot:
+    def load_envelope(self, checkpoint_id: str) -> CheckpointEnvelope:
         path = self.path_for(checkpoint_id)
         try:
             payload = load_json_envelope(
@@ -71,11 +99,34 @@ class CheckpointStore:
         if envelope.checkpoint_id != checkpoint_id:
             raise ValueError("checkpoint envelope ID mismatch")
         snapshot = envelope.snapshot
-        if f"checkpoint-{snapshot.state_hash}" != checkpoint_id:
+        expected = self._checkpoint_id(
+            snapshot.state_hash,
+            envelope.parent_checkpoint_id,
+        )
+        if expected != checkpoint_id:
             raise ValueError("checkpoint ID does not match state hash")
         if calculate_snapshot_state_hash(snapshot) != snapshot.state_hash:
             raise ValueError("checkpoint state hash verification failed")
-        return snapshot
+        return envelope
+
+    def load(self, checkpoint_id: str) -> TurnSessionSnapshot:
+        return self.load_envelope(checkpoint_id).snapshot
+
+    def parent_id(self, checkpoint_id: str) -> str | None:
+        return self.load_envelope(checkpoint_id).parent_checkpoint_id
+
+    def lineage(self, checkpoint_id: str) -> tuple[str, ...]:
+        """Return immutable Checkpoint ancestry in root-to-target order."""
+        reverse: list[str] = []
+        seen: set[str] = set()
+        current: str | None = checkpoint_id
+        while current is not None:
+            if current in seen:
+                raise ValueError("checkpoint lineage contains a cycle")
+            seen.add(current)
+            reverse.append(current)
+            current = self.parent_id(current)
+        return tuple(reversed(reverse))
 
     def exists(self, checkpoint_id: str) -> bool:
         try:

@@ -6,10 +6,10 @@ from typing import Any
 
 import httpx
 import pytest
+from profile_factory import agent_profile as _profile
 
 from story_engine.models.contracts import (
     Message,
-    ModelProfile,
     ModelRequest,
     ModelStreamChunk,
     ModelUsage,
@@ -115,7 +115,7 @@ def _gateway(
 ) -> tuple[ModelGateway, ProfileRegistry]:
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -132,28 +132,26 @@ def test_initial_budget_separates_choice_short_json_and_full_calls() -> None:
     assert initial_budget("full", 4096) == 4096
 
 
-def test_profiles_send_provider_qualified_model_references(
+def test_agent_profile_model_change_is_used_by_next_request(
     tmp_path: Path,
 ) -> None:
     transport = FakeTransport("confirmed prose")
     gateway, registry = _gateway(tmp_path, transport)
-    default_writer = asyncio.run(gateway.complete(_request()))
+    first = asyncio.run(gateway.complete(_request()))
     registry.upsert_profile(
-        ModelProfile(
-            id="selected-writer",
+        _profile(
+            id="writer",
             task_type="writer",
             model_ref="cloud/cloud-model-id",
         )
     )
-    selected = asyncio.run(
-        gateway.complete(_request(profile_id="selected-writer"))
-    )
+    second = asyncio.run(gateway.complete(_request()))
 
-    assert default_writer.content == selected.content == "confirmed prose"
+    assert first.content == second.content == "confirmed prose"
     assert transport.calls[0]["model"] == "test-provider/test-writer"
     assert transport.calls[1]["model"] == "cloud/cloud-model-id"
-    assert default_writer.model_ref == "test-provider/test-writer"
-    assert selected.model_ref == "cloud/cloud-model-id"
+    assert first.model_ref == "test-provider/test-writer"
+    assert second.model_ref == "cloud/cloud-model-id"
 
 
 def test_unconfigured_profile_fails_before_the_jan_bridge(tmp_path: Path) -> None:
@@ -238,7 +236,7 @@ def test_unsupported_response_format_falls_back_to_prompt_only_json(
 
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -288,7 +286,7 @@ def test_unrelated_provider_400_does_not_trigger_structured_fallback(
 
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -367,7 +365,7 @@ def test_profile_budget_is_authoritative_when_request_omits_tokens(
     transport = FakeTransport("confirmed prose")
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -386,7 +384,7 @@ def test_provider_managed_output_omits_max_tokens(tmp_path: Path) -> None:
     transport = FakeTransport("confirmed prose")
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -412,7 +410,7 @@ def test_reasoning_effort_comes_from_profile_and_request_override(
     transport = FakeTransport("confirmed prose")
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -445,7 +443,7 @@ def test_reasoning_effort_matches_bridge_contract(
     transport = FakeTransport("confirmed prose")
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -540,7 +538,7 @@ def test_first_content_deadline_uses_streaming_and_ignores_reasoning(
 
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -633,7 +631,7 @@ def test_truncated_structured_output_retries_with_expanded_budget(
     )
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",

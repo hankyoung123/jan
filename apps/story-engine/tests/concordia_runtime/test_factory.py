@@ -4,6 +4,8 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
+from profile_factory import agent_profile as _profile
+
 from story_engine.concordia_runtime.factory import (
     ConcordiaActorFactory,
     default_character_recipe,
@@ -22,7 +24,7 @@ from story_engine.domain.memory import MemoryScope
 from story_engine.domain.projection import ResolutionEnvelope
 from story_engine.domain.recipe import PerceptionFrame
 from story_engine.domain.simulation import ResolverContext
-from story_engine.models.contracts import ModelProfile, ModelStreamChunk
+from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.registry import ProfileRegistry
 
@@ -217,7 +219,7 @@ class RecordingTransport:
 def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="gm",
             task_type="game_master",
             model_ref="test-provider/gm",
@@ -237,13 +239,13 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
     actor_model = ReplayLanguageModel()
     shared_gm = JanConcordiaLanguageModel(
         gateway,
-        profile_id="gm",
+        profile_id="game_master",
         task_type="game_master",
         content_locale="en-US",
     )
     action_spec_model = JanConcordiaLanguageModel(
         gateway,
-        profile_id="gm",
+        profile_id="game_master",
         task_type="game_master",
         content_locale="en-US",
         output_schema=json.dumps(
@@ -254,7 +256,7 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
     )
     resolution_model = JanConcordiaLanguageModel(
         gateway,
-        profile_id="gm",
+        profile_id="game_master",
         task_type="game_master",
         content_locale="en-US",
         output_schema=json.dumps(
@@ -326,13 +328,13 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
     assert spec.tag == "dialogue"
     assert result.events[0].event_text == "The witness answers."
     choice_call, spec_call, resolution_call = transport.calls
-    assert choice_call["max_tokens"] == 1024
+    assert choice_call["max_tokens"] == 4096
     assert spec_call["response_format"]["type"] == "json_schema"
-    assert spec_call["max_tokens"] == 2048
+    assert spec_call["max_tokens"] == 4096
     spec_schema = spec_call["response_format"]["json_schema"]["schema"]
     assert "call_to_action" in spec_schema["properties"]
     assert resolution_call["response_format"]["type"] == "json_schema"
-    assert resolution_call["max_tokens"] == 2048
+    assert resolution_call["max_tokens"] == 4096
     resolution_schema = resolution_call["response_format"]["json_schema"]["schema"]
     assert "event_text" in resolution_schema["properties"]
     assert "entity_changes" in resolution_schema["properties"]

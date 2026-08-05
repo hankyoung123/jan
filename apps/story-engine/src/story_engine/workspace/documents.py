@@ -130,6 +130,8 @@ class SceneDocument(DomainModel):
     source_from_step: int = Field(ge=0)
     source_to_step: int = Field(ge=0)
     source_memory_ids: tuple[str, ...] = ()
+    source_wiki_branch_id: str = Field(min_length=1)
+    source_wiki_version_id: str = Field(min_length=1)
     viewpoint_actor_id: str | None = None
     version: int = Field(ge=1)
 
@@ -314,4 +316,4 @@ def render_fact(fact: Fact) -> str:
 
 def render_scene(scene: Scene) -> str:
     document = SceneDocument.from_domain(scene)
-    return dump_document(document, f"# {scene.title}\n\n{scene.body}")
+    return dump_document(document, scene.body)

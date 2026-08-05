@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from story_engine.api.app import create_app
@@ -28,6 +29,7 @@ class ReplayGatewayTransport:
         boundary: str = "none",
         event_text: str = "Chen Mo finds a deliberately severed wire.",
         fail_writer: bool = False,
+        fail_editor: bool = False,
         fail_wiki_attempts: int = 0,
     ) -> None:
         self.calls: list[str] = []
@@ -36,6 +38,7 @@ class ReplayGatewayTransport:
         self.boundary = boundary
         self.event_text = event_text
         self.fail_writer = fail_writer
+        self.fail_editor = fail_editor
         self.fail_wiki_attempts = fail_wiki_attempts
 
     def _choice(self, prompt: str, payload: Mapping[str, Any]) -> str:
@@ -140,9 +143,9 @@ class ReplayGatewayTransport:
     ) -> Mapping[str, Any]:
         del timeout_seconds, first_content_timeout_seconds
         messages = payload["messages"]
-        prompt = str(messages[-1]["content"])
+        prompt = "\n".join(str(message["content"]) for message in messages)
         self.calls.append(prompt)
-        if "Story Engine Writer" in prompt:
+        if "Writer Context" in prompt:
             if self.fail_writer:
                 raise RuntimeError("writer unavailable")
             content = json.dumps(
@@ -151,7 +154,9 @@ class ReplayGatewayTransport:
                     "body": self.event_text,
                 }
             )
-        elif "manuscript Editor" in prompt:
+        elif "Editor Context" in prompt:
+            if self.fail_editor:
+                raise RuntimeError("editor unavailable")
             content = json.dumps(
                 {
                     "review": {
@@ -163,7 +168,7 @@ class ReplayGatewayTransport:
                     "unsupported_facts": [],
                 }
             )
-        elif "disciplined Story Engine Wiki maintainer" in prompt:
+        elif "WikiPatch objects only" in prompt:
             if self.fail_wiki_attempts > 0:
                 self.fail_wiki_attempts -= 1
                 raise RuntimeError("wiki unavailable")
@@ -267,7 +272,9 @@ def _settings(tmp_path: Path) -> EngineSettings:
     for profile in registry.load().profiles:
         registry.upsert_profile(
             profile.model_copy(
-                update={"model_ref": f"test-provider/test-{profile.id}"}
+                update={
+                    "model": f"test-provider/test-{profile.agent_type}"
+                }
             )
         )
     return settings
@@ -404,9 +411,11 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
         assert draft["source_from_step"] == draft["source_to_step"] == 0
         assert draft["source_event_ids"]
         assert draft["source_memory_ids"]
+        assert draft["source_wiki_branch_id"] == "main"
+        assert draft["source_wiki_version_id"] == "seed"
         assert draft["viewpoint_actor_id"] == "chen-mo"
         writer_prompt = next(
-            prompt for prompt in transport.calls if "Story Engine Writer" in prompt
+                prompt for prompt in transport.calls if "Writer Context" in prompt
         )
         assert "secret:lin-unfiled-duty-roster" not in writer_prompt
 
@@ -422,6 +431,12 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
         )
         assert saved.status_code == 200, saved.text
         assert saved.json()["status"] == "saved"
+        scene_text = (
+            tmp_path
+            / "fog-harbor/.story-engine/manuscript/main/scenes"
+            / f"{draft['id']}.md"
+        ).read_text(encoding="utf-8")
+        assert "# The Severed Wire" not in scene_text
 
         exported = client.get(
             "/projects/fog-harbor/branches/main/manuscript/export",
@@ -429,7 +444,110 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
         )
         assert exported.status_code == 200
         assert exported.json()["branch_id"] == "main"
-        assert "## The Severed Wire" in exported.json()["markdown"]
+        assert "## chapter-001" in exported.json()["markdown"]
+        assert "### The Severed Wire" in exported.json()["markdown"]
+
+
+def test_early_checkpoint_writer_uses_its_historical_wiki_without_future_facts(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    transport = ReplayGatewayTransport(
+        boundary="scene",
+        event_text="Chen Mo records the first damaged cable.",
+    )
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+                "output": {
+                    "wiki_mode": "after_scene",
+                    "manuscript_mode": "manual",
+                },
+            },
+        ).json()
+        first = client.post(
+            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
+            headers=AUTH,
+        ).json()
+        transport.event_text = "Chen Mo discovers a future hidden transmitter."
+        client.post(
+            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
+            headers=AUTH,
+        )
+
+        generated = client.post(
+            "/projects/fog-harbor/branches/main/manuscript/scenes/generate",
+            headers=AUTH,
+            json={
+                "checkpoint_id": first["checkpoint_id"],
+                "from_step": 0,
+                "to_step": 0,
+                "chapter_id": "chapter-001",
+                "viewpoint_actor_id": "chen-mo",
+            },
+        )
+
+        assert generated.status_code == 201, generated.text
+        draft = generated.json()
+        assert draft["source_wiki_version_id"] == first["checkpoint_id"]
+        writer_prompt = next(
+            prompt
+            for prompt in reversed(transport.calls)
+            if "Writer Context" in prompt
+        )
+        assert "first damaged cable" in writer_prompt
+        assert "future hidden transmitter" not in writer_prompt
+
+
+def test_editor_failure_keeps_the_writer_draft_on_disk(tmp_path: Path) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    transport = ReplayGatewayTransport(fail_editor=True)
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 2},
+            },
+        ).json()
+        stepped = client.post(
+            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
+            headers=AUTH,
+        ).json()
+
+        with pytest.raises(RuntimeError, match="editor unavailable"):
+            client.post(
+                "/projects/fog-harbor/branches/main/manuscript/scenes/generate",
+                headers=AUTH,
+                json={
+                    "checkpoint_id": stepped["checkpoint_id"],
+                    "from_step": 0,
+                    "to_step": 0,
+                    "chapter_id": "chapter-001",
+                    "viewpoint_actor_id": "chen-mo",
+                },
+            )
+
+        drafts = client.get(
+            "/projects/fog-harbor/branches/main/manuscript/scenes",
+            headers=AUTH,
+        ).json()
+        assert len(drafts) == 1
+        assert drafts[0]["status"] == "draft"
+        assert drafts[0]["body"] == transport.event_text
 
 
 def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
@@ -523,7 +641,7 @@ def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
         wiki_prompts = [
             prompt
             for prompt in transport.calls
-            if "disciplined Story Engine Wiki maintainer" in prompt
+            if "WikiPatch objects only" in prompt
         ]
         chen_prompt = next(
             prompt for prompt in wiki_prompts if "Character Wiki: chen-mo" in prompt

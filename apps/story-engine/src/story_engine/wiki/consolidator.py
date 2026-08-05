@@ -17,6 +17,11 @@ from story_engine.models.gateway import ModelGateway
 
 MAX_CONSOLIDATION_ATTEMPTS = 2
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
+WIKI_PROTOCOL = (
+    "Immutable protocol: return WikiPatch objects only; every material statement "
+    "must cite supplied source_ids; never modify raw sources, index.md, log.md, or "
+    "SCHEMA.md; never treat Director Instructions as facts."
+)
 
 
 class WikiConsolidator(Protocol):
@@ -37,11 +42,8 @@ class GatewayWikiConsolidator:
     def __init__(
         self,
         gateway: ModelGateway,
-        *,
-        profile_id: str = "wiki-maintenance",
     ) -> None:
         self.gateway = gateway
-        self.profile_id = profile_id
 
     async def consolidate(
         self,
@@ -68,13 +70,19 @@ class GatewayWikiConsolidator:
         )
         for attempt in range(MAX_CONSOLIDATION_ATTEMPTS):
             try:
+                profile = self.gateway.registry.get_profile("wiki_maintainer")
                 response = await self.gateway.complete(
                     ModelRequest(
-                        profile_id=self.profile_id,
-                        task_type="wiki_maintenance",
+                        profile_id="wiki_maintainer",
+                        task_type="wiki_maintainer",
                         messages=(
+                            Message(role="system", content=WIKI_PROTOCOL),
                             Message(
                                 role="system",
+                                content=profile.default_system_prompt,
+                            ),
+                            Message(
+                                role="user",
                                 content=self._prompt(
                                     branch_id=branch_id,
                                     scope=scope,
@@ -102,9 +110,15 @@ class GatewayWikiConsolidator:
                             _wiki_output_schema(),
                             ensure_ascii=False,
                         ),
-                        max_output_tokens=4096,
-                        timeout_seconds=120,
-                        temperature=0.1,
+                        max_output_tokens=profile.max_output_tokens,
+                        output_token_limit=(
+                            "provider"
+                            if profile.max_output_tokens is None
+                            else "profile"
+                        ),
+                        timeout_seconds=profile.timeout_seconds,
+                        temperature=profile.temperature,
+                        reasoning_effort=profile.reasoning_effort,
                     ),
                 )
             except StructuredOutputError as error:

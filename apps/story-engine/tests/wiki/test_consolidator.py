@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from story_engine.domain.wiki import WikiPage, WikiSource, WikiSourceKind
 from story_engine.models.contracts import ModelRequest, ModelResponse
 from story_engine.models.errors import StructuredOutputError
+from story_engine.models.registry import default_registry
 from story_engine.wiki.consolidator import (
     MAX_CONSOLIDATION_ATTEMPTS,
     GatewayWikiConsolidator,
@@ -17,6 +19,12 @@ class FakeGateway:
     def __init__(self, *responses: ModelResponse | Exception) -> None:
         self.responses = list(responses)
         self.calls: list[ModelRequest] = []
+        profile = next(
+            item
+            for item in default_registry().profiles
+            if item.agent_type == "wiki_maintainer"
+        )
+        self.registry = SimpleNamespace(get_profile=lambda _agent_type: profile)
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
         self.calls.append(request)
@@ -28,7 +36,7 @@ class FakeGateway:
 
 def _response(patches: dict[str, Any]) -> ModelResponse:
     return ModelResponse(
-        profile_id="wiki-maintenance",
+        profile_id="wiki_maintainer",
         model_ref="test-provider/test-wiki",
         content="",
         parsed_output=patches,
@@ -108,7 +116,7 @@ def test_consolidator_retries_contract_violation_with_corrective_hint() -> None:
     assert len(patches) == 1
     assert patches[0].path == "world/state.md"
     assert len(gateway.calls) == 2
-    assert "exists verbatim in the target page" in gateway.calls[1].messages[0].content
+    assert "exists verbatim in the target page" in gateway.calls[1].messages[2].content
 
 
 def test_consolidator_retries_when_section_is_missing_from_page() -> None:
@@ -142,7 +150,7 @@ def test_consolidator_retries_when_section_is_missing_from_page() -> None:
 
     assert len(patches) == 1
     assert len(gateway.calls) == 2
-    assert "world/state.md: Current State" in gateway.calls[1].messages[0].content
+    assert "world/state.md: Current State" in gateway.calls[1].messages[2].content
 
 
 def test_consolidator_fails_after_bounded_retries() -> None:
@@ -206,6 +214,6 @@ def test_consolidator_does_not_expose_existing_page_source_ids() -> None:
         )
     )
 
-    prompt = gateway.calls[0].messages[0].content
+    prompt = gateway.calls[0].messages[2].content
     assert "event:old" not in prompt
     assert "source:0" in prompt

@@ -332,7 +332,7 @@ def test_immediate_cancel_discards_in_flight_step_without_failure_event(
         assert not any(event["type"] == "simulation.failed" for event in events)
 
 
-def test_app_shutdown_checkpoints_latest_paused_step_before_releasing_runtime(
+def test_each_successful_step_is_checkpointed_and_shutdown_does_not_duplicate_it(
     tmp_path: Path,
 ) -> None:
     client, app = _client(tmp_path)
@@ -355,11 +355,11 @@ def test_app_shutdown_checkpoints_latest_paused_step_before_releasing_runtime(
             f"/projects/fog-harbor/simulations/{started['session_id']}/step",
             headers=AUTH,
         ).json()
-        assert stepped["checkpoint_id"] == started["checkpoint_id"]
+        assert stepped["checkpoint_id"] != started["checkpoint_id"]
 
     branch = BranchStore(tmp_path / "fog-harbor").load("main")
     assert branch.head_checkpoint_id is not None
-    assert branch.head_checkpoint_id != started["checkpoint_id"]
+    assert branch.head_checkpoint_id == stepped["checkpoint_id"]
     restored = CheckpointStore(tmp_path / "fog-harbor").load(branch.head_checkpoint_id)
     assert restored.current_step == 1
     assert restored.status == TurnSessionStatus.PAUSED
@@ -498,7 +498,7 @@ def test_simulation_api_switches_locale_at_step_boundary(tmp_path: Path) -> None
     assert switched.json()["checkpoint_id"] != started["checkpoint_id"]
 
 
-def test_checkpoint_interval_logs_every_step_but_advances_head_only_when_due(
+def test_successful_turns_ignore_checkpoint_interval_for_exact_lineage(
     tmp_path: Path,
 ) -> None:
     client, _ = _client(tmp_path)
@@ -535,11 +535,11 @@ def test_checkpoint_interval_logs_every_step_but_advances_head_only_when_due(
         headers=AUTH,
     ).json()
 
-    assert first["checkpoint_id"] == started["checkpoint_id"]
-    assert head_after_first["head_checkpoint_id"] == started["checkpoint_id"]
-    assert trace[0]["checkpoint_id"] is None
+    assert first["checkpoint_id"] != started["checkpoint_id"]
+    assert head_after_first["head_checkpoint_id"] == first["checkpoint_id"]
+    assert trace[0]["checkpoint_id"] == first["checkpoint_id"]
     assert trace[1]["checkpoint_id"] == second["checkpoint_id"]
-    assert second["checkpoint_id"] != started["checkpoint_id"]
+    assert second["checkpoint_id"] != first["checkpoint_id"]
 
 
 def test_simulation_api_rejects_cross_project_or_unknown_session(

@@ -5,13 +5,14 @@ from threading import Event
 from typing import Any
 
 import pytest
+from profile_factory import agent_profile as _profile
 
 from story_engine.concordia_runtime.language_model import (
     JanConcordiaLanguageModel,
     ModelCallCancelledError,
 )
 from story_engine.domain.trace import ModelCallStatus
-from story_engine.models.contracts import ModelProfile, ModelStreamChunk
+from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.errors import ResponseLimitError
 from story_engine.models.gateway import ModelGateway
 from story_engine.models.registry import ProfileRegistry
@@ -60,7 +61,7 @@ def _gateway(tmp_path: Path, *responses: str) -> tuple[ModelGateway, QueueTransp
     transport = QueueTransport(tuple(responses))
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -139,7 +140,7 @@ def test_runtime_language_model_uses_profile_budget_and_reasoning_effort(
 ) -> None:
     gateway, transport = _gateway(tmp_path, "A concise answer.")
     gateway.registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -165,7 +166,7 @@ def test_choice_budget_comes_from_profile_instead_of_hardcoded_256(
 ) -> None:
     gateway, transport = _gateway(tmp_path, json.dumps({"choice": "b"}))
     gateway.registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -181,7 +182,7 @@ def test_choice_budget_comes_from_profile_instead_of_hardcoded_256(
 
     model.sample_choice("Choose.", ("a", "b"))
 
-    assert transport.calls[0]["max_tokens"] == 1024
+    assert transport.calls[0]["max_tokens"] == 2048
 
 
 def test_schema_model_starts_with_short_json_budget_and_response_format(
@@ -189,7 +190,7 @@ def test_schema_model_starts_with_short_json_budget_and_response_format(
 ) -> None:
     gateway, transport = _gateway(tmp_path, '{"decision":"accept"}')
     gateway.registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -212,7 +213,7 @@ def test_schema_model_starts_with_short_json_budget_and_response_format(
 
     model.sample_text("Decide.", terminators=())
 
-    assert transport.calls[0]["max_tokens"] == 2048
+    assert transport.calls[0]["max_tokens"] == 4096
     assert transport.calls[0]["response_format"] == {
         "type": "json_schema",
         "json_schema": {
@@ -257,7 +258,7 @@ def test_runtime_language_model_accepts_a_call_specific_json_schema(
 def test_free_text_starts_at_profile_ceiling(tmp_path: Path) -> None:
     gateway, transport = _gateway(tmp_path, "A concise answer.")
     gateway.registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -285,7 +286,7 @@ def test_profile_resolver_and_effective_settings_are_read_per_call(
         "second answer",
     )
     gateway.registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/writer",
@@ -293,38 +294,40 @@ def test_profile_resolver_and_effective_settings_are_read_per_call(
             reasoning_effort="high",
         )
     )
-    gateway.registry.upsert_profile(
-        ModelProfile(
-            id="writer-alt",
-            task_type="writer",
-            model_ref="test-provider/writer-alt",
-            max_output_tokens=2048,
-            reasoning_effort="none",
-        )
-    )
-    selected = {"id": "writer"}
     traces = []
     model = JanConcordiaLanguageModel(
         gateway,
         task_type="writer",
         content_locale="en-US",
-        profile_resolver=lambda: selected["id"],
+        profile_resolver=lambda: "writer",
         trace_sink=traces.append,
     )
 
     model.sample_text("First.", terminators=())
-    selected["id"] = "writer-alt"
+    gateway.registry.upsert_profile(
+        _profile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/writer-alt",
+            max_output_tokens=2048,
+            reasoning_effort="none",
+            default_system_prompt="Use the newly saved Writer behavior.",
+        )
+    )
     model.sample_text("Second.", terminators=())
 
     assert transport.calls[0]["max_tokens"] == 4096
     assert transport.calls[1]["max_tokens"] == 2048
     assert transport.calls[1]["reasoning_effort"] == "none"
+    assert transport.calls[1]["messages"][0]["content"] == (
+        "Use the newly saved Writer behavior."
+    )
     assert traces[0].profile_id == "writer"
     assert traces[0].model_ref == "test-provider/writer"
     assert traces[0].max_tokens == 4096
     assert traces[0].reasoning_effort == "high"
     assert traces[0].timeout_seconds == 60
-    assert traces[1].profile_id == "writer-alt"
+    assert traces[1].profile_id == "writer"
     assert traces[1].max_tokens == 2048
     assert traces[1].reasoning_effort == "none"
 
@@ -425,7 +428,7 @@ def test_failed_choice_records_usage_in_trace(tmp_path: Path) -> None:
     transport = TruncatingTransport(("ignored",))
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -448,16 +451,16 @@ def test_failed_choice_records_usage_in_trace(tmp_path: Path) -> None:
     assert traces[0].prompt_tokens == 10
     assert traces[0].completion_tokens == 4
     assert traces[0].finish_reason == "length"
-    assert traces[0].retry_count == 1
+    assert traces[0].retry_count == 0
 
 
-def test_successful_retry_records_reasoning_and_retry_count(
+def test_profile_ceiling_stops_truncation_without_hidden_budget_override(
     tmp_path: Path,
 ) -> None:
     transport = ExpandingTransport()
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",
@@ -473,23 +476,23 @@ def test_successful_retry_records_reasoning_and_retry_count(
         trace_sink=traces.append,
     )
 
-    assert model.sample_choice("Choose.", ("a", "b"))[:2] == (1, "b")
+    with pytest.raises(ResponseLimitError):
+        model.sample_choice("Choose.", ("a", "b"))
 
-    assert len(transport.calls) == 2
+    assert len(transport.calls) == 1
     assert len(traces) == 1
     trace = traces[0]
-    assert trace.status == ModelCallStatus.SUCCEEDED
-    assert trace.finish_reason == "stop"
-    assert trace.retry_count == 1
-    assert trace.max_tokens == 2048
-    assert trace.reasoning_tokens is None
+    assert trace.status == ModelCallStatus.FAILED
+    assert trace.finish_reason == "length"
+    assert trace.retry_count == 0
+    assert trace.max_tokens == 4096
 
 
 def test_trace_records_provider_reasoning_tokens(tmp_path: Path) -> None:
     transport = ReasoningTransport()
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
-        ModelProfile(
+        _profile(
             id="writer",
             task_type="writer",
             model_ref="test-provider/test-writer",

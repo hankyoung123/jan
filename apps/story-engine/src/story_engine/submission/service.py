@@ -241,8 +241,13 @@ class SubmissionDiscussionService:
                 summary="初始设定仍需补充。",
             ),
         )
-        system_prompt = (
-            "You are the Story Engine submission Editor. Discuss only creative "
+        protocol = (
+            "Immutable protocol: do not create an outline or future plot; keep the "
+            "draft id unchanged; enforce the supplied JSON schema and strict fact "
+            "knowledge boundaries."
+        )
+        task_context = (
+            "Discuss only creative "
             "direction, world rules, two to four initial active characters, and "
             "the concrete initial situation. Do not create an outline or future "
             "plot. Update the supplied SubmissionDraft, keep its id unchanged, "
@@ -261,21 +266,28 @@ class SubmissionDiscussionService:
             "Current draft: "
             f"{json.dumps(request.draft.model_dump(mode='json'), ensure_ascii=False)}"
         )
+        profile = self.model_gateway.registry.get_profile("submission_editor")
         response = await self.model_gateway.complete(
             ModelRequest(
-                profile_id="editor",
-                task_type="editor",
+                profile_id="submission_editor",
+                task_type="submission_editor",
                 messages=(
-                    Message(role="system", content=system_prompt),
+                    Message(role="system", content=protocol),
+                    Message(role="system", content=profile.default_system_prompt),
+                    Message(role="system", content=task_context),
                     *request.messages,
                 ),
                 output_schema=json.dumps(
                     SubmissionModelOutput.model_json_schema(),
                     ensure_ascii=False,
                 ),
-                max_output_tokens=8192,
-                timeout_seconds=120,
-                temperature=0.2,
+                max_output_tokens=profile.max_output_tokens,
+                output_token_limit=(
+                    "provider" if profile.max_output_tokens is None else "profile"
+                ),
+                timeout_seconds=profile.timeout_seconds,
+                temperature=profile.temperature,
+                reasoning_effort=profile.reasoning_effort,
             )
         )
         output = SubmissionModelOutput.model_validate(response.parsed_output)

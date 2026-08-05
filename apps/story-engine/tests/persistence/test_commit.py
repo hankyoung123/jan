@@ -5,6 +5,12 @@ import pytest
 
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
+from story_engine.domain.projection import (
+    EventVisibility,
+    ResolvedEvent,
+    ResolvedTurn,
+    SimulationBoundary,
+)
 from story_engine.domain.simulation import (
     ControlMode,
     ControlPolicy,
@@ -25,6 +31,7 @@ def _snapshot(
     step: int,
     branch_id: str = "main",
     status: TurnSessionStatus = TurnSessionStatus.PAUSED,
+    marker: str | None = None,
 ) -> TurnSessionSnapshot:
     now = datetime.now(UTC)
     provisional = TurnSessionSnapshot(
@@ -42,7 +49,7 @@ def _snapshot(
             control=ControlPolicy(mode=ControlMode.STEP),
         ),
         current_step=step,
-        actor_states={"actor-a": {"step": step}},
+        actor_states={"actor-a": {"step": step, "marker": marker}},
         game_master_states={"gm": {"step": step}},
         memory_snapshots={},
         raw_log_offset=step,
@@ -66,6 +73,32 @@ def _result(step: int) -> StepResult:
         resolved_turn=None,
         status=TurnSessionStatus.PAUSED,
     )
+
+
+def _resolved_result(step: int, event_text: str) -> StepResult:
+    now = datetime.now(UTC)
+    event = ResolvedEvent(
+        event_id=f"event:{event_text.replace(' ', '-')}",
+        session_id="session:1",
+        step=step,
+        actor_id="actor-a",
+        event_text=event_text,
+        visibility=EventVisibility.PUBLIC,
+        participant_ids=("actor-a",),
+        content_locale="en-US",
+        occurred_at=now,
+    )
+    turn = ResolvedTurn(
+        session_id="session:1",
+        branch_id="main",
+        step=step,
+        acting_actor_id="actor-a",
+        raw_resolution_text=event_text,
+        events=(event,),
+        boundary=SimulationBoundary.NONE,
+        content_locale="en-US",
+    )
+    return _result(step).model_copy(update={"resolved_turn": turn})
 
 
 def _snapshot_with_observation(
@@ -129,13 +162,15 @@ def _trace(
 
 def test_checkpoint_round_trip_verifies_state_hash(tmp_path: Path) -> None:
     store = CheckpointStore(tmp_path)
-    checkpoint_id, path = store.save(_snapshot(step=2))
+    original = _snapshot(step=2)
+    checkpoint_id, path = store.save(original)
 
     loaded = store.load(checkpoint_id)
 
     assert loaded.current_step == 2
     assert loaded.checkpoint_id == checkpoint_id
-    assert loaded.state_hash == checkpoint_id.removeprefix("checkpoint-")
+    assert loaded.state_hash == original.state_hash
+    assert store.parent_id(checkpoint_id) is None
 
     payload = load_json_envelope(path, schema="story-engine/checkpoint/v1")
     assert payload["snapshot"]["current_step"] == 2
@@ -187,7 +222,10 @@ def test_failed_nth_file_write_rolls_back_the_complete_step(
 
     monkeypatch.setattr(transaction, "_replace", fail_third_write)
     next_snapshot = _snapshot(step=1)
-    next_checkpoint_id = f"checkpoint-{next_snapshot.state_hash}"
+    next_checkpoint_id = kernel.checkpoints.prepare(
+        next_snapshot,
+        parent_checkpoint_id=initial.checkpoint_id,
+    )[0]
     with pytest.raises(OSError, match="transaction failure"):
         kernel.append_step(_result(0), next_snapshot, _trace(0))
 
@@ -310,20 +348,9 @@ def test_successful_retry_replaces_legacy_observation_from_failed_attempt(
     assert [item.text for item in kernel.logs.read_observations("main")] == [
         "committed retry observation"
     ]
-    with pytest.raises(ValueError, match="already committed"):
-        kernel.append_step(
-            _result(0),
-            _snapshot_with_observation(
-                current_step=1,
-                observation_step=0,
-                text="must not replace committed history",
-                status=TurnSessionStatus.PAUSED,
-            ),
-            _trace(0, attempt=2),
-        )
-    assert [item.text for item in kernel.logs.read_observations("main")] == [
-        "committed retry observation"
-    ]
+    assert committed.checkpoint_id in kernel.checkpoints.lineage(
+        committed.checkpoint_id
+    )
 
 
 def test_branch_fork_and_rollback_keep_independent_heads(tmp_path: Path) -> None:
@@ -349,3 +376,35 @@ def test_branch_fork_and_rollback_keep_independent_heads(tmp_path: Path) -> None
     assert rolled_back.head_checkpoint_id == first.checkpoint_id
     assert kernel.branches.load("branch-b").head_checkpoint_id == first.checkpoint_id
     assert second.checkpoint_id != first.checkpoint_id
+
+
+def test_reachable_history_excludes_abandoned_turn_after_rollback(
+    tmp_path: Path,
+) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    abandoned = kernel.append_step(
+        _resolved_result(0, "abandoned event"),
+        _snapshot(step=1, marker="abandoned"),
+        _trace(0),
+    )
+    kernel.rollback_branch(
+        "fog-harbor",
+        "main",
+        checkpoint_id=initial.checkpoint_id,
+    )
+    replacement = kernel.append_step(
+        _resolved_result(0, "replacement event"),
+        _snapshot(step=1, marker="replacement"),
+        _trace(0, attempt=1),
+    )
+
+    assert abandoned is not None
+    assert replacement is not None
+    records = kernel.logs.reachable(kernel.checkpoints, replacement.checkpoint_id)
+    assert [record.result.resolved_turn.events[0].event_text for record in records] == [
+        "replacement event"
+    ]
+    assert abandoned.checkpoint_id not in kernel.checkpoints.lineage(
+        replacement.checkpoint_id
+    )
