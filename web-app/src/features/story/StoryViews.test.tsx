@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   engineRequest: vi.fn(),
   subscribeProjectEvents: vi.fn(),
+  eventListener: undefined as ((event: any) => void) | undefined,
+  prompt: '',
 }))
 
 vi.stubGlobal(
@@ -37,12 +39,56 @@ vi.mock('@/containers/MessageItem', () => ({
     message: { parts: Array<{ type: string; text?: string }> }
   }) => (
     <div data-testid="jan-message-item">
-      {message.parts
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text)
-        .join('')}
+      {message.parts.map((part, index) =>
+        part.text ? (
+          <span data-part-type={part.type} key={index}>
+            {part.text}
+          </span>
+        ) : null
+      )}
     </div>
   ),
+}))
+
+vi.mock('@/containers/ChatInput', () => ({
+  default: ({
+    disabled,
+    onSubmit,
+    placeholder,
+  }: {
+    disabled?: boolean
+    onSubmit?: (text: string) => void
+    placeholder?: string
+  }) => {
+    const [value, setValue] = useState(h.prompt)
+    return (
+      <div>
+        <textarea
+          aria-label="投稿消息"
+          data-testid="chat-input"
+          disabled={disabled}
+          onChange={(event) => {
+            h.prompt = event.target.value
+            setValue(event.target.value)
+          }}
+          placeholder={placeholder}
+          value={value}
+        />
+        <button
+          aria-label="发送消息"
+          disabled={disabled || !value.trim()}
+          onClick={() => {
+            onSubmit?.(value)
+            h.prompt = ''
+            setValue('')
+          }}
+          type="button"
+        >
+          发送
+        </button>
+      </div>
+    )
+  },
 }))
 
 import {
@@ -145,6 +191,28 @@ const projectSnapshot = {
       supersedes_fact_id: null,
     },
   ],
+}
+
+function submissionMessage(text: string, id = 'call:submission-editor') {
+  return {
+    id,
+    role: 'assistant',
+    parts: [{ type: 'text', text }],
+    metadata: {
+      callId: id,
+      agentType: 'submission_editor',
+      agentName: 'Story Editor',
+      taskLabel: '投稿讨论',
+      promptTokens: 10,
+      completionTokens: 20,
+      outputStatus: 'completed',
+      createdAt: '2026-08-06T00:00:00Z',
+      versionGroupId: id,
+      versionIndex: 1,
+      active: true,
+      stopped: false,
+    },
+  }
 }
 
 const workspaceState = {
@@ -259,6 +327,9 @@ describe('Story submission', () => {
     h.subscribeProjectEvents.mockResolvedValue(() => undefined)
     clearActiveStoryProject()
     resetSubmissionSession()
+    localStorage.clear()
+    h.eventListener = undefined
+    h.prompt = ''
   })
 
   it('keeps unsent submission text across route unmounts', () => {
@@ -291,7 +362,7 @@ describe('Story submission', () => {
 
     await act(async () => {
       resolveRequest?.({
-        reply: '海港世界已经记录，可以继续补充角色。',
+        message: submissionMessage('海港世界已经记录，可以继续补充角色。'),
         draft: {
           id: 'story-pending',
           title: '暴雨港',
@@ -325,7 +396,111 @@ describe('Story submission', () => {
     expect(screen.getByText('初始角色 (2-4 个)')).toBeInTheDocument()
   })
 
-  it('restores the composer when submission discussion fails', async () => {
+  it('renders unified submission reasoning events before the final reply', async () => {
+    let resolveRequest: ((value: unknown) => void) | undefined
+    h.subscribeProjectEvents.mockImplementation(
+      async (_projectId: string, listener: (event: any) => void) => {
+        h.eventListener = listener
+        return () => undefined
+      }
+    )
+    h.engineRequest.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRequest = resolve
+      })
+    )
+    render(<SubmissionView />)
+    fireEvent.change(screen.getByRole('textbox', { name: '投稿消息' }), {
+      target: { value: '建立一座雾中的港口。' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
+    await waitFor(() => expect(h.eventListener).toBeDefined())
+
+    const eventBase = {
+      event_id: '01J00000000000000000000000',
+      project_id: expect.any(String),
+      subject_id: 'call:submission-live',
+      timestamp: '2026-08-06T00:00:00Z',
+      payload: {
+        message_id: 'call:submission-live',
+        role: 'assistant',
+        metadata: {
+          call_id: 'call:submission-live',
+          agent_type: 'submission_editor',
+          agent_name: 'Story Editor',
+          task_label: '投稿讨论',
+          session_id: null,
+          branch_id: null,
+          step: null,
+          stage: 'submission',
+          model: 'deepseek/deepseek-reasoner',
+          duration_ms: 0,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+        },
+      },
+    }
+    await act(async () => {
+      h.eventListener?.({
+        ...eventBase,
+        project_id: 'story-live',
+        sequence: 1,
+        type: 'model.message.started',
+        payload: { ...eventBase.payload, reset: true },
+      })
+      h.eventListener?.({
+        ...eventBase,
+        project_id: 'story-live',
+        sequence: 2,
+        type: 'model.message.delta',
+        payload: {
+          ...eventBase.payload,
+          part: { type: 'reasoning', text_delta: '正在核对角色知识边界。' },
+        },
+      })
+    })
+
+    expect(screen.getByText('正在核对角色知识边界。')).toBeInTheDocument()
+
+    await act(async () => {
+      resolveRequest?.({
+        message: {
+          ...submissionMessage('港口设定已更新。', 'call:submission-live'),
+          parts: [
+            { type: 'reasoning', text: '正在核对角色知识边界。' },
+            { type: 'text', text: '港口设定已更新。' },
+          ],
+        },
+        draft: {
+          id: 'story-live',
+          title: '雾港',
+          genre: '悬疑',
+          theme: '信任',
+          tone: '克制',
+          world_rules: [],
+          facts: [],
+          characters: [],
+          initial_time: '',
+          initial_location: '',
+          initial_incident: '',
+          pressures: [],
+        },
+        review: {
+          mode: 'submission_review',
+          passed: false,
+          summary: '仍需补充角色。',
+          issues: [],
+        },
+        runnable: false,
+        missing_requirements: ['初始角色 (2-4 个)'],
+      })
+    })
+
+    expect(await screen.findByText('港口设定已更新。')).toBeInTheDocument()
+    expect(screen.getByText('正在核对角色知识边界。')).toBeInTheDocument()
+  })
+
+  it('keeps a failed submission turn in the unified message timeline', async () => {
     h.engineRequest.mockRejectedValue(
       new Error('provider returned HTTP 400: Invalid Format')
     )
@@ -336,11 +511,11 @@ describe('Story submission', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid Format')
-    expect(screen.getByRole('textbox', { name: '投稿消息' })).toHaveValue(
-      '这段内容在失败后仍应可编辑。'
+    await waitFor(() =>
+      expect(screen.getAllByTestId('jan-message-item')).toHaveLength(3)
     )
-    expect(screen.getAllByTestId('jan-message-item')).toHaveLength(1)
+    expect(screen.getByText('这段内容在失败后仍应可编辑。')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '投稿消息' })).toHaveValue('')
   })
 
   it('discusses a setting package before creating and selecting the project', async () => {
@@ -374,7 +549,9 @@ describe('Story submission', () => {
         const request = JSON.parse(String(init?.body))
         draftId = request.draft.id
         return Promise.resolve({
-          reply: '初始世界已经具备运行条件，可以继续调整或创建项目。',
+          message: submissionMessage(
+            '初始世界已经具备运行条件，可以继续调整或创建项目。'
+          ),
           draft: { ...completedDraft, id: draftId },
           review: {
             mode: 'submission_review',
@@ -427,10 +604,15 @@ describe('Story submission', () => {
     )
     expect(JSON.parse(String(discussionCall[1].body)).messages).toEqual([
       expect.objectContaining({ role: 'assistant' }),
-      {
+      expect.objectContaining({
         role: 'user',
-        content: '我想写一篇极夜观测站里的科幻故事。',
-      },
+        parts: [
+          {
+            type: 'text',
+            text: '我想写一篇极夜观测站里的科幻故事。',
+          },
+        ],
+      }),
     ])
 
     fireEvent.click(screen.getByRole('button', { name: '创建项目' }))
@@ -453,7 +635,7 @@ describe('Story submission', () => {
     h.engineRequest.mockImplementation((_path: string, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body))
       return Promise.resolve({
-        reply: '先确定故事发生的时间、地点和起始事件。',
+        message: submissionMessage('先确定故事发生的时间、地点和起始事件。'),
         draft: {
           ...request.draft,
           title: '无名站',

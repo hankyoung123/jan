@@ -96,10 +96,19 @@ type ChatInputProps = {
   projectId?: string
   onSubmit?: (
     text: string,
-    files?: Array<{ type: string; mediaType: string; url: string }>
+    files?: Array<{
+      type: string
+      mediaType: string
+      url: string
+      filename?: string
+    }>
   ) => void
   onStop?: () => void
   chatStatus?: ChatStatus
+  mode?: 'chat' | 'story'
+  disabled?: boolean
+  placeholder?: string
+  attachmentKey?: string
 }
 
 // Video containers llama-server can decode via ffmpeg/ffprobe into frames.
@@ -127,7 +136,12 @@ const ChatInput = memo(function ChatInput({
   onSubmit,
   onStop,
   chatStatus,
+  mode = 'chat',
+  disabled = false,
+  placeholder,
+  attachmentKey,
 }: ChatInputProps) {
+  const storyMode = mode === 'story'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isFocused, setIsFocused] = useState(false)
   const [rows, setRows] = useState(1)
@@ -198,7 +212,7 @@ const ChatInput = memo(function ChatInput({
   >(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [supportsVision, setSupportsVision] = useState(false)
-  const tokenCounterVisible = shouldShowTokenCounter({
+  const tokenCounterVisible = !storyMode && shouldShowTokenCounter({
     hasSelectedModel: !!selectedModel,
     isAgentMode: effectiveAgentMode,
     isInitialMessage: !!initialMessage,
@@ -242,7 +256,8 @@ const ChatInput = memo(function ChatInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [janBrowserMCPActive, modelSupportsBrowser])
 
-  const attachmentsKey = currentThreadId ?? NEW_THREAD_ATTACHMENT_KEY
+  const attachmentsKey =
+    attachmentKey ?? currentThreadId ?? NEW_THREAD_ATTACHMENT_KEY
   const attachments = useChatAttachments(
     useCallback(
       (state) => state.getAttachments(attachmentsKey),
@@ -300,6 +315,10 @@ const ChatInput = memo(function ChatInput({
   // Keep media controls aligned with the selected cloud model capabilities.
   useEffect(() => {
     const checkVisionSupport = async () => {
+      if (storyMode) {
+        setSupportsVision(true)
+        return
+      }
       if (selectedModel && selectedModel?.id) {
         try {
           if (selectedModel?.capabilities?.includes('vision')) {
@@ -315,7 +334,13 @@ const ChatInput = memo(function ChatInput({
     }
 
     checkVisionSupport()
-  }, [selectedModel, selectedModel?.capabilities, selectedProvider, serviceHub])
+  }, [
+    selectedModel,
+    selectedModel?.capabilities,
+    selectedProvider,
+    serviceHub,
+    storyMode,
+  ])
 
   // Check if there are active MCP servers
   const hasActiveMCPServers =
@@ -327,7 +352,8 @@ const ChatInput = memo(function ChatInput({
   const MCPToolComponent = mcpExtension?.getToolComponent?.()
 
   const handleSendMessage = async (prompt: string) => {
-    if (!selectedModel) {
+    if (disabled) return
+    if (!storyMode && !selectedModel) {
       setMessage('Please select a model to start chatting.')
       return
     }
@@ -361,6 +387,7 @@ const ChatInput = memo(function ChatInput({
           type: 'file',
           mediaType: att.mimeType ?? 'image/jpeg',
           url: att.dataUrl!,
+          filename: att.name,
         }))
       const audioFiles = attachments
         .filter((att) => att.type === 'audio' && att.dataUrl)
@@ -550,9 +577,11 @@ const ChatInput = memo(function ChatInput({
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const audioInputRef = useRef<HTMLInputElement>(null)
-  const audioSupported = !!selectedModel?.capabilities?.includes('audio')
+  const audioSupported =
+    !storyMode && !!selectedModel?.capabilities?.includes('audio')
   const videoInputRef = useRef<HTMLInputElement>(null)
-  const videoSupported = !!selectedModel?.capabilities?.includes('video')
+  const videoSupported =
+    !storyMode && !!selectedModel?.capabilities?.includes('video')
 
   const handleRemoveAttachment = async (indexToRemove: number) => {
     setAttachmentsForThread(attachmentsKey, (prev) =>
@@ -1530,6 +1559,7 @@ const ChatInput = memo(function ChatInput({
               rows={1}
               maxRows={10}
               value={prompt}
+              disabled={disabled}
               data-testid={'chat-input'}
               onChange={(e) => {
                 setPrompt(e.target.value)
@@ -1545,7 +1575,11 @@ const ChatInput = memo(function ChatInput({
                   e.preventDefault()
                   // Submit prompt when Enter is pressed without Shift and prompt is not empty.
                   // If streaming, handleSendMessage will queue the message automatically.
-                  if ((prompt.trim() || hasSendableMedia) && !ingestingAny) {
+                  if (
+                    !disabled &&
+                    (prompt.trim() || hasSendableMedia) &&
+                    !ingestingAny
+                  ) {
                     handleSendMessage(prompt)
                   }
                   // When Shift+Enter is pressed, a new line is added (default behavior)
@@ -1573,7 +1607,7 @@ const ChatInput = memo(function ChatInput({
                 }
               }}
               onPaste={handlePaste}
-              placeholder={t('common:placeholder.chatInput')}
+              placeholder={placeholder ?? t('common:placeholder.chatInput')}
               autoFocus
               spellCheck={spellCheckChatInput}
               data-gramm={spellCheckChatInput}
@@ -1650,25 +1684,29 @@ const ChatInput = memo(function ChatInput({
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
-                <AssistantSwitcher
-                  assistants={assistants}
-                  currentThread={currentThread}
-                  selectedAssistantId={selectedAssistantId}
-                  setSelectedAssistantId={setSelectedAssistantId}
-                  updateCurrentThreadAssistant={updateCurrentThreadAssistant}
-                />
-                <SamplerPopover
-                  providerId={selectedProvider}
-                  modelId={selectedModel?.id}
-                  assistantSwitcher={{
-                    assistants,
-                    currentThread,
-                    selectedAssistantId,
-                    setSelectedAssistantId,
-                    updateCurrentThreadAssistant,
-                  }}
-                />
-                {!effectiveAgentMode && hasJanBrowserMCPConfig && modelSupportsBrowser && (
+                {!storyMode && (
+                  <>
+                    <AssistantSwitcher
+                      assistants={assistants}
+                      currentThread={currentThread}
+                      selectedAssistantId={selectedAssistantId}
+                      setSelectedAssistantId={setSelectedAssistantId}
+                      updateCurrentThreadAssistant={updateCurrentThreadAssistant}
+                    />
+                    <SamplerPopover
+                      providerId={selectedProvider}
+                      modelId={selectedModel?.id}
+                      assistantSwitcher={{
+                        assistants,
+                        currentThread,
+                        selectedAssistantId,
+                        setSelectedAssistantId,
+                        updateCurrentThreadAssistant,
+                      }}
+                    />
+                  </>
+                )}
+                {!storyMode && !effectiveAgentMode && hasJanBrowserMCPConfig && modelSupportsBrowser && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -1710,7 +1748,7 @@ const ChatInput = memo(function ChatInput({
                   </Tooltip>
                 )}
 
-                {!effectiveAgentMode && selectedModel?.capabilities?.includes('tools') &&
+                {!storyMode && !effectiveAgentMode && selectedModel?.capabilities?.includes('tools') &&
                   hasActiveMCPServers &&
                   (MCPToolComponent ? (
                     // Use custom MCP component
@@ -1804,7 +1842,7 @@ const ChatInput = memo(function ChatInput({
                   </Tooltip>
                 )}
 
-                {!effectiveAgentMode && selectedModel?.capabilities?.includes('tools') && (
+                {!storyMode && !effectiveAgentMode && selectedModel?.capabilities?.includes('tools') && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -1832,7 +1870,7 @@ const ChatInput = memo(function ChatInput({
                   </Tooltip>
                 )}
 
-                {!effectiveAgentMode &&
+                {!storyMode && !effectiveAgentMode &&
                   (selectedProvider === 'google' ||
                     selectedProvider === 'gemini' ||
                     selectedProvider === 'anthropic' ||
@@ -2076,7 +2114,7 @@ const ChatInput = memo(function ChatInput({
                 </div>
               )}
 
-              {isStreaming ? (
+              {isStreaming && !storyMode ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -2104,7 +2142,12 @@ const ChatInput = memo(function ChatInput({
                 <Button
                   variant="default"
                   size="icon-sm"
-                  disabled={(!prompt.trim() && !hasSendableMedia) || ingestingAny}
+                  disabled={
+                    disabled ||
+                    isStreaming ||
+                    (!prompt.trim() && !hasSendableMedia) ||
+                    ingestingAny
+                  }
                   data-test-id="send-message-button"
                   onClick={() => handleSendMessage(prompt)}
                   className="rounded-full mr-1 mb-1"
@@ -2141,12 +2184,14 @@ const ChatInput = memo(function ChatInput({
         </div>
       )}
 
-      <JanBrowserExtensionDialog
-        open={extensionDialogOpen}
-        onOpenChange={setExtensionDialogOpen}
-        state={extensionDialogState}
-        onCancel={handleExtensionDialogCancel}
-      />
+      {!storyMode && (
+        <JanBrowserExtensionDialog
+          open={extensionDialogOpen}
+          onOpenChange={setExtensionDialogOpen}
+          state={extensionDialogState}
+          onCancel={handleExtensionDialogCancel}
+        />
+      )}
     </div>
   )
 })

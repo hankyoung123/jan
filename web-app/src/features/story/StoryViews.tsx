@@ -20,12 +20,11 @@ import {
   useState,
 } from 'react'
 
-import {
-  JanChatComposer,
-  JanChatShell,
-} from '@/components/ai-elements/jan-chat-shell'
+import { JanChatShell } from '@/components/ai-elements/jan-chat-shell'
 import { Button } from '@/components/ui/button'
+import ChatInput from '@/containers/ChatInput'
 import { route } from '@/constants/routes'
+import { useMessageErrors } from '@/stores/message-errors'
 import {
   clearActiveStoryProject,
   setActiveStoryProjectId,
@@ -39,17 +38,28 @@ import {
   StoryViewToggle,
 } from './components/StoryLayout'
 import { engineRequest, subscribeProjectEvents } from './engine'
+import {
+  reduceModelMessages,
+  type StoryModelMessageMap,
+} from './modelMessages'
 import { useBranchContext } from './useBranchContext'
 import {
+  activeSubmissionMessages,
+  activeSubmissionId,
+  createSubmissionMessage,
+  forgetSubmission,
+  rememberSubmission,
   resetSubmissionSession,
   useSubmissionSession,
+  type SubmissionMessage,
 } from './submission/session'
 import { CharacterWikiView } from './character/CharacterWikiView'
 
 type SubmissionPackage = components['schemas']['SubmissionPackage']
 type SubmissionConversationResponse =
   components['schemas']['SubmissionConversationResponse']
-type SubmissionMessage = components['schemas']['Message']
+type SubmissionWorkspaceState =
+  components['schemas']['SubmissionWorkspaceState']
 type ProjectSnapshot = components['schemas']['ProjectSnapshot']
 type StoryCharacter = components['schemas']['Character']
 type ProjectCatalogEntry = components['schemas']['ProjectCatalogEntry']
@@ -433,7 +443,6 @@ export function SubmissionView() {
   const {
     draft,
     messages,
-    composer,
     missingRequirements,
     reviewSummary,
     runnable,
@@ -443,7 +452,6 @@ export function SubmissionView() {
     error,
     setDraft,
     setMessages,
-    setComposer,
     setMissingRequirements,
     setReviewSummary,
     setRunnable,
@@ -453,65 +461,285 @@ export function SubmissionView() {
     setError,
   } = useSubmissionSession()
   const mounted = useRef(true)
+  const requestController = useRef<AbortController | null>(null)
 
   useEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
-      if (useSubmissionSession.getState().project !== null) {
-        resetSubmissionSession()
-      }
+      requestController.current?.abort()
     }
   }, [])
-  const janMessages = useMemo<UIMessage[]>(
-    () =>
-      messages.map((message, index) => ({
-        id: `submission-message-${index}`,
-        role: message.role,
-        parts: [{ type: 'text', text: message.content }],
-      })),
+
+  useEffect(() => {
+    const submissionId = activeSubmissionId()
+    if (!submissionId) return
+    const current = useSubmissionSession.getState()
+    if (current.draft.id === submissionId && current.messages.length > 1) return
+    let disposed = false
+    setDiscussing(true)
+    void engineRequest<SubmissionWorkspaceState>(
+      `/projects/${submissionId}/submission`
+    )
+      .then((state) => {
+        if (disposed) return
+        setDraft(state.draft)
+        setMessages(state.messages as SubmissionMessage[])
+        setMissingRequirements(state.status.missing_requirements)
+        setReviewSummary(state.status.review.summary)
+        setRunnable(state.status.runnable)
+      })
+      .catch(() => {
+        if (!disposed) forgetSubmission()
+      })
+      .finally(() => {
+        if (!disposed) setDiscussing(false)
+      })
+    return () => {
+      disposed = true
+    }
+  }, [
+    setDiscussing,
+    setDraft,
+    setMessages,
+    setMissingRequirements,
+    setReviewSummary,
+    setRunnable,
+  ])
+  const setMessageError = useMessageErrors((state) => state.setError)
+  const clearMessageError = useMessageErrors((state) => state.clearError)
+  const visibleMessages = useMemo(
+    () => activeSubmissionMessages(messages),
     [messages]
   )
-  const chatStatus: ChatStatus = discussing
-    ? 'submitted'
-    : error
-      ? 'error'
-      : 'ready'
+  const chatStatus: ChatStatus =
+    visibleMessages.at(-1)?.metadata?.outputStatus === 'streaming'
+      ? 'streaming'
+      : discussing
+        ? 'submitted'
+        : error
+          ? 'error'
+          : 'ready'
 
-  async function discuss() {
-    const content = composer.trim()
-    if (!content || discussing || project) return
-    const nextMessages: SubmissionMessage[] = [
-      ...messages,
-      { role: 'user', content },
-    ]
+  async function requestDiscussion(
+    nextMessages: SubmissionMessage[],
+    responseGroupId?: string
+  ) {
+    if (discussing || project) return
     setDiscussing(true)
     setError(null)
     setMessages(nextMessages)
-    setComposer('')
+    let streamedMessages: StoryModelMessageMap = {}
+    let streamedMessage: SubmissionMessage | undefined
+    let unsubscribe: (() => void) | undefined
+    const controller = new AbortController()
+    requestController.current = controller
     try {
+      unsubscribe = await subscribeProjectEvents(draft.id, (event) => {
+        const reduced = reduceModelMessages(streamedMessages, event)
+        if (reduced === streamedMessages) return
+        streamedMessages = reduced
+        const live = Object.values(streamedMessages).find(
+          (message) => message.metadata?.stage === 'submission'
+        )
+        if (!live) return
+        const groupId = responseGroupId ?? live.id
+        const versionIndex =
+          1 +
+          nextMessages.filter(
+            (message) =>
+              message.role === 'assistant' &&
+              (message.metadata?.versionGroupId ?? message.id) === groupId
+          ).length
+        streamedMessage = {
+          ...live,
+          metadata: {
+            ...live.metadata!,
+            versionGroupId: groupId,
+            versionIndex,
+            active: true,
+            stopped: false,
+          },
+        }
+        setMessages([...nextMessages, streamedMessage])
+      })
       const response = await engineRequest<SubmissionConversationResponse>(
         `/projects/${draft.id}/submission/messages`,
         {
           method: 'POST',
-          body: JSON.stringify({ draft, messages: nextMessages }),
+          signal: controller.signal,
+          body: JSON.stringify({
+            draft,
+            messages: nextMessages,
+            response_group_id: responseGroupId,
+          }),
         }
       )
       setDraft(response.draft)
       setMessages([
         ...nextMessages,
-        { role: 'assistant', content: response.reply },
+        response.message as SubmissionMessage,
       ])
+      rememberSubmission(response.draft.id)
       setMissingRequirements(response.missing_requirements)
       setReviewSummary(response.review.summary)
       setRunnable(response.runnable)
     } catch (cause) {
-      setMessages(messages)
-      setComposer(content)
-      setError(cause instanceof Error ? cause.message : '投稿讨论失败')
+      const message = cause instanceof Error ? cause.message : '投稿讨论失败'
+      const failed = streamedMessage
+        ? {
+            ...streamedMessage,
+            metadata: {
+              ...streamedMessage.metadata!,
+              outputStatus: 'failed' as const,
+              error: message,
+              stopped: true,
+            },
+          }
+        : createSubmissionMessage('assistant', '', {
+            outputStatus: 'failed',
+            error: message,
+            stopped: true,
+            versionGroupId: responseGroupId,
+          })
+      setMessages([...nextMessages, failed])
+      setMessageError(failed.id, message)
+      setError(message)
     } finally {
+      unsubscribe?.()
+      if (requestController.current === controller) {
+        requestController.current = null
+      }
       setDiscussing(false)
     }
+  }
+
+  function persistMessages(
+    updated: SubmissionMessage[],
+    previous: SubmissionMessage[],
+    failureMessage: string
+  ) {
+    setMessages(updated)
+    void engineRequest(`/projects/${draft.id}/submission/messages`, {
+      method: 'PUT',
+      body: JSON.stringify({ messages: updated }),
+    }).catch((cause) => {
+      if (useSubmissionSession.getState().messages === updated) {
+        setMessages(previous)
+      }
+      setError(cause instanceof Error ? cause.message : failureMessage)
+    })
+  }
+
+  function discuss(
+    text: string,
+    files?: Array<{
+      type: string
+      mediaType: string
+      url: string
+      filename?: string
+    }>
+  ) {
+    const content = text.trim()
+    if ((!content && !files?.length) || discussing || project) return
+    void requestDiscussion([
+      ...messages,
+      createSubmissionMessage(
+        'user',
+        content,
+        undefined,
+        (files ?? []).map((file) => ({
+          type: 'file',
+          mediaType: file.mediaType,
+          url: file.url,
+          filename: file.filename,
+        }))
+      ),
+    ])
+  }
+
+  function editMessage(messageId: string, text: string) {
+    const updated: SubmissionMessage[] = messages.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              parts: [
+                { type: 'text' as const, text },
+                ...message.parts.filter((part) => part.type === 'file'),
+              ],
+            }
+          : message
+    )
+    persistMessages(updated, messages, '投稿消息保存失败')
+  }
+
+  function deleteMessage(messageId: string) {
+    clearMessageError(messageId)
+    const target = messages.find((message) => message.id === messageId)
+    const groupId = target?.metadata?.versionGroupId ?? target?.id
+    const updated = messages.filter(
+        (message) =>
+          message.id !== messageId &&
+          (target?.role !== 'assistant' ||
+            (message.metadata?.versionGroupId ?? message.id) !== groupId)
+    )
+    persistMessages(updated, messages, '投稿消息删除失败')
+  }
+
+  function regenerateMessage(messageId: string) {
+    if (discussing || project) return
+    const index = visibleMessages.findIndex((message) => message.id === messageId)
+    if (index < 1) return
+    const target = visibleMessages[index]
+    const groupId = target.metadata?.versionGroupId ?? target.id
+    const history = visibleMessages.slice(0, index)
+    if (history.at(-1)?.role !== 'user') return
+    clearMessageError(messageId)
+    const historyIds = new Set(history.map((message) => message.id))
+    const nextMessages = messages
+      .filter(
+        (message) =>
+          historyIds.has(message.id) ||
+          (message.role === 'assistant' &&
+            (message.metadata?.versionGroupId ?? message.id) === groupId)
+      )
+      .map((message) =>
+        message.role === 'assistant' &&
+        (message.metadata?.versionGroupId ?? message.id) === groupId
+          ? { ...message, metadata: { ...message.metadata!, active: false } }
+          : message
+      )
+    void requestDiscussion(nextMessages, groupId)
+  }
+
+  function switchMessageVersion(messageId: string, direction: -1 | 1) {
+    const current = messages.find((message) => message.id === messageId)
+    if (!current) return
+    const groupId = current.metadata?.versionGroupId ?? current.id
+    const versions = messages
+      .filter(
+        (message) =>
+          message.role === 'assistant' &&
+          (message.metadata?.versionGroupId ?? message.id) === groupId
+      )
+      .sort(
+        (left, right) =>
+          (left.metadata?.versionIndex ?? 1) -
+          (right.metadata?.versionIndex ?? 1)
+      )
+    const currentIndex = versions.findIndex((message) => message.id === messageId)
+    const next = versions[currentIndex + direction]
+    if (!next) return
+    const updated = messages.map((message) =>
+      message.role === 'assistant' &&
+      (message.metadata?.versionGroupId ?? message.id) === groupId
+        ? {
+            ...message,
+            metadata: { ...message.metadata!, active: message.id === next.id },
+          }
+        : message
+    )
+    persistMessages(updated, messages, '投稿版本保存失败')
   }
 
   async function finalize() {
@@ -527,6 +755,7 @@ export function SubmissionView() {
         }
       )
       setActiveStoryProjectId(createdProject.project.id)
+      forgetSubmission()
       if (mounted.current) {
         setProject(createdProject)
       } else {
@@ -559,28 +788,41 @@ export function SubmissionView() {
       <div className="grid overflow-hidden border bg-background lg:grid-cols-[minmax(0,1.18fr)_minmax(360px,.82fr)]">
         <JanChatShell
           composer={
-            <>
-              <JanChatComposer
-                ariaLabel="投稿消息"
-                busy={discussing}
-                disabled={discussing || project !== null}
-                footer="Enter 发送 · Shift+Enter 换行"
-                onSubmit={() => void discuss()}
-                onValueChange={setComposer}
-                placeholder="描述类型、主题、世界规则、人物或起始事件…"
-                value={composer}
-              />
-              {error && (
-                <p
-                  className="mx-2 mt-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                  role="alert"
-                >
-                  {error}
-                </p>
-              )}
-            </>
+            <ChatInput
+              attachmentKey={`story-submission:${draft.id}`}
+              chatStatus={chatStatus}
+              disabled={discussing || project !== null}
+              mode="story"
+              onStop={() => requestController.current?.abort()}
+              onSubmit={discuss}
+              placeholder="描述类型、主题、世界规则、人物或起始事件…"
+              projectId={draft.id}
+            />
           }
-          messages={janMessages}
+          getVersionInfo={(message) => {
+            if (message.role !== 'assistant') return undefined
+            const metadata = message.metadata as
+              | { versionGroupId?: string; versionIndex?: number }
+              | undefined
+            const groupId = metadata?.versionGroupId ?? message.id
+            const count = messages.filter(
+              (candidate) =>
+                candidate.role === 'assistant' &&
+                (candidate.metadata?.versionGroupId ?? candidate.id) === groupId
+            ).length
+            return count > 1
+              ? { index: metadata?.versionIndex ?? 1, count }
+              : undefined
+          }}
+          messageProps={{
+            preset: 'chat',
+            onDelete: deleteMessage,
+            onEdit: editMessage,
+            onContinue: regenerateMessage,
+            onRegenerate: regenerateMessage,
+            onSwitchVersion: switchMessageVersion,
+          }}
+          messages={visibleMessages as UIMessage[]}
           pendingLabel="正在整理设定包…"
           status={chatStatus}
           subtitle="从一个想法开始，不需要先写大纲"

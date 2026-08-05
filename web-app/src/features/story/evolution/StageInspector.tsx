@@ -1,7 +1,10 @@
 import { Braces, Clock3, Cpu, Database, Eye, TriangleAlert } from 'lucide-react'
+import type { UIMessage } from 'ai'
 
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/i18n'
+import type { StoryMessageMetadata } from '@/lib/message-capabilities'
+import { AgentMessageList } from '../components/AgentMessageList'
 import { MemoryRoutingView } from './MemoryRoutingView'
 import type { StageViewModel } from './simulationViewModel'
 
@@ -11,9 +14,11 @@ function stringValue(value: unknown): string | undefined {
 
 export function StageInspector({
   stage,
+  messages = [],
   onRetry,
 }: {
   stage?: StageViewModel
+  messages?: UIMessage<StoryMessageMetadata>[]
   onRetry?: () => void
 }) {
   const { t } = useTranslation('evolution')
@@ -29,7 +34,7 @@ export function StageInspector({
   const outputType = actionSpec ? stringValue(actionSpec.output_type) : undefined
   const options = actionSpec?.options
   const observations =
-    stage.stage === 'observation' && stage.summary_text
+    messages.length === 0 && stage.stage === 'observation' && stage.summary_text
       ? stage.summary_text.split('\n').filter(Boolean)
       : []
   return (
@@ -54,6 +59,11 @@ export function StageInspector({
             )}
           </div>
         )}
+        {messages.length > 0 && (
+          <section className="space-y-4" data-testid="stage-agent-messages">
+            <AgentMessageList messages={messages} preset="live-agent" />
+          </section>
+        )}
         {observations.length > 0 ? (
           <section>
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -73,7 +83,7 @@ export function StageInspector({
               })}
             </div>
           </section>
-        ) : stage.summary_text && (
+        ) : messages.length === 0 && stage.summary_text && (
           <section>
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               {t(

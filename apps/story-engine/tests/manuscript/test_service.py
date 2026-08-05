@@ -4,6 +4,7 @@ from pathlib import Path
 
 from profile_factory import agent_profile as _profile
 
+from story_engine.domain.message import ModelMessageContext
 from story_engine.domain.narrative import NarrativeSource, WriterContext
 from story_engine.domain.projection import (
     EventVisibility,
@@ -23,9 +24,16 @@ class RecordingGateway:
     def __init__(self, registry: ProfileRegistry) -> None:
         self.registry = registry
         self.requests: list[ModelRequest] = []
+        self.contexts: list[ModelMessageContext | None] = []
 
-    async def complete(self, request: ModelRequest) -> ModelResponse:
+    async def complete(
+        self,
+        request: ModelRequest,
+        *,
+        context: ModelMessageContext | None = None,
+    ) -> ModelResponse:
         self.requests.append(request)
+        self.contexts.append(context)
         return ModelResponse(
             profile_id=request.profile_id,
             model_ref="test-provider/test-writer",
@@ -107,3 +115,6 @@ def test_writer_uses_provider_length_and_five_minute_content_deadline(
         == 300
     )
     assert request.timeout_seconds == 90
+    assert gateway.contexts[0] is not None
+    assert gateway.contexts[0].project_id == "fog-harbor"
+    assert gateway.contexts[0].stage == "writer"

@@ -5,7 +5,9 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { Button } from '@/components/ui/button'
+import { AgentMessageList } from '../components/AgentMessageList'
 import { StatusPill } from '../components/StoryLayout'
+import { useProjectModelMessages } from '../useProjectModelMessages'
 import { useWiki } from '../world/useWiki'
 
 type StoryCharacter = components['schemas']['Character']
@@ -22,12 +24,22 @@ export function CharacterWikiView({
   projectId,
 }: CharacterWikiViewProps) {
   const wiki = useWiki(projectId, branchId)
+  const projectMessages = useProjectModelMessages(projectId)
   const loadWikiPage = wiki.loadPage
   const [selectedId, setSelectedId] = useState(characters[0]?.id ?? '')
   const pages = useMemo(
     () =>
       wiki.view?.pages.filter((page) => page.subject_id === selectedId) ?? [],
     [selectedId, wiki.view?.pages]
+  )
+  const wikiMessages = useMemo(
+    () =>
+      projectMessages.messages.filter(
+        (message) =>
+          message.metadata?.branchId === branchId &&
+          message.metadata?.stage === 'wiki'
+      ),
+    [branchId, projectMessages.messages]
   )
 
   useEffect(() => {
@@ -155,6 +167,14 @@ export function CharacterWikiView({
           <p className="mt-4 text-sm text-muted-foreground">
             角色仅能读取自己的私有 Wiki 与公共 World Wiki。
           </p>
+        )}
+        {wikiMessages.length > 0 && (
+          <section className="mt-6 border-t pt-5">
+            <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              Wiki Agent Activity
+            </p>
+            <AgentMessageList messages={wikiMessages} preset="live-agent" />
+          </section>
         )}
       </aside>
     </div>

@@ -3,7 +3,10 @@ export {
   isEngineEvent,
   type EngineEventEnvelope,
   type EngineEventType,
+  type MessagePartDelta,
+  type ModelMessageEventPayload,
   type SimulationStage,
   type SimulationStageEventPayload,
   type SimulationStageStatus,
+  type StoryMessageMetadata,
 } from "./events";

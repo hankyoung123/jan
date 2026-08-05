@@ -125,6 +125,9 @@ class WikiBoundaryProcessor:
                 }
             )
             world_patches = await self.consolidator.consolidate(
+                project_id=snapshot.project_id,
+                session_id=snapshot.session_id,
+                step=end_step,
                 branch_id=snapshot.branch_id,
                 subject_id=None,
                 pages=world_pages,
@@ -161,6 +164,9 @@ class WikiBoundaryProcessor:
                     }
                 )
                 patches = await self.consolidator.consolidate(
+                    project_id=snapshot.project_id,
+                    session_id=snapshot.session_id,
+                    step=end_step,
                     branch_id=snapshot.branch_id,
                     subject_id=subject_id,
                     pages=pages,

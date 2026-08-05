@@ -402,6 +402,12 @@ export function EvolutionView() {
                   <MemoryRoutingView stage={selectedStage} />
                 ) : (
                   <StageInspector
+                    messages={(selectedStage?.messageIds ?? []).flatMap(
+                      (messageId) => {
+                        const message = viewState.messages[messageId]
+                        return message ? [message] : []
+                      }
+                    )}
                     onRetry={
                       retryCheckpointId
                         ? () => void simulation.restore(retryCheckpointId)

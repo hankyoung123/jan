@@ -13,6 +13,10 @@ export type EngineEventType =
   | "simulation.checkpointed"
   | "simulation.terminated"
   | "simulation.failed"
+  | "model.message.started"
+  | "model.message.delta"
+  | "model.message.completed"
+  | "model.message.failed"
   | "stream.resync_required";
 
 export interface EngineEventEnvelope {
@@ -23,6 +27,43 @@ export interface EngineEventEnvelope {
   sequence: number;
   type: EngineEventType;
   payload: Record<string, unknown>;
+}
+
+export interface StoryMessageMetadata {
+  call_id: string;
+  agent_type: string;
+  agent_name: string;
+  task_label: string;
+  session_id?: string | null;
+  branch_id?: string | null;
+  step?: number | null;
+  stage?: string | null;
+  model?: string | null;
+  duration_ms?: number | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+}
+
+export interface MessagePartDelta {
+  type: "reasoning" | "text" | "file" | `tool-${string}`;
+  text_delta?: string | null;
+  state?: string | null;
+  tool_call_id?: string | null;
+  media_type?: string | null;
+  url?: string | null;
+  filename?: string | null;
+  input?: unknown;
+  output?: unknown;
+  error?: string | null;
+}
+
+export interface ModelMessageEventPayload {
+  message_id: string;
+  role: "assistant";
+  metadata: StoryMessageMetadata;
+  part?: MessagePartDelta | null;
+  error?: string | null;
+  reset?: boolean;
 }
 
 export type SimulationStage =
@@ -84,6 +125,10 @@ const eventTypes: ReadonlySet<string> = new Set<EngineEventType>([
   "simulation.checkpointed",
   "simulation.terminated",
   "simulation.failed",
+  "model.message.started",
+  "model.message.delta",
+  "model.message.completed",
+  "model.message.failed",
   "stream.resync_required",
 ]);
 

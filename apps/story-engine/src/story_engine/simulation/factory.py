@@ -128,6 +128,7 @@ class ProjectRuntimeFactory:
                 actor_id=actor_id,
                 cancellation=cancellation,
                 trace_sink=record_trace,
+                project_id=request.project_id,
             )
             models[key] = model
             return model
@@ -145,6 +146,7 @@ class ProjectRuntimeFactory:
             branch_id=request.branch_id,
             cancellation=cancellation,
             trace_sink=record_trace,
+            project_id=request.project_id,
         )
         gm_component_models = {
             "next_action_spec": JanConcordiaLanguageModel(
@@ -162,6 +164,7 @@ class ProjectRuntimeFactory:
                 branch_id=request.branch_id,
                 cancellation=cancellation,
                 trace_sink=record_trace,
+                project_id=request.project_id,
             ),
             "resolution": JanConcordiaLanguageModel(
                 self._gateway,
@@ -178,6 +181,7 @@ class ProjectRuntimeFactory:
                 branch_id=request.branch_id,
                 cancellation=cancellation,
                 trace_sink=record_trace,
+                project_id=request.project_id,
             ),
         }
         models.update(gm_component_models)
@@ -196,6 +200,7 @@ class ProjectRuntimeFactory:
             branch_id=request.branch_id,
             cancellation=cancellation,
             trace_sink=record_trace,
+            project_id=request.project_id,
         )
         models["promotion-reviewer"] = promotion_model
         promotion_reviewer = AutomaticPromotionReviewer(promotion_model)
@@ -209,6 +214,7 @@ class ProjectRuntimeFactory:
             branch_id=request.branch_id,
             cancellation=cancellation,
             trace_sink=record_trace,
+            project_id=request.project_id,
         )
         models["roster-planner"] = roster_model
         roster_planner = ConcordiaRosterPlanner(

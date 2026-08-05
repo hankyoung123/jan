@@ -8,6 +8,7 @@ import httpx
 import pytest
 from profile_factory import agent_profile as _profile
 
+from story_engine.domain.message import ModelMessageContext, ModelMessageEvent
 from story_engine.models.contracts import (
     Message,
     ModelRequest,
@@ -24,6 +25,7 @@ from story_engine.models.errors import (
 )
 from story_engine.models.gateway import (
     ModelGateway,
+    ModelPartSink,
     OpenAICompatibleTransport,
     initial_budget,
 )
@@ -47,10 +49,14 @@ class FakeTransport:
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
-        del timeout_seconds
+        del timeout_seconds, first_content_timeout_seconds
         self.calls.append(payload)
         content = self.contents.pop(0) if len(self.contents) > 1 else self.contents[0]
+        if part_sink is not None:
+            part_sink("text", content)
         usage: dict[str, Any] = {
             "prompt_tokens": 5,
             "completion_tokens": 3,
@@ -481,10 +487,14 @@ class SequenceTransport:
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
-        del timeout_seconds
+        del timeout_seconds, first_content_timeout_seconds
         self.observed.append(dict(payload))
         content, finish_reason, reasoning_tokens = self._calls.pop(0)
+        if part_sink is not None:
+            part_sink("text", content)
         usage: dict[str, Any] = {
             "prompt_tokens": 5,
             "completion_tokens": 3,
@@ -570,10 +580,291 @@ def test_first_content_deadline_uses_streaming_and_ignores_reasoning(
     response = asyncio.run(gateway.complete(request))
 
     assert response.parsed_output == {"decision": "accept"}
+    assert response.reasoning_content == "thinking"
     assert response.usage.reasoning_tokens == 4
     assert observed[0]["stream"] is True
     assert observed[0]["stream_options"] == {"include_usage": True}
     assert "max_tokens" not in observed[0]
+
+
+def test_gateway_publishes_provider_sse_parts_as_model_message_events(
+    tmp_path: Path,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        stream = "\n".join(
+            (
+                'data: {"model":"test-writer","choices":[{"delta":'
+                '{"reasoning_content":"checking "},"finish_reason":null}]}',
+                "",
+                'data: {"model":"test-writer","choices":[{"delta":'
+                '{"content":"The keeper "},"finish_reason":null}]}',
+                "",
+                'data: {"model":"test-writer","choices":[{"delta":'
+                '{"content":"lights the lamp."},"finish_reason":null}]}',
+                "",
+                'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+                '"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}',
+                "",
+                "data: [DONE]",
+                "",
+            )
+        )
+        return httpx.Response(
+            200,
+            text=stream,
+            headers={"content-type": "text/event-stream"},
+        )
+
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+        )
+    )
+    events: list[ModelMessageEvent] = []
+    gateway = ModelGateway(
+        registry,
+        OpenAICompatibleTransport(
+            "http://127.0.0.1:49152/v1",
+            "",
+            httpx.MockTransport(handler),
+        ),
+        message_sink=events.append,
+    )
+    request = _request().model_copy(
+        update={"first_content_timeout_seconds": 5}
+    )
+
+    response = asyncio.run(
+        gateway.complete(
+            request,
+            context=ModelMessageContext(
+                project_id="fog-harbor",
+                message_id="call:writer-stream",
+                agent_name="Writer",
+                task_label="正文生成",
+                branch_id="main",
+                step=3,
+                stage="writer",
+            ),
+        )
+    )
+
+    assert response.content == "The keeper lights the lamp."
+    assert [event.event_type for event in events] == [
+        "model.message.started",
+        "model.message.delta",
+        "model.message.delta",
+        "model.message.delta",
+        "model.message.completed",
+    ]
+    assert [
+        (event.part.type, event.part.text_delta)
+        for event in events
+        if event.part is not None
+    ] == [
+        ("reasoning", "checking "),
+        ("text", "The keeper "),
+        ("text", "lights the lamp."),
+    ]
+    assert events[0].reset is True
+    assert events[-1].metadata.completion_tokens == 7
+
+
+def test_structured_output_streams_reasoning_and_buffers_text_until_valid(
+    tmp_path: Path,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        stream = "\n".join(
+            (
+                "data: "
+                + json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "delta": {"reasoning_content": "checking "},
+                                "finish_reason": None,
+                            }
+                        ]
+                    }
+                ),
+                "",
+                "data: "
+                + json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "delta": {"content": '{"decision":'},
+                                "finish_reason": None,
+                            }
+                        ]
+                    }
+                ),
+                "",
+                "data: "
+                + json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "delta": {"content": '"accept"}'},
+                                "finish_reason": None,
+                            }
+                        ]
+                    }
+                ),
+                "",
+                'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+                '"usage":{"prompt_tokens":3,"completion_tokens":4,"total_tokens":7}}',
+                "",
+                "data: [DONE]",
+                "",
+            )
+        )
+        return httpx.Response(
+            200,
+            text=stream,
+            headers={"content-type": "text/event-stream"},
+        )
+
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+        )
+    )
+    events: list[ModelMessageEvent] = []
+    gateway = ModelGateway(
+        registry,
+        OpenAICompatibleTransport(
+            "http://127.0.0.1:49152/v1",
+            "",
+            httpx.MockTransport(handler),
+        ),
+        message_sink=events.append,
+    )
+    request = _request(
+        output_schema=json.dumps(
+            {
+                "type": "object",
+                "required": ["decision"],
+                "properties": {"decision": {"const": "accept"}},
+            }
+        )
+    ).model_copy(update={"first_content_timeout_seconds": 5})
+
+    response = asyncio.run(
+        gateway.complete(
+            request,
+            context=ModelMessageContext(
+                project_id="fog-harbor",
+                message_id="call:structured-stream",
+                agent_name="Writer",
+                task_label="结构化输出",
+                stage="writer",
+            ),
+        )
+    )
+
+    assert response.parsed_output == {"decision": "accept"}
+    assert [event.event_type for event in events] == [
+        "model.message.started",
+        "model.message.delta",
+        "model.message.delta",
+        "model.message.completed",
+    ]
+    assert [
+        (event.part.type, event.part.text_delta)
+        for event in events
+        if event.part is not None
+    ] == [
+        ("reasoning", "checking "),
+        ("text", '{"decision":"accept"}'),
+    ]
+
+
+def test_gateway_resets_streamed_parts_before_retrying_truncated_output(
+    tmp_path: Path,
+) -> None:
+    attempt = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempt
+        attempt += 1
+        content = "discard this" if attempt == 1 else "keep this"
+        finish_reason = "length" if attempt == 1 else "stop"
+        stream = "\n".join(
+            (
+                'data: {"choices":[{"delta":{"content":'
+                f'{json.dumps(content)}' + '},"finish_reason":null}]}',
+                "",
+                'data: {"choices":[{"delta":{},"finish_reason":'
+                f'{json.dumps(finish_reason)}' + '}],'
+                '"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}',
+                "",
+                "data: [DONE]",
+                "",
+            )
+        )
+        return httpx.Response(
+            200,
+            text=stream,
+            headers={"content-type": "text/event-stream"},
+        )
+
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+            max_output_tokens=2048,
+        )
+    )
+    events: list[ModelMessageEvent] = []
+    gateway = ModelGateway(
+        registry,
+        OpenAICompatibleTransport(
+            "http://127.0.0.1:49152/v1",
+            "",
+            httpx.MockTransport(handler),
+        ),
+        message_sink=events.append,
+    )
+    request = _request().model_copy(
+        update={"first_content_timeout_seconds": 5}
+    )
+
+    response = asyncio.run(
+        gateway.complete(
+            request,
+            context=ModelMessageContext(
+                project_id="fog-harbor",
+                message_id="call:writer-retry",
+                agent_name="Writer",
+                task_label="正文生成",
+                branch_id="main",
+                step=3,
+                stage="writer",
+            ),
+        )
+    )
+
+    assert response.content == "keep this"
+    assert attempt == 2
+    assert [event.event_type for event in events] == [
+        "model.message.started",
+        "model.message.delta",
+        "model.message.started",
+        "model.message.delta",
+        "model.message.completed",
+    ]
+    assert events[2].reset is True
+    assert events[1].part and events[1].part.text_delta == "discard this"
+    assert events[3].part and events[3].part.text_delta == "keep this"
 
 
 class DelayedContentStream(httpx.AsyncByteStream):
@@ -803,8 +1094,10 @@ def test_gateway_enforces_total_deadline(tmp_path: Path) -> None:
             payload: Mapping[str, Any],
             *,
             timeout_seconds: float,
+            first_content_timeout_seconds: float | None = None,
+            part_sink: ModelPartSink | None = None,
         ) -> Mapping[str, Any]:
-            del payload, timeout_seconds
+            del payload, timeout_seconds, first_content_timeout_seconds, part_sink
             await asyncio.sleep(2)
             raise AssertionError("deadline did not cancel transport")
 

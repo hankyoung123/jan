@@ -76,7 +76,9 @@ class ProjectStore:
         self.root = root
 
     def create(self, seed: ProjectSeed) -> ProjectSnapshot:
-        self.root.mkdir(parents=True, exist_ok=False)
+        if (self.root / "project.md").exists():
+            raise FileExistsError(self.root)
+        self.root.mkdir(parents=True, exist_ok=True)
         for directory in (
             "characters/active",
             "characters/npc",

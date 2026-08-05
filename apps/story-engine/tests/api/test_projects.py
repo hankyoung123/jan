@@ -9,10 +9,26 @@ from profile_factory import agent_profile as _profile
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
 from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.gateway import ModelPartSink
 from story_engine.models.registry import ProfileRegistry
 from story_engine.submission.service import SubmissionDraft, fog_harbor_submission
 
 AUTH = {"Authorization": "Bearer test-token"}
+
+
+def _user_message(text: str) -> dict[str, Any]:
+    return {
+        "id": "message:user-1",
+        "role": "user",
+        "parts": [{"type": "text", "text": text}],
+        "metadata": {
+            "callId": "submission:user-1",
+            "agentType": "user",
+            "agentName": "User",
+            "taskLabel": "投稿讨论",
+            "createdAt": "2026-08-06T00:00:00Z",
+        },
+    }
 
 
 class SubmissionTransport:
@@ -25,8 +41,10 @@ class SubmissionTransport:
         payload: Mapping[str, Any],
         *,
         timeout_seconds: int,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
-        del timeout_seconds
+        del timeout_seconds, first_content_timeout_seconds
         self.calls.append(payload)
         content = {
             "reply": "初始世界已经具备运行条件。",
@@ -38,11 +56,15 @@ class SubmissionTransport:
                 "issues": [],
             },
         }
+        if part_sink is not None:
+            part_sink("reasoning", "核对世界规则与角色知识边界。")
+            part_sink("text", json.dumps(content, ensure_ascii=False))
         return {
             "choices": [
                 {
                     "message": {
                         "content": json.dumps(content, ensure_ascii=False),
+                        "reasoning_content": "核对世界规则与角色知识边界。",
                     },
                     "finish_reason": "stop",
                 }
@@ -96,14 +118,93 @@ def test_submission_message_uses_submission_editor_without_creating_project(
         headers=AUTH,
         json={
             "draft": SubmissionDraft(id="fog-harbor").model_dump(mode="json"),
-            "messages": [{"role": "user", "content": "写一个港口悬疑故事。"}],
+            "messages": [_user_message("写一个港口悬疑故事。")],
         },
     )
 
     assert response.status_code == 200
     assert response.json()["runnable"] is True
-    assert not (tmp_path / "fog-harbor").exists()
+    assert response.json()["message"]["parts"] == [
+        {"type": "reasoning", "text": "核对世界规则与角色知识边界。"},
+        {"type": "text", "text": "初始世界已经具备运行条件。"},
+    ]
+    root = tmp_path / "fog-harbor"
+    assert not (root / "project.md").exists()
+    assert (root / "submission/conversation.jsonl").is_file()
+    assert (root / "submission/draft.md").is_file()
+    assert (root / "submission/status.json").is_file()
     assert transport.calls[0]["model"] == "test-provider/test-submission-editor"
+    restored = _client(tmp_path).get(
+        "/projects/fog-harbor/submission",
+        headers=AUTH,
+    )
+    assert restored.status_code == 200
+    assert len(restored.json()["messages"]) == 2
+    assert restored.json()["messages"][-1]["parts"] == response.json()["message"][
+        "parts"
+    ]
+
+
+def test_submission_image_part_reaches_provider_payload(tmp_path: Path) -> None:
+    transport = SubmissionTransport()
+    message = _user_message("")
+    message["parts"] = [
+        {
+            "type": "file",
+            "mediaType": "image/png",
+            "url": "data:image/png;base64,aGVsbG8=",
+            "filename": "harbor.png",
+        }
+    ]
+
+    response = _client(tmp_path, transport=transport).post(
+        "/projects/fog-harbor/submission/messages",
+        headers=AUTH,
+        json={
+            "draft": SubmissionDraft(id="fog-harbor").model_dump(mode="json"),
+            "messages": [message],
+        },
+    )
+
+    assert response.status_code == 200
+    provider_message = transport.calls[0]["messages"][-1]
+    assert provider_message == {
+        "role": "user",
+        "content": [
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,aGVsbG8="},
+            }
+        ],
+    }
+
+
+def test_finalize_uses_existing_submission_workspace_and_marks_it_finalized(
+    tmp_path: Path,
+) -> None:
+    transport = SubmissionTransport()
+    client = _client(tmp_path, transport=transport)
+    discussed = client.post(
+        "/projects/fog-harbor/submission/messages",
+        headers=AUTH,
+        json={
+            "draft": SubmissionDraft(id="fog-harbor").model_dump(mode="json"),
+            "messages": [_user_message("写一个港口悬疑故事。")],
+        },
+    )
+    assert discussed.status_code == 200
+
+    finalized = client.post(
+        "/submissions/finalize",
+        headers=AUTH,
+        json=fog_harbor_submission().model_dump(mode="json"),
+    )
+
+    assert finalized.status_code == 201
+    assert (tmp_path / "fog-harbor/project.md").is_file()
+    restored = client.get("/projects/fog-harbor/submission", headers=AUTH)
+    assert restored.status_code == 200
+    assert restored.json()["status"]["finalized"] is True
 
 
 def test_complete_submission_is_runnable_when_model_review_flag_is_false(
@@ -117,7 +218,7 @@ def test_complete_submission_is_runnable_when_model_review_flag_is_false(
         headers=AUTH,
         json={
             "draft": SubmissionDraft(id="fog-harbor").model_dump(mode="json"),
-            "messages": [{"role": "user", "content": "整理完整投稿设定。"}],
+            "messages": [_user_message("整理完整投稿设定。")],
         },
     )
 

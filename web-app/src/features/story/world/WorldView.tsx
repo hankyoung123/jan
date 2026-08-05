@@ -8,19 +8,31 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { route } from '@/constants/routes'
 import { useActiveStoryProjectId } from '../activeProject'
+import { AgentMessageList } from '../components/AgentMessageList'
 import { PageHeader, StatusPill, StoryPage } from '../components/StoryLayout'
 import { useBranchContext } from '../useBranchContext'
+import { useProjectModelMessages } from '../useProjectModelMessages'
 import { useWiki } from './useWiki'
 
 export function WorldView() {
   const projectId = useActiveStoryProjectId() ?? undefined
   const { branchId, setBranchId } = useBranchContext()
   const wiki = useWiki(projectId, branchId)
+  const projectMessages = useProjectModelMessages(projectId)
   const [showInstructions, setShowInstructions] = useState(false)
   const [note, setNote] = useState('')
   const worldPages = useMemo(
     () => wiki.view?.pages.filter((item) => item.path.startsWith('world/')) ?? [],
     [wiki.view?.pages]
+  )
+  const wikiMessages = useMemo(
+    () =>
+      projectMessages.messages.filter(
+        (message) =>
+          message.metadata?.branchId === branchId &&
+          message.metadata?.stage === 'wiki'
+      ),
+    [branchId, projectMessages.messages]
   )
 
   if (!projectId) {
@@ -171,6 +183,14 @@ export function WorldView() {
               </dl>
             ) : (
               <p className="mt-4 text-sm text-muted-foreground">选择页面查看来源。</p>
+            )}
+            {wikiMessages.length > 0 && (
+              <section className="mt-6 border-t pt-5">
+                <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Wiki Agent Activity
+                </p>
+                <AgentMessageList messages={wikiMessages} preset="live-agent" />
+              </section>
             )}
           </aside>
         </div>

@@ -6,6 +6,7 @@ from pydantic import Field, model_validator
 
 from story_engine.domain.action import ActionSpec, TaskType
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
+from story_engine.domain.message import ModelMessagePart
 from story_engine.models.contracts import ReasoningEffort
 from story_engine.models.limits import (
     MAX_MODEL_OUTPUT_TOKENS,
@@ -85,6 +86,7 @@ class ModelCallTrace(RuntimeModel):
     content_locale: LocaleCode
     component_ids: tuple[Identifier, ...] = ()
     source_record_ids: tuple[Identifier, ...] = ()
+    message_parts: tuple[ModelMessagePart, ...]
     prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)

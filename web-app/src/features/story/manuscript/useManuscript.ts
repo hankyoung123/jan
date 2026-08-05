@@ -44,8 +44,7 @@ export function useManuscript(projectId: string | undefined, branchId: string) {
       if (requestKeyRef.current !== requestKey) return
       setError(cause instanceof Error ? cause.message : '正文工作区读取失败')
     } finally {
-      if (requestKeyRef.current !== requestKey) return
-      setLoading(false)
+      if (requestKeyRef.current === requestKey) setLoading(false)
     }
   }, [branchId, projectId, requestKey])
 

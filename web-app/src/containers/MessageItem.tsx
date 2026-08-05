@@ -20,7 +20,6 @@ import {
 import { CopyButton } from './CopyButton'
 import { useTranslation } from '@/i18n/react-i18next-compat'
 import { formatDate } from '@/utils/formatDate'
-import { useModelProvider } from '@/hooks/useModelProvider'
 import { useInterfaceSettings } from '@/hooks/useInterfaceSettings'
 import { useMessageErrors } from '@/stores/message-errors'
 import {
@@ -50,6 +49,12 @@ import {
   StepRow,
 } from '@/components/ai-elements/reasoning-timeline'
 import { splitReasoningParagraphs } from '@/lib/reasoning'
+import {
+  MESSAGE_PRESETS,
+  resolveMessageCapabilities,
+  type MessageCapabilities,
+  type MessagePreset,
+} from '@/lib/message-capabilities'
 
 const CHAT_STATUS = {
   STREAMING: 'streaming',
@@ -72,6 +77,8 @@ function humanizeToolName(name: string): string {
 
 export type MessageItemProps = {
   message: UIMessage
+  preset?: MessagePreset
+  capabilities?: Partial<MessageCapabilities>
   isFirstMessage: boolean
   isLastMessage: boolean
   status: ChatStatus
@@ -88,17 +95,17 @@ export type MessageItemProps = {
   assistant?: { avatar?: React.ReactNode; name?: string }
   showAssistant?: boolean
   isAnimating?: boolean
-  hideActions?: boolean
 }
 
 export const MessageItem = memo(
   ({
     message,
+    preset = 'chat',
+    capabilities: capabilityOverrides,
     isFirstMessage,
     isLastMessage,
     status,
     isAnimating,
-    hideActions,
     reasoningContainerRef,
     isReasoningAtBottom,
     onReasoningScroll,
@@ -111,15 +118,22 @@ export const MessageItem = memo(
     onSwitchVersion,
   }: MessageItemProps) => {
     const { t } = useTranslation()
-    const selectedModel = useModelProvider((state) => state.selectedModel)
     const coloredUserBubble = useInterfaceSettings((s) => s.coloredUserBubble)
     const metadata = message.metadata as Record<string, unknown> | undefined
-    const messageError = useMessageErrors((s) => s.errors[message.id])
+    const storedMessageError = useMessageErrors((s) => s.errors[message.id])
+    const messageError =
+      storedMessageError ??
+      (typeof metadata?.error === 'string' ? metadata.error : undefined)
     const createdAt = (metadata?.createdAt as Date) ?? new Date()
     const [previewImage, setPreviewImage] = useState<{
       url: string
       filename?: string
     } | null>(null)
+    const capabilities = useMemo(
+      () => resolveMessageCapabilities(preset, capabilityOverrides),
+      [capabilityOverrides, preset]
+    )
+    const presentation = MESSAGE_PRESETS[preset].presentation
 
 
     const handleRegenerate = useCallback(() => {
@@ -145,6 +159,7 @@ export const MessageItem = memo(
 
     // Get image URLs from file parts for the edit dialog
     const imageUrls = useMemo(() => {
+      if (!capabilities.attachments) return []
       return message.parts
         .filter((part) => {
           if (part.type !== 'file') return false
@@ -152,7 +167,7 @@ export const MessageItem = memo(
           return filePart.url && filePart.mediaType?.startsWith('image/')
         })
         .map((part) => (part as { url: string }).url)
-    }, [message.parts])
+    }, [capabilities.attachments, message.parts])
 
     // A tool part is "pending" until it reaches a terminal state. While any
     // tool on the last assistant message is still pending the turn isn't
@@ -160,7 +175,13 @@ export const MessageItem = memo(
     // SDK briefly reports status as 'ready' between the tool-call stream and
     // the follow-up request.
     const hasPendingToolCall = useMemo(() => {
-      if (!isLastMessage || message.role !== 'assistant') return false
+      if (
+        !capabilities.tools ||
+        !isLastMessage ||
+        message.role !== 'assistant'
+      ) {
+        return false
+      }
       return message.parts.some((part) => {
         if (!part.type?.startsWith('tool-')) return false
         const state = (part as { state?: string }).state
@@ -170,7 +191,7 @@ export const MessageItem = memo(
           state !== 'output-denied'
         )
       })
-    }, [isLastMessage, message.role, message.parts])
+    }, [capabilities.tools, isLastMessage, message.role, message.parts])
 
     const pendingApprovals = useToolApprovalRequests((s) => s.pending)
     const awaitingApproval = useMemo(() => {
@@ -195,6 +216,7 @@ export const MessageItem = memo(
 
     const webCitations = useMemo(() => {
       const web: WebCitation[] = []
+      if (!capabilities.citations) return web
       if (message.role === 'assistant') {
         const parts = message.parts as any[]
         for (let i = 0; i < parts.length; i++) {
@@ -208,7 +230,7 @@ export const MessageItem = memo(
         }
       }
       return web
-    }, [message.parts, message.role])
+    }, [capabilities.citations, message.parts, message.role])
 
     const setWebCitations = useWebCitationStore((s) => s.setForMessage)
     useEffect(() => {
@@ -218,7 +240,7 @@ export const MessageItem = memo(
 
     // Extract file metadata from message text (for user messages with attachments)
     const attachedFiles = useMemo(() => {
-      if (message.role !== 'user') return []
+      if (message.role !== 'user' || !capabilities.attachments) return []
 
       const textParts = message.parts.filter(
         (part): part is { type: 'text'; text: string } =>
@@ -229,7 +251,7 @@ export const MessageItem = memo(
 
       const { files } = extractFilesFromPrompt(textParts[0].text)
       return files
-    }, [message.parts, message.role])
+    }, [capabilities.attachments, message.parts, message.role])
 
     // Get full text content for copy button
     const getFullTextContent = useCallback(() => {
@@ -330,6 +352,7 @@ export const MessageItem = memo(
       },
       partIndex: number
     ) => {
+      if (!capabilities.attachments) return null
       const isImage = part.mediaType?.startsWith('image/')
       const isAudio =
         part.mediaType === 'audio/wav' || part.mediaType === 'audio/mpeg'
@@ -410,6 +433,7 @@ export const MessageItem = memo(
     }
 
     const renderToolInline = (part: any, partIndex: number) => {
+      if (!capabilities.tools) return null
       if (!part.type.startsWith('tool-') || !('state' in part)) {
         return null
       }
@@ -520,6 +544,16 @@ export const MessageItem = memo(
       // approved) tool does not force it open, so tool-only steps collapse.
       const forceOpen = awaitingApproval
       const shouldCollapse = hasFollowingContent || !hasDisplayableContent
+      const latestReasoningStep = [...meaningful]
+        .reverse()
+        .flatMap(({ part }) =>
+          part.type === CONTENT_TYPE.REASONING
+            ? splitReasoningParagraphs(part.text ?? '').filter(Boolean).slice(-1)
+            : []
+        )[0]
+      const reasoningPreview = presentation.reasoningCollapsedPreview
+        ? latestReasoningStep
+        : undefined
 
       // Done/historical: flatten every entry (reasoning paragraphs, tool calls,
       // interstitial text, files) into steps on a single continuous dotted rail,
@@ -588,13 +622,22 @@ export const MessageItem = memo(
           className="w-full text-muted-foreground"
           isStreaming={groupIsStreaming}
           duration={persistedDuration}
-          shouldCollapse={shouldCollapse}
+          shouldCollapse={
+            shouldCollapse || !presentation.reasoningDefaultOpen
+          }
           forceOpen={forceOpen}
-          defaultOpen={hasDisplayableContent && !hasFollowingContent}
+          defaultOpen={
+            presentation.reasoningDefaultOpen &&
+            hasDisplayableContent &&
+            !hasFollowingContent
+          }
         >
           <ChainOfThoughtHeader
+            title={reasoningPreview}
             streamingLabel={
-              currentStepIsTool ? `${currentToolLabel}...` : 'Thinking'
+              currentStepIsTool
+                ? `${currentToolLabel}...`
+                : reasoningPreview || 'Thinking'
             }
             completedVerb={hasTools ? 'Worked' : 'Thought'}
           />
@@ -671,7 +714,8 @@ export const MessageItem = memo(
       const parts = message.parts as any[]
       const elements: React.ReactNode[] = []
       const isCotPart = (t: string) =>
-        t === CONTENT_TYPE.REASONING || t.startsWith('tool-')
+        (capabilities.reasoning && t === CONTENT_TYPE.REASONING) ||
+        (capabilities.tools && t.startsWith('tool-'))
 
       // Walk parts sequentially and flush the reasoning/tool trace whenever a
       // non-empty answer (text/file) interrupts it, so content emitted between
@@ -713,10 +757,22 @@ export const MessageItem = memo(
       flushCot(false)
       return elements
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [message.parts, isStreaming, isReasoningAtBottom])
+    }, [
+      capabilities.attachments,
+      capabilities.reasoning,
+      capabilities.tools,
+      isReasoningAtBottom,
+      isStreaming,
+      message.parts,
+      presentation.reasoningCollapsedPreview,
+      presentation.reasoningDefaultOpen,
+    ])
 
     const versionNav =
-      versionInfo && versionInfo.count > 1 && onSwitchVersion ? (
+      capabilities.versions &&
+      versionInfo &&
+      versionInfo.count > 1 &&
+      onSwitchVersion ? (
         <div className="flex items-center gap-0.5 text-muted-foreground">
           <button
             type="button"
@@ -753,9 +809,12 @@ export const MessageItem = memo(
         {/* Render message parts */}
         {renderedParts}
 
-        {message.role === 'assistant' && !isStreaming && webCitations.length > 0 && (
-          <WebSourcesRow citations={webCitations} />
-        )}
+        {capabilities.citations &&
+          message.role === 'assistant' &&
+          !isStreaming &&
+          webCitations.length > 0 && (
+            <WebSourcesRow citations={webCitations} />
+          )}
 
         {isLastMessage &&
           message.role === 'assistant' &&
@@ -780,7 +839,9 @@ export const MessageItem = memo(
                 {messageError}
               </div>
             </div>
-            {selectedModel && onRegenerate && status !== CHAT_STATUS.STREAMING &&
+            {capabilities.regenerate &&
+              onRegenerate &&
+              status !== CHAT_STATUS.STREAMING &&
               status !== CHAT_STATUS.SUBMITTED && (
                 <Button
                   variant="outline"
@@ -796,15 +857,21 @@ export const MessageItem = memo(
         )}
 
         {/* Message actions for user messages */}
-        {message.role === 'user' && !hideActions && (
+        {message.role === 'user' &&
+          (capabilities.timestamp ||
+            capabilities.copy ||
+            capabilities.edit ||
+            capabilities.delete) && (
           <div className="flex items-center justify-end gap-1 text-muted-foreground text-xs opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
-            <span className="text-muted-foreground">
-              {formatDate(createdAt)}
-            </span>
+            {capabilities.timestamp && (
+              <span className="text-muted-foreground">
+                {formatDate(createdAt)}
+              </span>
+            )}
             {versionNav}
-            <CopyButton text={getFullTextContent()} />
+            {capabilities.copy && <CopyButton text={getFullTextContent()} />}
 
-            {onEdit && status !== CHAT_STATUS.STREAMING &&
+            {capabilities.edit && onEdit && status !== CHAT_STATUS.STREAMING &&
               status !== CHAT_STATUS.SUBMITTED && (
               <EditMessageDialog
                 message={getFullTextContent()}
@@ -813,7 +880,7 @@ export const MessageItem = memo(
               />
             )}
 
-            {onDelete && status !== CHAT_STATUS.STREAMING &&
+            {capabilities.delete && onDelete && status !== CHAT_STATUS.STREAMING &&
               status !== CHAT_STATUS.SUBMITTED && (
               <DeleteMessageDialog onDelete={handleDelete} />
             )}
@@ -823,7 +890,7 @@ export const MessageItem = memo(
         {/* Message actions for assistant messages (non-tool) */}
         {message.role === 'assistant' && (
             <div className="flex items-center gap-2 text-muted-foreground text-xs">
-              {!isStreaming && (
+              {!isStreaming && capabilities.timestamp && (
                 <span className="text-muted-foreground">
                   {formatDate(createdAt)}
                 </span>
@@ -831,24 +898,24 @@ export const MessageItem = memo(
               <div
                 className={cn(
                   'flex items-center gap-1',
-                  (isStreaming || hideActions) && 'hidden'
+                  isStreaming && 'hidden'
                 )}
               >
                 {versionNav}
-                <CopyButton text={getFullTextContent()} />
+                {capabilities.copy && <CopyButton text={getFullTextContent()} />}
 
-                {onEdit && !isStreaming && (
+                {capabilities.edit && onEdit && !isStreaming && (
                   <EditMessageDialog
                     message={getFullTextContent()}
                     onSave={handleEdit}
                   />
                 )}
 
-                {onDelete && !isStreaming && (
+                {capabilities.delete && onDelete && !isStreaming && (
                   <DeleteMessageDialog onDelete={handleDelete} />
                 )}
 
-                {selectedModel &&
+                {capabilities.continue &&
                   onContinue &&
                   !isStreaming &&
                   isLastMessage &&
@@ -863,22 +930,27 @@ export const MessageItem = memo(
                     </Button>
                   )}
 
-                {selectedModel && onRegenerate && !isStreaming && isLastMessage && (
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={handleRegenerate}
-                    title={t('chat:actions.regenerate')}
-                  >
-                    <IconRefresh size={16} />
-                  </Button>
-                )}
+                {capabilities.regenerate &&
+                  onRegenerate &&
+                  !isStreaming &&
+                  isLastMessage && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={handleRegenerate}
+                      title={t('chat:actions.regenerate')}
+                    >
+                      <IconRefresh size={16} />
+                    </Button>
+                  )}
               </div>
 
-              <TokenSpeedIndicator
-                streaming={isStreaming}
-                metadata={metadata}
-              />
+              {capabilities.metrics && (
+                <TokenSpeedIndicator
+                  streaming={isStreaming}
+                  metadata={metadata}
+                />
+              )}
             </div>
           )}
 
@@ -915,7 +987,8 @@ export const MessageItem = memo(
       prevProps.isLastMessage === nextProps.isLastMessage &&
       prevProps.status === nextProps.status &&
       prevProps.showAssistant === nextProps.showAssistant &&
-      prevProps.hideActions === nextProps.hideActions &&
+      prevProps.preset === nextProps.preset &&
+      prevProps.capabilities === nextProps.capabilities &&
       prevProps.versionInfo?.index === nextProps.versionInfo?.index &&
       prevProps.versionInfo?.count === nextProps.versionInfo?.count
     )

@@ -115,9 +115,7 @@ def _record_with_event(step: int) -> SimulationLogRecord:
         content_locale="en-US",
     )
     return record.model_copy(
-        update={
-            "result": record.result.model_copy(update={"resolved_turn": resolved})
-        }
+        update={"result": record.result.model_copy(update={"resolved_turn": resolved})}
     )
 
 
@@ -128,13 +126,25 @@ class RetryingConsolidator:
     async def consolidate(
         self,
         *,
+        project_id: str,
+        session_id: str | None,
+        step: int,
         branch_id: str,
         subject_id: str | None,
         pages: tuple,
         sources: tuple,
         content_locale: str,
     ) -> tuple[WikiPatch, ...]:
-        del branch_id, subject_id, pages, sources, content_locale
+        del (
+            project_id,
+            session_id,
+            step,
+            branch_id,
+            subject_id,
+            pages,
+            sources,
+            content_locale,
+        )
         self.calls += 1
         return (
             WikiPatch(
@@ -196,13 +206,16 @@ class CurrentSourceConsolidator:
     async def consolidate(
         self,
         *,
+        project_id: str,
+        session_id: str | None,
+        step: int,
         branch_id: str,
         subject_id: str | None,
         pages: tuple,
         sources: tuple,
         content_locale: str,
     ) -> tuple[WikiPatch, ...]:
-        del branch_id, pages, content_locale
+        del project_id, session_id, step, branch_id, pages, content_locale
         if subject_id is not None:
             return ()
         source_ids = {source.source_id for source in sources}
@@ -261,13 +274,16 @@ class ProjectSourceConsolidator:
     async def consolidate(
         self,
         *,
+        project_id: str,
+        session_id: str | None,
+        step: int,
         branch_id: str,
         subject_id: str | None,
         pages: tuple,
         sources: tuple,
         content_locale: str,
     ) -> tuple[WikiPatch, ...]:
-        del branch_id, pages, content_locale
+        del project_id, session_id, step, branch_id, pages, content_locale
         if subject_id is None:
             return ()
         project_source_id = "project:fog-harbor"
@@ -327,6 +343,9 @@ def test_boundary_keeps_project_source_available_to_character_wiki(
     )
 
     assert written
-    assert "public premise still applies" in WikiStore(
-        tmp_path / "fog-harbor", "main"
-    ).load_page("characters/chen-mo/self.md").content
+    assert (
+        "public premise still applies"
+        in WikiStore(tmp_path / "fog-harbor", "main")
+        .load_page("characters/chen-mo/self.md")
+        .content
+    )

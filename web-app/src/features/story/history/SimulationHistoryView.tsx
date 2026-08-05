@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Input } from '@/components/ui/input'
 import { useActiveStoryProjectId } from '../activeProject'
+import { AgentMessageList } from '../components/AgentMessageList'
 import { PageHeader, StatusPill, StoryPage } from '../components/StoryLayout'
 import { engineRequest } from '../engine'
+import { restoreSimulationTrace } from '../evolution/simulationViewModel'
 import { useBranchContext } from '../useBranchContext'
 
 type SimulationLogRecord = components['schemas']['SimulationLogRecord']
@@ -47,6 +49,24 @@ export function SimulationHistoryView() {
     resolved.find((record) => record.result.step === selectedStep) ??
     resolved.at(-1) ??
     null
+  const selectedMessages = useMemo(() => {
+    if (!projectId || !selected) return []
+    const restored = restoreSimulationTrace(
+      [selected],
+      selected.result.session_id,
+      projectId,
+      selected.trace.status,
+      selected.result.step
+    )
+    const step = restored.steps[selected.result.step]
+    const ids = Object.values(step?.stages ?? {}).flatMap(
+      (stage) => stage?.messageIds ?? []
+    )
+    return ids.flatMap((id) => {
+      const message = restored.messages[id]
+      return message ? [message] : []
+    })
+  }, [projectId, selected])
 
   return (
     <StoryPage>
@@ -66,7 +86,7 @@ export function SimulationHistoryView() {
           </main>
           <aside className="border-t bg-muted/15 p-5 lg:border-l lg:border-t-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Step Inspector</p>
-            {selected ? <div className="mt-4 space-y-5 text-xs"><section><p className="text-muted-foreground">Session / Step</p><p className="mt-1 break-all font-mono">{selected.result.session_id}</p><p className="mt-1 font-mono">Step {selected.result.step}</p></section><section><p className="text-muted-foreground">Resolved Events</p>{selected.result.resolved_turn?.events.map((event) => <article className="mt-3 border-l-2 border-amber-500 pl-3" key={event.event_id}><p className="leading-5">{event.event_text}</p><p className="mt-2 break-all font-mono text-[10px] text-muted-foreground">{event.event_id} · {event.visibility}</p></article>)}</section><section><p className="text-muted-foreground">Trace</p><p className="mt-1">{selected.trace.stages.length} stages · {selected.trace.model_calls.length} model calls</p><p className="mt-1 break-all font-mono text-[10px]">{selected.trace.trace_id}</p></section></div> : <p className="mt-4 text-sm text-muted-foreground">选择一个 Step 查看结算和 Trace。</p>}
+            {selected ? <div className="mt-4 space-y-5 text-xs"><section><p className="text-muted-foreground">Session / Step</p><p className="mt-1 break-all font-mono">{selected.result.session_id}</p><p className="mt-1 font-mono">Step {selected.result.step}</p></section><section><p className="text-muted-foreground">Resolved Events</p>{selected.result.resolved_turn?.events.map((event) => <article className="mt-3 border-l-2 border-amber-500 pl-3" key={event.event_id}><p className="leading-5">{event.event_text}</p><p className="mt-2 break-all font-mono text-[10px] text-muted-foreground">{event.event_id} · {event.visibility}</p></article>)}</section>{selectedMessages.length > 0 && <section className="border-t pt-4"><p className="mb-3 text-muted-foreground">Agent Outputs</p><AgentMessageList messages={selectedMessages} preset="readonly" /></section>}<section><p className="text-muted-foreground">Trace</p><p className="mt-1">{selected.trace.stages.length} stages · {selected.trace.model_calls.length} model calls</p><p className="mt-1 break-all font-mono text-[10px]">{selected.trace.trace_id}</p></section></div> : <p className="mt-4 text-sm text-muted-foreground">选择一个 Step 查看结算和 Trace。</p>}
           </aside>
         </div>
       )}

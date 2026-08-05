@@ -25,7 +25,7 @@ from story_engine.domain.projection import ResolutionEnvelope
 from story_engine.domain.recipe import PerceptionFrame
 from story_engine.domain.simulation import CharacterRef, ResolverContext
 from story_engine.models.contracts import ModelStreamChunk
-from story_engine.models.gateway import ModelGateway
+from story_engine.models.gateway import ModelGateway, ModelPartSink
 from story_engine.models.registry import ProfileRegistry
 
 
@@ -187,13 +187,18 @@ class RecordingTransport:
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
-        del timeout_seconds
+        del timeout_seconds, first_content_timeout_seconds
         self.calls.append(dict(payload))
+        content = self._responses.pop(0)
+        if part_sink is not None:
+            part_sink("text", content)
         return {
             "choices": [
                 {
-                    "message": {"content": self._responses.pop(0)},
+                    "message": {"content": content},
                     "finish_reason": "stop",
                 }
             ],

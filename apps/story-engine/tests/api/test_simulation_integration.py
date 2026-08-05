@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
 from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.gateway import ModelPartSink
 from story_engine.models.registry import ProfileRegistry
 from story_engine.persistence.simulation_log import SimulationLogStore
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
@@ -140,6 +141,7 @@ class ReplayGatewayTransport:
         *,
         timeout_seconds: float,
         first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
         del timeout_seconds, first_content_timeout_seconds
         messages = payload["messages"]
@@ -242,6 +244,8 @@ class ReplayGatewayTransport:
             )
         else:
             content = "Chen Mo carefully inspects the lighthouse mechanism."
+        if part_sink is not None:
+            part_sink("text", content)
         return {
             "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
             "usage": {

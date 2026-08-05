@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from story_engine.domain.message import ModelMessageContext
 from story_engine.domain.wiki import WikiPage, WikiSource, WikiSourceKind
 from story_engine.models.contracts import ModelRequest, ModelResponse
 from story_engine.models.errors import StructuredOutputError
@@ -19,6 +20,7 @@ class FakeGateway:
     def __init__(self, *responses: ModelResponse | Exception) -> None:
         self.responses = list(responses)
         self.calls: list[ModelRequest] = []
+        self.contexts: list[ModelMessageContext | None] = []
         profile = next(
             item
             for item in default_registry().profiles
@@ -26,8 +28,14 @@ class FakeGateway:
         )
         self.registry = SimpleNamespace(get_profile=lambda _agent_type: profile)
 
-    async def complete(self, request: ModelRequest) -> ModelResponse:
+    async def complete(
+        self,
+        request: ModelRequest,
+        *,
+        context: ModelMessageContext | None = None,
+    ) -> ModelResponse:
         self.calls.append(request)
+        self.contexts.append(context)
         item = self.responses.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -84,9 +92,7 @@ def test_wiki_output_schema_ties_section_to_operation() -> None:
         if not isinstance(props, dict):
             continue
         operation = props.get("operation")
-        if isinstance(operation, dict) and isinstance(
-            operation.get("const"), str
-        ):
+        if isinstance(operation, dict) and isinstance(operation.get("const"), str):
             operations.add(operation["const"])
     assert operations == {
         "replace_section",
@@ -105,6 +111,9 @@ def test_consolidator_retries_contract_violation_with_corrective_hint() -> None:
 
     patches = asyncio.run(
         consolidator.consolidate(
+            project_id="north-star",
+            session_id="session:1",
+            step=1,
             branch_id="main",
             subject_id=None,
             pages=(_state_page(),),
@@ -140,6 +149,9 @@ def test_consolidator_retries_when_section_is_missing_from_page() -> None:
 
     patches = asyncio.run(
         consolidator.consolidate(
+            project_id="north-star",
+            session_id="session:1",
+            step=1,
             branch_id="main",
             subject_id=None,
             pages=(_state_page(),),
@@ -163,6 +175,9 @@ def test_consolidator_fails_after_bounded_retries() -> None:
     with pytest.raises(StructuredOutputError):
         asyncio.run(
             consolidator.consolidate(
+                project_id="north-star",
+                session_id="session:1",
+                step=1,
                 branch_id="main",
                 subject_id=None,
                 pages=(),
@@ -180,6 +195,9 @@ def test_consolidator_accepts_valid_patch_output() -> None:
 
     patches = asyncio.run(
         consolidator.consolidate(
+            project_id="north-star",
+            session_id="session:1",
+            step=1,
             branch_id="main",
             subject_id=None,
             pages=(_state_page(),),
@@ -206,6 +224,9 @@ def test_consolidator_does_not_expose_existing_page_source_ids() -> None:
 
     asyncio.run(
         consolidator.consolidate(
+            project_id="north-star",
+            session_id="session:1",
+            step=1,
             branch_id="main",
             subject_id=None,
             pages=(page,),
@@ -217,3 +238,5 @@ def test_consolidator_does_not_expose_existing_page_source_ids() -> None:
     prompt = gateway.calls[0].messages[2].content
     assert "event:old" not in prompt
     assert "source:0" in prompt
+    assert gateway.contexts[0] is not None
+    assert gateway.contexts[0].stage == "wiki"

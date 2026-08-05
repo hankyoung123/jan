@@ -1,11 +1,14 @@
 import json
+import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, JsonValue, ValidationError, model_validator
 
 from story_engine.domain.errors import DomainError
+from story_engine.domain.message import ModelMessageContext
 from story_engine.domain.models import (
     Character,
     DomainModel,
@@ -15,9 +18,18 @@ from story_engine.domain.models import (
     ReviewResult,
     WorldState,
 )
-from story_engine.models.contracts import Message, ModelRequest
+from story_engine.models.contracts import (
+    ImageMessagePart,
+    ImageUrl,
+    Message,
+    ModelRequest,
+    TextMessagePart,
+)
 from story_engine.models.gateway import ModelGateway
 from story_engine.wiki.store import WikiStore
+from story_engine.workspace.atomic import atomic_write_text
+from story_engine.workspace.documents import dump_json_envelope, load_json_envelope
+from story_engine.workspace.lock import ProjectLock
 from story_engine.workspace.project_store import (
     ProjectSeed,
     ProjectSnapshot,
@@ -169,17 +181,122 @@ class SubmissionDraft(DomainModel):
             return None
 
 
+class SubmissionTextPart(DomainModel):
+    type: Literal["text"] = "text"
+    text: str = Field(min_length=1, max_length=262_144)
+
+
+class SubmissionReasoningPart(DomainModel):
+    type: Literal["reasoning"] = "reasoning"
+    text: str = Field(min_length=1, max_length=262_144)
+
+
+class SubmissionFilePart(DomainModel):
+    type: Literal["file"] = "file"
+    mediaType: str = Field(pattern=r"^image/(?:jpeg|png|webp|gif)$")
+    url: str = Field(min_length=1, max_length=1_048_576)
+    filename: str | None = Field(default=None, max_length=255)
+
+
+class SubmissionToolPart(DomainModel):
+    type: str = Field(pattern=r"^tool-[a-zA-Z0-9_-]+$")
+    state: str = Field(min_length=1, max_length=100)
+    toolCallId: str = Field(min_length=1, max_length=200)
+    input: JsonValue = None
+    output: JsonValue = None
+    errorText: str | None = Field(default=None, max_length=8_000)
+
+
+SubmissionMessagePart = (
+    SubmissionTextPart
+    | SubmissionReasoningPart
+    | SubmissionFilePart
+    | SubmissionToolPart
+)
+
+
+class SubmissionMessageMetadata(DomainModel):
+    callId: str = Field(min_length=1, max_length=200)
+    agentType: str = Field(min_length=1, max_length=100)
+    agentName: str = Field(min_length=1, max_length=200)
+    taskLabel: str = Field(min_length=1, max_length=200)
+    model: str | None = Field(default=None, max_length=200)
+    duration: float | None = Field(default=None, ge=0)
+    promptTokens: int = Field(default=0, ge=0)
+    completionTokens: int = Field(default=0, ge=0)
+    outputStatus: Literal["completed", "failed"] = "completed"
+    error: str | None = Field(default=None, max_length=8_000)
+    createdAt: datetime
+    versionGroupId: str | None = Field(default=None, max_length=200)
+    versionIndex: int = Field(default=1, ge=1)
+    active: bool = True
+    stopped: bool = False
+
+
+class SubmissionMessage(DomainModel):
+    id: str = Field(min_length=1, max_length=200)
+    role: Literal["user", "assistant"]
+    parts: tuple[SubmissionMessagePart, ...] = Field(min_length=1, max_length=64)
+    metadata: SubmissionMessageMetadata
+
+    @model_validator(mode="after")
+    def parts_match_role(self) -> Self:
+        if self.role == "user" and any(
+            isinstance(part, (SubmissionReasoningPart, SubmissionToolPart))
+            for part in self.parts
+        ):
+            raise ValueError("user submission messages only support text and files")
+        if not any(
+            isinstance(part, (SubmissionTextPart, SubmissionFilePart))
+            for part in self.parts
+        ):
+            raise ValueError("submission messages require text or file content")
+        return self
+
+    def to_model_message(self) -> Message:
+        content: list[TextMessagePart | ImageMessagePart] = []
+        for part in self.parts:
+            if isinstance(part, SubmissionTextPart):
+                content.append(TextMessagePart(text=part.text))
+            elif isinstance(part, SubmissionFilePart):
+                content.append(ImageMessagePart(image_url=ImageUrl(url=part.url)))
+        return Message(role=self.role, content=tuple(content))
+
+
 class SubmissionConversationRequest(DomainModel):
     draft: SubmissionDraft
-    messages: tuple[Message, ...] = Field(min_length=1, max_length=40)
+    messages: tuple[SubmissionMessage, ...] = Field(min_length=1, max_length=40)
+    response_group_id: str | None = Field(default=None, max_length=200)
 
     @model_validator(mode="after")
     def history_is_user_controlled(self) -> Self:
-        if any(message.role == "system" for message in self.messages):
-            raise ValueError("system messages are not accepted from submission clients")
-        if self.messages[-1].role != "user":
+        active = tuple(message for message in self.messages if message.metadata.active)
+        if not active or active[-1].role != "user":
             raise ValueError("last submission message must be user")
+        groups: dict[str, int] = {}
+        for message in self.messages:
+            if message.role != "assistant":
+                continue
+            group_id = message.metadata.versionGroupId or message.id
+            groups.setdefault(group_id, 0)
+            if message.metadata.active:
+                groups[group_id] += 1
+        if any(
+            count != 1
+            and not (group_id == self.response_group_id and count == 0)
+            for group_id, count in groups.items()
+        ):
+            raise ValueError(
+                "each submission response group requires one active version"
+            )
         return self
+
+    def active_messages(self) -> tuple[SubmissionMessage, ...]:
+        return tuple(message for message in self.messages if message.metadata.active)
+
+
+class SubmissionConversationUpdate(DomainModel):
+    messages: tuple[SubmissionMessage, ...] = Field(min_length=1, max_length=40)
 
 
 class SubmissionModelOutput(DomainModel):
@@ -195,11 +312,114 @@ class SubmissionModelOutput(DomainModel):
 
 
 class SubmissionConversationResponse(DomainModel):
-    reply: str
+    message: SubmissionMessage
     draft: SubmissionDraft
     review: ReviewResult
     runnable: bool
     missing_requirements: tuple[str, ...]
+
+
+class SubmissionStatus(DomainModel):
+    runnable: bool
+    missing_requirements: tuple[str, ...]
+    review: ReviewResult
+    finalized: bool = False
+    updated_at: datetime
+
+
+class SubmissionWorkspaceState(DomainModel):
+    draft: SubmissionDraft
+    messages: tuple[SubmissionMessage, ...]
+    status: SubmissionStatus
+
+
+class SubmissionWorkspaceStore:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.directory = root / "submission"
+        self.conversation_path = self.directory / "conversation.jsonl"
+        self.draft_path = self.directory / "draft.md"
+        self.status_path = self.directory / "status.json"
+
+    def exists(self) -> bool:
+        return (
+            self.conversation_path.is_file()
+            and self.draft_path.is_file()
+            and self.status_path.is_file()
+        )
+
+    def load(self) -> SubmissionWorkspaceState:
+        draft = SubmissionDraft.model_validate(
+            load_json_envelope(
+                self.draft_path,
+                schema="story-engine/submission-draft/v1",
+            )
+        )
+        messages = tuple(
+            SubmissionMessage.model_validate_json(line)
+            for line in self.conversation_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+        if not messages:
+            raise ValueError("submission conversation is empty")
+        status = SubmissionStatus.model_validate_json(
+            self.status_path.read_text(encoding="utf-8")
+        )
+        return SubmissionWorkspaceState(
+            draft=draft,
+            messages=messages,
+            status=status,
+        )
+
+    def save(self, state: SubmissionWorkspaceState) -> None:
+        if state.draft.id != self.root.name:
+            raise ValueError("submission draft does not match workspace id")
+        groups: dict[str, int] = {}
+        for message in state.messages:
+            if message.role != "assistant":
+                continue
+            group_id = message.metadata.versionGroupId or message.id
+            groups.setdefault(group_id, 0)
+            if message.metadata.active:
+                groups[group_id] += 1
+        if any(count != 1 for count in groups.values()):
+            raise ValueError(
+                "each persisted submission response group requires one active version"
+            )
+        conversation = "".join(
+            f"{message.model_dump_json()}\n" for message in state.messages
+        )
+        draft_body = dump_json_envelope(
+            schema="story-engine/submission-draft/v1",
+            title=state.draft.title or "Untitled Submission",
+            payload=state.draft.model_dump(mode="json"),
+            metadata={"project_id": state.draft.id},
+            body=(
+                f"# {state.draft.title or 'Untitled Submission'}\n\n"
+                f"- Genre: {state.draft.genre or 'Unspecified'}\n"
+                f"- Theme: {state.draft.theme or 'Unspecified'}\n"
+                f"- Tone: {state.draft.tone or 'Unspecified'}"
+            ),
+        )
+        with ProjectLock(self.root):
+            atomic_write_text(self.conversation_path, conversation)
+            atomic_write_text(self.draft_path, draft_body)
+            atomic_write_text(
+                self.status_path,
+                f"{state.status.model_dump_json(indent=2)}\n",
+            )
+
+    def mark_finalized(self) -> None:
+        state = self.load()
+        self.save(
+            state.model_copy(
+                update={
+                    "status": state.status.model_copy(
+                        update={"finalized": True, "updated_at": datetime.now(UTC)}
+                    )
+                }
+            )
+        )
 
 
 class SubmissionDiscussionService:
@@ -267,6 +487,8 @@ class SubmissionDiscussionService:
             f"{json.dumps(request.draft.model_dump(mode='json'), ensure_ascii=False)}"
         )
         profile = self.model_gateway.registry.get_profile("submission_editor")
+        message_id = f"call:{uuid.uuid4().hex}"
+        started = time.monotonic()
         response = await self.model_gateway.complete(
             ModelRequest(
                 profile_id="submission_editor",
@@ -275,7 +497,10 @@ class SubmissionDiscussionService:
                     Message(role="system", content=protocol),
                     Message(role="system", content=profile.default_system_prompt),
                     Message(role="system", content=task_context),
-                    *request.messages,
+                    *(
+                        message.to_model_message()
+                        for message in request.active_messages()
+                    ),
                 ),
                 output_schema=json.dumps(
                     SubmissionModelOutput.model_json_schema(),
@@ -288,8 +513,16 @@ class SubmissionDiscussionService:
                 timeout_seconds=profile.timeout_seconds,
                 temperature=profile.temperature,
                 reasoning_effort=profile.reasoning_effort,
-            )
+            ),
+            context=ModelMessageContext(
+                project_id=request.draft.id,
+                message_id=message_id,
+                agent_name=profile.name,
+                task_label="投稿讨论",
+                stage="submission",
+            ),
         )
+        duration = max(0.0, time.monotonic() - started)
         output = SubmissionModelOutput.model_validate(response.parsed_output)
         if output.draft.id != request.draft.id:
             raise ValueError("submission Editor cannot change the project id")
@@ -312,8 +545,43 @@ class SubmissionDiscussionService:
                 issues=(*review.issues, *deterministic_issues),
             )
         runnable = output.draft.to_package() is not None
+        response_group_id = request.response_group_id or message_id
+        version_index = 1 + sum(
+            1
+            for message in request.messages
+            if message.role == "assistant"
+            and (message.metadata.versionGroupId or message.id) == response_group_id
+        )
         return SubmissionConversationResponse(
-            reply=output.reply,
+            message=SubmissionMessage(
+                id=message_id,
+                role="assistant",
+                parts=(
+                    *(
+                        (
+                            SubmissionReasoningPart(
+                                text=response.reasoning_content,
+                            ),
+                        )
+                        if response.reasoning_content
+                        else ()
+                    ),
+                    SubmissionTextPart(text=output.reply),
+                ),
+                metadata=SubmissionMessageMetadata(
+                    callId=message_id,
+                    agentType=profile.agent_type,
+                    agentName=profile.name,
+                    taskLabel="投稿讨论",
+                    model=response.model_ref,
+                    duration=duration,
+                    promptTokens=response.usage.prompt_tokens,
+                    completionTokens=response.usage.completion_tokens,
+                    createdAt=datetime.now(UTC),
+                    versionGroupId=response_group_id,
+                    versionIndex=version_index,
+                ),
+            ),
             draft=output.draft,
             review=review,
             runnable=runnable,

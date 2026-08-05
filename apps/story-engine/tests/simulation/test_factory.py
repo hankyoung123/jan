@@ -11,7 +11,11 @@ from story_engine.domain.simulation import (
     TurnSessionRequest,
 )
 from story_engine.models.contracts import ModelStreamChunk
-from story_engine.models.gateway import ModelGateway, UnavailableModelTransport
+from story_engine.models.gateway import (
+    ModelGateway,
+    ModelPartSink,
+    UnavailableModelTransport,
+)
 from story_engine.models.registry import ProfileRegistry
 from story_engine.simulation.factory import ProjectRuntimeFactory
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
@@ -104,9 +108,13 @@ class RecordingTransport:
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
-        del timeout_seconds
+        del timeout_seconds, first_content_timeout_seconds
         self.calls.append(dict(payload))
+        if part_sink is not None:
+            part_sink("text", "ok")
         return {
             "choices": [
                 {

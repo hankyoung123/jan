@@ -16,6 +16,7 @@ from story_engine.api.routes.projects import create_projects_router
 from story_engine.api.routes.simulations import create_simulations_router
 from story_engine.api.routes.wiki import create_wiki_router
 from story_engine.config import EngineSettings
+from story_engine.domain.message import ModelMessageEvent
 from story_engine.events.stream import (
     EngineEventBus,
     stream_events,
@@ -127,7 +128,23 @@ def create_app(
             runtime_settings.model_base_url,
             runtime_settings.model_api_key,
         )
-    gateway = ModelGateway(registry, transport or UnavailableModelTransport())
+    def publish_model_message(event: ModelMessageEvent) -> None:
+        event_bus.publish(
+            project_id=event.project_id,
+            subject_id=event.metadata.session_id or event.message_id,
+            event_type=event.event_type,
+            payload=event.model_dump(
+                mode="json",
+                exclude={"event_type", "project_id"},
+            ),
+        )
+
+    gateway = ModelGateway(
+        registry,
+        transport or UnavailableModelTransport(),
+        message_sink=publish_model_message,
+    )
+
     runtime_factory = simulation_runtime_factory or ProjectRuntimeFactory(
         runtime_settings.projects_root,
         gateway,

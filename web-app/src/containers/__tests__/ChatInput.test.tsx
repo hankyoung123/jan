@@ -455,6 +455,47 @@ describe('ChatInput', () => {
     ).toBeInTheDocument()
   })
 
+  it('story mode submits an image without a selected Jan chat model', () => {
+    selectedModelOverride = null
+    promptState = ''
+    attachmentsList = [
+      {
+        type: 'image',
+        name: 'harbor.png',
+        dataUrl: 'data:image/png;base64,aGVsbG8=',
+        mimeType: 'image/png',
+      },
+    ]
+    const onSubmit = vi.fn()
+
+    renderInput({
+      mode: 'story',
+      attachmentKey: 'story-submission',
+      onSubmit,
+    })
+    const send = document.querySelector(
+      '[data-test-id="send-message-button"]'
+    ) as HTMLButtonElement
+    expect(send.disabled).toBe(false)
+
+    fireEvent.click(send)
+
+    expect(onSubmit).toHaveBeenCalledWith('', [
+      {
+        type: 'file',
+        mediaType: 'image/png',
+        url: 'data:image/png;base64,aGVsbG8=',
+        filename: 'harbor.png',
+      },
+    ])
+    expect(
+      screen.queryByText('Please select a model to start chatting.')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('stub-assistants-menu')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('stub-tools')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('stub-token-counter')).not.toBeInTheDocument()
+  })
+
   it('does not submit if isComposing (IME) is true', () => {
     promptState = 'hello'
     const onSubmit = vi.fn()

@@ -11,9 +11,13 @@ from story_engine.models.gateway import ModelGateway
 from story_engine.submission.service import (
     SubmissionConversationRequest,
     SubmissionConversationResponse,
+    SubmissionConversationUpdate,
     SubmissionDiscussionService,
     SubmissionPackage,
     SubmissionService,
+    SubmissionStatus,
+    SubmissionWorkspaceState,
+    SubmissionWorkspaceStore,
 )
 from story_engine.workspace.project_store import ProjectSnapshot
 from story_engine.workspace.session import (
@@ -95,10 +99,54 @@ def create_projects_router(
         if (root / "project.md").is_file():
             raise HTTPException(status_code=409, detail="Project already exists")
         try:
-            return await SubmissionDiscussionService(model_gateway).respond(request)
+            response = await SubmissionDiscussionService(model_gateway).respond(request)
+            SubmissionWorkspaceStore(root).save(
+                SubmissionWorkspaceState(
+                    draft=response.draft,
+                    messages=(*request.messages, response.message),
+                    status=SubmissionStatus(
+                        runnable=response.runnable,
+                        missing_requirements=response.missing_requirements,
+                        review=response.review,
+                        updated_at=response.message.metadata.createdAt,
+                    ),
+                )
+            )
+            return response
         except ModelGatewayError as error:
             raise model_http_error(error) from error
         except (DomainError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.get(
+        "/projects/{project_id}/submission",
+        response_model=SubmissionWorkspaceState,
+    )
+    async def get_submission(project_id: str) -> SubmissionWorkspaceState:
+        store = SubmissionWorkspaceStore(_project_root(settings, project_id))
+        if not store.exists():
+            raise HTTPException(status_code=404, detail="Submission not found")
+        try:
+            return store.load()
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.put(
+        "/projects/{project_id}/submission/messages",
+        response_model=SubmissionWorkspaceState,
+    )
+    async def update_submission_messages(
+        project_id: str,
+        request: SubmissionConversationUpdate,
+    ) -> SubmissionWorkspaceState:
+        store = SubmissionWorkspaceStore(_project_root(settings, project_id))
+        if not store.exists():
+            raise HTTPException(status_code=404, detail="Submission not found")
+        try:
+            state = store.load().model_copy(update={"messages": request.messages})
+            store.save(state)
+            return state
+        except (OSError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
@@ -110,6 +158,11 @@ def create_projects_router(
         settings.projects_root.mkdir(parents=True, exist_ok=True)
         try:
             snapshot = SubmissionService(settings.projects_root).finalize(package)
+            submission_store = SubmissionWorkspaceStore(
+                settings.projects_root / package.id
+            )
+            if submission_store.exists():
+                submission_store.mark_finalized()
             return workspace_manager.open(snapshot.project.id).project
         except FileExistsError as error:
             raise HTTPException(

@@ -13,6 +13,7 @@ from typing import Any
 from concordia.language_model import language_model  # type: ignore[import-untyped]
 
 from story_engine.domain.action import TaskType
+from story_engine.domain.message import ModelMessageContext, ModelMessagePart
 from story_engine.domain.trace import ModelCallStatus, ModelCallTrace
 from story_engine.models.contracts import (
     AgentProfile,
@@ -64,6 +65,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         actor_id: str | None = None,
         component_ids: tuple[str, ...] = (),
         source_record_ids: tuple[str, ...] = (),
+        project_id: str | None = None,
     ) -> None:
         if profile_id is None and profile_resolver is None:
             raise ValueError("profile_id or profile_resolver is required")
@@ -84,6 +86,39 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         self._actor_id = actor_id
         self._component_ids = component_ids
         self._source_record_ids = source_record_ids
+        self._project_id = project_id
+
+    def _message_context(
+        self,
+        *,
+        call_id: str,
+        profile: AgentProfile,
+    ) -> ModelMessageContext | None:
+        if self._project_id is None:
+            return None
+        component = self._component_ids[-1] if self._component_ids else None
+        component_stage = component.rsplit(":", 1)[-1] if component else None
+        normalized_stage = (
+            component_stage.replace("-", "_") if component_stage else None
+        )
+        stage = normalized_stage
+        if normalized_stage is not None:
+            stage = {
+                "action": "actor_action",
+                "routing": "memory_routing",
+                "automatic_promotion": "promotion",
+                "roster_selection": "actor_selection",
+            }.get(normalized_stage, normalized_stage)
+        return ModelMessageContext(
+            project_id=self._project_id,
+            message_id=call_id,
+            agent_name=self._actor_id or profile.name,
+            task_label=(component or profile.name).replace("_", " "),
+            session_id=self._session_id,
+            branch_id=self._branch_id,
+            step=self._step,
+            stage=stage,
+        )
 
     def _current_profile_id(self) -> str:
         if self._profile_resolver is not None:
@@ -109,12 +144,15 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
     async def _complete_with_cancellation(
         self,
         request: ModelRequest,
+        context: ModelMessageContext | None,
     ) -> ModelResponse:
         if self._cancellation is None:
-            return await self._gateway.complete(request)
+            return await self._gateway.complete(request, context=context)
         if self._cancellation.is_set():
             raise ModelCallCancelledError("model request was cancelled")
-        completion = asyncio.create_task(self._gateway.complete(request))
+        completion = asyncio.create_task(
+            self._gateway.complete(request, context=context)
+        )
         while not completion.done():
             if self._cancellation.is_set():
                 completion.cancel()
@@ -194,6 +232,23 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
             content_locale=self._content_locale,
             component_ids=self._component_ids,
             source_record_ids=self._source_record_ids,
+            message_parts=(
+                *(
+                    (
+                        ModelMessagePart(
+                            type="reasoning",
+                            text=response.reasoning_content,
+                        ),
+                    )
+                    if response and response.reasoning_content
+                    else ()
+                ),
+                *(
+                    (ModelMessagePart(type="text", text=response.content),)
+                    if response and response.content
+                    else ()
+                ),
+            ),
             prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             prompt_tokens=(
                 response.usage.prompt_tokens
@@ -287,7 +342,12 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         response: ModelResponse | None = None
         error: Exception | None = None
         try:
-            response = asyncio.run(self._complete_with_cancellation(request))
+            response = asyncio.run(
+                self._complete_with_cancellation(
+                    request,
+                    self._message_context(call_id=call_id, profile=profile),
+                )
+            )
             return response.content, response.parsed_output
         except Exception as caught:
             error = caught

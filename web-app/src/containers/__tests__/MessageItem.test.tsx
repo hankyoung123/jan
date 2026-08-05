@@ -116,6 +116,7 @@ vi.mock('@/hooks/useToolApprovalRequests', () => ({
 
 // Import after mocks
 import { MessageItem } from '../MessageItem'
+import { useMessageErrors } from '@/stores/message-errors'
 
 const makeMsg = (overrides: any = {}) => ({
   id: 'msg-1',
@@ -130,6 +131,7 @@ describe('MessageItem', () => {
     vi.clearAllMocks()
     selectedModelRef.current = { id: 'm1' }
     pendingApprovalsRef.current = {}
+    useMessageErrors.getState().clearAll()
   })
 
   it('renders assistant text via RenderMarkdown', () => {
@@ -285,24 +287,6 @@ describe('MessageItem', () => {
     expect(onDelete).toHaveBeenCalledWith('msg-1')
   })
 
-  it('hides actions when hideActions is set', () => {
-    render(
-      <MessageItem
-        message={
-          makeMsg({ role: 'user', parts: [{ type: 'text', text: 'x' }] }) as any
-        }
-        isFirstMessage
-        isLastMessage
-        status={'ready' as any}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        hideActions
-      />
-    )
-    expect(screen.queryByTestId('edit-btn')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('delete-btn')).not.toBeInTheDocument()
-  })
-
   it('streaming state hides edit/delete and marks token speed streaming', () => {
     render(
       <MessageItem
@@ -384,6 +368,51 @@ describe('MessageItem', () => {
     expect(screen.getByTestId('tool')).toBeInTheDocument()
     expect(screen.getByTestId('tool-header')).toHaveTextContent('search')
     expect(screen.getByTestId('cot')).toBeInTheDocument()
+  })
+
+  it('uses live-agent capabilities without chat mutation actions', () => {
+    render(
+      <MessageItem
+        message={makeMsg() as any}
+        isFirstMessage
+        isLastMessage
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        preset="live-agent"
+        status={'ready' as any}
+      />
+    )
+
+    expect(screen.queryByTestId('edit-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('delete-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('chat:actions.regenerate')).not.toBeInTheDocument()
+    expect(screen.getByTestId('copy-btn')).toBeInTheDocument()
+  })
+
+  it('can hide reasoning and tools through a capability override', () => {
+    render(
+      <MessageItem
+        capabilities={{ reasoning: false, tools: false }}
+        message={
+          makeMsg({
+            parts: [
+              { type: 'reasoning', text: 'private reasoning' },
+              { type: 'tool-search', state: 'output-available', output: 'ok' },
+              { type: 'text', text: 'final answer' },
+            ],
+          }) as any
+        }
+        isFirstMessage
+        isLastMessage
+        preset="readonly"
+        status={'ready' as any}
+      />
+    )
+
+    expect(screen.queryByTestId('cot')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tool')).not.toBeInTheDocument()
+    expect(screen.getByTestId('render-markdown')).toHaveTextContent('final answer')
   })
 
   describe('interim reasoning text', () => {
@@ -567,9 +596,9 @@ describe('MessageItem', () => {
     expect(copy.getAttribute('data-text')).toBe('a\nb')
   })
 
-  it('does not render regenerate button when no selectedModel', () => {
-    selectedModelRef.current = null
+  it('renders the shared error recovery action when regeneration is available', () => {
     const onRegenerate = vi.fn()
+    useMessageErrors.getState().setError('msg-1', 'Invalid Format')
     render(
       <MessageItem
         message={makeMsg() as any}
@@ -579,6 +608,9 @@ describe('MessageItem', () => {
         onRegenerate={onRegenerate}
       />
     )
-    expect(screen.queryByTitle('chat:actions.regenerate')).not.toBeInTheDocument()
+    expect(screen.getByText('Generation failed')).toBeInTheDocument()
+    expect(screen.getByText('Invalid Format')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }))
+    expect(onRegenerate).toHaveBeenCalledWith('msg-1')
   })
 })

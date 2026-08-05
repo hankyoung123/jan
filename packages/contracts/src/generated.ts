@@ -720,6 +720,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/submission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Submission */
+        get: operations["get_submission_projects__project_id__submission_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/submission/messages": {
         parameters: {
             query?: never;
@@ -728,7 +745,8 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /** Update Submission Messages */
+        put: operations["update_submission_messages_projects__project_id__submission_messages_put"];
         /** Discuss Submission */
         post: operations["discuss_submission_projects__project_id__submission_messages_post"];
         delete?: never;
@@ -1087,7 +1105,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "engine.status" | "workspace.changed" | "simulation.started" | "simulation.step.started" | "simulation.stage.started" | "simulation.stage.completed" | "simulation.stage.failed" | "simulation.step.completed" | "simulation.pause.requested" | "simulation.termination.requested" | "simulation.paused" | "simulation.checkpointed" | "simulation.terminated" | "simulation.failed" | "stream.resync_required";
+            type: "engine.status" | "workspace.changed" | "simulation.started" | "simulation.step.started" | "simulation.stage.started" | "simulation.stage.completed" | "simulation.stage.failed" | "simulation.step.completed" | "simulation.pause.requested" | "simulation.termination.requested" | "simulation.paused" | "simulation.checkpointed" | "simulation.terminated" | "simulation.failed" | "model.message.started" | "model.message.delta" | "model.message.completed" | "model.message.failed" | "stream.resync_required";
         };
         /**
          * EventVisibility
@@ -1133,6 +1151,20 @@ export interface components {
             status: string;
             /** Version */
             version: string;
+        };
+        /** ImageMessagePart */
+        ImageMessagePart: {
+            image_url: components["schemas"]["ImageUrl"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "image_url";
+        };
+        /** ImageUrl */
+        ImageUrl: {
+            /** Url */
+            url: string;
         };
         /** InitialFact */
         InitialFact: {
@@ -1210,7 +1242,7 @@ export interface components {
         /** Message */
         Message: {
             /** Content */
-            content: string;
+            content: string | (components["schemas"]["TextMessagePart"] | components["schemas"]["ImageMessagePart"])[];
             /**
              * Role
              * @enum {string}
@@ -1252,6 +1284,8 @@ export interface components {
             finish_reason?: string | null;
             /** Max Tokens */
             max_tokens?: number | null;
+            /** Message Parts */
+            message_parts: components["schemas"]["ModelMessagePart"][];
             /** Model Ref */
             model_ref?: string | null;
             /** Profile Id */
@@ -1302,6 +1336,27 @@ export interface components {
              */
             validation_errors: string[];
         };
+        /** ModelMessagePart */
+        ModelMessagePart: {
+            /** Error */
+            error?: string | null;
+            /** Filename */
+            filename?: string | null;
+            input?: components["schemas"]["JsonValue"];
+            /** Media Type */
+            media_type?: string | null;
+            output?: components["schemas"]["JsonValue"];
+            /** State */
+            state?: string | null;
+            /** Text */
+            text?: string | null;
+            /** Tool Call Id */
+            tool_call_id?: string | null;
+            /** Type */
+            type: string;
+            /** Url */
+            url?: string | null;
+        };
         /** ModelRequest */
         ModelRequest: {
             /** First Content Timeout Seconds */
@@ -1345,6 +1400,11 @@ export interface components {
             parsed_output?: components["schemas"]["JsonValue"];
             /** Profile Id */
             profile_id: string;
+            /**
+             * Reasoning Content
+             * @default
+             */
+            reasoning_content: string;
             /**
              * Retry Count
              * @default 0
@@ -1995,18 +2055,24 @@ export interface components {
         SubmissionConversationRequest: {
             draft: components["schemas"]["SubmissionDraft"];
             /** Messages */
-            messages: components["schemas"]["Message"][];
+            messages: components["schemas"]["SubmissionMessage"][];
+            /** Response Group Id */
+            response_group_id?: string | null;
         };
         /** SubmissionConversationResponse */
         SubmissionConversationResponse: {
             draft: components["schemas"]["SubmissionDraft"];
+            message: components["schemas"]["SubmissionMessage"];
             /** Missing Requirements */
             missing_requirements: string[];
-            /** Reply */
-            reply: string;
             review: components["schemas"]["ReviewResult"];
             /** Runnable */
             runnable: boolean;
+        };
+        /** SubmissionConversationUpdate */
+        SubmissionConversationUpdate: {
+            /** Messages */
+            messages: components["schemas"]["SubmissionMessage"][];
         };
         /**
          * SubmissionDraft
@@ -2071,6 +2137,89 @@ export interface components {
              */
             world_rules: string[];
         };
+        /** SubmissionFilePart */
+        SubmissionFilePart: {
+            /** Filename */
+            filename?: string | null;
+            /** Mediatype */
+            mediaType: string;
+            /**
+             * Type
+             * @default file
+             * @constant
+             */
+            type: "file";
+            /** Url */
+            url: string;
+        };
+        /** SubmissionMessage */
+        SubmissionMessage: {
+            /** Id */
+            id: string;
+            metadata: components["schemas"]["SubmissionMessageMetadata"];
+            /** Parts */
+            parts: (components["schemas"]["SubmissionTextPart"] | components["schemas"]["SubmissionReasoningPart"] | components["schemas"]["SubmissionFilePart"] | components["schemas"]["SubmissionToolPart"])[];
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+        };
+        /** SubmissionMessageMetadata */
+        SubmissionMessageMetadata: {
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /** Agentname */
+            agentName: string;
+            /** Agenttype */
+            agentType: string;
+            /** Callid */
+            callId: string;
+            /**
+             * Completiontokens
+             * @default 0
+             */
+            completionTokens: number;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Duration */
+            duration?: number | null;
+            /** Error */
+            error?: string | null;
+            /** Model */
+            model?: string | null;
+            /**
+             * Outputstatus
+             * @default completed
+             * @enum {string}
+             */
+            outputStatus: "completed" | "failed";
+            /**
+             * Prompttokens
+             * @default 0
+             */
+            promptTokens: number;
+            /**
+             * Stopped
+             * @default false
+             */
+            stopped: boolean;
+            /** Tasklabel */
+            taskLabel: string;
+            /** Versiongroupid */
+            versionGroupId?: string | null;
+            /**
+             * Versionindex
+             * @default 1
+             */
+            versionIndex: number;
+        };
         /** SubmissionPackage */
         SubmissionPackage: {
             /** Characters */
@@ -2101,11 +2250,81 @@ export interface components {
             /** World Rules */
             world_rules: string[];
         };
+        /** SubmissionReasoningPart */
+        SubmissionReasoningPart: {
+            /** Text */
+            text: string;
+            /**
+             * Type
+             * @default reasoning
+             * @constant
+             */
+            type: "reasoning";
+        };
+        /** SubmissionStatus */
+        SubmissionStatus: {
+            /**
+             * Finalized
+             * @default false
+             */
+            finalized: boolean;
+            /** Missing Requirements */
+            missing_requirements: string[];
+            review: components["schemas"]["ReviewResult"];
+            /** Runnable */
+            runnable: boolean;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** SubmissionTextPart */
+        SubmissionTextPart: {
+            /** Text */
+            text: string;
+            /**
+             * Type
+             * @default text
+             * @constant
+             */
+            type: "text";
+        };
+        /** SubmissionToolPart */
+        SubmissionToolPart: {
+            /** Errortext */
+            errorText?: string | null;
+            input?: components["schemas"]["JsonValue"];
+            output?: components["schemas"]["JsonValue"];
+            /** State */
+            state: string;
+            /** Toolcallid */
+            toolCallId: string;
+            /** Type */
+            type: string;
+        };
+        /** SubmissionWorkspaceState */
+        SubmissionWorkspaceState: {
+            draft: components["schemas"]["SubmissionDraft"];
+            /** Messages */
+            messages: components["schemas"]["SubmissionMessage"][];
+            status: components["schemas"]["SubmissionStatus"];
+        };
         /**
          * TaskType
          * @enum {string}
          */
         TaskType: "actor" | "game_master" | "wiki_maintenance" | "editor" | "writer";
+        /** TextMessagePart */
+        TextMessagePart: {
+            /** Text */
+            text: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "text";
+        };
         /** TurnSessionRequest */
         TurnSessionRequest: {
             /**
@@ -4008,6 +4227,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TurnSessionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_submission_projects__project_id__submission_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionWorkspaceState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_submission_messages_projects__project_id__submission_messages_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmissionConversationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionWorkspaceState"];
                 };
             };
             /** @description Validation Error */

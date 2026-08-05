@@ -109,8 +109,17 @@ export async function subscribeProjectEvents(
       `story-engine.token.${runtime.session_token}`,
     ])
     socket = nextSocket
+    let opened = false
+    let settleOpen: (() => void) | undefined
+    let rejectOpen: ((cause: Error) => void) | undefined
+    const open = new Promise<void>((resolve, reject) => {
+      settleOpen = resolve
+      rejectOpen = reject
+    })
     nextSocket.onopen = () => {
+      opened = true
       reconnectAttempt = 0
+      settleOpen?.()
     }
     nextSocket.onmessage = (message) => {
       try {
@@ -141,8 +150,13 @@ export async function subscribeProjectEvents(
     }
     nextSocket.onclose = () => {
       if (socket === nextSocket) socket = null
+      if (!opened) rejectOpen?.(new Error('Story Engine event stream failed to open'))
       scheduleReconnect()
     }
+    nextSocket.onerror = () => {
+      if (!opened) rejectOpen?.(new Error('Story Engine event stream failed to open'))
+    }
+    await open
   }
 
   await connect()

@@ -28,6 +28,10 @@ EngineEventType = Literal[
     "simulation.checkpointed",
     "simulation.terminated",
     "simulation.failed",
+    "model.message.started",
+    "model.message.delta",
+    "model.message.completed",
+    "model.message.failed",
     "stream.resync_required",
 ]
 

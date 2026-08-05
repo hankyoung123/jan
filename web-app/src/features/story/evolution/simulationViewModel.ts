@@ -4,10 +4,19 @@ import type {
   SimulationStage,
   SimulationStageEventPayload,
 } from '@story-engine/contracts'
+import type { UIMessage } from 'ai'
+
+import type { StoryMessageMetadata } from '@/lib/message-capabilities'
+import {
+  isModelMessageEvent,
+  isModelMessagePayload,
+  reduceModelMessages,
+} from '../modelMessages'
 
 import type { ViewLocation } from './viewUrl'
 
 type SimulationLogRecord = components['schemas']['SimulationLogRecord']
+type TraceMessagePart = components['schemas']['ModelMessagePart']
 
 export const simulationStages: SimulationStage[] = [
   'termination',
@@ -23,6 +32,7 @@ export const simulationStages: SimulationStage[] = [
 
 export interface StageViewModel extends SimulationStageEventPayload {
   sequence: number
+  messageIds: string[]
 }
 
 export interface StepViewModel {
@@ -39,17 +49,87 @@ export interface SimulationViewState {
   selectedStep: number
   selectedStage?: SimulationStage
   lastSequence: number
+  messages: Record<string, UIMessage<StoryMessageMetadata>>
 }
 
 export const initialSimulationViewState: SimulationViewState = {
   steps: {},
   selectedStep: 0,
   lastSequence: 0,
+  messages: {},
+}
+
+function reduceModelMessageEvent(
+  state: SimulationViewState,
+  event: EngineEventEnvelope
+): SimulationViewState {
+  if (!isModelMessagePayload(event.payload)) {
+    return { ...state, lastSequence: event.sequence }
+  }
+  const payload = event.payload
+  const messages = reduceModelMessages(state.messages, event)
+  const step = payload.metadata.step
+  const stageName = payload.metadata.stage as SimulationStage | null | undefined
+  const currentStep = typeof step === 'number' ? state.steps[step] : undefined
+  const currentStage =
+    currentStep && stageName && simulationStages.includes(stageName)
+      ? currentStep.stages[stageName]
+      : undefined
+  const messageIds = currentStage?.messageIds.includes(payload.message_id)
+    ? currentStage.messageIds
+    : [...(currentStage?.messageIds ?? []), payload.message_id]
+  return {
+    ...state,
+    lastSequence: event.sequence,
+    messages,
+    steps:
+      currentStep && currentStage && stageName
+        ? {
+            ...state.steps,
+            [currentStep.step]: {
+              ...currentStep,
+              stages: {
+                ...currentStep.stages,
+                [stageName]: { ...currentStage, messageIds },
+              },
+            },
+          }
+        : state.steps,
+  }
 }
 
 function elapsedMilliseconds(startedAt: string, completedAt?: string | null): number | undefined {
   if (!completedAt) return undefined
   return Math.max(0, Date.parse(completedAt) - Date.parse(startedAt))
+}
+
+function tracePartToUiPart(
+  part: TraceMessagePart
+): UIMessage['parts'][number] | null {
+  if (part.type === 'text' || part.type === 'reasoning') {
+    return part.text == null ? null : { type: part.type, text: part.text }
+  }
+  if (part.type === 'file') {
+    return !part.media_type || !part.url
+      ? null
+      : {
+          type: 'file',
+          mediaType: part.media_type,
+          url: part.url,
+          filename: part.filename ?? undefined,
+        }
+  }
+  if (part.type.startsWith('tool-') && part.state && part.tool_call_id) {
+    return {
+      type: part.type,
+      state: part.state,
+      toolCallId: part.tool_call_id,
+      input: part.input,
+      output: part.output,
+      errorText: part.error ?? undefined,
+    } as UIMessage['parts'][number]
+  }
+  return null
 }
 
 /** Rebuild the durable part of the dashboard from the append-only simulation log. */
@@ -61,6 +141,7 @@ export function restoreSimulationTrace(
   currentStep?: number
 ): SimulationViewState {
   const steps: Record<number, StepViewModel> = {}
+  const messages: SimulationViewState['messages'] = {}
   for (const record of records) {
     const trace = record.trace
     if (trace.session_id !== sessionId) continue
@@ -127,6 +208,63 @@ export function restoreSimulationTrace(
         started_at: value.started_at,
         completed_at: value.completed_at ?? null,
         sequence: 0,
+        messageIds: [],
+      }
+      for (const call of calls) {
+        const parts = call.message_parts.flatMap((part) => {
+          const converted = tracePartToUiPart(part)
+          return converted ? [converted] : []
+        }) as UIMessage['parts']
+        messages[call.call_id] = {
+          id: call.call_id,
+          role: 'assistant',
+          parts,
+          metadata: {
+            callId: call.call_id,
+            agentType: call.profile_id,
+            agentName: call.actor_id ?? call.profile_id,
+            taskLabel: stage,
+            sessionId: trace.session_id,
+            branchId: trace.branch_id,
+            step: trace.step,
+            stage,
+            model: call.model_ref ?? undefined,
+            duration: call.duration_ms / 1000,
+            promptTokens: call.prompt_tokens,
+            completionTokens: call.completion_tokens,
+            outputStatus:
+              call.status === 'succeeded' ? 'completed' : 'failed',
+            error: call.error_code ?? undefined,
+            createdAt: call.started_at,
+          },
+        }
+        stages[stage]!.messageIds.push(call.call_id)
+      }
+      const summaryText = stages[stage]?.summary_text
+      if (summaryText && stages[stage]!.messageIds.length === 0) {
+        const messageId = `stage-message:${value.stage_id}`
+        messages[messageId] = {
+          id: messageId,
+          role: 'assistant',
+          parts: [{ type: 'text', text: summaryText }],
+          metadata: {
+            callId: value.model_call_ids[0] ?? messageId,
+            agentType: calls[0]?.profile_id ?? 'game_master',
+            agentName: value.actor_id ?? calls[0]?.profile_id ?? 'Story Engine',
+            taskLabel: stage,
+            sessionId: trace.session_id,
+            branchId: trace.branch_id,
+            step: trace.step,
+            stage,
+            model: calls[0]?.model_ref ?? undefined,
+            duration: stages[stage]!.duration_ms
+              ? stages[stage]!.duration_ms! / 1000
+              : undefined,
+            outputStatus: 'completed',
+            createdAt: value.completed_at ?? value.started_at,
+          },
+        }
+        stages[stage]!.messageIds = [messageId]
       }
     }
     steps[trace.step] = {
@@ -149,6 +287,7 @@ export function restoreSimulationTrace(
     selectedStep,
     selectedStage: selectedStep ? 'resolution' : undefined,
     lastSequence: 0,
+    messages,
   }
 }
 
@@ -198,6 +337,10 @@ export function reduceSimulationEvent(
     lastSequence: event.sequence,
   }
 
+  if (isModelMessageEvent(event)) {
+    return reduceModelMessageEvent(state, event)
+  }
+
   if (
     event.type === 'simulation.stage.started' ||
     event.type === 'simulation.stage.completed' ||
@@ -205,7 +348,21 @@ export function reduceSimulationEvent(
   ) {
     if (!isStageEventPayload(event.payload)) return next
     const current = stepFor(state, event.payload.step)
-    const stage: StageViewModel = { ...event.payload, sequence: event.sequence }
+    const priorStage = current.stages[event.payload.stage]
+    const matchingMessageIds = Object.values(state.messages)
+      .filter(
+        (message) =>
+          message.metadata?.step === event.payload.step &&
+          message.metadata?.stage === event.payload.stage
+      )
+      .map((message) => message.id)
+    const stage: StageViewModel = {
+      ...event.payload,
+      sequence: event.sequence,
+      messageIds: [
+        ...new Set([...(priorStage?.messageIds ?? []), ...matchingMessageIds]),
+      ],
+    }
     const failed = stage.status === 'failed'
     const cancelled = stage.status === 'cancelled'
     const updated: StepViewModel = {

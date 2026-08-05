@@ -11,6 +11,7 @@ import { useActiveStoryProjectId } from '../activeProject'
 import { PageHeader, StoryPage } from '../components/StoryLayout'
 import { engineRequest } from '../engine'
 import { useBranchContext } from '../useBranchContext'
+import { useProjectModelMessages } from '../useProjectModelMessages'
 import { NarrativeSourcePicker } from './NarrativeSourcePicker'
 import { SourceInspector } from './SourceInspector'
 import { useManuscript, type NarrativeSourceSummary, type SceneDraft } from './useManuscript'
@@ -23,6 +24,7 @@ export function ManuscriptView() {
   const projectId = useActiveStoryProjectId() ?? undefined
   const { branchId, setBranchId } = useBranchContext()
   const manuscript = useManuscript(projectId, branchId)
+  const projectMessages = useProjectModelMessages(projectId)
   const [source, setSource] = useState<NarrativeSourceSummary | null>(null)
   const [sceneId, setSceneId] = useState<string | null>(null)
   const [title, setTitle] = useState('')
@@ -38,6 +40,17 @@ export function ManuscriptView() {
   const chapters = useMemo(
     () => [...new Set(manuscript.scenes.map((item) => item.chapter_id))],
     [manuscript.scenes]
+  )
+  const activityMessages = useMemo(
+    () =>
+      projectMessages.messages.filter(
+        (message) =>
+          message.metadata?.branchId === branchId &&
+          (message.metadata?.stage === 'writer' ||
+            message.metadata?.stage === 'editor') &&
+          (!scene || message.metadata?.step === scene.source_to_step)
+      ),
+    [branchId, projectMessages.messages, scene]
   )
 
   useEffect(() => {
@@ -153,7 +166,11 @@ export function ManuscriptView() {
             <><Input aria-label="场景标题" className="border-0 px-0 font-studio text-2xl shadow-none" onChange={(event) => { setTitle(event.target.value); setDirty(true) }} value={title} /><div className="my-4 h-px bg-border" /><Suspense fallback={<p className="text-sm text-muted-foreground">正在加载正文编辑器…</p>}><NovelManuscriptEditor initialContent={novelDocumentFromMarkdown(body)} key={`${branchId}:${scene.id}:${scene.revision}`} onChange={(value: NovelManuscriptValue) => { setBody(value.markdown); setDirty(true) }} /></Suspense><div className="mt-5 flex flex-wrap items-center gap-3"><Button disabled={manuscript.working !== null || (!dirty && scene.status === 'saved')} onClick={() => void save()}>保存并检查来源</Button>{!dirty && scene.review?.unsupported_facts.length ? <Button onClick={() => void sendUnsupportedFactsToDirector()} variant="outline">转为导演指令</Button> : null}<span className="text-xs text-muted-foreground">revision {scene.revision} · scene v{scene.base_scene_version}</span></div></>
           ) : <div className="grid min-h-[520px] place-items-center text-center"><div><FileText className="mx-auto text-muted-foreground" /><h2 className="mt-4 font-studio text-xl">选择模拟片段生成第一幕</h2><p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">Writer 直接读取 Branch、Checkpoint、ResolvedEvent 与合法视角记忆。</p></div></div>}
         </main>
-        <SourceInspector scene={scene} showReview={!dirty} />
+        <SourceInspector
+          activityMessages={activityMessages}
+          scene={scene}
+          showReview={!dirty}
+        />
       </div>
       {notice && <p className="mt-4 bg-primary/10 p-3 text-sm text-primary" role="status">{notice}</p>}
     </StoryPage>

@@ -2,7 +2,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const h = vi.hoisted(() => ({ engineRequest: vi.fn() }))
+const h = vi.hoisted(() => ({
+  engineRequest: vi.fn(),
+  subscribeProjectEvents: vi.fn(),
+}))
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to }: { children: ReactNode; to: string }) => (
@@ -10,7 +13,10 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }))
 
-vi.mock('./engine', () => ({ engineRequest: h.engineRequest }))
+vi.mock('./engine', () => ({
+  engineRequest: h.engineRequest,
+  subscribeProjectEvents: h.subscribeProjectEvents,
+}))
 
 vi.mock('@/editor/NovelManuscriptEditor', () => ({
   NovelManuscriptEditor: ({ initialContent }: { initialContent: object }) => (
@@ -60,6 +66,8 @@ describe('closed-loop story views', () => {
   beforeEach(() => {
     clearActiveStoryProject()
     h.engineRequest.mockReset()
+    h.subscribeProjectEvents.mockReset()
+    h.subscribeProjectEvents.mockResolvedValue(() => undefined)
     window.history.replaceState({}, '', '/')
   })
 

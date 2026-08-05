@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
 from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.gateway import ModelPartSink
 from story_engine.models.registry import ProfileRegistry
 
 TOKEN = "test-token"
@@ -20,8 +21,11 @@ class ApiTransport:
         *,
         timeout_seconds: int,
         first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
         del payload, timeout_seconds, first_content_timeout_seconds
+        if part_sink is not None:
+            part_sink("text", "ready")
         return {
             "choices": [{"message": {"content": "ready"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},

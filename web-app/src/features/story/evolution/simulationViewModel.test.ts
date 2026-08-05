@@ -50,6 +50,89 @@ const stagePayload = {
 }
 
 describe('simulationViewModel', () => {
+  it('merges unified model message part deltas in order', () => {
+    const metadata = {
+      call_id: 'call:one',
+      agent_type: 'actor',
+      agent_name: '智秀',
+      task_label: '角色行动',
+      session_id: 'session:one',
+      branch_id: 'main',
+      step: 1,
+      stage: 'actor_action',
+      model: 'deepseek/deepseek-reasoner',
+      duration_ms: 1200,
+      prompt_tokens: 10,
+      completion_tokens: 20,
+    }
+    let state = reduceSimulationEvent(
+      initialSimulationViewState,
+      event(1, 'simulation.stage.started', {
+        ...stagePayload,
+        step: 1,
+        stage: 'actor_action',
+      })
+    )
+    state = reduceSimulationEvent(
+      state,
+      event(2, 'model.message.started', {
+        message_id: 'call:one',
+        role: 'assistant',
+        metadata,
+      })
+    )
+    state = reduceSimulationEvent(
+      state,
+      event(3, 'model.message.delta', {
+        message_id: 'call:one',
+        role: 'assistant',
+        metadata,
+        part: { type: 'reasoning', text_delta: '先判断' },
+      })
+    )
+    state = reduceSimulationEvent(
+      state,
+      event(4, 'model.message.delta', {
+        message_id: 'call:one',
+        role: 'assistant',
+        metadata,
+        part: { type: 'reasoning', text_delta: '角色知识。' },
+      })
+    )
+    state = reduceSimulationEvent(
+      state,
+      event(5, 'model.message.delta', {
+        message_id: 'call:one',
+        role: 'assistant',
+        metadata,
+        part: { type: 'text', text_delta: '智秀推开了门。' },
+      })
+    )
+    state = reduceSimulationEvent(
+      state,
+      event(6, 'model.message.completed', {
+        message_id: 'call:one',
+        role: 'assistant',
+        metadata,
+      })
+    )
+
+    expect(state.messages['call:one']).toMatchObject({
+      parts: [
+        { type: 'reasoning', text: '先判断角色知识。' },
+        { type: 'text', text: '智秀推开了门。' },
+      ],
+      metadata: {
+        agentName: '智秀',
+        outputStatus: 'completed',
+        model: 'deepseek/deepseek-reasoner',
+      },
+    })
+    expect(state.steps[1].stages.actor_action?.messageIds).toEqual([
+      'call:one',
+    ])
+  })
+
   it('aggregates stage events and ignores duplicate sequences', () => {
     const selected = reduceSimulationEvent(
       initialSimulationViewState,
@@ -82,7 +165,7 @@ describe('simulationViewModel', () => {
 
   it('rebuilds a completed causal pipeline from durable trace records', () => {
     const record = {
-      schema_version: 1,
+      schema_version: 2,
       checkpoint_id: `checkpoint-${'a'.repeat(64)}`,
       state_hash: 'a'.repeat(64),
       result: {
@@ -105,6 +188,18 @@ describe('simulationViewModel', () => {
         content_locale: 'en-US',
         stages: [
           {
+            stage_id: 'stage:actor-action',
+            stage_type: 'actor_action',
+            started_at: '2026-08-02T00:00:00Z',
+            completed_at: '2026-08-02T00:00:00.009Z',
+            status: 'succeeded',
+            actor_id: 'ara',
+            model_call_ids: ['call:actor-action'],
+            input_record_ids: [],
+            output_record_ids: [],
+            visible_to: ['ara'],
+          },
+          {
             stage_id: 'stage:commit',
             stage_type: 'commit',
             started_at: '2026-08-02T00:00:00Z',
@@ -116,7 +211,43 @@ describe('simulationViewModel', () => {
             detail_text: 'Committed',
           },
         ],
-        model_calls: [],
+        model_calls: [
+          {
+            call_id: 'call:actor-action',
+            task_id: 'task:actor-action',
+            task_type: 'actor',
+            status: 'succeeded',
+            session_id: 'session:one',
+            branch_id: 'main',
+            step: 0,
+            actor_id: 'ara',
+            profile_id: 'actor',
+            model_ref: 'deepseek/deepseek-reasoner',
+            prompt_version: 'v1',
+            content_locale: 'en-US',
+            component_ids: ['actor_action'],
+            source_record_ids: [],
+            message_parts: [
+              { type: 'reasoning', text: 'Check what Ara knows.' },
+              { type: 'text', text: 'Ara inspects the antenna.' },
+            ],
+            prompt_sha256: 'b'.repeat(64),
+            prompt_tokens: 11,
+            completion_tokens: 13,
+            reasoning_tokens: 5,
+            finish_reason: 'stop',
+            max_tokens: 2048,
+            reasoning_effort: 'medium',
+            temperature: 0.4,
+            timeout_seconds: 60,
+            duration_ms: 900,
+            retry_count: 0,
+            error_code: null,
+            validation_errors: [],
+            started_at: '2026-08-02T00:00:00Z',
+            completed_at: '2026-08-02T00:00:00.009Z',
+          },
+        ],
         action_spec: null,
         acting_actor_id: 'ara',
         putative_event_record_id: null,
@@ -133,6 +264,21 @@ describe('simulationViewModel', () => {
     expect(restored.steps[0].status).toBe('completed')
     expect(restored.steps[0].checkpointId).toBe(record.checkpoint_id)
     expect(restored.steps[0].stages.commit?.summary_text).toBe('Committed')
+    expect(restored.steps[0].stages.actor_action?.messageIds).toEqual([
+      'call:actor-action',
+    ])
+    expect(restored.messages['call:actor-action']).toMatchObject({
+      parts: [
+        { type: 'reasoning', text: 'Check what Ara knows.' },
+        { type: 'text', text: 'Ara inspects the antenna.' },
+      ],
+      metadata: {
+        agentName: 'ara',
+        model: 'deepseek/deepseek-reasoner',
+        duration: 0.9,
+        outputStatus: 'completed',
+      },
+    })
 
     const failedRecord = {
       ...record,

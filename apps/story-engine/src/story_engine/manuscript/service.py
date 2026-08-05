@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import Protocol
 
+from story_engine.domain.message import ModelMessageContext
 from story_engine.domain.narrative import (
     EditorContext,
     NarrativeSource,
@@ -158,7 +159,15 @@ class GatewayManuscriptAgent:
                 timeout_seconds=writer_profile.timeout_seconds,
                 temperature=writer_profile.temperature,
                 reasoning_effort=writer_profile.reasoning_effort,
-            )
+            ),
+            context=ModelMessageContext(
+                project_id=source.source.project_id,
+                agent_name=writer_profile.name,
+                task_label="正文生成",
+                branch_id=source.source.branch_id,
+                step=source.source.to_step,
+                stage="writer",
+            ),
         )
         return WriterOutput.model_validate(response.parsed_output)
 
@@ -205,7 +214,15 @@ class GatewayManuscriptAgent:
                 timeout_seconds=editor_profile.timeout_seconds,
                 temperature=editor_profile.temperature,
                 reasoning_effort=editor_profile.reasoning_effort,
-            )
+            ),
+            context=ModelMessageContext(
+                project_id=source.source.project_id,
+                agent_name=editor_profile.name,
+                task_label="正文审校",
+                branch_id=source.source.branch_id,
+                step=source.source.to_step,
+                stage="editor",
+            ),
         )
         return ManuscriptReviewOutput.model_validate(response.parsed_output)
 

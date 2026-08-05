@@ -378,6 +378,7 @@ def test_model_token_budget_terminates_before_another_step_can_run() -> None:
                 model_ref="replay",
             prompt_version="v1",
             content_locale="en-US",
+            message_parts=(),
             prompt_sha256="a" * 64,
             prompt_tokens=1,
             duration_ms=0,

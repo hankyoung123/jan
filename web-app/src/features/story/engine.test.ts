@@ -182,6 +182,7 @@ describe('Story Engine client', () => {
       onopen: (() => void) | null = null
       onmessage: ((event: MessageEvent<string>) => void) | null = null
       onclose: (() => void) | null = null
+      onerror: (() => void) | null = null
       closed = false
 
       constructor(
@@ -198,9 +199,11 @@ describe('Story Engine client', () => {
     vi.stubGlobal('WebSocket', FakeWebSocket)
     const listener = vi.fn()
 
-    const cleanup = await subscribeProjectEvents('fog-harbor', listener)
+    const subscription = subscribeProjectEvents('fog-harbor', listener)
+    await vi.waitFor(() => expect(sockets).toHaveLength(1))
     const socket = sockets[0]
     socket.onopen?.()
+    const cleanup = await subscription
     socket.onmessage?.({
       data: JSON.stringify({
         event_id: '01J00000000000000000000000',

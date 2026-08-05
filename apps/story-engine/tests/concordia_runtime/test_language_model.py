@@ -14,7 +14,7 @@ from story_engine.concordia_runtime.language_model import (
 from story_engine.domain.trace import ModelCallStatus
 from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.errors import ResponseLimitError
-from story_engine.models.gateway import ModelGateway
+from story_engine.models.gateway import ModelGateway, ModelPartSink
 from story_engine.models.registry import ProfileRegistry
 
 
@@ -28,13 +28,18 @@ class QueueTransport:
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
-        del timeout_seconds
+        del timeout_seconds, first_content_timeout_seconds
         self.calls.append(payload)
+        content = self._responses.pop(0)
+        if part_sink is not None:
+            part_sink("text", content)
         return {
             "choices": [
                 {
-                    "message": {"content": self._responses.pop(0)},
+                    "message": {"content": content},
                     "finish_reason": "stop",
                 }
             ],
@@ -104,6 +109,9 @@ def test_runtime_language_model_emits_source_trace(tmp_path: Path) -> None:
     assert len(trace.prompt_sha256) == 64
     assert trace.finish_reason == "stop"
     assert trace.retry_count == 0
+    assert [(part.type, part.text) for part in trace.message_parts] == [
+        ("text", "A concise answer."),
+    ]
 
 
 def test_game_master_records_extended_timeout_and_token_limit(
@@ -396,8 +404,13 @@ class TruncatingTransport(QueueTransport):
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
+        del timeout_seconds, first_content_timeout_seconds
         self.calls.append(payload)
+        if part_sink is not None:
+            part_sink("text", '{"choice":')
         return {
             "choices": [
                 {
@@ -422,12 +435,21 @@ class ReasoningTransport(QueueTransport):
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
+        del timeout_seconds, first_content_timeout_seconds
         self.calls.append(payload)
+        if part_sink is not None:
+            part_sink("reasoning", "Consider the evidence.")
+            part_sink("text", "A concise answer.")
         return {
             "choices": [
                 {
-                    "message": {"content": "A concise answer."},
+                    "message": {
+                        "content": "A concise answer.",
+                        "reasoning_content": "Consider the evidence.",
+                    },
                     "finish_reason": "stop",
                 }
             ],
@@ -450,8 +472,10 @@ class ExpandingTransport(QueueTransport):
         payload: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
-        del timeout_seconds
+        del timeout_seconds, first_content_timeout_seconds
         self.calls.append(payload)
         self._attempt += 1
         if self._attempt == 1:
@@ -462,15 +486,15 @@ class ExpandingTransport(QueueTransport):
             content = '{"choice":"b"}'
             finish_reason = "stop"
             reasoning_tokens = None
+        if part_sink is not None:
+            part_sink("text", content)
         usage: dict[str, Any] = {
             "prompt_tokens": 10,
             "completion_tokens": 4,
             "total_tokens": 14,
         }
         if reasoning_tokens is not None:
-            usage["completion_tokens_details"] = {
-                "reasoning_tokens": reasoning_tokens
-            }
+            usage["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
         return {
             "choices": [
                 {
@@ -570,3 +594,80 @@ def test_trace_records_provider_reasoning_tokens(tmp_path: Path) -> None:
     assert len(traces) == 1
     assert traces[0].finish_reason == "stop"
     assert traces[0].reasoning_tokens == 7
+    assert [(part.type, part.text) for part in traces[0].message_parts] == [
+        ("reasoning", "Consider the evidence."),
+        ("text", "A concise answer."),
+    ]
+
+
+def test_runtime_language_model_publishes_unified_message_parts(
+    tmp_path: Path,
+) -> None:
+    transport = ReasoningTransport()
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+        )
+    )
+    events = []
+    model = JanConcordiaLanguageModel(
+        ModelGateway(registry, transport, message_sink=events.append),
+        profile_id="writer",
+        task_type="writer",
+        content_locale="en-US",
+        project_id="north-star",
+        session_id="session:1",
+        branch_id="main",
+        step=3,
+        component_ids=("writer:draft",),
+    )
+
+    assert model.sample_text("Write.", terminators=()) == "A concise answer."
+
+    assert [event.event_type for event in events] == [
+        "model.message.started",
+        "model.message.delta",
+        "model.message.delta",
+        "model.message.completed",
+    ]
+    assert events[1].part.type == "reasoning"
+    assert events[1].part.text_delta == "Consider the evidence."
+    assert events[2].part.type == "text"
+    assert events[2].part.text_delta == "A concise answer."
+    assert events[3].metadata.model == "test-provider/test-writer"
+    assert events[3].metadata.step == 3
+    assert events[3].metadata.stage == "draft"
+
+
+def test_runtime_language_model_publishes_failed_message_status(
+    tmp_path: Path,
+) -> None:
+    transport = TruncatingTransport(("ignored",))
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+        )
+    )
+    events = []
+    model = JanConcordiaLanguageModel(
+        ModelGateway(registry, transport, message_sink=events.append),
+        profile_id="writer",
+        task_type="writer",
+        content_locale="en-US",
+        project_id="north-star",
+    )
+
+    with pytest.raises(ResponseLimitError):
+        model.sample_choice("Choose.", ("a", "b"))
+
+    assert [event.event_type for event in events] == [
+        "model.message.started",
+        "model.message.failed",
+    ]
+    assert "truncated" in events[-1].error

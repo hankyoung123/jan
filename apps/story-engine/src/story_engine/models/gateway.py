@@ -1,17 +1,27 @@
 import asyncio
 import json
+import logging
 import time
-from collections.abc import AsyncIterator, Mapping, Sequence
+import uuid
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from threading import Lock
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 import httpx
 from jsonschema import SchemaError, ValidationError
 from jsonschema.validators import validator_for
 from pydantic import JsonValue
 
+from story_engine.domain.message import (
+    MessagePartDelta,
+    ModelMessageContext,
+    ModelMessageEvent,
+    ModelMessageEventType,
+    ModelMessageSink,
+    StoryMessageMetadata,
+)
 from story_engine.models.contracts import (
     AgentProfile,
     ModelRequest,
@@ -38,6 +48,10 @@ MAX_PROVIDER_ERROR_DETAIL_CHARS = 1_000
 TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens"})
 MAX_STRUCTURED_ATTEMPTS = 3
 STRUCTURED_RETRY_BACKOFF_SECONDS = 0.5
+MODEL_MESSAGE_FIRST_CONTENT_TIMEOUT_SECONDS = 300
+logger = logging.getLogger(__name__)
+
+ModelPartSink = Callable[[Literal["reasoning", "text"], str], None]
 
 
 def initial_budget(task_kind: str, ceiling: int | None) -> int | None:
@@ -58,6 +72,7 @@ class ModelTransport(Protocol):
         *,
         timeout_seconds: float,
         first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]: ...
 
     def stream(
@@ -209,10 +224,19 @@ class OpenAICompatibleTransport:
         *,
         timeout_seconds: float,
         first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
         deadline = time.monotonic() + timeout_seconds
         if first_content_timeout_seconds is not None:
             deadline += first_content_timeout_seconds
+        emitted_part = False
+
+        def publish_part(part_type: Literal["reasoning", "text"], delta: str) -> None:
+            nonlocal emitted_part
+            emitted_part = True
+            if part_sink is not None:
+                part_sink(part_type, delta)
+
         for attempt in range(MAX_ATTEMPTS):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -227,6 +251,7 @@ class OpenAICompatibleTransport:
                             first_content_timeout_seconds,
                             remaining,
                         ),
+                        part_sink=publish_part,
                     )
                 async with (
                     self._client(remaining) as client,
@@ -252,6 +277,10 @@ class OpenAICompatibleTransport:
                     ) from error
                 raise ModelTimeoutError("model provider request timed out") from error
             except (httpx.NetworkError, _TransientProviderError) as error:
+                if emitted_part:
+                    raise ProviderResponseError(
+                        "provider stream was interrupted after output started"
+                    ) from error
                 if attempt == MAX_ATTEMPTS - 1:
                     if isinstance(error, _TransientProviderError):
                         raise ProviderResponseError(str(error)) from error
@@ -281,6 +310,7 @@ class OpenAICompatibleTransport:
         *,
         timeout_seconds: float,
         first_content_timeout_seconds: float,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
         streamed_payload = {
             **payload,
@@ -291,6 +321,7 @@ class OpenAICompatibleTransport:
         first_content_deadline = started_at + first_content_timeout_seconds
         completion_deadline: float | None = None
         content: list[str] = []
+        reasoning_content: list[str] = []
         finish_reason: str | None = None
         model: str | None = None
         usage: Mapping[str, Any] = {}
@@ -369,17 +400,26 @@ class OpenAICompatibleTransport:
                     event_finish_reason = choices[0].get("finish_reason")
                     if isinstance(event_finish_reason, str):
                         finish_reason = event_finish_reason
-                delta = _stream_delta(event)
-                if delta:
+                reasoning_delta, text_delta = _stream_part_delta(event)
+                if reasoning_delta:
+                    reasoning_content.append(reasoning_delta)
+                    if part_sink is not None:
+                        part_sink("reasoning", reasoning_delta)
+                if text_delta:
                     if completion_deadline is None:
                         completion_deadline = time.monotonic() + timeout_seconds
-                    content.append(delta)
+                    content.append(text_delta)
+                    if part_sink is not None:
+                        part_sink("text", text_delta)
 
         return {
             "model": model,
             "choices": [
                 {
-                    "message": {"content": "".join(content)},
+                    "message": {
+                        "content": "".join(content),
+                        "reasoning_content": "".join(reasoning_content),
+                    },
                     "finish_reason": finish_reason,
                 }
             ],
@@ -398,8 +438,7 @@ class OpenAICompatibleTransport:
                 f"{timeout_seconds:g}s after content started"
             )
         raise ModelTimeoutError(
-            "model request produced no content token within "
-            f"{timeout_seconds:g}s"
+            f"model request produced no content token within {timeout_seconds:g}s"
         )
 
     async def stream(
@@ -460,6 +499,7 @@ class OpenAICompatibleTransport:
         except _TransientProviderError as error:
             raise ProviderResponseError("provider stream was unavailable") from error
 
+
 class UnavailableModelTransport:
     async def complete(
         self,
@@ -467,8 +507,9 @@ class UnavailableModelTransport:
         *,
         timeout_seconds: float,
         first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
     ) -> Mapping[str, Any]:
-        del payload, timeout_seconds, first_content_timeout_seconds
+        del payload, timeout_seconds, first_content_timeout_seconds, part_sink
         raise ModelConfigurationError("Story Engine model runtime is unavailable")
 
     async def stream(
@@ -481,17 +522,26 @@ class UnavailableModelTransport:
             yield ModelStreamChunk()
         raise ModelConfigurationError("Story Engine model runtime is unavailable")
 
+
 def _stream_delta(event: Mapping[str, Any]) -> str:
+    return _stream_part_delta(event)[1]
+
+
+def _stream_part_delta(event: Mapping[str, Any]) -> tuple[str, str]:
     choices = event.get("choices")
     if not isinstance(choices, Sequence) or isinstance(choices, (str, bytes)):
-        return ""
+        return "", ""
     if not choices or not isinstance(choices[0], Mapping):
-        return ""
+        return "", ""
     delta = choices[0].get("delta")
     if not isinstance(delta, Mapping):
-        return ""
+        return "", ""
+    reasoning = delta.get("reasoning_content")
     content = delta.get("content")
-    return content if isinstance(content, str) else ""
+    return (
+        reasoning if isinstance(reasoning, str) else "",
+        content if isinstance(content, str) else "",
+    )
 
 
 def _usage_from_mapping(value: Mapping[str, Any]) -> ModelUsage:
@@ -551,10 +601,75 @@ class ModelGateway:
         registry: ProfileRegistry,
         transport: ModelTransport,
         usage: UsageTracker | None = None,
+        message_sink: ModelMessageSink | None = None,
     ) -> None:
         self.registry = registry
         self.transport = transport
         self.usage = usage or UsageTracker()
+        self.message_sink = message_sink
+
+    @staticmethod
+    def _message_metadata(
+        *,
+        message_id: str,
+        context: ModelMessageContext,
+        profile: AgentProfile,
+        response: ModelResponse | None = None,
+        duration_ms: int | None = None,
+    ) -> StoryMessageMetadata:
+        return StoryMessageMetadata(
+            call_id=message_id,
+            agent_type=profile.agent_type,
+            agent_name=context.agent_name,
+            task_label=context.task_label,
+            session_id=context.session_id,
+            branch_id=context.branch_id,
+            step=context.step,
+            stage=context.stage,
+            model=response.model_ref if response else profile.model,
+            duration_ms=duration_ms,
+            prompt_tokens=response.usage.prompt_tokens if response else 0,
+            completion_tokens=response.usage.completion_tokens if response else 0,
+        )
+
+    def _publish_message(
+        self,
+        *,
+        event_type: ModelMessageEventType,
+        message_id: str,
+        context: ModelMessageContext,
+        profile: AgentProfile,
+        response: ModelResponse | None = None,
+        duration_ms: int | None = None,
+        part: MessagePartDelta | None = None,
+        error: str | None = None,
+        reset: bool = False,
+    ) -> None:
+        if self.message_sink is None:
+            return
+        try:
+            self.message_sink(
+                ModelMessageEvent(
+                    event_type=event_type,
+                    project_id=context.project_id,
+                    message_id=message_id,
+                    metadata=self._message_metadata(
+                        message_id=message_id,
+                        context=context,
+                        profile=profile,
+                        response=response,
+                        duration_ms=duration_ms,
+                    ),
+                    part=part,
+                    error=error,
+                    reset=reset,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "failed to publish model message event",
+                extra={"message_id": message_id, "event_type": event_type},
+            )
 
     def _resolve(self, request: ModelRequest) -> AgentProfile:
         profile = self.registry.get_profile(request.profile_id)
@@ -564,8 +679,7 @@ class ModelGateway:
             )
         if profile.agent_type != request.task_type:
             raise ProfileMismatchError(
-                f"Agent {profile.agent_type!r} cannot run task "
-                f"{request.task_type!r}"
+                f"Agent {profile.agent_type!r} cannot run task {request.task_type!r}"
             )
         return profile
 
@@ -667,7 +781,7 @@ class ModelGateway:
     @staticmethod
     def _parse_content(
         raw: Mapping[str, Any],
-    ) -> tuple[str, str | None, ModelUsage]:
+    ) -> tuple[str, str, str | None, ModelUsage]:
         choices = raw.get("choices")
         if (
             not isinstance(choices, Sequence)
@@ -689,8 +803,10 @@ class ModelGateway:
             if isinstance(usage_value, Mapping)
             else ModelUsage()
         )
+        reasoning_content = message.get("reasoning_content")
         return (
             cast(str, message["content"]),
+            reasoning_content if isinstance(reasoning_content, str) else "",
             finish_reason if isinstance(finish_reason, str) else None,
             usage,
         )
@@ -738,8 +854,14 @@ class ModelGateway:
         )
         return min(ceiling, next_budget)
 
-    async def complete(self, request: ModelRequest) -> ModelResponse:
-        profile = self._resolve(request)
+    async def _complete_request(
+        self,
+        request: ModelRequest,
+        profile: AgentProfile,
+        *,
+        part_sink: ModelPartSink | None,
+        retry_sink: Callable[[], None] | None,
+    ) -> ModelResponse:
         schema = self._schema(request)
         payload = self._payload(request, profile, schema)
         can_fallback_to_prompt = schema is not None
@@ -761,12 +883,32 @@ class ModelGateway:
                     current_payload,
                     timeout_seconds=request.timeout_seconds,
                 )
+            if part_sink is None:
+                return await self.transport.complete(
+                    current_payload,
+                    timeout_seconds=request.timeout_seconds,
+                    first_content_timeout_seconds=(
+                        request.first_content_timeout_seconds
+                    ),
+                )
+            streamed_part_sink = part_sink
+            if schema is not None:
+                # Structured text is held until schema validation succeeds. Reasoning
+                # is presentation-only and can be streamed without exposing invalid
+                # business output.
+                def publish_structured_part(
+                    part_type: Literal["reasoning", "text"],
+                    delta: str,
+                ) -> None:
+                    if part_type == "reasoning":
+                        part_sink(part_type, delta)
+
+                streamed_part_sink = publish_structured_part
             return await self.transport.complete(
                 current_payload,
                 timeout_seconds=request.timeout_seconds,
-                first_content_timeout_seconds=(
-                    request.first_content_timeout_seconds
-                ),
+                first_content_timeout_seconds=(request.first_content_timeout_seconds),
+                part_sink=streamed_part_sink,
             )
 
         total_timeout = request.timeout_seconds
@@ -783,7 +925,9 @@ class ModelGateway:
                         payload = self._prompt_only_structured_payload(payload, schema)
                         can_fallback_to_prompt = False
                         raw = await transport_complete(payload)
-                    content, finish_reason, usage = self._parse_content(raw)
+                    content, reasoning_content, finish_reason, usage = (
+                        self._parse_content(raw)
+                    )
                     self.usage.record(usage)
                     if finish_reason in TRUNCATED_FINISH_REASONS:
                         message = (
@@ -830,6 +974,8 @@ class ModelGateway:
                             error.max_tokens = current_budget
                             raise error
                         payload["max_tokens"] = expanded
+                        if retry_sink is not None and schema is None:
+                            retry_sink()
                         continue
                     if schema is None and not content.strip():
                         empty_error = StructuredOutputError(
@@ -840,6 +986,8 @@ class ModelGateway:
                         empty_error.retry_count = attempt
                         if attempt == MAX_STRUCTURED_ATTEMPTS - 1:
                             raise empty_error
+                        if retry_sink is not None:
+                            retry_sink()
                         await asyncio.sleep(
                             STRUCTURED_RETRY_BACKOFF_SECONDS * (2**attempt)
                         )
@@ -866,6 +1014,7 @@ class ModelGateway:
                             else profile.model
                         ),
                         content=content,
+                        reasoning_content=reasoning_content,
                         parsed_output=parsed_output,
                         finish_reason=finish_reason,
                         usage=usage,
@@ -878,6 +1027,100 @@ class ModelGateway:
                 f"its {total_timeout}s total deadline"
             ) from error
         raise ProviderResponseError("model request failed")
+
+    async def complete(
+        self,
+        request: ModelRequest,
+        *,
+        context: ModelMessageContext | None = None,
+    ) -> ModelResponse:
+        profile = self._resolve(request)
+        if context is None:
+            return await self._complete_request(
+                request,
+                profile,
+                part_sink=None,
+                retry_sink=None,
+            )
+
+        if request.first_content_timeout_seconds is None:
+            request = request.model_copy(
+                update={
+                    "first_content_timeout_seconds": (
+                        MODEL_MESSAGE_FIRST_CONTENT_TIMEOUT_SECONDS
+                    )
+                }
+            )
+
+        message_id = context.message_id or f"call:{uuid.uuid4().hex}"
+        started = time.monotonic()
+        streamed_part_types: set[Literal["reasoning", "text"]] = set()
+
+        def duration_ms() -> int:
+            return max(0, int((time.monotonic() - started) * 1000))
+
+        def publish_part(part_type: Literal["reasoning", "text"], delta: str) -> None:
+            if not delta:
+                return
+            streamed_part_types.add(part_type)
+            self._publish_message(
+                event_type="model.message.delta",
+                message_id=message_id,
+                context=context,
+                profile=profile,
+                duration_ms=duration_ms(),
+                part=MessagePartDelta(type=part_type, text_delta=delta),
+            )
+
+        def reset_attempt() -> None:
+            streamed_part_types.clear()
+            self._publish_message(
+                event_type="model.message.started",
+                message_id=message_id,
+                context=context,
+                profile=profile,
+                duration_ms=duration_ms(),
+                reset=True,
+            )
+
+        self._publish_message(
+            event_type="model.message.started",
+            message_id=message_id,
+            context=context,
+            profile=profile,
+            reset=True,
+        )
+        try:
+            response = await self._complete_request(
+                request,
+                profile,
+                part_sink=publish_part,
+                retry_sink=reset_attempt,
+            )
+        except Exception as error:
+            self._publish_message(
+                event_type="model.message.failed",
+                message_id=message_id,
+                context=context,
+                profile=profile,
+                duration_ms=duration_ms(),
+                error=str(error),
+            )
+            raise
+
+        if response.reasoning_content and "reasoning" not in streamed_part_types:
+            publish_part("reasoning", response.reasoning_content)
+        if response.content and "text" not in streamed_part_types:
+            publish_part("text", response.content)
+        self._publish_message(
+            event_type="model.message.completed",
+            message_id=message_id,
+            context=context,
+            profile=profile,
+            response=response,
+            duration_ms=duration_ms(),
+        )
+        return response
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamChunk]:
         profile = self._resolve(request)

@@ -91,9 +91,32 @@ class AgentProfilePatch(DomainModel):
     reasoning_effort: ReasoningEffort | None = Field(default=None)
 
 
+class TextMessagePart(DomainModel):
+    type: Literal["text"] = "text"
+    text: str = Field(min_length=1, max_length=262_144)
+
+
+class ImageUrl(DomainModel):
+    url: str = Field(min_length=1, max_length=1_048_576)
+
+
+class ImageMessagePart(DomainModel):
+    type: Literal["image_url"] = "image_url"
+    image_url: ImageUrl
+
+
+MessageContentPart = Annotated[
+    TextMessagePart | ImageMessagePart,
+    Field(discriminator="type"),
+]
+
+
 class Message(DomainModel):
     role: MessageRole
-    content: str = Field(min_length=1, max_length=262_144)
+    content: (
+        Annotated[str, Field(min_length=1, max_length=262_144)]
+        | Annotated[tuple[MessageContentPart, ...], Field(min_length=1, max_length=64)]
+    )
 
 
 class ModelRequest(DomainModel):
@@ -128,6 +151,7 @@ class ModelResponse(DomainModel):
     profile_id: str
     model_ref: str | None = None
     content: str
+    reasoning_content: str = ""
     parsed_output: JsonValue = None
     finish_reason: str | None = None
     usage: ModelUsage = Field(default_factory=ModelUsage)

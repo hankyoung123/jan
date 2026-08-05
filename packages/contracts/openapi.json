@@ -872,6 +872,10 @@
               "simulation.checkpointed",
               "simulation.terminated",
               "simulation.failed",
+              "model.message.started",
+              "model.message.delta",
+              "model.message.completed",
+              "model.message.failed",
               "stream.resync_required"
             ],
             "title": "Type",
@@ -996,6 +1000,41 @@
           "version"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "ImageMessagePart": {
+        "additionalProperties": false,
+        "properties": {
+          "image_url": {
+            "$ref": "#/components/schemas/ImageUrl"
+          },
+          "type": {
+            "const": "image_url",
+            "default": "image_url",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_url"
+        ],
+        "title": "ImageMessagePart",
+        "type": "object"
+      },
+      "ImageUrl": {
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "maxLength": 1048576,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "ImageUrl",
         "type": "object"
       },
       "InitialFact": {
@@ -1188,10 +1227,36 @@
         "additionalProperties": false,
         "properties": {
           "content": {
-            "maxLength": 262144,
-            "minLength": 1,
-            "title": "Content",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 262144,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image_url": "#/components/schemas/ImageMessagePart",
+                      "text": "#/components/schemas/TextMessagePart"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TextMessagePart"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ImageMessagePart"
+                    }
+                  ]
+                },
+                "maxItems": 64,
+                "minItems": 1,
+                "type": "array"
+              }
+            ],
+            "title": "Content"
           },
           "role": {
             "enum": [
@@ -1318,7 +1383,7 @@
           "max_tokens": {
             "anyOf": [
               {
-                "maximum": 8192.0,
+                "maximum": 131072.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -1327,6 +1392,13 @@
               }
             ],
             "title": "Max Tokens"
+          },
+          "message_parts": {
+            "items": {
+              "$ref": "#/components/schemas/ModelMessagePart"
+            },
+            "title": "Message Parts",
+            "type": "array"
           },
           "model_ref": {
             "anyOf": [
@@ -1463,7 +1535,7 @@
           "timeout_seconds": {
             "anyOf": [
               {
-                "maximum": 120.0,
+                "maximum": 600.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -1490,11 +1562,116 @@
           "profile_id",
           "prompt_version",
           "content_locale",
+          "message_parts",
           "prompt_sha256",
           "duration_ms",
           "started_at"
         ],
         "title": "ModelCallTrace",
+        "type": "object"
+      },
+      "ModelMessagePart": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "input": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "media_type": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type"
+          },
+          "output": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Call Id"
+          },
+          "type": {
+            "pattern": "^(reasoning|text|file|tool-[a-zA-Z0-9_-]+)$",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 1048576,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "ModelMessagePart",
         "type": "object"
       },
       "ModelRequest": {
@@ -1669,6 +1846,11 @@
           },
           "profile_id": {
             "title": "Profile Id",
+            "type": "string"
+          },
+          "reasoning_content": {
+            "default": "",
+            "title": "Reasoning Content",
             "type": "string"
           },
           "retry_count": {
@@ -3483,12 +3665,24 @@
           },
           "messages": {
             "items": {
-              "$ref": "#/components/schemas/Message"
+              "$ref": "#/components/schemas/SubmissionMessage"
             },
             "maxItems": 40,
             "minItems": 1,
             "title": "Messages",
             "type": "array"
+          },
+          "response_group_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Group Id"
           }
         },
         "required": [
@@ -3504,16 +3698,15 @@
           "draft": {
             "$ref": "#/components/schemas/SubmissionDraft"
           },
+          "message": {
+            "$ref": "#/components/schemas/SubmissionMessage"
+          },
           "missing_requirements": {
             "items": {
               "type": "string"
             },
             "title": "Missing Requirements",
             "type": "array"
-          },
-          "reply": {
-            "title": "Reply",
-            "type": "string"
           },
           "review": {
             "$ref": "#/components/schemas/ReviewResult"
@@ -3524,13 +3717,32 @@
           }
         },
         "required": [
-          "reply",
+          "message",
           "draft",
           "review",
           "runnable",
           "missing_requirements"
         ],
         "title": "SubmissionConversationResponse",
+        "type": "object"
+      },
+      "SubmissionConversationUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionMessage"
+            },
+            "maxItems": 40,
+            "minItems": 1,
+            "title": "Messages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "title": "SubmissionConversationUpdate",
         "type": "object"
       },
       "SubmissionDraft": {
@@ -3616,6 +3828,226 @@
           "id"
         ],
         "title": "SubmissionDraft",
+        "type": "object"
+      },
+      "SubmissionFilePart": {
+        "additionalProperties": false,
+        "properties": {
+          "filename": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "mediaType": {
+            "pattern": "^image/(?:jpeg|png|webp|gif)$",
+            "title": "Mediatype",
+            "type": "string"
+          },
+          "type": {
+            "const": "file",
+            "default": "file",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 1048576,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mediaType",
+          "url"
+        ],
+        "title": "SubmissionFilePart",
+        "type": "object"
+      },
+      "SubmissionMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/SubmissionMessageMetadata"
+          },
+          "parts": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SubmissionTextPart"
+                },
+                {
+                  "$ref": "#/components/schemas/SubmissionReasoningPart"
+                },
+                {
+                  "$ref": "#/components/schemas/SubmissionFilePart"
+                },
+                {
+                  "$ref": "#/components/schemas/SubmissionToolPart"
+                }
+              ]
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Parts",
+            "type": "array"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "parts",
+          "metadata"
+        ],
+        "title": "SubmissionMessage",
+        "type": "object"
+      },
+      "SubmissionMessageMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "agentName": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Agentname",
+            "type": "string"
+          },
+          "agentType": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Agenttype",
+            "type": "string"
+          },
+          "callId": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Callid",
+            "type": "string"
+          },
+          "completionTokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Completiontokens",
+            "type": "integer"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "outputStatus": {
+            "default": "completed",
+            "enum": [
+              "completed",
+              "failed"
+            ],
+            "title": "Outputstatus",
+            "type": "string"
+          },
+          "promptTokens": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Prompttokens",
+            "type": "integer"
+          },
+          "stopped": {
+            "default": false,
+            "title": "Stopped",
+            "type": "boolean"
+          },
+          "taskLabel": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Tasklabel",
+            "type": "string"
+          },
+          "versionGroupId": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Versiongroupid"
+          },
+          "versionIndex": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Versionindex",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "callId",
+          "agentType",
+          "agentName",
+          "taskLabel",
+          "createdAt"
+        ],
+        "title": "SubmissionMessageMetadata",
         "type": "object"
       },
       "SubmissionPackage": {
@@ -3712,6 +4144,159 @@
         "title": "SubmissionPackage",
         "type": "object"
       },
+      "SubmissionReasoningPart": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "const": "reasoning",
+            "default": "reasoning",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "SubmissionReasoningPart",
+        "type": "object"
+      },
+      "SubmissionStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "finalized": {
+            "default": false,
+            "title": "Finalized",
+            "type": "boolean"
+          },
+          "missing_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Requirements",
+            "type": "array"
+          },
+          "review": {
+            "$ref": "#/components/schemas/ReviewResult"
+          },
+          "runnable": {
+            "title": "Runnable",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runnable",
+          "missing_requirements",
+          "review",
+          "updated_at"
+        ],
+        "title": "SubmissionStatus",
+        "type": "object"
+      },
+      "SubmissionTextPart": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "const": "text",
+            "default": "text",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "SubmissionTextPart",
+        "type": "object"
+      },
+      "SubmissionToolPart": {
+        "additionalProperties": false,
+        "properties": {
+          "errorText": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errortext"
+          },
+          "input": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "output": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "state": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          },
+          "toolCallId": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Toolcallid",
+            "type": "string"
+          },
+          "type": {
+            "pattern": "^tool-[a-zA-Z0-9_-]+$",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "state",
+          "toolCallId"
+        ],
+        "title": "SubmissionToolPart",
+        "type": "object"
+      },
+      "SubmissionWorkspaceState": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/SubmissionDraft"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SubmissionStatus"
+          }
+        },
+        "required": [
+          "draft",
+          "messages",
+          "status"
+        ],
+        "title": "SubmissionWorkspaceState",
+        "type": "object"
+      },
       "TaskType": {
         "enum": [
           "actor",
@@ -3722,6 +4307,28 @@
         ],
         "title": "TaskType",
         "type": "string"
+      },
+      "TextMessagePart": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "const": "text",
+            "default": "text",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "TextMessagePart",
+        "type": "object"
       },
       "TurnSessionRequest": {
         "additionalProperties": false,
@@ -7431,6 +8038,53 @@
         ]
       }
     },
+    "/projects/{project_id}/submission": {
+      "get": {
+        "operationId": "get_submission_projects__project_id__submission_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionWorkspaceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Submission",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
     "/projects/{project_id}/submission/messages": {
       "post": {
         "operationId": "discuss_submission_projects__project_id__submission_messages_post",
@@ -7483,6 +8137,61 @@
           }
         ],
         "summary": "Discuss Submission",
+        "tags": [
+          "projects"
+        ]
+      },
+      "put": {
+        "operationId": "update_submission_messages_projects__project_id__submission_messages_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionConversationUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionWorkspaceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Update Submission Messages",
         "tags": [
           "projects"
         ]

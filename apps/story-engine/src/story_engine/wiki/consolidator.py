@@ -1,9 +1,11 @@
 import json
 import re
+import uuid
 from typing import Protocol
 
 from pydantic import ValidationError
 
+from story_engine.domain.message import ModelMessageContext
 from story_engine.domain.wiki import (
     WikiConsolidationOutput,
     WikiPage,
@@ -28,6 +30,9 @@ class WikiConsolidator(Protocol):
     async def consolidate(
         self,
         *,
+        project_id: str,
+        session_id: str | None,
+        step: int,
         branch_id: str,
         subject_id: str | None,
         pages: tuple[WikiPage, ...],
@@ -48,6 +53,9 @@ class GatewayWikiConsolidator:
     async def consolidate(
         self,
         *,
+        project_id: str,
+        session_id: str | None,
+        step: int,
         branch_id: str,
         subject_id: str | None,
         pages: tuple[WikiPage, ...],
@@ -68,6 +76,7 @@ class GatewayWikiConsolidator:
             )
             for page in pages
         )
+        message_id = f"call:{uuid.uuid4().hex}"
         for attempt in range(MAX_CONSOLIDATION_ATTEMPTS):
             try:
                 profile = self.gateway.registry.get_profile("wiki_maintainer")
@@ -119,6 +128,16 @@ class GatewayWikiConsolidator:
                         timeout_seconds=profile.timeout_seconds,
                         temperature=profile.temperature,
                         reasoning_effort=profile.reasoning_effort,
+                    ),
+                    context=ModelMessageContext(
+                        project_id=project_id,
+                        message_id=message_id,
+                        agent_name=profile.name,
+                        task_label=scope,
+                        session_id=session_id,
+                        branch_id=branch_id,
+                        step=step,
+                        stage="wiki",
                     ),
                 )
             except StructuredOutputError as error:
