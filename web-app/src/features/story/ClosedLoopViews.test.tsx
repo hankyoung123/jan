@@ -141,6 +141,33 @@ describe('closed-loop story views', () => {
     expect(await screen.findByText('下一场让潮汐成为压力。')).toBeInTheDocument()
   })
 
+  it('shows a degraded Wiki state and explains that manuscript generation is paused', async () => {
+    setActiveStoryProjectId('fog-harbor')
+    h.engineRequest.mockImplementation((path: string) => {
+      if (path.endsWith('/wiki')) {
+        return Promise.resolve({
+          branch_id: 'main',
+          checkpoint_id: 'checkpoint-main-3',
+          updated_at_step: 3,
+          stale: true,
+          degraded: true,
+          degradation_reason: 'Wiki proposal failed after 2 attempts',
+          pages: [],
+        })
+      }
+      if (path.endsWith('/director-instructions')) return Promise.resolve([])
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    render(<WorldView />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Wiki 维护已降级')
+    expect(screen.getByRole('status')).toHaveTextContent('正文生成已暂停')
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Wiki proposal failed after 2 attempts'
+    )
+  })
+
   it('generates manuscript directly from a Narrative Source with lineage', async () => {
     setActiveStoryProjectId('fog-harbor')
     let scenes: object[] = []

@@ -312,11 +312,27 @@ class WikiStore:
         if not self.branch_root.exists():
             return ()
         pages = []
-        for path in sorted(self.branch_root.rglob("*.md")):
-            if path.parent == self.branch_root:
-                continue
-            relative = path.relative_to(self.branch_root).as_posix()
-            pages.append(_parse(relative, path.read_text(encoding="utf-8")))
+        for directory in ("world", "characters"):
+            for path in sorted((self.branch_root / directory).rglob("*.md")):
+                relative = path.relative_to(self.branch_root).as_posix()
+                pages.append(_parse(relative, path.read_text(encoding="utf-8")))
+        return tuple(pages)
+
+    @staticmethod
+    def is_model_editable_path(relative_path: str) -> bool:
+        try:
+            relative = _validate_relative(relative_path)
+        except ValueError:
+            return False
+        return relative.name not in {"index.md", "log.md", "SCHEMA.md"}
+
+    def model_editable_pages(self) -> tuple[WikiPage, ...]:
+        """Return only content pages that a Wiki Agent may propose updates for."""
+
+        pages = []
+        for page in self.list_pages():
+            if self.is_model_editable_path(page.path):
+                pages.append(page)
         return tuple(pages)
 
     def version_root(self, version_id: str) -> Path:
@@ -351,6 +367,8 @@ class WikiStore:
             checkpoint_id=index.checkpoint_id,
             updated_at_step=index.updated_at_step,
             stale=index.stale,
+            degraded=index.degraded,
+            degradation_reason=index.degradation_reason,
             pages=tuple(
                 WikiPageSummary(
                     path=page.path,
@@ -372,6 +390,8 @@ class WikiStore:
         checkpoint_id: str | None,
         step: int,
         stale: bool,
+        degraded: bool = False,
+        degradation_reason: str | None = None,
     ) -> str:
         links = "\n".join(
             f"- [{_title(page.content, PurePosixPath(page.path).stem)}]({page.path})"
@@ -383,6 +403,8 @@ class WikiStore:
             updated_at_step=step,
             checkpoint_id=checkpoint_id,
             stale=stale,
+            degraded=degraded,
+            degradation_reason=degradation_reason,
             content=f"# Branch {self.branch_id} Wiki\n\n{links}",
         )
         return _render(index)
@@ -424,9 +446,7 @@ class WikiStore:
                 updated_at_step=step,
                 source_ids=tuple(
                     dict.fromkeys(
-                        source_id
-                        for page in members
-                        for source_id in page.source_ids
+                        source_id for page in members for source_id in page.source_ids
                     )
                 ),
                 checkpoint_id=checkpoint_id,
@@ -558,7 +578,15 @@ class WikiStore:
         existing_log = (self.branch_root / "log.md").read_text(encoding="utf-8")
         entries = "\n".join(
             f"- step {step}: `{patch.operation.value}` `{patch.path}` "
-            f"sources={','.join(patch.source_ids)}"
+            + (
+                f"page_id={patch.proposal_page_id} "
+                "source_refs="
+                + ",".join(str(item) for item in patch.proposal_source_refs)
+                + " "
+                if patch.proposal_page_id is not None
+                else ""
+            )
+            + f"sources={','.join(patch.source_ids)}"
             for patch in patches
         )
         batch.add(
@@ -648,7 +676,15 @@ class WikiStore:
         batch.commit()
         return updated
 
-    def set_head(self, checkpoint_id: str, step: int, *, stale: bool) -> None:
+    def set_head(
+        self,
+        checkpoint_id: str,
+        step: int,
+        *,
+        stale: bool,
+        degraded: bool = False,
+        degradation_reason: str | None = None,
+    ) -> None:
         pages = list(self.list_pages())
         atomic_write_text(
             self.branch_root / "index.md",
@@ -657,11 +693,22 @@ class WikiStore:
                 checkpoint_id=checkpoint_id,
                 step=step,
                 stale=stale,
+                degraded=degraded,
+                degradation_reason=degradation_reason,
             ),
         )
 
     def mark_stale(self, checkpoint_id: str, step: int) -> None:
         self.set_head(checkpoint_id, step, stale=True)
+
+    def mark_degraded(self, checkpoint_id: str, step: int, reason: str) -> None:
+        self.set_head(
+            checkpoint_id,
+            step,
+            stale=True,
+            degraded=True,
+            degradation_reason=reason,
+        )
 
     def fork_from(
         self,
@@ -771,9 +818,9 @@ class WikiStore:
             for target in _LINK.findall(page.content):
                 clean = target.split("#", 1)[0]
                 resolved = PurePosixPath(parent, clean)
-                normalized = PurePosixPath(*(
-                    part for part in resolved.parts if part not in {"."}
-                ))
+                normalized = PurePosixPath(
+                    *(part for part in resolved.parts if part not in {"."})
+                )
                 if ".." in normalized.parts or normalized not in available:
                     raise ValueError(
                         f"wiki page {page.path!r} links to missing page {target!r}"

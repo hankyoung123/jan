@@ -199,9 +199,9 @@ class WikiBoundaryProcessor:
             return written
 
         try:
-            written = await consolidate_and_apply(store.list_pages())
+            written = await consolidate_and_apply(store.model_editable_pages())
         except WikiRevisionConflictError:
-            written = await consolidate_and_apply(store.list_pages())
+            written = await consolidate_and_apply(store.model_editable_pages())
         if boundary == SimulationBoundary.CHAPTER:
             lint = WikiLinter(self.root, snapshot.branch_id).run()
             if not lint.passed:

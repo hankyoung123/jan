@@ -50,14 +50,9 @@ class SimulationBoundary(StrEnum):
     CHAPTER = "chapter"
 
 
-class EntityChangeOperation(StrEnum):
-    CREATE_NPC = "create_npc"
-
-
 class EntityChange(RuntimeModel):
     """One ordinary NPC introduced by the Game Master resolution envelope."""
 
-    operation: EntityChangeOperation
     entity_id: Identifier
     display_name: str | None = Field(default=None, max_length=256)
     identity: str | None = Field(default=None, max_length=16_384)
@@ -65,7 +60,7 @@ class EntityChange(RuntimeModel):
     location: str | None = Field(default=None, max_length=1024)
 
     @model_validator(mode="after")
-    def validate_operation_fields(self) -> Self:
+    def validate_required_fields(self) -> Self:
         if not self.display_name or not self.identity or not self.core_desire:
             raise ValueError(
                 "create_npc requires display_name, identity and core_desire"

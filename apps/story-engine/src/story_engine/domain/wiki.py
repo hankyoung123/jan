@@ -54,6 +54,8 @@ class WikiPatch(RuntimeModel):
         default=None,
         pattern=r"^(public|gm_only|private:.+)$",
     )
+    proposal_page_id: Identifier | None = None
+    proposal_source_refs: tuple[int, ...] = ()
 
     @model_validator(mode="after")
     def section_matches_operation(self) -> Self:
@@ -66,17 +68,34 @@ class WikiPatch(RuntimeModel):
         if len(self.source_ids) != len(set(self.source_ids)):
             raise ValueError("wiki patch source ids must be unique")
         if self.operation == WikiPatchOperation.CREATE and (
-            self.expected_revision is not None
-            or self.expected_content_hash is not None
+            self.expected_revision is not None or self.expected_content_hash is not None
         ):
             raise ValueError("create patch must not carry expected revision")
         if self.visibility is not None:
             validate_wiki_visibility(self.visibility)
+        if (self.proposal_page_id is None) != (not self.proposal_source_refs):
+            raise ValueError("wiki proposal trace requires page id and source refs")
+        if len(self.proposal_source_refs) != len(set(self.proposal_source_refs)):
+            raise ValueError("wiki proposal source refs must be unique")
         return self
 
 
-class WikiConsolidationOutput(RuntimeModel):
-    patches: tuple[WikiPatch, ...] = Field(max_length=64)
+class WikiUpdate(RuntimeModel):
+    page_id: Identifier
+    content: str = Field(min_length=1, max_length=65_536)
+    source_refs: tuple[int, ...] = Field(min_length=1, max_length=256)
+
+    @model_validator(mode="after")
+    def source_refs_are_unique(self) -> Self:
+        if len(self.source_refs) != len(set(self.source_refs)):
+            raise ValueError("wiki update source refs must be unique")
+        if any(item < 0 for item in self.source_refs):
+            raise ValueError("wiki update source refs must be non-negative")
+        return self
+
+
+class WikiUpdateProposal(RuntimeModel):
+    updates: tuple[WikiUpdate, ...] = Field(max_length=64)
 
 
 class WikiPage(RuntimeModel):
@@ -88,6 +107,8 @@ class WikiPage(RuntimeModel):
     confidence: float = Field(default=1.0, ge=0, le=1)
     checkpoint_id: Identifier | None = None
     stale: bool = False
+    degraded: bool = False
+    degradation_reason: str | None = Field(default=None, max_length=8_000)
     content: str = Field(max_length=131_072)
     visibility: str = Field(default="public", pattern=r"^(public|gm_only|private:.+)$")
     revision: int = Field(default=0, ge=0)
@@ -96,6 +117,10 @@ class WikiPage(RuntimeModel):
     @model_validator(mode="after")
     def visibility_is_valid(self) -> Self:
         validate_wiki_visibility(self.visibility)
+        if self.degraded and not self.stale:
+            raise ValueError("degraded Wiki page must also be stale")
+        if (self.degradation_reason is not None) != self.degraded:
+            raise ValueError("Wiki degradation reason must match degraded state")
         return self
 
 
@@ -114,6 +139,8 @@ class WikiBranchView(RuntimeModel):
     checkpoint_id: Identifier | None = None
     updated_at_step: int = Field(ge=0)
     stale: bool
+    degraded: bool = False
+    degradation_reason: str | None = Field(default=None, max_length=8_000)
     pages: tuple[WikiPageSummary, ...]
 
 

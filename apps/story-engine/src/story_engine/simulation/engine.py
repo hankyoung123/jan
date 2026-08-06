@@ -234,6 +234,19 @@ class StoryTurnEngine:
             session.touch()
             return session.snapshot()
 
+    def degrade_maintenance(
+        self,
+        session_id: str,
+        *,
+        error_text: str,
+    ) -> TurnSessionSnapshot:
+        session = self._get(session_id)
+        with session.lock:
+            session.maintenance_status = MaintenanceStatus.DEGRADED
+            session.maintenance_error_text = error_text
+            session.touch()
+            return session.snapshot()
+
     def switch_locale(
         self,
         session_id: str,

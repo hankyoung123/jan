@@ -35,6 +35,7 @@
   },
   "maintenance": {
     "failed": "Wiki 维护失败，模拟已暂停。",
+    "degraded": "Wiki 无法解析模型输出。模拟可以继续，但正文生成会暂停，直到 Wiki 重建完成。",
     "retry": "重试 Wiki 维护"
   },
   "controls": {

@@ -23,6 +23,11 @@ class WriterOutput(DomainModel):
     body: str = Field(min_length=1, max_length=262_144)
 
 
+class EditorReviewProposal(DomainModel):
+    summary: str = Field(min_length=1, max_length=8_000)
+    issues: tuple[str, ...] = Field(default=(), max_length=128)
+
+
 class ManuscriptReviewOutput(DomainModel):
     review: ReviewResult
     unsupported_facts: tuple[str, ...] = ()

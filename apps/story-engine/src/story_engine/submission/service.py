@@ -1,4 +1,6 @@
+import hashlib
 import json
+import re
 import time
 import uuid
 from datetime import UTC, datetime
@@ -48,7 +50,6 @@ class SubmissionCharacter(DomainModel):
     core_desire: str = Field(min_length=1)
     current_goal: str = Field(min_length=1)
     known_fact_ids: tuple[str, ...] = Field(
-        min_length=1,
         description=(
             "Only private or secret fact ids belong here. A fact id must appear "
             "exactly for the characters listed in that fact's known_by array; "
@@ -287,8 +288,7 @@ class SubmissionConversationRequest(DomainModel):
             if message.metadata.active:
                 groups[group_id] += 1
         if any(
-            count != 1
-            and not (group_id == self.response_group_id and count == 0)
+            count != 1 and not (group_id == self.response_group_id and count == 0)
             for group_id, count in groups.items()
         ):
             raise ValueError(
@@ -304,16 +304,237 @@ class SubmissionConversationUpdate(DomainModel):
     messages: tuple[SubmissionMessage, ...] = Field(min_length=1, max_length=40)
 
 
-class SubmissionModelOutput(DomainModel):
-    reply: str = Field(min_length=1, max_length=8_000)
-    draft: SubmissionDraft
-    review: ReviewResult
+class SubmissionCharacterProposal(DomainModel):
+    display_name: str = Field(min_length=1)
+    identity: str = Field(min_length=1)
+    core_desire: str = Field(min_length=1)
+    current_goal: str = Field(min_length=1)
+    location: str = Field(min_length=1)
+    emotional_state: str | None = None
+    resources: tuple[str, ...] = ()
+
+
+class SubmissionFactProposal(DomainModel):
+    statement: str = Field(min_length=1)
+    visibility: Literal["public", "private", "secret"]
+    known_by: tuple[int, ...] = Field(
+        default=(),
+        description=(
+            "Zero-based indexes into the effective characters array. Must be empty "
+            "for public facts and non-empty for private or secret facts."
+        ),
+    )
+    supersedes_ref: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
-    def review_uses_submission_mode(self) -> Self:
-        if self.review.mode != "submission_review":
-            raise ValueError("submission discussion requires submission_review mode")
+    def knowledge_refs_match_visibility(self) -> Self:
+        if any(item < 0 for item in self.known_by):
+            raise ValueError("fact character refs must be non-negative")
+        if len(self.known_by) != len(set(self.known_by)):
+            raise ValueError("fact character refs must be unique")
+        if self.visibility == "public" and self.known_by:
+            raise ValueError("public fact cannot have character refs")
+        if self.visibility != "public" and not self.known_by:
+            raise ValueError("restricted fact requires character refs")
         return self
+
+
+class SubmissionDraftDelta(DomainModel):
+    title: str | None = None
+    genre: str | None = None
+    theme: str | None = None
+    tone: str | None = None
+    world_rules: tuple[str, ...] | None = None
+    facts: tuple[SubmissionFactProposal, ...] | None = None
+    characters: tuple[SubmissionCharacterProposal, ...] | None = Field(
+        default=None,
+        max_length=4,
+    )
+    initial_time: str | None = None
+    initial_location: str | None = None
+    initial_incident: str | None = None
+    pressures: tuple[str, ...] | None = None
+
+
+class SubmissionModelOutput(DomainModel):
+    reply: str = Field(min_length=1, max_length=8_000)
+    delta: SubmissionDraftDelta
+
+
+def _local_identifier(text: str, *, prefix: str, index: int) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.casefold()).strip("-")
+    suffix = slug or hashlib.sha256(text.encode("utf-8")).hexdigest()[:10]
+    return f"{prefix}{suffix or index + 1}"
+
+
+def _character_proposals(
+    draft: SubmissionDraft,
+) -> tuple[SubmissionCharacterProposal, ...]:
+    return tuple(
+        SubmissionCharacterProposal(
+            display_name=item.display_name,
+            identity=item.identity,
+            core_desire=item.core_desire,
+            current_goal=item.current_goal,
+            location=item.location,
+            emotional_state=item.emotional_state,
+            resources=item.resources,
+        )
+        for item in draft.characters
+    )
+
+
+def _fact_proposals(
+    draft: SubmissionDraft,
+) -> tuple[SubmissionFactProposal, ...]:
+    character_refs = {item.id: index for index, item in enumerate(draft.characters)}
+    fact_refs = {item.id: index for index, item in enumerate(draft.facts)}
+    return tuple(
+        SubmissionFactProposal(
+            statement=item.statement,
+            visibility=item.visibility,
+            known_by=tuple(character_refs[owner] for owner in item.known_by),
+            supersedes_ref=(
+                fact_refs[item.supersedes_fact_id]
+                if item.supersedes_fact_id is not None
+                else None
+            ),
+        )
+        for item in draft.facts
+    )
+
+
+def apply_submission_delta(
+    draft: SubmissionDraft,
+    delta: SubmissionDraftDelta,
+) -> SubmissionDraft:
+    character_inputs = (
+        delta.characters
+        if delta.characters is not None
+        else _character_proposals(draft)
+    )
+    existing_characters_by_name = {
+        item.display_name.casefold(): item for item in draft.characters
+    }
+    character_ids: list[str] = []
+    used_character_ids: set[str] = set()
+    for character_index, character_input in enumerate(character_inputs):
+        existing_character = existing_characters_by_name.get(
+            character_input.display_name.casefold()
+        )
+        character_id = existing_character.id if existing_character is not None else None
+        if character_id is None and character_index < len(draft.characters):
+            positional_character_id = draft.characters[character_index].id
+            if positional_character_id not in used_character_ids:
+                character_id = positional_character_id
+        character_id = character_id or _local_identifier(
+            character_input.display_name,
+            prefix="character-",
+            index=character_index,
+        )
+        character_id_base = character_id
+        character_id_suffix = 2
+        while character_id in used_character_ids:
+            character_id = f"{character_id_base}-{character_id_suffix}"
+            character_id_suffix += 1
+        used_character_ids.add(character_id)
+        character_ids.append(character_id)
+
+    facts: list[InitialFact]
+    if delta.facts is None:
+        facts = list(draft.facts)
+    else:
+        fact_inputs = delta.facts
+        existing_facts_by_statement = {
+            item.statement.casefold(): item for item in draft.facts
+        }
+        fact_ids: list[str] = []
+        used_fact_ids: set[str] = set()
+        for fact_index, fact_input in enumerate(fact_inputs):
+            existing_fact = existing_facts_by_statement.get(
+                fact_input.statement.casefold()
+            )
+            fact_id = existing_fact.id if existing_fact is not None else None
+            if fact_id is None and fact_index < len(draft.facts):
+                positional_fact_id = draft.facts[fact_index].id
+                if positional_fact_id not in used_fact_ids:
+                    fact_id = positional_fact_id
+            fact_id = fact_id or _local_identifier(
+                fact_input.statement,
+                prefix="fact:",
+                index=fact_index,
+            )
+            fact_id_base = fact_id
+            fact_id_suffix = 2
+            while fact_id in used_fact_ids:
+                fact_id = f"{fact_id_base}-{fact_id_suffix}"
+                fact_id_suffix += 1
+            used_fact_ids.add(fact_id)
+            fact_ids.append(fact_id)
+
+        facts = []
+        for fact_index, fact_input in enumerate(fact_inputs):
+            unknown_refs = set(fact_input.known_by) - set(range(len(character_ids)))
+            if unknown_refs:
+                raise ValueError(
+                    "submission fact has unknown character refs: "
+                    f"{sorted(unknown_refs)}"
+                )
+            if (
+                fact_input.supersedes_ref is not None
+                and not 0 <= fact_input.supersedes_ref < len(fact_ids)
+            ):
+                raise ValueError(
+                    "submission fact has unknown supersedes_ref: "
+                    f"{fact_input.supersedes_ref}"
+                )
+            if fact_input.supersedes_ref == fact_index:
+                raise ValueError("submission fact cannot supersede itself")
+            facts.append(
+                InitialFact(
+                    id=fact_ids[fact_index],
+                    statement=fact_input.statement,
+                    visibility=fact_input.visibility,
+                    known_by=tuple(character_ids[ref] for ref in fact_input.known_by),
+                    supersedes_fact_id=(
+                        fact_ids[fact_input.supersedes_ref]
+                        if fact_input.supersedes_ref is not None
+                        else None
+                    ),
+                )
+            )
+
+    known_facts_by_character = {
+        character_id: tuple(fact.id for fact in facts if character_id in fact.known_by)
+        for character_id in character_ids
+    }
+    characters = tuple(
+        SubmissionCharacter(
+            id=character_ids[index],
+            display_name=character_input.display_name,
+            identity=character_input.identity,
+            core_desire=character_input.core_desire,
+            current_goal=character_input.current_goal,
+            known_fact_ids=known_facts_by_character[character_ids[index]],
+            location=character_input.location,
+            emotional_state=character_input.emotional_state,
+            resources=character_input.resources,
+        )
+        for index, character_input in enumerate(character_inputs)
+    )
+    updates = {
+        name: value
+        for name, value in delta.model_dump().items()
+        if value is not None and name not in {"facts", "characters"}
+    }
+    return SubmissionDraft(
+        **{
+            **draft.model_dump(),
+            **updates,
+            "facts": tuple(facts),
+            "characters": characters,
+        }
+    )
 
 
 class SubmissionConversationResponse(DomainModel):
@@ -435,56 +656,41 @@ class SubmissionDiscussionService:
         self,
         request: SubmissionConversationRequest,
     ) -> SubmissionConversationResponse:
-        fact_boundary_example = {
-            "facts": [
-                InitialFact(
-                    id="fact:public-example",
-                    statement="所有角色都知道的公共事实。",
-                    visibility="public",
-                ).model_dump(mode="json"),
-                InitialFact(
-                    id="fact:secret-example",
-                    statement="只有示例角色甲知道的秘密。",
-                    visibility="secret",
-                    known_by=("example-a",),
-                ).model_dump(mode="json"),
-            ],
-            "character_fact_links": [
-                {
-                    "character_id": "example-a",
-                    "known_fact_ids": ["fact:secret-example"],
-                },
-                {"character_id": "example-b", "known_fact_ids": []},
-            ],
-        }
+        example_draft = SubmissionDraft.from_package(fog_harbor_submission())
         example_output = SubmissionModelOutput(
             reply="我会根据你的要求更新设定, 并指出仍需补充的内容。",
-            draft=SubmissionDraft.from_package(fog_harbor_submission()),
-            review=ReviewResult(
-                mode="submission_review",
-                passed=True,
-                summary="示例初始设定完整且可以运行。",
+            delta=SubmissionDraftDelta(
+                title=example_draft.title,
+                genre=example_draft.genre,
+                theme=example_draft.theme,
+                tone=example_draft.tone,
+                world_rules=example_draft.world_rules,
+                facts=_fact_proposals(example_draft),
+                characters=_character_proposals(example_draft),
+                initial_time=example_draft.initial_time,
+                initial_location=example_draft.initial_location,
+                initial_incident=example_draft.initial_incident,
+                pressures=example_draft.pressures,
             ),
         )
         protocol = (
-            "Immutable protocol: do not create an outline or future plot; keep the "
-            "draft id unchanged; enforce the supplied JSON schema and strict fact "
-            "knowledge boundaries."
+            "Immutable protocol: do not create an outline or future plot; return the "
+            "supplied JSON schema and preserve strict fact knowledge boundaries."
         )
         task_context = (
             "Discuss only creative "
             "direction, world rules, two to four initial active characters, and "
             "the concrete initial situation. Do not create an outline or future "
-            "plot. Update the supplied SubmissionDraft, keep its id unchanged, "
-            "give every fact a concrete statement and visibility, give every "
-            "character an explicit private fact boundary and current goal, and "
-            "return exactly the requested JSON schema. Keep all text concise. "
-            "Fact knowledge boundaries are strict: public facts must use an empty "
-            "known_by array and must never appear in any character's known_fact_ids. "
-            "Private or secret facts must list every knowing character id in known_by, "
-            "and those same characters must list the fact id in known_fact_ids. "
-            "FACT KNOWLEDGE BOUNDARY EXAMPLE: "
-            f"{json.dumps(fact_boundary_example, ensure_ascii=False)} "
+            "plot. Return only changed draft fields inside delta; omitted fields "
+            "retain "
+            "their current values. facts and characters replace those arrays when "
+            "present. Give every fact a concrete statement and visibility and every "
+            "character a current goal. Do not return any IDs, Review, passed, "
+            "severity, "
+            "or runnable fields. For fact known_by, use zero-based indexes into the "
+            "effective characters array. Public facts require an empty known_by array; "
+            "private or secret facts require every knowing character index. The local "
+            "runtime generates IDs and both directions of knowledge links. "
             "The following example demonstrates the required JSON output shape; "
             "update its values from the conversation. EXAMPLE JSON OUTPUT: "
             f"{json.dumps(example_output.model_dump(mode='json'), ensure_ascii=False)} "
@@ -529,11 +735,9 @@ class SubmissionDiscussionService:
         )
         duration = max(0.0, time.monotonic() - started)
         output = SubmissionModelOutput.model_validate(response.parsed_output)
-        if output.draft.id != request.draft.id:
-            raise ValueError("submission Editor cannot change the project id")
-
-        missing = output.draft.missing_requirements()
-        review = output.review
+        draft = apply_submission_delta(request.draft, output.delta)
+        missing = draft.missing_requirements()
+        runnable = draft.to_package() is not None
         if missing:
             deterministic_issues = tuple(
                 ReviewIssue(
@@ -547,9 +751,14 @@ class SubmissionDiscussionService:
                 mode="submission_review",
                 passed=False,
                 summary="初始设定包尚未达到可运行条件。",
-                issues=(*review.issues, *deterministic_issues),
+                issues=deterministic_issues,
             )
-        runnable = output.draft.to_package() is not None
+        else:
+            review = ReviewResult(
+                mode="submission_review",
+                passed=True,
+                summary="初始设定包已满足本地运行条件。",
+            )
         response_group_id = request.response_group_id or message_id
         version_index = 1 + sum(
             1
@@ -587,7 +796,7 @@ class SubmissionDiscussionService:
                     versionIndex=version_index,
                 ),
             ),
-            draft=output.draft,
+            draft=draft,
             review=review,
             runnable=runnable,
             missing_requirements=missing,

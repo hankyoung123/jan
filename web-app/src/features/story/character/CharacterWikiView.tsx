@@ -119,11 +119,20 @@ export function CharacterWikiView({
       </nav>
 
       <main className="min-w-0 p-6 lg:p-8">
-        {wiki.view?.stale && (
+        {wiki.view?.degraded ? (
+          <p
+            className="mb-5 flex items-center gap-2 border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800"
+            role="status"
+          >
+            <TriangleAlert size={15} />
+            Wiki 维护已降级。模拟可继续，但正文生成已暂停：
+            {wiki.view.degradation_reason}
+          </p>
+        ) : wiki.view?.stale ? (
           <p className="mb-5 flex items-center gap-2 border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800">
             <TriangleAlert size={15} /> 此分支 Wiki 需要重新整理。
           </p>
-        )}
+        ) : null}
         {wiki.page && wiki.page.subject_id === selectedId ? (
           <article className="prose prose-neutral max-w-3xl dark:prose-invert">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>

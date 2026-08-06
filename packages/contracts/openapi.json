@@ -869,6 +869,7 @@
               "simulation.pause.requested",
               "simulation.termination.requested",
               "simulation.paused",
+              "simulation.maintenance.degraded",
               "simulation.checkpointed",
               "simulation.terminated",
               "simulation.failed",
@@ -1095,6 +1096,7 @@
           "not_required",
           "pending",
           "succeeded",
+          "degraded",
           "failed"
         ],
         "title": "MaintenanceStatus",
@@ -3627,7 +3629,6 @@
             "items": {
               "type": "string"
             },
-            "minItems": 1,
             "title": "Known Fact Ids",
             "type": "array"
           },
@@ -4868,6 +4869,23 @@
             ],
             "title": "Checkpoint Id"
           },
+          "degradation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degradation Reason"
+          },
+          "degraded": {
+            "default": false,
+            "title": "Degraded",
+            "type": "boolean"
+          },
           "pages": {
             "items": {
               "$ref": "#/components/schemas/WikiPageSummary"
@@ -5014,6 +5032,23 @@
             "maxLength": 64,
             "title": "Content Hash",
             "type": "string"
+          },
+          "degradation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degradation Reason"
+          },
+          "degraded": {
+            "default": false,
+            "title": "Degraded",
+            "type": "boolean"
           },
           "path": {
             "maxLength": 512,

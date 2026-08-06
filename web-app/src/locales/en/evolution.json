@@ -35,6 +35,7 @@
   },
   "maintenance": {
     "failed": "Wiki maintenance failed and the simulation is paused.",
+    "degraded": "Wiki maintenance could not parse the model response. Simulation may continue, but manuscript generation is paused until the Wiki is rebuilt.",
     "retry": "Retry Wiki maintenance"
   },
   "controls": {

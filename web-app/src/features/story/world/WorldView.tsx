@@ -110,11 +110,20 @@ export function WorldView() {
           </nav>
 
           <main className="min-w-0 p-6 lg:p-8">
-            {wiki.view.stale && (
+            {wiki.view.degraded ? (
+              <p
+                className="mb-5 flex items-center gap-2 border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800"
+                role="status"
+              >
+                <TriangleAlert size={15} />
+                Wiki 维护已降级。模拟可继续，但正文生成已暂停：
+                {wiki.view.degradation_reason}
+              </p>
+            ) : wiki.view.stale ? (
               <p className="mb-5 flex items-center gap-2 border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800">
                 <TriangleAlert size={15} /> 此 Wiki 已回滚，等待从目标 Checkpoint 重新整理。
               </p>
-            )}
+            ) : null}
             {showInstructions ? (
               <div className="max-w-3xl">
                 <h2 className="font-studio text-2xl">导演补充</h2>

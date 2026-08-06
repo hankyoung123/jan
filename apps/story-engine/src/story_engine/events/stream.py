@@ -25,6 +25,7 @@ EngineEventType = Literal[
     "simulation.pause.requested",
     "simulation.termination.requested",
     "simulation.paused",
+    "simulation.maintenance.degraded",
     "simulation.checkpointed",
     "simulation.terminated",
     "simulation.failed",

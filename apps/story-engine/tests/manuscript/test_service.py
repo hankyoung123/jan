@@ -1,11 +1,12 @@
 import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 from profile_factory import agent_profile as _profile
 
 from story_engine.domain.message import ModelMessageContext
-from story_engine.domain.narrative import NarrativeSource, WriterContext
+from story_engine.domain.narrative import EditorContext, NarrativeSource, WriterContext
 from story_engine.domain.projection import (
     EventVisibility,
     ResolvedEvent,
@@ -35,10 +36,19 @@ class RecordingGateway:
     ) -> ModelResponse:
         self.requests.append(request)
         self.contexts.append(context)
+        parsed_output = None
+        content = "# 潮声\n\n灯塔在雨中亮起。"
+        if request.task_type == "editor":
+            parsed_output = {
+                "summary": "One unsupported fact was found.",
+                "issues": ["The source does not establish a hidden tunnel."],
+            }
+            content = json.dumps(parsed_output)
         return ModelResponse(
             profile_id=request.profile_id,
             model_ref="test-provider/test-writer",
-            content="# 潮声\n\n灯塔在雨中亮起。",
+            content=content,
+            parsed_output=parsed_output,
             finish_reason="stop",
         )
 
@@ -126,3 +136,42 @@ def test_writer_markdown_is_parsed_locally() -> None:
 
     assert output.title == "潮声"
     assert output.body == "第一段。\n\n第二段。"
+
+
+def test_editor_model_returns_only_summary_and_issues(tmp_path: Path) -> None:
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="editor",
+            task_type="editor",
+            model_ref="test-provider/test-editor",
+            max_output_tokens=4096,
+        )
+    )
+    gateway = RecordingGateway(registry)
+    agent = GatewayManuscriptAgent(gateway)  # type: ignore[arg-type]
+    writer_source = _source()
+
+    output = asyncio.run(
+        agent.review(
+            EditorContext(
+                source=writer_source.source,
+                events=writer_source.events,
+                memories=(),
+            ),
+            title="The Tunnel",
+            body="Chen discovers a hidden tunnel.",
+        )
+    )
+
+    assert output.review.passed is False
+    assert output.unsupported_facts == (
+        "The source does not establish a hidden tunnel.",
+    )
+    assert output.review.issues[0].severity == "blocking"
+    schema = json.loads(gateway.requests[0].output_schema or "{}")
+    assert set(schema["properties"]) == {"summary", "issues"}
+    serialized = json.dumps(schema)
+    assert "passed" not in serialized
+    assert "severity" not in serialized
+    assert "ReviewResult" not in serialized

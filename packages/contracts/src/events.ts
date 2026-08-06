@@ -10,6 +10,7 @@ export type EngineEventType =
   | "simulation.pause.requested"
   | "simulation.termination.requested"
   | "simulation.paused"
+  | "simulation.maintenance.degraded"
   | "simulation.checkpointed"
   | "simulation.terminated"
   | "simulation.failed"
@@ -137,6 +138,7 @@ const eventTypes: ReadonlySet<string> = new Set<EngineEventType>([
   "simulation.pause.requested",
   "simulation.termination.requested",
   "simulation.paused",
+  "simulation.maintenance.degraded",
   "simulation.checkpointed",
   "simulation.terminated",
   "simulation.failed",

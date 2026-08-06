@@ -191,6 +191,7 @@ class MaintenanceStatus(StrEnum):
     NOT_REQUIRED = "not_required"
     PENDING = "pending"
     SUCCEEDED = "succeeded"
+    DEGRADED = "degraded"
     FAILED = "failed"
 
 

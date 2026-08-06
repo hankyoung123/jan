@@ -2,6 +2,8 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.projection import (
     EventVisibility,
@@ -349,3 +351,68 @@ def test_boundary_keeps_project_source_available_to_character_wiki(
         .load_page("characters/chen-mo/self.md")
         .content
     )
+
+
+class CrossBoundaryConsolidator:
+    async def consolidate(
+        self,
+        *,
+        project_id: str,
+        session_id: str | None,
+        step: int,
+        branch_id: str,
+        subject_id: str | None,
+        pages: tuple,
+        sources: tuple,
+        content_locale: str,
+    ) -> tuple[WikiPatch, ...]:
+        del project_id, session_id, step, branch_id, pages, sources, content_locale
+        if subject_id is None:
+            return ()
+        return (
+            WikiPatch(
+                path="characters/lin-lan/beliefs.md",
+                operation=WikiPatchOperation.APPEND_HISTORY,
+                content="- Knowledge from another character.",
+                source_ids=("project:fog-harbor",),
+            ),
+        )
+
+
+def test_boundary_does_not_degrade_or_swallow_knowledge_violation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    observation = MemoryRecord(
+        record_id="observation:session:1:1:chen-mo",
+        record_type=MemoryRecordType.OBSERVATION,
+        scope=MemoryScope.CHARACTER,
+        owner_id="chen-mo",
+        session_id="session:1",
+        branch_id="main",
+        step=1,
+        text="The mechanism clicks.",
+        content_locale="en-US",
+        created_at=datetime.now(UTC),
+        visible_to=("chen-mo",),
+    )
+
+    monkeypatch.setattr(
+        "story_engine.wiki.boundary.SimulationLogStore.read_observations",
+        lambda self, branch_id, *, subject_id=None: (observation,),
+    )
+    processor = WikiBoundaryProcessor(
+        tmp_path / "fog-harbor",
+        consolidator=CrossBoundaryConsolidator(),
+    )
+
+    with pytest.raises(ValueError, match="crosses its knowledge boundary"):
+        asyncio.run(
+            processor.process(
+                _snapshot(tmp_path),
+                boundary=SimulationBoundary.SCENE,
+                end_step=1,
+                records=(_record(1),),
+            )
+        )

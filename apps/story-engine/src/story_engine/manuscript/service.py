@@ -5,6 +5,7 @@ from typing import Protocol
 from pydantic import ValidationError
 
 from story_engine.domain.message import ModelMessageContext
+from story_engine.domain.models import ReviewIssue, ReviewResult
 from story_engine.domain.narrative import (
     EditorContext,
     NarrativeSource,
@@ -12,6 +13,7 @@ from story_engine.domain.narrative import (
     WriterContext,
 )
 from story_engine.manuscript.models import (
+    EditorReviewProposal,
     ManuscriptExport,
     ManuscriptReviewOutput,
     ProjectCreativeContext,
@@ -26,6 +28,7 @@ from story_engine.models.contracts import Message, ModelRequest
 from story_engine.models.errors import StructuredOutputError
 from story_engine.models.gateway import ModelGateway
 from story_engine.persistence.branch_store import BranchStore
+from story_engine.wiki.store import WikiStore
 from story_engine.workspace.project_store import ProjectStore
 from story_engine.workspace.scene_store import SceneDraftStore, SceneStore
 from story_engine.workspace.transaction import AtomicBatch
@@ -81,8 +84,7 @@ def _writer_source_context(source: WriterContext) -> str:
                 event.model_dump(mode="json") for event in source.events
             ],
             "selected_viewpoint_memory": [
-                record.model_dump(mode="json")
-                for record in source.viewpoint_memories
+                record.model_dump(mode="json") for record in source.viewpoint_memories
             ],
             "world_wiki": source.world_wiki_context,
         },
@@ -198,10 +200,10 @@ class GatewayManuscriptAgent:
         task_context = (
             "Compare the prose to the "
             "supplied runtime source. List each concrete fact asserted by the prose "
-            "that the source does not support in unsupported_facts. Pure description, "
+            "that the source does not support in issues. Pure description, "
             "simile, rhythm, and wording are not unsupported facts. A passing review "
-            "must have no unsupported_facts. Never propose changing simulation "
-            "history. "
+            "must have no issues. Never propose changing simulation "
+            "history. Return only a concise summary and the issue strings. "
             f"Runtime source: {_editor_source_context(source)}. "
             f"Scene title: {title}. Prose: {body}"
         )
@@ -219,7 +221,7 @@ class GatewayManuscriptAgent:
                     Message(role="user", content=task_context),
                 ),
                 output_schema=json.dumps(
-                    ManuscriptReviewOutput.model_json_schema(),
+                    EditorReviewProposal.model_json_schema(),
                     ensure_ascii=False,
                 ),
                 max_output_tokens=editor_profile.max_output_tokens,
@@ -241,7 +243,26 @@ class GatewayManuscriptAgent:
                 stage="editor",
             ),
         )
-        return ManuscriptReviewOutput.model_validate(response.parsed_output)
+        proposal = EditorReviewProposal.model_validate(response.parsed_output)
+        issues = tuple(
+            dict.fromkeys(item.strip() for item in proposal.issues if item.strip())
+        )
+        return ManuscriptReviewOutput(
+            review=ReviewResult(
+                mode="manuscript_review",
+                passed=not issues,
+                summary=proposal.summary,
+                issues=tuple(
+                    ReviewIssue(
+                        code="unsupported_fact",
+                        message=issue,
+                        severity="blocking",
+                    )
+                    for issue in issues
+                ),
+            ),
+            unsupported_facts=issues,
+        )
 
 
 class ManuscriptService:
@@ -292,6 +313,10 @@ class ManuscriptService:
         chapter_id: str,
         viewpoint_actor_id: str | None,
     ) -> SceneDraft:
+        wiki = WikiStore(self.root, self.branch_id).view()
+        if wiki.stale:
+            detail = wiki.degradation_reason or "Wiki requires rebuilding"
+            raise ValueError(f"cannot generate manuscript from stale Wiki: {detail}")
         source = self.reader.build_source(
             branch_id=self.branch_id,
             checkpoint_id=checkpoint_id,
@@ -405,9 +430,7 @@ class ManuscriptService:
                 review=review,
             )
 
-        reviewed = updated.model_copy(
-            update={"review": review, "status": "reviewed"}
-        )
+        reviewed = updated.model_copy(update={"review": review, "status": "reviewed"})
         scene = self._scene_from_draft(reviewed)
         try:
             current = self.scenes.load(scene.id)

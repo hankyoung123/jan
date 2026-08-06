@@ -43,7 +43,7 @@ def _resolve_story_event(
                 "(public|participants|restricted|gm_only), observer_ids, "
                 "participant_ids, and entity_changes. An entity change may only "
                 "introduce a recurring ordinary person as "
-                "{operation:create_npc,entity_id,display_name,identity,core_desire,"
+                "{entity_id,display_name,identity,core_desire,"
                 "location}. Do not create an NPC when an existing character can fill "
                 "the role. An ID shown under Existing characters may only appear in "
                 "participant_ids and must never appear in entity_changes. Do not "

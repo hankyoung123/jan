@@ -12,6 +12,8 @@ from story_engine.domain.simulation import (
 )
 from story_engine.manuscript.service import ManuscriptAgent, ManuscriptService
 from story_engine.wiki.boundary import WikiBoundaryProcessor
+from story_engine.wiki.consolidator import WikiProtocolError
+from story_engine.wiki.store import WikiStore
 from story_engine.workspace.atomic import atomic_write_text
 from story_engine.workspace.documents import dump_json_envelope
 from story_engine.workspace.lock import ProjectLock
@@ -45,7 +47,7 @@ class BoundaryMaintenanceCoordinator:
         self,
         result: StepResult,
         snapshot: TurnSessionSnapshot,
-    ) -> None:
+    ) -> str | None:
         if snapshot.checkpoint_id is None:
             raise WikiMaintenanceError("boundary has no checkpoint")
         try:
@@ -56,23 +58,49 @@ class BoundaryMaintenanceCoordinator:
                     end_step=result.step,
                 )
             )
+        except WikiProtocolError as error:
+            detail = str(error)
+            try:
+                WikiStore(self.root, snapshot.branch_id).mark_degraded(
+                    snapshot.checkpoint_id,
+                    result.step,
+                    detail,
+                )
+                self._record_failure(snapshot, result, f"wiki degraded: {detail}")
+            except Exception as persistence_error:
+                raise WikiMaintenanceError(
+                    str(persistence_error)
+                ) from persistence_error
+            return detail
         except Exception as error:
-            self._record_failure(snapshot, result, f"wiki: {error}")
+            try:
+                self._record_failure(snapshot, result, f"wiki: {error}")
+            except Exception as persistence_error:
+                raise WikiMaintenanceError(
+                    str(persistence_error)
+                ) from persistence_error
             raise WikiMaintenanceError(str(error)) from error
+        return None
 
     def process(
         self,
         result: StepResult,
         snapshot: TurnSessionSnapshot,
-    ) -> None:
+    ) -> str | None:
         if result.boundary == SimulationBoundary.NONE:
-            return
+            return None
         if snapshot.checkpoint_id is None:
             self._record_failure(snapshot, result, "boundary has no checkpoint")
             raise WikiMaintenanceError("boundary has no checkpoint")
 
         if self._should_update_wiki(snapshot, result.boundary):
-            self.process_wiki(result, snapshot)
+            degradation_reason = self.process_wiki(result, snapshot)
+            if degradation_reason is not None:
+                return degradation_reason
+
+        wiki = WikiStore(self.root, snapshot.branch_id).view()
+        if wiki.stale:
+            return wiki.degradation_reason or "Wiki is stale and requires rebuilding"
 
         if self._should_write(snapshot, result.boundary):
             try:
@@ -103,6 +131,7 @@ class BoundaryMaintenanceCoordinator:
                     )
             except Exception as error:
                 self._record_failure(snapshot, result, f"manuscript: {error}")
+        return None
 
     @staticmethod
     def _should_update_wiki(
@@ -162,4 +191,4 @@ class BoundaryMaintenanceCoordinator:
 
 
 class WikiMaintenanceError(RuntimeError):
-    """Wiki state is stale and the next simulation step must be blocked."""
+    """Non-protocol Wiki failure that must block the next simulation step."""

@@ -32,9 +32,8 @@ def _user_message(text: str) -> dict[str, Any]:
 
 
 class SubmissionTransport:
-    def __init__(self, *, review_passed: bool = True) -> None:
+    def __init__(self) -> None:
         self.calls: list[Mapping[str, Any]] = []
-        self.review_passed = review_passed
 
     async def complete(
         self,
@@ -46,14 +45,48 @@ class SubmissionTransport:
     ) -> Mapping[str, Any]:
         del timeout_seconds, first_content_timeout_seconds
         self.calls.append(payload)
+        package = fog_harbor_submission()
+        character_refs = {
+            character.id: index for index, character in enumerate(package.characters)
+        }
+        fact_refs = {fact.id: index for index, fact in enumerate(package.facts)}
         content = {
             "reply": "初始世界已经具备运行条件。",
-            "draft": fog_harbor_submission().model_dump(mode="json"),
-            "review": {
-                "mode": "submission_review",
-                "passed": self.review_passed,
-                "summary": "创作方向、压力和知识边界明确。",
-                "issues": [],
+            "delta": {
+                "title": package.title,
+                "genre": package.genre,
+                "theme": package.theme,
+                "tone": package.tone,
+                "world_rules": list(package.world_rules),
+                "facts": [
+                    {
+                        "statement": fact.statement,
+                        "visibility": fact.visibility,
+                        "known_by": [character_refs[item] for item in fact.known_by],
+                        "supersedes_ref": (
+                            fact_refs[fact.supersedes_fact_id]
+                            if fact.supersedes_fact_id is not None
+                            else None
+                        ),
+                    }
+                    for fact in package.facts
+                ],
+                "characters": [
+                    {
+                        "display_name": character.display_name,
+                        "identity": character.identity,
+                        "core_desire": character.core_desire,
+                        "current_goal": character.current_goal,
+                        "location": character.location,
+                        "emotional_state": character.emotional_state,
+                        "resources": list(character.resources),
+                    }
+                    for character in package.characters
+                ],
+                "initial_time": package.initial_time,
+                "initial_location": package.initial_location,
+                "initial_incident": package.initial_incident,
+                "pressures": list(package.pressures),
             },
         }
         if part_sink is not None:
@@ -144,22 +177,41 @@ def test_submission_message_uses_submission_editor_without_creating_project(
         "EXAMPLE JSON OUTPUT: ",
         maxsplit=1,
     )[1].split(" Current draft: ", maxsplit=1)
-    example = SubmissionDraft.model_validate(json.loads(example_json)["draft"])
+    example = json.loads(example_json)["delta"]
     current = SubmissionDraft.model_validate(json.loads(current_json))
-    assert example.missing_requirements() == ()
+    assert set(example) == {
+        "title",
+        "genre",
+        "theme",
+        "tone",
+        "world_rules",
+        "facts",
+        "characters",
+        "initial_time",
+        "initial_location",
+        "initial_incident",
+        "pressures",
+    }
+    assert "id" not in example
+    assert all("id" not in item for item in example["characters"])
+    assert all("known_fact_ids" not in item for item in example["characters"])
+    assert all("id" not in item for item in example["facts"])
     assert current == SubmissionDraft(id="fog-harbor")
-    assert task_context.count(
-        json.dumps(current.model_dump(mode="json"), ensure_ascii=False)
-    ) == 1
+    assert (
+        task_context.count(
+            json.dumps(current.model_dump(mode="json"), ensure_ascii=False)
+        )
+        == 1
+    )
     restored = _client(tmp_path).get(
         "/projects/fog-harbor/submission",
         headers=AUTH,
     )
     assert restored.status_code == 200
     assert len(restored.json()["messages"]) == 2
-    assert restored.json()["messages"][-1]["parts"] == response.json()["message"][
-        "parts"
-    ]
+    assert (
+        restored.json()["messages"][-1]["parts"] == response.json()["message"]["parts"]
+    )
 
 
 def test_submission_image_part_reaches_provider_payload(tmp_path: Path) -> None:
@@ -224,13 +276,10 @@ def test_finalize_uses_existing_submission_workspace_and_marks_it_finalized(
     assert restored.json()["status"]["finalized"] is True
 
 
-def test_complete_submission_is_runnable_when_model_review_flag_is_false(
+def test_complete_submission_review_and_runnable_are_computed_locally(
     tmp_path: Path,
 ) -> None:
-    response = _client(
-        tmp_path,
-        transport=SubmissionTransport(review_passed=False),
-    ).post(
+    response = _client(tmp_path, transport=SubmissionTransport()).post(
         "/projects/fog-harbor/submission/messages",
         headers=AUTH,
         json={
@@ -240,7 +289,7 @@ def test_complete_submission_is_runnable_when_model_review_flag_is_false(
     )
 
     assert response.status_code == 200
-    assert response.json()["review"]["passed"] is False
+    assert response.json()["review"]["passed"] is True
     assert response.json()["missing_requirements"] == []
     assert response.json()["runnable"] is True
 

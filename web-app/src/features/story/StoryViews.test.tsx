@@ -891,6 +891,59 @@ describe('Story simulation', () => {
     )
   })
 
+  it('shows Wiki degradation without offering the blocking retry action', async () => {
+    setActiveStoryProjectId('north-star')
+    const degradedSession = {
+      ...baseSimulationSession,
+      status: 'paused',
+      maintenance_status: 'degraded',
+      maintenance_error_text: 'Wiki proposal failed after 2 attempts',
+      maintenance_step: 1,
+      maintenance_boundary: 'scene',
+    }
+
+    h.engineRequest.mockImplementation((path: string) => {
+      if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
+      if (path === '/projects/north-star/branches') return Promise.resolve([])
+      if (path === '/projects/north-star/simulations') {
+        return Promise.resolve([
+          {
+            session_id: degradedSession.session_id,
+            project_id: degradedSession.project_id,
+            branch_id: degradedSession.branch_id,
+            status: degradedSession.status,
+            current_step: degradedSession.current_step,
+            completed_scenes: degradedSession.completed_scenes,
+            head_checkpoint_id: degradedSession.checkpoint_id,
+            started_at: degradedSession.started_at,
+            updated_at: degradedSession.updated_at,
+            termination_reason_text: null,
+            restoration_notice_text: null,
+            maintenance_status: degradedSession.maintenance_status,
+            maintenance_error_text: degradedSession.maintenance_error_text,
+            maintenance_step: degradedSession.maintenance_step,
+            maintenance_boundary: degradedSession.maintenance_boundary,
+          },
+        ])
+      }
+      if (path === `/projects/north-star/simulations/${degradedSession.session_id}`) {
+        return Promise.resolve(degradedSession)
+      }
+      if (path.includes('/simulation-events')) return Promise.resolve([])
+      if (path.includes('/simulation-trace')) return Promise.resolve([])
+      throw new Error(`Unexpected request: ${path}`)
+    })
+
+    renderEvolution()
+
+    expect(
+      await screen.findByText('Wiki proposal failed after 2 attempts')
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Retry Wiki maintenance' })
+    ).not.toBeInTheDocument()
+  })
+
   it('restores the URL-selected terminal session on a non-main branch', async () => {
     setActiveStoryProjectId('north-star')
     window.history.replaceState(

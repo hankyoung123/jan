@@ -1105,7 +1105,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "engine.status" | "workspace.changed" | "simulation.started" | "simulation.step.started" | "simulation.stage.started" | "simulation.stage.completed" | "simulation.stage.failed" | "simulation.step.completed" | "simulation.pause.requested" | "simulation.termination.requested" | "simulation.paused" | "simulation.checkpointed" | "simulation.terminated" | "simulation.failed" | "model.message.started" | "model.message.delta" | "model.message.completed" | "model.message.failed" | "stream.resync_required";
+            type: "engine.status" | "workspace.changed" | "simulation.started" | "simulation.step.started" | "simulation.stage.started" | "simulation.stage.completed" | "simulation.stage.failed" | "simulation.step.completed" | "simulation.pause.requested" | "simulation.termination.requested" | "simulation.paused" | "simulation.maintenance.degraded" | "simulation.checkpointed" | "simulation.terminated" | "simulation.failed" | "model.message.started" | "model.message.delta" | "model.message.completed" | "model.message.failed" | "stream.resync_required";
         };
         /**
          * EventVisibility
@@ -1192,7 +1192,7 @@ export interface components {
          * MaintenanceStatus
          * @enum {string}
          */
-        MaintenanceStatus: "not_required" | "pending" | "succeeded" | "failed";
+        MaintenanceStatus: "not_required" | "pending" | "succeeded" | "degraded" | "failed";
         /** ManuscriptExport */
         ManuscriptExport: {
             /** Branch Id */
@@ -2527,6 +2527,13 @@ export interface components {
             branch_id: string;
             /** Checkpoint Id */
             checkpoint_id?: string | null;
+            /** Degradation Reason */
+            degradation_reason?: string | null;
+            /**
+             * Degraded
+             * @default false
+             */
+            degraded: boolean;
             /** Pages */
             pages: components["schemas"]["WikiPageSummary"][];
             /** Stale */
@@ -2584,6 +2591,13 @@ export interface components {
              * @default
              */
             content_hash: string;
+            /** Degradation Reason */
+            degradation_reason?: string | null;
+            /**
+             * Degraded
+             * @default false
+             */
+            degraded: boolean;
             /** Path */
             path: string;
             /**

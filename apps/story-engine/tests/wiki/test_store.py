@@ -337,3 +337,48 @@ def test_create_patch_cannot_carry_expected_revision() -> None:
             source_ids=("event:new",),
             expected_revision=0,
         )
+
+
+def test_model_editable_pages_exclude_all_store_owned_paths(tmp_path: Path) -> None:
+    store = WikiStore(_root(tmp_path), "main")
+
+    paths = {page.path for page in store.model_editable_pages()}
+
+    assert paths
+    assert not any(path.endswith("/index.md") for path in paths)
+    for store_owned in (
+        "index.md",
+        "log.md",
+        "SCHEMA.md",
+        "world/index.md",
+        "characters/chen-mo/index.md",
+    ):
+        assert store.is_model_editable_path(store_owned) is False
+
+
+def test_patch_log_keeps_proposal_refs_and_resolved_source_ids(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    store = WikiStore(root, "main")
+    page = store.load_page("world/state.md")
+
+    store.apply_patches(
+        (
+            WikiPatch(
+                path=page.path,
+                operation=WikiPatchOperation.APPEND_HISTORY,
+                content="## Step 1\n\nThe lighthouse is dark.",
+                source_ids=("event:session:1:1",),
+                expected_revision=page.revision,
+                expected_content_hash=page.content_hash,
+                proposal_page_id="state",
+                proposal_source_refs=(0,),
+            ),
+        ),
+        checkpoint_id="checkpoint:one",
+        step=1,
+    )
+
+    log = (root / "wiki/branches/main/log.md").read_text(encoding="utf-8")
+    assert "page_id=state" in log
+    assert "source_refs=0" in log
+    assert "sources=event:session:1:1" in log

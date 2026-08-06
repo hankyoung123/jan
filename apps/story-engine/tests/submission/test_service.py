@@ -6,8 +6,11 @@ from pydantic import ValidationError
 
 from story_engine.domain.models import ReviewResult
 from story_engine.submission.service import (
+    SubmissionCharacterProposal,
     SubmissionConversationRequest,
     SubmissionDraft,
+    SubmissionDraftDelta,
+    SubmissionFactProposal,
     SubmissionMessage,
     SubmissionMessageMetadata,
     SubmissionModelOutput,
@@ -18,6 +21,7 @@ from story_engine.submission.service import (
     SubmissionTextPart,
     SubmissionWorkspaceState,
     SubmissionWorkspaceStore,
+    apply_submission_delta,
     fog_harbor_submission,
 )
 
@@ -123,20 +127,104 @@ def test_submission_conversation_accepts_only_user_and_assistant_history() -> No
         )
 
 
-def test_submission_schema_exposes_fact_knowledge_boundaries() -> None:
+def test_submission_schema_exposes_only_delta_without_system_fields() -> None:
     schema = SubmissionModelOutput.model_json_schema()
-    fact_schema = schema["$defs"]["InitialFact"]
-    character_schema = schema["$defs"]["SubmissionCharacter"]
+    fact_schema = schema["$defs"]["SubmissionFactProposal"]
+    character_schema = schema["$defs"]["SubmissionCharacterProposal"]
 
-    assert "known to everyone" in fact_schema["properties"]["visibility"]["description"]
-    assert (
-        "Must be empty when visibility is public"
-        in fact_schema["properties"]["known_by"]["description"]
+    assert "Zero-based indexes" in fact_schema["properties"]["known_by"]["description"]
+    assert "id" not in character_schema["properties"]
+    assert "known_fact_ids" not in character_schema["properties"]
+    assert "id" not in fact_schema["properties"]
+    serialized = str(schema)
+    for local_field in ("review", "passed", "severity", "runnable", "ReviewResult"):
+        assert local_field not in serialized
+
+
+def test_submission_delta_generates_ids_and_bidirectional_knowledge_locally() -> None:
+    delta = SubmissionDraftDelta(
+        title="北辰站",
+        genre="科幻",
+        theme="信任",
+        tone="冷峻",
+        world_rules=("空间站无法获得外部补给",),
+        characters=(
+            SubmissionCharacterProposal(
+                display_name="陆岑",
+                identity="空间站工程师",
+                core_desire="修复生命维持系统",
+                current_goal="找到氧气泄漏点",
+                location="维修舱",
+            ),
+            SubmissionCharacterProposal(
+                display_name="周遥",
+                identity="空间站医生",
+                core_desire="保护所有乘员",
+                current_goal="稳定伤员情况",
+                location="医疗舱",
+            ),
+        ),
+        facts=(
+            SubmissionFactProposal(
+                statement="空间站正在失去氧气。",
+                visibility="public",
+            ),
+            SubmissionFactProposal(
+                statement="周遥隐瞒了一份异常报告。",
+                visibility="secret",
+                known_by=(1,),
+            ),
+        ),
+        initial_time="事故后十分钟",
+        initial_location="北辰空间站",
+        initial_incident="氧气储量突然下降",
+        pressures=("氧气仅剩六小时",),
     )
-    assert (
-        "never include public fact ids"
-        in character_schema["properties"]["known_fact_ids"]["description"]
+
+    draft = apply_submission_delta(SubmissionDraft(id="north-star"), delta)
+
+    assert draft.id == "north-star"
+    assert len({item.id for item in draft.characters}) == 2
+    assert len({item.id for item in draft.facts}) == 2
+    secret = draft.facts[1]
+    assert secret.known_by == (draft.characters[1].id,)
+    assert draft.characters[0].known_fact_ids == ()
+    assert draft.characters[1].known_fact_ids == (secret.id,)
+    assert draft.to_package() is not None
+
+    revised = apply_submission_delta(
+        draft,
+        SubmissionDraftDelta(title="北辰失压"),
     )
+    assert revised.title == "北辰失压"
+    assert tuple(item.id for item in revised.characters) == tuple(
+        item.id for item in draft.characters
+    )
+    assert tuple(item.id for item in revised.facts) == tuple(
+        item.id for item in draft.facts
+    )
+
+    reordered = apply_submission_delta(
+        draft,
+        SubmissionDraftDelta(
+            characters=tuple(
+                SubmissionCharacterProposal(
+                    display_name=item.display_name,
+                    identity=item.identity,
+                    core_desire=item.core_desire,
+                    current_goal=item.current_goal,
+                    location=item.location,
+                    emotional_state=item.emotional_state,
+                    resources=item.resources,
+                )
+                for item in reversed(draft.characters)
+            )
+        ),
+    )
+    assert reordered.facts == draft.facts
+    assert reordered.facts[1].known_by == (draft.characters[1].id,)
+    assert reordered.characters[0].known_fact_ids == (reordered.facts[1].id,)
+    assert reordered.characters[1].known_fact_ids == ()
 
 
 def test_submission_workspace_round_trips_canonical_files_and_versions(

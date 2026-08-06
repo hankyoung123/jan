@@ -336,6 +336,14 @@ export function EvolutionView() {
               </Button>
             </div>
           )}
+          {simulation.session.maintenance_status === 'degraded' && (
+            <p
+              className="border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800"
+              role="status"
+            >
+              {simulation.session.maintenance_error_text || t('maintenance.degraded')}
+            </p>
+          )}
           <div>
             <SimulationHeader session={simulation.session} />
             <SimulationControls

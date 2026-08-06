@@ -15,6 +15,7 @@ from story_engine.concordia_runtime.resolver import (
     SimulationCancelledError,
 )
 from story_engine.domain.memory import MemoryRecordType, MemoryScope
+from story_engine.domain.projection import ResolutionEnvelope
 from story_engine.domain.simulation import CharacterRef, ResolverContext
 
 
@@ -118,6 +119,27 @@ def _resolve(
     return result, gm_memory
 
 
+def test_resolution_schema_removes_only_locally_inferable_npc_operation() -> None:
+    schema = ResolutionEnvelope.model_json_schema()
+    assert set(schema["properties"]) == {
+        "event_text",
+        "boundary",
+        "visibility",
+        "observer_ids",
+        "participant_ids",
+        "entity_changes",
+    }
+    entity = schema["$defs"]["EntityChange"]
+    assert set(entity["properties"]) == {
+        "entity_id",
+        "display_name",
+        "identity",
+        "core_desire",
+        "location",
+    }
+    assert "operation" not in entity["properties"]
+
+
 def test_resolver_separates_putative_action_from_world_event() -> None:
     actor, gm, gm_memory = _runtime()
     selected = gm.select_next_actor((actor,), session_id="session-1", step=0)  # type: ignore[attr-defined]
@@ -184,7 +206,7 @@ def test_invalid_resolution_envelope_fails_without_writing_memory() -> None:
     actor, gm, gm_memory = _runtime(
         resolution_text=(
             '{"event_text":"The lock holds.",'
-            '"entity_changes":[{"operation":"create_npc","entity_id":"npc-1",'
+            '"entity_changes":[{"entity_id":"npc-1",'
             '"display_name":"Npc","identity":"x","core_desire":"y",'
             '"location":"z",'
             '"unexpected_field":true}]}'
@@ -218,8 +240,7 @@ def test_invalid_resolution_envelope_fails_without_writing_memory() -> None:
         raise AssertionError("invalid resolution envelope must fail")
 
     record_types = tuple(
-        record.record_type
-        for record in gm_memory.retrieve_recent(limit=5)
+        record.record_type for record in gm_memory.retrieve_recent(limit=5)
     )
     assert record_types == (MemoryRecordType.PUTATIVE_EVENT,)
 
@@ -230,7 +251,7 @@ def test_resolution_envelope_maps_entity_changes_to_effects() -> None:
             '{"event_text":"A new figure enters the archive.",'
             '"boundary":"none","visibility":"public",'
             '"observer_ids":["actor-a"],"participant_ids":["actor-a","npc-1"],'
-            '"entity_changes":[{"operation":"create_npc","entity_id":"npc-1",'
+            '"entity_changes":[{"entity_id":"npc-1",'
             '"display_name":"New Figure","identity":"A quiet archivist.",'
             '"core_desire":"Protect the records.","location":"archive"}]}'
         )
@@ -270,7 +291,7 @@ def test_resolution_envelope_maps_entity_changes_to_effects() -> None:
 
 def test_duplicate_create_npc_with_identical_content_creates_once() -> None:
     entity_change = (
-        '{"operation":"create_npc","entity_id":"npc-1",'
+        '{"entity_id":"npc-1",'
         '"display_name":"New Figure","identity":"A quiet archivist.",'
         '"core_desire":"Protect the records.","location":"archive"}'
     )
@@ -289,10 +310,10 @@ def test_duplicate_create_npc_with_conflicting_content_is_rejected() -> None:
         '{"event_text":"A figure enters.","boundary":"none",'
         '"visibility":"participants","participant_ids":["actor-a","npc-1"],'
         '"entity_changes":['
-        '{"operation":"create_npc","entity_id":"npc-1",'
+        '{"entity_id":"npc-1",'
         '"display_name":"New Figure","identity":"A quiet archivist.",'
         '"core_desire":"Protect the records."},'
-        '{"operation":"create_npc","entity_id":"npc-1",'
+        '{"entity_id":"npc-1",'
         '"display_name":"New Figure","identity":"A harbor guard.",'
         '"core_desire":"Protect the records."}]}'
     )
@@ -331,7 +352,7 @@ def test_existing_character_create_is_converted_to_participant_reference() -> No
     result, _ = _resolve(
         '{"event_text":"The archivist answers.","boundary":"none",'
         '"visibility":"participants","participant_ids":["actor-a"],'
-        '"entity_changes":[{"operation":"create_npc","entity_id":"npc-1",'
+        '"entity_changes":[{"entity_id":"npc-1",'
         '"display_name":"New Figure","identity":"A quiet archivist.",'
         '"core_desire":"Protect the records."}]}',
         existing_characters=(
@@ -353,7 +374,7 @@ def test_existing_character_id_with_different_name_is_rejected() -> None:
     resolution = (
         '{"event_text":"A stranger enters.","boundary":"none",'
         '"visibility":"participants","participant_ids":["actor-a","npc-1"],'
-        '"entity_changes":[{"operation":"create_npc","entity_id":"npc-1",'
+        '"entity_changes":[{"entity_id":"npc-1",'
         '"display_name":"Different Person","identity":"A stranger.",'
         '"core_desire":"Enter the archive."}]}'
     )

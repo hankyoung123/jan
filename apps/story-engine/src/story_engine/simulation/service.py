@@ -815,7 +815,7 @@ class SimulationApplicationService:
         )
         self._persist(pending)
         try:
-            coordinator.process(result, pending)
+            degradation_reason = coordinator.process(result, pending)
         except WikiMaintenanceError as error:
             failed = self.engine.fail_maintenance(
                 snapshot.session_id,
@@ -832,6 +832,22 @@ class SimulationApplicationService:
                 },
             )
             return failed
+        if degradation_reason is not None:
+            degraded = self.engine.degrade_maintenance(
+                snapshot.session_id,
+                error_text=degradation_reason,
+            )
+            self._persist(degraded)
+            self._publish(
+                degraded,
+                "simulation.maintenance.degraded",
+                payload={
+                    "session_id": degraded.session_id,
+                    "maintenance_status": degraded.maintenance_status.value,
+                    "maintenance_error": degradation_reason,
+                },
+            )
+            return degraded
         completed = self.engine.complete_maintenance(snapshot.session_id)
         self._persist(completed)
         return completed
@@ -864,11 +880,30 @@ class SimulationApplicationService:
         )
         self._persist(pending)
         try:
-            self._boundary_output_factory(pending).process_wiki(record.result, pending)
+            degradation_reason = self._boundary_output_factory(pending).process_wiki(
+                record.result,
+                pending,
+            )
         except WikiMaintenanceError as error:
             failed = self.engine.fail_maintenance(session_id, error_text=str(error))
             self._persist(failed)
             raise
+        if degradation_reason is not None:
+            degraded = self.engine.degrade_maintenance(
+                session_id,
+                error_text=degradation_reason,
+            )
+            self._persist(degraded)
+            self._publish(
+                degraded,
+                "simulation.maintenance.degraded",
+                payload={
+                    "session_id": degraded.session_id,
+                    "maintenance_status": degraded.maintenance_status.value,
+                    "maintenance_error": degradation_reason,
+                },
+            )
+            return degraded
         completed = self.engine.complete_maintenance(session_id)
         self._persist(completed)
         self._publish(

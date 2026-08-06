@@ -15,6 +15,7 @@ from story_engine.models.gateway import ModelPartSink
 from story_engine.models.registry import ProfileRegistry
 from story_engine.persistence.simulation_log import SimulationLogStore
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
+from story_engine.wiki.store import WikiStore
 
 AUTH = {"Authorization": "Bearer integration-token"}
 
@@ -32,6 +33,7 @@ class ReplayGatewayTransport:
         fail_writer: bool = False,
         fail_editor: bool = False,
         fail_wiki_attempts: int = 0,
+        invalid_wiki_attempts: int = 0,
     ) -> None:
         self.calls: list[str] = []
         self.entity_change = entity_change
@@ -41,6 +43,7 @@ class ReplayGatewayTransport:
         self.fail_writer = fail_writer
         self.fail_editor = fail_editor
         self.fail_wiki_attempts = fail_wiki_attempts
+        self.invalid_wiki_attempts = invalid_wiki_attempts
 
     def _choice(self, prompt: str, payload: Mapping[str, Any]) -> str:
         response_format = payload.get("response_format")
@@ -81,7 +84,6 @@ class ReplayGatewayTransport:
             if self.entity_change == "create":
                 entity_changes = [
                     {
-                        "operation": "create_npc",
                         "entity_id": "harbor-guard",
                         "display_name": "Harbor Guard",
                         "identity": "A wary guard.",
@@ -156,49 +158,44 @@ class ReplayGatewayTransport:
                 raise RuntimeError("editor unavailable")
             content = json.dumps(
                 {
-                    "review": {
-                        "mode": "manuscript_review",
-                        "passed": True,
-                        "summary": "All concrete facts are supported.",
-                        "issues": [],
-                    },
-                    "unsupported_facts": [],
+                    "summary": "All concrete facts are supported.",
+                    "issues": [],
                 }
             )
-        elif "WikiPatch objects only" in prompt:
+        elif "WikiUpdateProposal only" in prompt:
             if self.fail_wiki_attempts > 0:
                 self.fail_wiki_attempts -= 1
                 raise RuntimeError("wiki unavailable")
-            source_ids = re.findall(r'"source_id":\s*"([^"]+)"', prompt)
-            if "Scope: World Wiki" in prompt:
-                source_id = next(
-                    item for item in source_ids if item.startswith("event:")
+            if self.invalid_wiki_attempts > 0:
+                self.invalid_wiki_attempts -= 1
+                content = json.dumps(
+                    {
+                        "updates": [
+                            {
+                                "page_id": "index",
+                                "content": "Invalid store-owned update.",
+                                "source_refs": [0],
+                            }
+                        ]
+                    }
                 )
-                path = "world/state.md"
             else:
-                source_id = next(
-                    item
-                    for item in reversed(source_ids)
-                    if item.startswith("observation:")
-                    or item.startswith("event-observation:")
+                source_refs = [
+                    int(item) for item in re.findall(r'"source_ref":\s*(\d+)', prompt)
+                ]
+                assert source_refs
+                page_id = "state" if "Scope: World Wiki" in prompt else "beliefs"
+                content = json.dumps(
+                    {
+                        "updates": [
+                            {
+                                "page_id": page_id,
+                                "content": f"- {self.event_text}",
+                                "source_refs": [source_refs[-1]],
+                            }
+                        ]
+                    }
                 )
-                subject = re.search(r"Scope: Character Wiki: ([a-z0-9-]+)", prompt)
-                assert subject is not None
-                path = f"characters/{subject.group(1)}/beliefs.md"
-            content = json.dumps(
-                {
-                    "patches": [
-                        {
-                            "path": path,
-                            "section": None,
-                            "operation": "append_history",
-                            "content": f"## Step Update\n\n- {self.event_text}",
-                            "source_ids": [source_id],
-                            "confidence": 1.0,
-                        }
-                    ]
-                }
-            )
         elif "response_format" in payload:
             choice = self._choice(prompt, payload)
             content = choice if choice.startswith("{") else f'{{"choice":"{choice}"}}'
@@ -213,29 +210,23 @@ class ReplayGatewayTransport:
             entity_changes = "[]"
             if self.entity_change == "create":
                 entity_changes = (
-                    '[{"operation":"create_npc","entity_id":"harbor-guard",'
+                    '[{"entity_id":"harbor-guard",'
                     '"display_name":"Harbor Guard","identity":"A wary guard.",'
                     '"core_desire":"Keep the harbor safe.",'
                     '"location":"lighthouse"}]'
                 )
-            content = (
-                json.dumps(
-                    {
-                        "event_text": self.event_text,
-                        "boundary": self.boundary,
-                        "visibility": "participants",
-                        "observer_ids": [],
-                        "participant_ids": [
-                            "chen-mo",
-                            *(
-                                ["harbor-guard"]
-                                if self.entity_change == "create"
-                                else []
-                            ),
-                        ],
-                        "entity_changes": json.loads(entity_changes),
-                    }
-                )
+            content = json.dumps(
+                {
+                    "event_text": self.event_text,
+                    "boundary": self.boundary,
+                    "visibility": "participants",
+                    "observer_ids": [],
+                    "participant_ids": [
+                        "chen-mo",
+                        *(["harbor-guard"] if self.entity_change == "create" else []),
+                    ],
+                    "entity_changes": json.loads(entity_changes),
+                }
             )
         else:
             content = "Chen Mo carefully inspects the lighthouse mechanism."
@@ -261,6 +252,7 @@ class ReplayGatewayTransport:
             yield ModelStreamChunk()
         raise AssertionError("simulation integration does not stream")
 
+
 def _settings(tmp_path: Path) -> EngineSettings:
     settings = EngineSettings(
         session_token="integration-token",
@@ -271,9 +263,7 @@ def _settings(tmp_path: Path) -> EngineSettings:
     for profile in registry.load().profiles:
         registry.upsert_profile(
             profile.model_copy(
-                update={
-                    "model": f"test-provider/test-{profile.agent_type}"
-                }
+                update={"model": f"test-provider/test-{profile.agent_type}"}
             )
         )
     return settings
@@ -294,10 +284,10 @@ def test_real_application_chain_checkpoints_rebuilds_and_resumes(
                 "premise_text": "The lighthouse suddenly goes dark.",
                 "actor_ids": ["chen-mo", "lin-lan"],
                 "content_locale": "en-US",
-                    "control": {
-                        "mode": "step",
-                        "max_steps": 3,
-                        "max_scenes": 2,
+                "control": {
+                    "mode": "step",
+                    "max_steps": 3,
+                    "max_scenes": 2,
                 },
             },
         )
@@ -412,7 +402,7 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
         assert draft["source_wiki_version_id"] == "seed"
         assert draft["viewpoint_actor_id"] == "chen-mo"
         writer_prompt = next(
-                prompt for prompt in transport.calls if "Writer Context" in prompt
+            prompt for prompt in transport.calls if "Writer Context" in prompt
         )
         assert "secret:lin-unfiled-duty-roster" not in writer_prompt
 
@@ -496,9 +486,7 @@ def test_early_checkpoint_writer_uses_its_historical_wiki_without_future_facts(
         draft = generated.json()
         assert draft["source_wiki_version_id"] == first["checkpoint_id"]
         writer_prompt = next(
-            prompt
-            for prompt in reversed(transport.calls)
-            if "Writer Context" in prompt
+            prompt for prompt in reversed(transport.calls) if "Writer Context" in prompt
         )
         assert "first damaged cable" in writer_prompt
         assert "future hidden transmitter" not in writer_prompt
@@ -561,10 +549,7 @@ def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
         )
         assert initial.status_code == 200
         assert initial.json()["checkpoint_id"] is None
-        assert any(
-            page["path"] == "world/rules.md"
-            for page in initial.json()["pages"]
-        )
+        assert any(page["path"] == "world/rules.md" for page in initial.json()["pages"])
         character_page = client.get(
             "/projects/fog-harbor/branches/main/wiki/page",
             params={"path": "characters/chen-mo/self.md"},
@@ -636,9 +621,7 @@ def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
         )
         assert raw_store.find_source("main", observation_source).suffix == ".md"
         wiki_prompts = [
-            prompt
-            for prompt in transport.calls
-            if "WikiPatch objects only" in prompt
+            prompt for prompt in transport.calls if "WikiUpdateProposal only" in prompt
         ]
         chen_prompt = next(
             prompt for prompt in wiki_prompts if "Character Wiki: chen-mo" in prompt
@@ -733,6 +716,200 @@ def test_wiki_failure_pauses_blocks_and_can_be_retried(tmp_path: Path) -> None:
         assert continued.status_code == 200, continued.text
 
 
+def test_repeated_wiki_protocol_errors_degrade_without_blocking_next_step(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    transport = ReplayGatewayTransport(
+        boundary="scene",
+        invalid_wiki_attempts=2,
+    )
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3, "max_scenes": 3},
+                "output": {
+                    "wiki_mode": "after_scene",
+                    "manuscript_mode": "after_scene",
+                },
+            },
+        ).json()
+        session_id = started["session_id"]
+
+        stepped = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert stepped.status_code == 200, stepped.text
+        degraded = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()
+        assert degraded["maintenance_status"] == "degraded"
+        assert "failed after 2 attempts" in degraded["maintenance_error_text"]
+
+        wiki = client.get(
+            "/projects/fog-harbor/branches/main/wiki",
+            headers=AUTH,
+        ).json()
+        assert wiki["stale"] is True
+        assert wiki["degraded"] is True
+        assert "unknown page_id 'index'" in wiki["degradation_reason"]
+
+        scenes = client.get(
+            "/projects/fog-harbor/branches/main/manuscript/scenes",
+            headers=AUTH,
+        ).json()
+        assert scenes == []
+        manuscript = client.post(
+            "/projects/fog-harbor/branches/main/manuscript/scenes/generate",
+            headers=AUTH,
+            json={
+                "checkpoint_id": degraded["checkpoint_id"],
+                "from_step": 0,
+                "to_step": 0,
+                "chapter_id": "chapter-001",
+                "viewpoint_actor_id": None,
+            },
+        )
+        assert manuscript.status_code == 409
+        assert (
+            "cannot generate manuscript from stale Wiki" in manuscript.json()["detail"]
+        )
+
+        continued = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert continued.status_code == 200, continued.text
+
+
+def test_failed_wiki_retry_can_transition_to_degraded(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    transport = ReplayGatewayTransport(
+        boundary="scene",
+        fail_wiki_attempts=1,
+        invalid_wiki_attempts=2,
+    )
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+                "output": {
+                    "wiki_mode": "after_scene",
+                    "manuscript_mode": "manual",
+                },
+            },
+        ).json()
+        session_id = started["session_id"]
+
+        stepped = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert stepped.status_code == 200, stepped.text
+        failed = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()
+        assert failed["maintenance_status"] == "failed"
+
+        retried = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/maintenance/retry",
+            headers=AUTH,
+        )
+        assert retried.status_code == 200, retried.text
+        assert retried.json()["maintenance_status"] == "degraded"
+
+        wiki = client.get(
+            "/projects/fog-harbor/branches/main/wiki",
+            headers=AUTH,
+        ).json()
+        assert wiki["stale"] is True
+        assert wiki["degraded"] is True
+
+        continued = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert continued.status_code == 200, continued.text
+
+
+def test_wiki_degradation_write_failure_remains_blocking(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+
+    def fail_mark_degraded(
+        self,
+        checkpoint_id: str,
+        step: int,
+        reason: str,
+    ) -> None:
+        del self, checkpoint_id, step, reason
+        raise OSError("wiki index is not writable")
+
+    monkeypatch.setattr(WikiStore, "mark_degraded", fail_mark_degraded)
+    transport = ReplayGatewayTransport(
+        boundary="scene",
+        invalid_wiki_attempts=2,
+    )
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+                "output": {
+                    "wiki_mode": "after_scene",
+                    "manuscript_mode": "manual",
+                },
+            },
+        ).json()
+        session_id = started["session_id"]
+
+        stepped = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert stepped.status_code == 200, stepped.text
+        failed = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()
+        assert failed["maintenance_status"] == "failed"
+        assert failed["maintenance_error_text"] == "wiki index is not writable"
+
+        blocked = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/step",
+            headers=AUTH,
+        )
+        assert blocked.status_code == 409
+        assert "retry maintenance" in blocked.json()["detail"]
+
+
 def test_writer_failure_keeps_committed_history_and_wiki(
     tmp_path: Path,
 ) -> None:
@@ -776,10 +953,13 @@ def test_writer_failure_keeps_committed_history_and_wiki(
             headers=AUTH,
         ).json()
         assert "severed wire" in world["content"]
-        assert client.get(
-            "/projects/fog-harbor/branches/main/manuscript/scenes",
-            headers=AUTH,
-        ).json() == []
+        assert (
+            client.get(
+                "/projects/fog-harbor/branches/main/manuscript/scenes",
+                headers=AUTH,
+            ).json()
+            == []
+        )
         failures = "\n".join(
             path.read_text(encoding="utf-8")
             for path in (
@@ -902,9 +1082,7 @@ def test_session_manifest_restores_on_get_and_keeps_terminal_history(
     with TestClient(
         create_app(_settings(tmp_path), model_transport=ReplayGatewayTransport())
     ) as client:
-        manifests = client.get(
-            "/projects/fog-harbor/simulations", headers=AUTH
-        ).json()
+        manifests = client.get("/projects/fog-harbor/simulations", headers=AUTH).json()
         restored = client.get(
             f"/projects/fog-harbor/simulations/{session_id}", headers=AUTH
         )
@@ -1034,13 +1212,17 @@ def test_existing_npc_is_reused_across_consecutive_steps(tmp_path: Path) -> None
         assert second.status_code == 200, second.text
         assert len(first.json()["resolved_turn"]["effects"]) == 1
         assert second.json()["resolved_turn"]["effects"] == []
-        assert "harbor-guard" in second.json()["resolved_turn"]["events"][0][
-            "participant_ids"
-        ]
-        assert sum(
-            character["id"] == "harbor-guard"
-            for character in snapshot["characters"]
-        ) == 1
+        assert (
+            "harbor-guard"
+            in second.json()["resolved_turn"]["events"][0]["participant_ids"]
+        )
+        assert (
+            sum(
+                character["id"] == "harbor-guard"
+                for character in snapshot["characters"]
+            )
+            == 1
+        )
         assert any(
             "Existing characters:" in prompt
             and "- harbor-guard: Harbor Guard, ordinary NPC" in prompt
@@ -1100,10 +1282,13 @@ def test_checkpoint_restore_reuses_existing_npc_in_next_resolution(
 
         assert next_step.status_code == 200, next_step.text
         assert next_step.json()["resolved_turn"]["effects"] == []
-        assert sum(
-            character["id"] == "harbor-guard"
-            for character in snapshot["characters"]
-        ) == 1
+        assert (
+            sum(
+                character["id"] == "harbor-guard"
+                for character in snapshot["characters"]
+            )
+            == 1
+        )
 
 
 def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
@@ -1160,9 +1345,10 @@ def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
         )
         assert reused.status_code == 200, reused.text
         assert reused.json()["resolved_turn"]["effects"] == []
-        assert "harbor-guard" in reused.json()["resolved_turn"]["events"][0][
-            "participant_ids"
-        ]
+        assert (
+            "harbor-guard"
+            in reused.json()["resolved_turn"]["events"][0]["participant_ids"]
+        )
 
     with TestClient(
         create_app(_settings(tmp_path), model_transport=ReplayGatewayTransport())
