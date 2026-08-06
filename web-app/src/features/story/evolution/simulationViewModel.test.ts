@@ -60,6 +60,7 @@ describe('simulationViewModel', () => {
       branch_id: 'main',
       step: 1,
       stage: 'actor_action',
+      stage_event_id: 'stage-event:1',
       model: 'deepseek/deepseek-reasoner',
       duration_ms: 1200,
       prompt_tokens: 10,
@@ -134,8 +135,17 @@ describe('simulationViewModel', () => {
   })
 
   it('aggregates stage events and ignores duplicate sequences', () => {
-    const selected = reduceSimulationEvent(
+    const started = reduceSimulationEvent(
       initialSimulationViewState,
+      event(1, 'simulation.stage.started', {
+        ...stagePayload,
+        event_id: 'stage-event:running',
+        status: 'running',
+        completed_at: null,
+      })
+    )
+    const selected = reduceSimulationEvent(
+      started,
       event(3, 'simulation.stage.completed', stagePayload)
     )
     const duplicate = reduceSimulationEvent(
@@ -154,6 +164,7 @@ describe('simulationViewModel', () => {
       selected,
       event(4, 'simulation.started', {
         session_id: 'session:one',
+        branch_id: 'main',
         checkpoint_id: `checkpoint-${'a'.repeat(64)}`,
         restored: true,
         step: 2,
@@ -161,6 +172,81 @@ describe('simulationViewModel', () => {
       })
     )
     expect(restored.steps).toEqual({})
+  })
+
+  it('isolates rerun messages by stage execution and clears restored messages', () => {
+    const metadata = {
+      call_id: 'call:old',
+      agent_type: 'actor',
+      agent_name: 'Ara',
+      task_label: '角色行动',
+      session_id: 'session:one',
+      branch_id: 'main',
+      step: 2,
+      stage: 'actor_action',
+      stage_event_id: 'stage-event:old',
+      prompt_tokens: 0,
+      completion_tokens: 0,
+    }
+    let state = reduceSimulationEvent(
+      initialSimulationViewState,
+      event(1, 'simulation.stage.started', {
+        ...stagePayload,
+        event_id: 'stage-event:old',
+        stage: 'actor_action',
+        status: 'running',
+        completed_at: null,
+      })
+    )
+    state = reduceSimulationEvent(
+      state,
+      event(2, 'model.message.started', {
+        message_id: 'call:old',
+        role: 'assistant',
+        metadata,
+      })
+    )
+    expect(state.steps[2].stages.actor_action?.messageIds).toEqual(['call:old'])
+
+    state = reduceSimulationEvent(
+      state,
+      event(3, 'simulation.stage.started', {
+        ...stagePayload,
+        event_id: 'stage-event:new',
+        stage: 'actor_action',
+        status: 'running',
+        completed_at: null,
+      })
+    )
+    expect(state.steps[2].stages.actor_action?.messageIds).toEqual([])
+
+    state = reduceSimulationEvent(
+      state,
+      event(4, 'model.message.started', {
+        message_id: 'call:new',
+        role: 'assistant',
+        metadata: {
+          ...metadata,
+          call_id: 'call:new',
+          stage_event_id: 'stage-event:new',
+        },
+      })
+    )
+    expect(state.steps[2].stages.actor_action?.messageIds).toEqual(['call:new'])
+
+    const restored = reduceSimulationEvent(
+      state,
+      event(5, 'simulation.started', {
+        session_id: 'session:one',
+        branch_id: 'main',
+        checkpoint_id: `checkpoint-${'a'.repeat(64)}`,
+        restored: true,
+        step: 2,
+        status: 'paused',
+      })
+    )
+    expect(restored.steps).toEqual({})
+    expect(restored.messages).toEqual({})
   })
 
   it('rebuilds a completed causal pipeline from durable trace records', () => {
@@ -312,18 +398,24 @@ describe('simulationViewModel', () => {
   it('selects URL step and stage and falls back when stale', () => {
     const first = reduceSimulationEvent(
       initialSimulationViewState,
-      event(1, 'simulation.stage.completed', {
+      event(1, 'simulation.stage.started', {
         ...stagePayload,
+        event_id: 'stage-event:step-2',
         step: 2,
         stage: 'actor_selection',
+        status: 'running',
+        completed_at: null,
       })
     )
     const state = reduceSimulationEvent(
       first,
-      event(2, 'simulation.stage.completed', {
+      event(2, 'simulation.stage.started', {
         ...stagePayload,
+        event_id: 'stage-event:step-5',
         step: 5,
         stage: 'resolution',
+        status: 'running',
+        completed_at: null,
       })
     )
 

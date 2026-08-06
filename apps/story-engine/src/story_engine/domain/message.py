@@ -22,6 +22,7 @@ class ModelMessageContext(RuntimeModel):
     branch_id: Identifier | None = None
     step: int | None = Field(default=None, ge=0)
     stage: str | None = Field(default=None, max_length=100)
+    stage_event_id: Identifier | None = None
 
 
 class StoryMessageMetadata(RuntimeModel):
@@ -33,6 +34,7 @@ class StoryMessageMetadata(RuntimeModel):
     branch_id: Identifier | None = None
     step: int | None = Field(default=None, ge=0)
     stage: str | None = Field(default=None, max_length=100)
+    stage_event_id: Identifier | None = None
     model: str | None = Field(default=None, max_length=200)
     duration_ms: int | None = Field(default=None, ge=0)
     prompt_tokens: int = Field(default=0, ge=0)
@@ -96,6 +98,7 @@ class ModelMessageEvent(RuntimeModel):
     role: Literal["assistant"] = "assistant"
     metadata: StoryMessageMetadata
     part: MessagePartDelta | None = None
+    parts: tuple[ModelMessagePart, ...] = ()
     error: str | None = Field(default=None, max_length=8_000)
     reset: bool = False
 
@@ -105,6 +108,11 @@ class ModelMessageEvent(RuntimeModel):
             raise ValueError("model.message.delta requires a part")
         if self.event_type != "model.message.delta" and self.part is not None:
             raise ValueError("only model.message.delta can contain a part")
+        if self.event_type not in {
+            "model.message.completed",
+            "model.message.failed",
+        } and self.parts:
+            raise ValueError("only terminal model messages can contain complete parts")
         if self.event_type == "model.message.failed" and not self.error:
             raise ValueError("model.message.failed requires an error")
         return self

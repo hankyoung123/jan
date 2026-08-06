@@ -67,7 +67,10 @@ def test_submission_draft_reports_missing_runnable_requirements() -> None:
     draft = SubmissionDraft(id="north-star")
 
     assert draft.missing_requirements() == (
-        "创作方向",
+        "标题",
+        "类型",
+        "主题",
+        "基调",
         "世界规则与公共事实",
         "初始角色 (2-4 个)",
         "初始时间、地点和起始事件",

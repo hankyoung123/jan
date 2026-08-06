@@ -191,6 +191,8 @@ class StorySimulationRuntime:
     def _evaluate_promotions(
         self,
         resolved: ResolvedTurn,
+        *,
+        stage_event_id: str | None,
     ) -> tuple[PromotionDecision, ...]:
         self._pending_scene_events.extend(resolved.events)
         if resolved.boundary.value == "none":
@@ -232,10 +234,17 @@ class StorySimulationRuntime:
             self._language_models.append(model)
         self._pending_scene_events.clear()
         if self._roster_planner is not None:
+            if stage_event_id is None:
+                raise ValueError(
+                    "promotion stage event is required for roster planning"
+                )
             self._set_trace_context(
                 step=resolved.step,
                 component_ids=("game-master:roster-selection",),
                 source_record_ids=tuple(event.event_id for event in scene_events),
+                stage=SimulationStage.PROMOTION,
+                task_label="下一场角色选择",
+                stage_event_id=stage_event_id,
             )
             self._plan_next_roster(scene_events)
         return tuple(decisions)
@@ -314,6 +323,9 @@ class StorySimulationRuntime:
         step: int,
         component_ids: tuple[str, ...],
         source_record_ids: tuple[str, ...] = (),
+        stage: SimulationStage,
+        task_label: str,
+        stage_event_id: str,
     ) -> None:
         for model in self._language_models:
             setter = getattr(model, "set_trace_context", None)
@@ -322,6 +334,9 @@ class StorySimulationRuntime:
                     step=step,
                     component_ids=component_ids,
                     source_record_ids=source_record_ids,
+                    stage=stage.value,
+                    task_label=task_label,
+                    stage_event_id=stage_event_id,
                 )
 
     def _publish_stage(
@@ -396,7 +411,7 @@ class StorySimulationRuntime:
     def execute_step(self, step: int, *, cancellation: Event) -> StepResult:
         current_stage = SimulationStage.TERMINATION
         stage_started = datetime.now(UTC)
-        self._publish_stage(
+        stage_event = self._publish_stage(
             step=step,
             stage=current_stage,
             status=StageStatus.RUNNING,
@@ -407,6 +422,9 @@ class StorySimulationRuntime:
             self._set_trace_context(
                 step=step,
                 component_ids=("game-master:termination",),
+                stage=current_stage,
+                task_label="终止判断",
+                stage_event_id=stage_event.event_id,
             )
             if self._sequential.terminate(self.game_master.entity):
                 self._publish_stage(
@@ -436,7 +454,7 @@ class StorySimulationRuntime:
 
             current_stage = SimulationStage.OBSERVATION
             stage_started = datetime.now(UTC)
-            self._publish_stage(
+            stage_event = self._publish_stage(
                 step=step,
                 stage=current_stage,
                 status=StageStatus.RUNNING,
@@ -445,6 +463,9 @@ class StorySimulationRuntime:
             self._set_trace_context(
                 step=step,
                 component_ids=("game-master:roster-selection",),
+                stage=current_stage,
+                task_label="初始角色选择",
+                stage_event_id=stage_event.event_id,
             )
             selected_roster = self._plan_initial_roster()
             observation_ids: list[str] = []
@@ -456,6 +477,9 @@ class StorySimulationRuntime:
                     step=step,
                     component_ids=("game-master:observation",),
                     source_record_ids=(record_id,),
+                    stage=current_stage,
+                    task_label="角色观察",
+                    stage_event_id=stage_event.event_id,
                 )
                 observation = self._sequential.make_observation(
                     self.game_master.entity,
@@ -495,17 +519,20 @@ class StorySimulationRuntime:
             self._check_cancelled(cancellation)
             current_stage = SimulationStage.ACTOR_SELECTION
             stage_started = datetime.now(UTC)
-            self._set_trace_context(
-                step=step,
-                component_ids=("game-master:actor-selection",),
-                source_record_ids=tuple(observation_ids),
-            )
-            self._publish_stage(
+            stage_event = self._publish_stage(
                 step=step,
                 stage=current_stage,
                 status=StageStatus.RUNNING,
                 started_at=stage_started,
                 input_record_ids=tuple(observation_ids),
+            )
+            self._set_trace_context(
+                step=step,
+                component_ids=("game-master:actor-selection",),
+                source_record_ids=tuple(observation_ids),
+                stage=current_stage,
+                task_label="行动角色选择",
+                stage_event_id=stage_event.event_id,
             )
             raw_actor, raw_spec = self._sequential.next_acting(
                 self.game_master.entity,
@@ -564,12 +591,7 @@ class StorySimulationRuntime:
                 for record_id in observation_ids
                 if record_id.endswith(f":{actor.name}")
             )
-            self._set_trace_context(
-                step=step,
-                component_ids=(f"actor:{actor.name}:action",),
-                source_record_ids=actor_observation_ids,
-            )
-            self._publish_stage(
+            stage_event = self._publish_stage(
                 step=step,
                 stage=current_stage,
                 status=StageStatus.RUNNING,
@@ -577,6 +599,14 @@ class StorySimulationRuntime:
                 actor_id=actor.name,
                 action_spec=action_spec,
                 input_record_ids=actor_observation_ids,
+            )
+            self._set_trace_context(
+                step=step,
+                component_ids=(f"actor:{actor.name}:action",),
+                source_record_ids=actor_observation_ids,
+                stage=current_stage,
+                task_label="角色行动",
+                stage_event_id=stage_event.event_id,
             )
             action = raw_actor.act(raw_spec)
             putative_id = f"putative:{self.session_id}:{step}"
@@ -596,18 +626,21 @@ class StorySimulationRuntime:
             self._check_cancelled(cancellation)
             current_stage = SimulationStage.RESOLUTION
             stage_started = datetime.now(UTC)
-            self._set_trace_context(
-                step=step,
-                component_ids=("game-master:resolution",),
-                source_record_ids=(putative_id,),
-            )
-            self._publish_stage(
+            stage_event = self._publish_stage(
                 step=step,
                 stage=current_stage,
                 status=StageStatus.RUNNING,
                 started_at=stage_started,
                 actor_id=actor.name,
                 input_record_ids=(putative_id,),
+            )
+            self._set_trace_context(
+                step=step,
+                component_ids=("game-master:resolution",),
+                source_record_ids=(putative_id,),
+                stage=current_stage,
+                task_label="世界结算",
+                stage_event_id=stage_event.event_id,
             )
             resolved = self.resolver.resolve(
                 self.game_master,
@@ -645,7 +678,7 @@ class StorySimulationRuntime:
 
             current_stage = SimulationStage.MEMORY_ROUTING
             stage_started = datetime.now(UTC)
-            self._publish_stage(
+            stage_event = self._publish_stage(
                 step=step,
                 stage=current_stage,
                 status=StageStatus.RUNNING,
@@ -657,6 +690,9 @@ class StorySimulationRuntime:
                 step=step,
                 component_ids=("memory:routing",),
                 source_record_ids=(event_id,),
+                stage=current_stage,
+                task_label="记忆路由",
+                stage_event_id=stage_event.event_id,
             )
             observer_ids: set[str] = set() if resolved.events else {actor.name}
             for event in resolved.events:
@@ -698,10 +734,20 @@ class StorySimulationRuntime:
             )
             promotion_decisions: tuple[PromotionDecision, ...]
             if resolved.boundary.value == "none":
-                promotion_decisions = self._evaluate_promotions(resolved)
+                promotion_decisions = self._evaluate_promotions(
+                    resolved,
+                    stage_event_id=None,
+                )
             else:
                 current_stage = SimulationStage.PROMOTION
                 stage_started = datetime.now(UTC)
+                stage_event = self._publish_stage(
+                    step=step,
+                    stage=current_stage,
+                    status=StageStatus.RUNNING,
+                    started_at=stage_started,
+                    input_record_ids=(event_id,),
+                )
                 self._set_trace_context(
                     step=step,
                     component_ids=("editor:automatic-promotion",),
@@ -709,15 +755,14 @@ class StorySimulationRuntime:
                         event.event_id for event in self._pending_scene_events
                     )
                     + tuple(event.event_id for event in resolved.events),
-                )
-                self._publish_stage(
-                    step=step,
                     stage=current_stage,
-                    status=StageStatus.RUNNING,
-                    started_at=stage_started,
-                    input_record_ids=(event_id,),
+                    task_label="NPC 晋升判断",
+                    stage_event_id=stage_event.event_id,
                 )
-                promotion_decisions = self._evaluate_promotions(resolved)
+                promotion_decisions = self._evaluate_promotions(
+                    resolved,
+                    stage_event_id=stage_event.event_id,
+                )
                 self._publish_stage(
                     step=step,
                     stage=current_stage,

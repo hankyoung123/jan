@@ -38,6 +38,7 @@ export interface StoryMessageMetadata {
   branch_id?: string | null;
   step?: number | null;
   stage?: string | null;
+  stage_event_id?: string | null;
   model?: string | null;
   duration_ms?: number | null;
   prompt_tokens: number;
@@ -57,11 +58,25 @@ export interface MessagePartDelta {
   error?: string | null;
 }
 
+export interface CompletedMessagePart {
+  type: "reasoning" | "text" | "file" | `tool-${string}`;
+  text?: string | null;
+  state?: string | null;
+  tool_call_id?: string | null;
+  media_type?: string | null;
+  url?: string | null;
+  filename?: string | null;
+  input?: unknown;
+  output?: unknown;
+  error?: string | null;
+}
+
 export interface ModelMessageEventPayload {
   message_id: string;
   role: "assistant";
   metadata: StoryMessageMetadata;
   part?: MessagePartDelta | null;
+  parts?: CompletedMessagePart[];
   error?: string | null;
   reset?: boolean;
 }

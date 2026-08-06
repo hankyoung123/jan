@@ -15,6 +15,7 @@ from story_engine.manuscript.models import ProjectCreativeContext
 from story_engine.manuscript.service import (
     WRITER_FIRST_CONTENT_TIMEOUT_SECONDS,
     GatewayManuscriptAgent,
+    parse_writer_markdown,
 )
 from story_engine.models.contracts import ModelRequest, ModelResponse
 from story_engine.models.registry import ProfileRegistry
@@ -37,8 +38,7 @@ class RecordingGateway:
         return ModelResponse(
             profile_id=request.profile_id,
             model_ref="test-provider/test-writer",
-            content='{"title":"潮声","body":"灯塔在雨中亮起。"}',
-            parsed_output={"title": "潮声", "body": "灯塔在雨中亮起。"},
+            content="# 潮声\n\n灯塔在雨中亮起。",
             finish_reason="stop",
         )
 
@@ -108,6 +108,7 @@ def test_writer_uses_provider_length_and_five_minute_content_deadline(
     assert output.body == "灯塔在雨中亮起。"
     request = gateway.requests[0]
     assert request.output_token_limit == "provider"
+    assert request.output_schema is None
     assert request.max_output_tokens is None
     assert (
         request.first_content_timeout_seconds
@@ -118,3 +119,10 @@ def test_writer_uses_provider_length_and_five_minute_content_deadline(
     assert gateway.contexts[0] is not None
     assert gateway.contexts[0].project_id == "fog-harbor"
     assert gateway.contexts[0].stage == "writer"
+
+
+def test_writer_markdown_is_parsed_locally() -> None:
+    output = parse_writer_markdown("# 潮声\n\n第一段。\n\n第二段。")
+
+    assert output.title == "潮声"
+    assert output.body == "第一段。\n\n第二段。"

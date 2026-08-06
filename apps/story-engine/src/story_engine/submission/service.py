@@ -134,9 +134,14 @@ class SubmissionDraft(DomainModel):
 
     def missing_requirements(self) -> tuple[str, ...]:
         missing: list[str] = []
-        creative_direction = (self.title, self.genre, self.theme, self.tone)
-        if not all(value.strip() for value in creative_direction):
-            missing.append("创作方向")
+        for label, value in (
+            ("标题", self.title),
+            ("类型", self.genre),
+            ("主题", self.theme),
+            ("基调", self.tone),
+        ):
+            if not value.strip():
+                missing.append(label)
         if not self.world_rules or not any(
             fact.visibility == "public" for fact in self.facts
         ):
@@ -454,11 +459,11 @@ class SubmissionDiscussionService:
         }
         example_output = SubmissionModelOutput(
             reply="我会根据你的要求更新设定, 并指出仍需补充的内容。",
-            draft=request.draft,
+            draft=SubmissionDraft.from_package(fog_harbor_submission()),
             review=ReviewResult(
                 mode="submission_review",
-                passed=False,
-                summary="初始设定仍需补充。",
+                passed=True,
+                summary="示例初始设定完整且可以运行。",
             ),
         )
         protocol = (

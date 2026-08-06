@@ -303,6 +303,48 @@ describe('MessageItem', () => {
     expect(screen.getByTestId('token-speed').getAttribute('data-streaming')).toBe('true')
   })
 
+  it('uses message output status for concurrent non-last streams', () => {
+    const { rerender } = render(
+      <MessageItem
+        message={
+          makeMsg({
+            metadata: {
+              createdAt: new Date(),
+              outputStatus: 'streaming',
+            },
+          }) as any
+        }
+        isFirstMessage
+        isLastMessage={false}
+        status={'ready' as any}
+      />
+    )
+    expect(screen.getByTestId('token-speed')).toHaveAttribute(
+      'data-streaming',
+      'true'
+    )
+
+    rerender(
+      <MessageItem
+        message={
+          makeMsg({
+            metadata: {
+              createdAt: new Date(),
+              outputStatus: 'completed',
+            },
+          }) as any
+        }
+        isFirstMessage
+        isLastMessage
+        status={'streaming' as any}
+      />
+    )
+    expect(screen.getByTestId('token-speed')).toHaveAttribute(
+      'data-streaming',
+      'false'
+    )
+  })
+
   it('renders user image attachment', () => {
     render(
       <MessageItem

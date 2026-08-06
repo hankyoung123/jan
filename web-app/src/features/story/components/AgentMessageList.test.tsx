@@ -5,8 +5,16 @@ import type { StoryModelMessage } from '../modelMessages'
 import { AgentMessageList } from './AgentMessageList'
 
 vi.mock('@/containers/MessageItem', () => ({
-  MessageItem: ({ preset }: { preset: string }) => (
-    <div data-testid="message-preset">{preset}</div>
+  MessageItem: ({
+    preset,
+    status,
+  }: {
+    preset: string
+    status: string
+  }) => (
+    <div data-status={status} data-testid="message-preset">
+      {preset}
+    </div>
   ),
 }))
 
@@ -41,5 +49,33 @@ describe('AgentMessageList', () => {
     render(<AgentMessageList messages={[message]} preset="readonly" />)
 
     expect(screen.getByTestId('message-preset')).toHaveTextContent('readonly')
+  })
+
+  it('keeps multiple Agent messages in streaming state concurrently', () => {
+    render(
+      <AgentMessageList
+        messages={[
+          { ...message, id: 'call:one' },
+          {
+            ...message,
+            id: 'call:two',
+            metadata: {
+              ...message.metadata,
+              callId: 'call:two',
+              agentName: 'Editor',
+              outputStatus: 'streaming',
+            },
+          },
+        ].map((item) => ({
+          ...item,
+          metadata: { ...item.metadata, outputStatus: 'streaming' as const },
+        }))}
+      />
+    )
+
+    expect(screen.getAllByTestId('message-preset')).toHaveLength(2)
+    expect(
+      screen.getAllByTestId('message-preset').map((item) => item.dataset.status)
+    ).toEqual(['streaming', 'streaming'])
   })
 })

@@ -8,6 +8,7 @@ import httpx
 import pytest
 from profile_factory import agent_profile as _profile
 
+import story_engine.models.gateway as gateway_module
 from story_engine.domain.message import ModelMessageContext, ModelMessageEvent
 from story_engine.models.contracts import (
     Message,
@@ -203,12 +204,70 @@ def test_invalid_json_retries_without_provider_specific_branching(
 ) -> None:
     schema = json.dumps({"type": "object", "required": ["ok"]})
     transport = FakeTransport("not-json", '{"ok":true}')
-    gateway, _ = _gateway(tmp_path, transport)
+    _, registry = _gateway(tmp_path, transport)
+    events: list[ModelMessageEvent] = []
+    gateway = ModelGateway(registry, transport, message_sink=events.append)
 
-    response = asyncio.run(gateway.complete(_request(output_schema=schema)))
+    response = asyncio.run(
+        gateway.complete(
+            _request(output_schema=schema),
+            context=ModelMessageContext(
+                project_id="fog-harbor",
+                message_id="call:invalid-json",
+                agent_name="Game Master",
+                task_label="世界结算",
+                stage="resolution",
+                stage_event_id="stage-event:resolution",
+            ),
+        )
+    )
 
     assert response.parsed_output == {"ok": True}
     assert len(transport.calls) == 2
+    assert [event.event_type for event in events] == [
+        "model.message.started",
+        "model.message.started",
+        "model.message.delta",
+        "model.message.completed",
+    ]
+    assert events[1].reset is True
+
+
+def test_schema_validation_failure_resets_before_retry(tmp_path: Path) -> None:
+    schema = json.dumps(
+        {
+            "type": "object",
+            "required": ["ok"],
+            "properties": {"ok": {"const": True}},
+        }
+    )
+    transport = FakeTransport('{"ok":false}', '{"ok":true}')
+    _, registry = _gateway(tmp_path, transport)
+    events: list[ModelMessageEvent] = []
+    gateway = ModelGateway(registry, transport, message_sink=events.append)
+
+    response = asyncio.run(
+        gateway.complete(
+            _request(output_schema=schema),
+            context=ModelMessageContext(
+                project_id="fog-harbor",
+                message_id="call:schema-retry",
+                agent_name="Game Master",
+                task_label="世界结算",
+                stage="resolution",
+                stage_event_id="stage-event:resolution",
+            ),
+        )
+    )
+
+    assert response.parsed_output == {"ok": True}
+    assert [event.event_type for event in events] == [
+        "model.message.started",
+        "model.message.started",
+        "model.message.delta",
+        "model.message.completed",
+    ]
+    assert events[1].reset is True
 
 
 def test_unsupported_response_format_falls_back_to_prompt_only_json(
@@ -228,16 +287,22 @@ def test_unsupported_response_format_falls_back_to_prompt_only_json(
                     }
                 },
             )
+        stream = "\n".join(
+            (
+                'data: {"choices":[{"delta":{"content":'
+                + json.dumps('{"decision":"accept"}')
+                + '},"finish_reason":null}]}',
+                "",
+                'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+                "",
+                "data: [DONE]",
+                "",
+            )
+        )
         return httpx.Response(
             200,
-            json={
-                "choices": [
-                    {
-                        "message": {"content": '{"decision":"accept"}'},
-                        "finish_reason": "stop",
-                    }
-                ]
-            },
+            text=stream,
+            headers={"content-type": "text/event-stream"},
         )
 
     registry = ProfileRegistry(tmp_path / "models.json")
@@ -248,6 +313,7 @@ def test_unsupported_response_format_falls_back_to_prompt_only_json(
             model_ref="test-provider/test-writer",
         )
     )
+    events: list[ModelMessageEvent] = []
     gateway = ModelGateway(
         registry,
         OpenAICompatibleTransport(
@@ -255,6 +321,7 @@ def test_unsupported_response_format_falls_back_to_prompt_only_json(
             "",
             httpx.MockTransport(handler),
         ),
+        message_sink=events.append,
     )
     schema = json.dumps(
         {
@@ -264,7 +331,19 @@ def test_unsupported_response_format_falls_back_to_prompt_only_json(
         }
     )
 
-    response = asyncio.run(gateway.complete(_request(output_schema=schema)))
+    response = asyncio.run(
+        gateway.complete(
+            _request(output_schema=schema),
+            context=ModelMessageContext(
+                project_id="fog-harbor",
+                message_id="call:format-fallback",
+                agent_name="Game Master",
+                task_label="世界结算",
+                stage="resolution",
+                stage_event_id="stage-event:resolution",
+            ),
+        )
+    )
 
     assert response.parsed_output == {"decision": "accept"}
     assert len(calls) == 2
@@ -275,6 +354,13 @@ def test_unsupported_response_format_falls_back_to_prompt_only_json(
     assert fallback_messages[1]["role"] == "user"
     assert "JSON SCHEMA" in fallback_messages[0]["content"]
     assert '"decision"' in fallback_messages[0]["content"]
+    assert [event.event_type for event in events] == [
+        "model.message.started",
+        "model.message.started",
+        "model.message.delta",
+        "model.message.completed",
+    ]
+    assert events[1].reset is True
 
 
 def test_unrelated_provider_400_does_not_trigger_structured_fallback(
@@ -317,7 +403,7 @@ def test_unrelated_provider_400_does_not_trigger_structured_fallback(
 
 
 @pytest.mark.parametrize("content", ['{"wrong":true}', '{"ok":"bad"}'])
-def test_schema_validation_failure_is_not_retried(
+def test_schema_validation_failure_retries_until_attempt_limit(
     tmp_path: Path,
     content: str,
 ) -> None:
@@ -333,7 +419,7 @@ def test_schema_validation_failure_is_not_retried(
 
     with pytest.raises(StructuredOutputError):
         asyncio.run(gateway.complete(_request(output_schema=schema)))
-    assert len(transport.calls) == 1
+    assert len(transport.calls) == 3
 
 
 def test_empty_structured_output_reports_error_after_bounded_retries(
@@ -587,6 +673,59 @@ def test_first_content_deadline_uses_streaming_and_ignores_reasoning(
     assert "max_tokens" not in observed[0]
 
 
+def test_sse_transport_overhead_does_not_count_as_final_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gateway_module, "MAX_RESPONSE_BYTES", 32)
+    monkeypatch.setattr(gateway_module, "MAX_SSE_TRANSPORT_BYTES", 4_096)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        events = [
+            "data: "
+            + json.dumps(
+                {
+                    "choices": [
+                        {
+                            "delta": {"reasoning_content": "r"},
+                            "finish_reason": None,
+                        }
+                    ]
+                }
+            )
+            for _ in range(20)
+        ]
+        events.extend(
+            (
+                'data: {"choices":[{"delta":{"content":"正文"},'
+                '"finish_reason":null}]}',
+                'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+                "data: [DONE]",
+            )
+        )
+        return httpx.Response(
+            200,
+            text="\n\n".join(events),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    transport = OpenAICompatibleTransport(
+        "http://127.0.0.1:49152/v1",
+        "",
+        httpx.MockTransport(handler),
+    )
+
+    response = asyncio.run(
+        transport.complete(
+            {"model": "test-provider/test-writer", "messages": []},
+            timeout_seconds=1,
+            first_content_timeout_seconds=1,
+        )
+    )
+
+    assert response["choices"][0]["message"]["content"] == "正文"
+    assert response["choices"][0]["message"]["reasoning_content"] == "r" * 20
+
+
 def test_gateway_publishes_provider_sse_parts_as_model_message_events(
     tmp_path: Path,
 ) -> None:
@@ -657,7 +796,6 @@ def test_gateway_publishes_provider_sse_parts_as_model_message_events(
         "model.message.started",
         "model.message.delta",
         "model.message.delta",
-        "model.message.delta",
         "model.message.completed",
     ]
     assert [
@@ -666,11 +804,118 @@ def test_gateway_publishes_provider_sse_parts_as_model_message_events(
         if event.part is not None
     ] == [
         ("reasoning", "checking "),
-        ("text", "The keeper "),
-        ("text", "lights the lamp."),
+        ("text", "The keeper lights the lamp."),
     ]
     assert events[0].reset is True
+    assert [(part.type, part.text) for part in events[-1].parts] == [
+        ("reasoning", "checking "),
+        ("text", "The keeper lights the lamp."),
+    ]
     assert events[-1].metadata.completion_tokens == 7
+
+
+def test_model_message_delta_flushes_at_512_characters(tmp_path: Path) -> None:
+    events: list[ModelMessageEvent] = []
+
+    class ThresholdTransport(FakeTransport):
+        async def complete(
+            self,
+            payload: Mapping[str, Any],
+            *,
+            timeout_seconds: float,
+            first_content_timeout_seconds: float | None = None,
+            part_sink: ModelPartSink | None = None,
+        ) -> Mapping[str, Any]:
+            del payload, timeout_seconds, first_content_timeout_seconds
+            assert part_sink is not None
+            part_sink("text", "a" * 256)
+            assert [event.event_type for event in events] == [
+                "model.message.started"
+            ]
+            part_sink("text", "b" * 256)
+            assert events[-1].event_type == "model.message.delta"
+            assert events[-1].part is not None
+            assert events[-1].part.text_delta == "a" * 256 + "b" * 256
+            return {
+                "choices": [
+                    {
+                        "message": {"content": "a" * 256 + "b" * 256},
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+
+    transport = ThresholdTransport()
+    _, registry = _gateway(tmp_path, transport)
+    gateway = ModelGateway(registry, transport, message_sink=events.append)
+
+    asyncio.run(
+        gateway.complete(
+            _request(),
+            context=ModelMessageContext(
+                project_id="fog-harbor",
+                message_id="call:threshold",
+                agent_name="Writer",
+                task_label="正文生成",
+            ),
+        )
+    )
+
+    deltas = [event for event in events if event.event_type == "model.message.delta"]
+    assert len(deltas) == 1
+
+
+def test_model_message_delta_flushes_after_100ms(tmp_path: Path) -> None:
+    events: list[ModelMessageEvent] = []
+
+    class TimedTransport(FakeTransport):
+        async def complete(
+            self,
+            payload: Mapping[str, Any],
+            *,
+            timeout_seconds: float,
+            first_content_timeout_seconds: float | None = None,
+            part_sink: ModelPartSink | None = None,
+        ) -> Mapping[str, Any]:
+            del payload, timeout_seconds, first_content_timeout_seconds
+            assert part_sink is not None
+            part_sink("text", "early")
+            await asyncio.sleep(
+                gateway_module.MODEL_MESSAGE_DELTA_FLUSH_INTERVAL_SECONDS * 2
+            )
+            assert events[-1].event_type == "model.message.delta"
+            assert events[-1].part is not None
+            assert events[-1].part.text_delta == "early"
+            return {
+                "choices": [
+                    {
+                        "message": {"content": "early"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+
+    transport = TimedTransport()
+    _, registry = _gateway(tmp_path, transport)
+    gateway = ModelGateway(registry, transport, message_sink=events.append)
+
+    asyncio.run(
+        gateway.complete(
+            _request(),
+            context=ModelMessageContext(
+                project_id="fog-harbor",
+                message_id="call:timer",
+                agent_name="Writer",
+                task_label="正文生成",
+            ),
+        )
+    )
+
+    assert [event.event_type for event in events] == [
+        "model.message.started",
+        "model.message.delta",
+        "model.message.completed",
+    ]
 
 
 def test_structured_output_streams_reasoning_and_buffers_text_until_valid(
@@ -857,14 +1102,15 @@ def test_gateway_resets_streamed_parts_before_retrying_truncated_output(
     assert attempt == 2
     assert [event.event_type for event in events] == [
         "model.message.started",
-        "model.message.delta",
         "model.message.started",
         "model.message.delta",
         "model.message.completed",
     ]
-    assert events[2].reset is True
-    assert events[1].part and events[1].part.text_delta == "discard this"
-    assert events[3].part and events[3].part.text_delta == "keep this"
+    assert events[1].reset is True
+    assert events[2].part and events[2].part.text_delta == "keep this"
+    assert [(part.type, part.text) for part in events[-1].parts] == [
+        ("text", "keep this")
+    ]
 
 
 class DelayedContentStream(httpx.AsyncByteStream):

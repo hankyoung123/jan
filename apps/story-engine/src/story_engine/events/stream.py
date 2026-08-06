@@ -36,6 +36,7 @@ EngineEventType = Literal[
 ]
 
 EventSink = Callable[[EngineEventType, dict[str, JsonValue]], None]
+_TRANSIENT_EVENT_TYPES = frozenset({"model.message.delta"})
 
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
@@ -85,6 +86,7 @@ class EngineEventBus:
         self._lock = Lock()
         self._sequence = 0
         self._history: deque[EngineEvent] = deque(maxlen=history_size)
+        self._history_floor_sequence = 0
 
     def subscribe(self, project_id: str | None) -> _Subscriber:
         subscriber = _Subscriber(project_id, self.queue_size)
@@ -116,7 +118,13 @@ class EngineEventBus:
                 type=event_type,
                 payload=payload,
             )
-            self._history.append(event)
+            if event.type not in _TRANSIENT_EVENT_TYPES:
+                if len(self._history) == self._history.maxlen:
+                    self._history_floor_sequence = max(
+                        self._history_floor_sequence,
+                        self._history[0].sequence,
+                    )
+                self._history.append(event)
             subscribers = tuple(self._subscribers)
         for subscriber in subscribers:
             if subscriber.project_id not in {None, project_id}:
@@ -140,7 +148,7 @@ class EngineEventBus:
         after_sequence: int,
     ) -> tuple[EngineEvent, ...] | None:
         with self._lock:
-            if self._history and after_sequence < self._history[0].sequence - 1:
+            if after_sequence < self._history_floor_sequence:
                 return None
             return tuple(
                 event

@@ -131,7 +131,10 @@ def test_active_agent_pool_can_exceed_four_while_scene_roster_stays_bounded() ->
         roster_planner=NextRosterPlanner(),
     )
 
-    decisions = runtime._evaluate_promotions(_turn(_event("npc-1")))
+    decisions = runtime._evaluate_promotions(
+        _turn(_event("npc-1")),
+        stage_event_id="stage-event:promotion",
+    )
 
     npc = next(item for item in runtime.character_states() if item.id == "npc-1")
     assert len(decisions) == 1
@@ -168,7 +171,10 @@ def test_rejected_editor_decision_leaves_npc_without_an_actor() -> None:
         ),
     )
 
-    decisions = runtime._evaluate_promotions(_turn(_event("npc-1")))
+    decisions = runtime._evaluate_promotions(
+        _turn(_event("npc-1")),
+        stage_event_id="stage-event:promotion",
+    )
 
     npc = next(item for item in runtime.character_states() if item.id == "npc-1")
     assert len(decisions) == 1

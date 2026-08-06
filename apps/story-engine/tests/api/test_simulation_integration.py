@@ -150,12 +150,7 @@ class ReplayGatewayTransport:
         if "Writer Context" in prompt:
             if self.fail_writer:
                 raise RuntimeError("writer unavailable")
-            content = json.dumps(
-                {
-                    "title": "The Severed Wire",
-                    "body": self.event_text,
-                }
-            )
+            content = f"# The Severed Wire\n\n{self.event_text}"
         elif "Editor Context" in prompt:
             if self.fail_editor:
                 raise RuntimeError("editor unavailable")

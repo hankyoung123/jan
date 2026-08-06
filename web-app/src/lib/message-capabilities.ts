@@ -29,6 +29,7 @@ export interface StoryMessageMetadata {
   branchId?: string
   step?: number
   stage?: string
+  stageEventId?: string
   model?: string
   duration?: number
   promptTokens?: number

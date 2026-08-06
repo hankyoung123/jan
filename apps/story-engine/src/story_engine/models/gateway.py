@@ -19,6 +19,7 @@ from story_engine.domain.message import (
     ModelMessageContext,
     ModelMessageEvent,
     ModelMessageEventType,
+    ModelMessagePart,
     ModelMessageSink,
     StoryMessageMetadata,
 )
@@ -43,15 +44,86 @@ from story_engine.models.registry import ProfileRegistry
 
 MAX_REQUEST_BYTES = 1_048_576
 MAX_RESPONSE_BYTES = 1_048_576
+MAX_SSE_TRANSPORT_BYTES = 16 * MAX_RESPONSE_BYTES
 MAX_ATTEMPTS = 3
 MAX_PROVIDER_ERROR_DETAIL_CHARS = 1_000
 TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens"})
 MAX_STRUCTURED_ATTEMPTS = 3
 STRUCTURED_RETRY_BACKOFF_SECONDS = 0.5
 MODEL_MESSAGE_FIRST_CONTENT_TIMEOUT_SECONDS = 300
+MODEL_MESSAGE_DELTA_FLUSH_INTERVAL_SECONDS = 0.1
+MODEL_MESSAGE_DELTA_FLUSH_CHARACTERS = 512
 logger = logging.getLogger(__name__)
 
 ModelPartSink = Callable[[Literal["reasoning", "text"], str], None]
+
+
+class _ModelMessageDeltaBatcher:
+    def __init__(self, sink: ModelPartSink) -> None:
+        self._sink = sink
+        self._loop = asyncio.get_running_loop()
+        self._timer: asyncio.TimerHandle | None = None
+        self._pending: list[tuple[Literal["reasoning", "text"], str]] = []
+        self._pending_characters = 0
+        self._parts: list[ModelMessagePart] = []
+
+    @staticmethod
+    def _append_text(
+        target: list[tuple[Literal["reasoning", "text"], str]],
+        part_type: Literal["reasoning", "text"],
+        text: str,
+    ) -> None:
+        if target and target[-1][0] == part_type:
+            previous_type, previous_text = target[-1]
+            target[-1] = (previous_type, previous_text + text)
+        else:
+            target.append((part_type, text))
+
+    def add(self, part_type: Literal["reasoning", "text"], delta: str) -> None:
+        if not delta:
+            return
+        self._append_text(self._pending, part_type, delta)
+        if self._parts and self._parts[-1].type == part_type:
+            previous = self._parts[-1]
+            self._parts[-1] = previous.model_copy(
+                update={"text": f"{previous.text or ''}{delta}"}
+            )
+        else:
+            self._parts.append(ModelMessagePart(type=part_type, text=delta))
+        self._pending_characters += len(delta)
+        if self._pending_characters >= MODEL_MESSAGE_DELTA_FLUSH_CHARACTERS:
+            self.flush()
+        elif self._timer is None:
+            self._timer = self._loop.call_later(
+                MODEL_MESSAGE_DELTA_FLUSH_INTERVAL_SECONDS,
+                self.flush,
+            )
+
+    def flush(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        pending = self._pending
+        self._pending = []
+        self._pending_characters = 0
+        for part_type, text in pending:
+            self._sink(part_type, text)
+
+    def reset(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        self._pending = []
+        self._pending_characters = 0
+        self._parts = []
+
+    @property
+    def part_types(self) -> set[str]:
+        return {part.type for part in self._parts}
+
+    @property
+    def parts(self) -> tuple[ModelMessagePart, ...]:
+        return tuple(self._parts)
 
 
 def initial_budget(task_kind: str, ceiling: int | None) -> int | None:
@@ -325,7 +397,8 @@ class OpenAICompatibleTransport:
         finish_reason: str | None = None
         model: str | None = None
         usage: Mapping[str, Any] = {}
-        received = 0
+        transport_bytes = 0
+        content_bytes = 0
         client_timeout = max(timeout_seconds, first_content_timeout_seconds)
 
         async with (
@@ -366,10 +439,11 @@ class OpenAICompatibleTransport:
                         ),
                     )
 
-                received += len(line.encode("utf-8")) + 1
-                if received > MAX_RESPONSE_BYTES:
+                transport_bytes += len(line.encode("utf-8")) + 1
+                if transport_bytes > MAX_SSE_TRANSPORT_BYTES:
                     raise ResponseLimitError(
-                        f"provider response exceeded {MAX_RESPONSE_BYTES} bytes"
+                        "provider SSE transport exceeded "
+                        f"{MAX_SSE_TRANSPORT_BYTES} bytes"
                     )
                 if not line.startswith("data:"):
                     continue
@@ -406,6 +480,11 @@ class OpenAICompatibleTransport:
                     if part_sink is not None:
                         part_sink("reasoning", reasoning_delta)
                 if text_delta:
+                    content_bytes += len(text_delta.encode("utf-8"))
+                    if content_bytes > MAX_RESPONSE_BYTES:
+                        raise ResponseLimitError(
+                            f"model output exceeded {MAX_RESPONSE_BYTES} bytes"
+                        )
                     if completion_deadline is None:
                         completion_deadline = time.monotonic() + timeout_seconds
                     content.append(text_delta)
@@ -626,6 +705,7 @@ class ModelGateway:
             branch_id=context.branch_id,
             step=context.step,
             stage=context.stage,
+            stage_event_id=context.stage_event_id,
             model=response.model_ref if response else profile.model,
             duration_ms=duration_ms,
             prompt_tokens=response.usage.prompt_tokens if response else 0,
@@ -642,6 +722,7 @@ class ModelGateway:
         response: ModelResponse | None = None,
         duration_ms: int | None = None,
         part: MessagePartDelta | None = None,
+        parts: tuple[ModelMessagePart, ...] = (),
         error: str | None = None,
         reset: bool = False,
     ) -> None:
@@ -661,6 +742,7 @@ class ModelGateway:
                         duration_ms=duration_ms,
                     ),
                     part=part,
+                    parts=parts,
                     error=error,
                     reset=reset,
                 )
@@ -836,7 +918,8 @@ class ModelGateway:
             path = ".".join(str(item) for item in error.absolute_path)
             location = f" at {path}" if path else ""
             raise StructuredOutputError(
-                f"model output failed schema validation{location}"
+                f"model output failed schema validation{location}",
+                retryable=True,
             ) from error
         return parsed
 
@@ -924,6 +1007,8 @@ class ModelGateway:
                             raise
                         payload = self._prompt_only_structured_payload(payload, schema)
                         can_fallback_to_prompt = False
+                        if retry_sink is not None:
+                            retry_sink()
                         raw = await transport_complete(payload)
                     content, reasoning_content, finish_reason, usage = (
                         self._parse_content(raw)
@@ -974,7 +1059,7 @@ class ModelGateway:
                             error.max_tokens = current_budget
                             raise error
                         payload["max_tokens"] = expanded
-                        if retry_sink is not None and schema is None:
+                        if retry_sink is not None:
                             retry_sink()
                         continue
                     if schema is None and not content.strip():
@@ -1002,6 +1087,8 @@ class ModelGateway:
                             or attempt == MAX_STRUCTURED_ATTEMPTS - 1
                         ):
                             raise
+                        if retry_sink is not None:
+                            retry_sink()
                         await asyncio.sleep(
                             STRUCTURED_RETRY_BACKOFF_SECONDS * (2**attempt)
                         )
@@ -1054,15 +1141,14 @@ class ModelGateway:
 
         message_id = context.message_id or f"call:{uuid.uuid4().hex}"
         started = time.monotonic()
-        streamed_part_types: set[Literal["reasoning", "text"]] = set()
 
         def duration_ms() -> int:
             return max(0, int((time.monotonic() - started) * 1000))
 
-        def publish_part(part_type: Literal["reasoning", "text"], delta: str) -> None:
-            if not delta:
-                return
-            streamed_part_types.add(part_type)
+        def publish_delta(
+            part_type: Literal["reasoning", "text"],
+            delta: str,
+        ) -> None:
             self._publish_message(
                 event_type="model.message.delta",
                 message_id=message_id,
@@ -1072,8 +1158,10 @@ class ModelGateway:
                 part=MessagePartDelta(type=part_type, text_delta=delta),
             )
 
+        batcher = _ModelMessageDeltaBatcher(publish_delta)
+
         def reset_attempt() -> None:
-            streamed_part_types.clear()
+            batcher.reset()
             self._publish_message(
                 event_type="model.message.started",
                 message_id=message_id,
@@ -1094,24 +1182,27 @@ class ModelGateway:
             response = await self._complete_request(
                 request,
                 profile,
-                part_sink=publish_part,
+                part_sink=batcher.add,
                 retry_sink=reset_attempt,
             )
         except Exception as error:
+            batcher.flush()
             self._publish_message(
                 event_type="model.message.failed",
                 message_id=message_id,
                 context=context,
                 profile=profile,
                 duration_ms=duration_ms(),
+                parts=batcher.parts,
                 error=str(error),
             )
             raise
 
-        if response.reasoning_content and "reasoning" not in streamed_part_types:
-            publish_part("reasoning", response.reasoning_content)
-        if response.content and "text" not in streamed_part_types:
-            publish_part("text", response.content)
+        if response.reasoning_content and "reasoning" not in batcher.part_types:
+            batcher.add("reasoning", response.reasoning_content)
+        if response.content and "text" not in batcher.part_types:
+            batcher.add("text", response.content)
+        batcher.flush()
         self._publish_message(
             event_type="model.message.completed",
             message_id=message_id,
@@ -1119,6 +1210,7 @@ class ModelGateway:
             profile=profile,
             response=response,
             duration_ms=duration_ms(),
+            parts=batcher.parts,
         )
         return response
 

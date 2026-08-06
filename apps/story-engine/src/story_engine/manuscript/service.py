@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Protocol
 
+from pydantic import ValidationError
+
 from story_engine.domain.message import ModelMessageContext
 from story_engine.domain.narrative import (
     EditorContext,
@@ -21,6 +23,7 @@ from story_engine.manuscript.models import (
 )
 from story_engine.manuscript.source import NarrativeSourceReader
 from story_engine.models.contracts import Message, ModelRequest
+from story_engine.models.errors import StructuredOutputError
 from story_engine.models.gateway import ModelGateway
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.workspace.project_store import ProjectStore
@@ -31,7 +34,8 @@ WRITER_FIRST_CONTENT_TIMEOUT_SECONDS = 300
 WRITER_PROTOCOL = (
     "Immutable protocol: use only the supplied Writer Context; preserve viewpoint "
     "permissions; never use Director Instructions as facts; never modify or invent "
-    "simulation history; return exactly the requested JSON schema."
+    "simulation history; return only Markdown with exactly one level-one title on "
+    "the first line, one blank line, and the scene prose. Do not use a code fence."
 )
 EDITOR_PROTOCOL = (
     "Immutable protocol: verify prose only against the supplied Editor Context; "
@@ -104,6 +108,23 @@ def _editor_source_context(source: EditorContext) -> str:
     )
 
 
+def parse_writer_markdown(content: str) -> WriterOutput:
+    markdown = content.strip()
+    lines = markdown.splitlines()
+    if not lines or not lines[0].startswith("# "):
+        raise StructuredOutputError(
+            "Writer output must start with a level-one Markdown title"
+        )
+    title = lines[0].removeprefix("# ").strip()
+    body = "\n".join(lines[1:]).strip()
+    try:
+        return WriterOutput(title=title, body=body)
+    except ValidationError as error:
+        raise StructuredOutputError(
+            "Writer Markdown must contain a non-empty title and body"
+        ) from error
+
+
 class GatewayManuscriptAgent:
     """Run Writer and Editor directly over a privacy-filtered runtime source."""
 
@@ -145,10 +166,6 @@ class GatewayManuscriptAgent:
                     ),
                     Message(role="user", content=task_context),
                 ),
-                output_schema=json.dumps(
-                    WriterOutput.model_json_schema(),
-                    ensure_ascii=False,
-                ),
                 max_output_tokens=writer_profile.max_output_tokens,
                 output_token_limit=(
                     "provider"
@@ -169,7 +186,7 @@ class GatewayManuscriptAgent:
                 stage="writer",
             ),
         )
-        return WriterOutput.model_validate(response.parsed_output)
+        return parse_writer_markdown(response.content)
 
     async def review(
         self,

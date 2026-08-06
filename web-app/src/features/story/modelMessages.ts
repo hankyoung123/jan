@@ -53,6 +53,7 @@ function metadataFromEvent(
     branchId: metadata.branch_id ?? undefined,
     step: metadata.step ?? undefined,
     stage: metadata.stage ?? undefined,
+    stageEventId: metadata.stage_event_id ?? undefined,
     model: metadata.model ?? undefined,
     duration:
       metadata.duration_ms == null ? undefined : metadata.duration_ms / 1000,
@@ -121,6 +122,42 @@ function mergeMessagePart(
   return parts
 }
 
+function completedParts(
+  payload: ModelMessageEventPayload
+): UIMessage['parts'] | undefined {
+  if (!payload.parts?.length) return undefined
+  return payload.parts.flatMap((part) => {
+    if (part.type === 'text' || part.type === 'reasoning') {
+      return part.text == null ? [] : [{ type: part.type, text: part.text }]
+    }
+    if (part.type === 'file') {
+      return !part.media_type || !part.url
+        ? []
+        : [
+            {
+              type: 'file' as const,
+              mediaType: part.media_type,
+              url: part.url,
+              filename: part.filename ?? undefined,
+            },
+          ]
+    }
+    if (part.type.startsWith('tool-') && part.state && part.tool_call_id) {
+      return [
+        {
+          type: part.type,
+          state: part.state,
+          toolCallId: part.tool_call_id,
+          input: part.input,
+          output: part.output,
+          errorText: part.error ?? undefined,
+        } as UIMessage['parts'][number],
+      ]
+    }
+    return []
+  }) as UIMessage['parts']
+}
+
 export function reduceModelMessages(
   messages: StoryModelMessageMap,
   event: EngineEventEnvelope
@@ -136,8 +173,10 @@ export function reduceModelMessages(
       : event.type === 'model.message.completed'
         ? 'completed'
         : 'streaming'
-  const parts =
-    event.type === 'model.message.delta' && payload.part
+  const terminalParts = completedParts(payload)
+  const parts = terminalParts
+    ? terminalParts
+    : event.type === 'model.message.delta' && payload.part
       ? mergeMessagePart(payload.reset ? [] : (current?.parts ?? []), payload.part)
       : payload.reset
         ? []

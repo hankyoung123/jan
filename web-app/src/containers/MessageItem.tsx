@@ -169,17 +169,11 @@ export const MessageItem = memo(
         .map((part) => (part as { url: string }).url)
     }, [capabilities.attachments, message.parts])
 
-    // A tool part is "pending" until it reaches a terminal state. While any
-    // tool on the last assistant message is still pending the turn isn't
-    // done — the model will resume once the tool result arrives, even if the
-    // SDK briefly reports status as 'ready' between the tool-call stream and
-    // the follow-up request.
+    // A tool part is "pending" until it reaches a terminal state. The model
+    // may resume once the tool result arrives even when another message was
+    // appended after this one.
     const hasPendingToolCall = useMemo(() => {
-      if (
-        !capabilities.tools ||
-        !isLastMessage ||
-        message.role !== 'assistant'
-      ) {
+      if (!capabilities.tools || message.role !== 'assistant') {
         return false
       }
       return message.parts.some((part) => {
@@ -191,7 +185,7 @@ export const MessageItem = memo(
           state !== 'output-denied'
         )
       })
-    }, [capabilities.tools, isLastMessage, message.role, message.parts])
+    }, [capabilities.tools, message.role, message.parts])
 
     const pendingApprovals = useToolApprovalRequests((s) => s.pending)
     const awaitingApproval = useMemo(() => {
@@ -202,11 +196,14 @@ export const MessageItem = memo(
       })
     }, [hasPendingToolCall, message.parts, pendingApprovals])
 
+    const outputStatus = metadata?.outputStatus
     const isStreaming =
-      (isLastMessage &&
-        (status === CHAT_STATUS.STREAMING ||
-          status === CHAT_STATUS.SUBMITTED)) ||
-      hasPendingToolCall
+      typeof outputStatus === 'string'
+        ? outputStatus === CHAT_STATUS.STREAMING
+        : (isLastMessage &&
+            (status === CHAT_STATUS.STREAMING ||
+              status === CHAT_STATUS.SUBMITTED)) ||
+          hasPendingToolCall
 
     // Pre-computed duration (seconds) written to JSONL metadata at stream
     // completion, surviving remount when navigating between threads.

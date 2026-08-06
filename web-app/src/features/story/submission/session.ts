@@ -10,7 +10,10 @@ type ProjectSnapshot = components['schemas']['ProjectSnapshot']
 type SubmissionFilePart = components['schemas']['SubmissionFilePart']
 
 const initialMissingRequirements = [
-  '创作方向',
+  '标题',
+  '类型',
+  '主题',
+  '基调',
   '世界规则与公共事实',
   '初始角色 (2-4 个)',
   '初始时间、地点和起始事件',

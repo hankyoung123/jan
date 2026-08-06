@@ -87,6 +87,9 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         self._component_ids = component_ids
         self._source_record_ids = source_record_ids
         self._project_id = project_id
+        self._stage: str | None = None
+        self._task_label: str | None = None
+        self._stage_event_id: str | None = None
 
     def _message_context(
         self,
@@ -96,28 +99,16 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
     ) -> ModelMessageContext | None:
         if self._project_id is None:
             return None
-        component = self._component_ids[-1] if self._component_ids else None
-        component_stage = component.rsplit(":", 1)[-1] if component else None
-        normalized_stage = (
-            component_stage.replace("-", "_") if component_stage else None
-        )
-        stage = normalized_stage
-        if normalized_stage is not None:
-            stage = {
-                "action": "actor_action",
-                "routing": "memory_routing",
-                "automatic_promotion": "promotion",
-                "roster_selection": "actor_selection",
-            }.get(normalized_stage, normalized_stage)
         return ModelMessageContext(
             project_id=self._project_id,
             message_id=call_id,
             agent_name=self._actor_id or profile.name,
-            task_label=(component or profile.name).replace("_", " "),
+            task_label=self._task_label or profile.name,
             session_id=self._session_id,
             branch_id=self._branch_id,
             step=self._step,
-            stage=stage,
+            stage=self._stage,
+            stage_event_id=self._stage_event_id,
         )
 
     def _current_profile_id(self) -> str:
@@ -136,10 +127,16 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         step: int,
         component_ids: tuple[str, ...],
         source_record_ids: tuple[str, ...] = (),
+        stage: str,
+        task_label: str,
+        stage_event_id: str,
     ) -> None:
         self._step = step
         self._component_ids = component_ids
         self._source_record_ids = source_record_ids
+        self._stage = stage
+        self._task_label = task_label
+        self._stage_event_id = stage_event_id
 
     async def _complete_with_cancellation(
         self,

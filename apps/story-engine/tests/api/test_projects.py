@@ -134,6 +134,23 @@ def test_submission_message_uses_submission_editor_without_creating_project(
     assert (root / "submission/draft.md").is_file()
     assert (root / "submission/status.json").is_file()
     assert transport.calls[0]["model"] == "test-provider/test-submission-editor"
+    task_context = next(
+        message["content"]
+        for message in transport.calls[0]["messages"]
+        if isinstance(message["content"], str)
+        and "EXAMPLE JSON OUTPUT:" in message["content"]
+    )
+    example_json, current_json = task_context.split(
+        "EXAMPLE JSON OUTPUT: ",
+        maxsplit=1,
+    )[1].split(" Current draft: ", maxsplit=1)
+    example = SubmissionDraft.model_validate(json.loads(example_json)["draft"])
+    current = SubmissionDraft.model_validate(json.loads(current_json))
+    assert example.missing_requirements() == ()
+    assert current == SubmissionDraft(id="fog-harbor")
+    assert task_context.count(
+        json.dumps(current.model_dump(mode="json"), ensure_ascii=False)
+    ) == 1
     restored = _client(tmp_path).get(
         "/projects/fog-harbor/submission",
         headers=AUTH,

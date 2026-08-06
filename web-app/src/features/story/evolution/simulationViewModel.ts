@@ -32,6 +32,7 @@ export const simulationStages: SimulationStage[] = [
 
 export interface StageViewModel extends SimulationStageEventPayload {
   sequence: number
+  executionEventId: string
   messageIds: string[]
 }
 
@@ -75,6 +76,9 @@ function reduceModelMessageEvent(
     currentStep && stageName && simulationStages.includes(stageName)
       ? currentStep.stages[stageName]
       : undefined
+  const belongsToCurrentExecution =
+    currentStage !== undefined &&
+    payload.metadata.stage_event_id === currentStage.executionEventId
   const messageIds = currentStage?.messageIds.includes(payload.message_id)
     ? currentStage.messageIds
     : [...(currentStage?.messageIds ?? []), payload.message_id]
@@ -83,7 +87,7 @@ function reduceModelMessageEvent(
     lastSequence: event.sequence,
     messages,
     steps:
-      currentStep && currentStage && stageName
+      currentStep && currentStage && stageName && belongsToCurrentExecution
         ? {
             ...state.steps,
             [currentStep.step]: {
@@ -208,6 +212,7 @@ export function restoreSimulationTrace(
         started_at: value.started_at,
         completed_at: value.completed_at ?? null,
         sequence: 0,
+        executionEventId: value.stage_id,
         messageIds: [],
       }
       for (const call of calls) {
@@ -228,6 +233,7 @@ export function restoreSimulationTrace(
             branchId: trace.branch_id,
             step: trace.step,
             stage,
+            stageEventId: value.stage_id,
             model: call.model_ref ?? undefined,
             duration: call.duration_ms / 1000,
             promptTokens: call.prompt_tokens,
@@ -256,6 +262,7 @@ export function restoreSimulationTrace(
             branchId: trace.branch_id,
             step: trace.step,
             stage,
+            stageEventId: value.stage_id,
             model: calls[0]?.model_ref ?? undefined,
             duration: stages[stage]!.duration_ms
               ? stages[stage]!.duration_ms! / 1000
@@ -349,19 +356,30 @@ export function reduceSimulationEvent(
     if (!isStageEventPayload(event.payload)) return next
     const current = stepFor(state, event.payload.step)
     const priorStage = current.stages[event.payload.stage]
+    const executionEventId =
+      event.type === 'simulation.stage.started'
+        ? event.payload.event_id
+        : priorStage?.executionEventId
+    if (!executionEventId) return next
     const matchingMessageIds = Object.values(state.messages)
       .filter(
         (message) =>
-          message.metadata?.step === event.payload.step &&
-          message.metadata?.stage === event.payload.stage
+          message.metadata?.stageEventId === executionEventId
       )
       .map((message) => message.id)
     const stage: StageViewModel = {
       ...event.payload,
       sequence: event.sequence,
-      messageIds: [
-        ...new Set([...(priorStage?.messageIds ?? []), ...matchingMessageIds]),
-      ],
+      executionEventId,
+      messageIds:
+        event.type === 'simulation.stage.started'
+          ? matchingMessageIds
+          : [
+              ...new Set([
+                ...(priorStage?.messageIds ?? []),
+                ...matchingMessageIds,
+              ]),
+            ],
     }
     const failed = stage.status === 'failed'
     const cancelled = stage.status === 'cancelled'
@@ -390,13 +408,34 @@ export function reduceSimulationEvent(
     typeof event.payload.step === 'number'
   ) {
     const restoredStep = event.payload.step
+    const restoredSessionId = event.payload.session_id
+    const restoredBranchId = event.payload.branch_id
+    if (
+      typeof restoredSessionId !== 'string' ||
+      typeof restoredBranchId !== 'string'
+    ) {
+      return next
+    }
     const steps = Object.fromEntries(
       Object.entries(state.steps).filter(([step]) => Number(step) < restoredStep)
+    )
+    const messages = Object.fromEntries(
+      Object.entries(state.messages).filter(([, message]) => {
+        const metadata = message.metadata
+        if (
+          metadata?.sessionId !== restoredSessionId ||
+          metadata.branchId !== restoredBranchId
+        ) {
+          return true
+        }
+        return metadata.step === undefined || metadata.step < restoredStep
+      })
     )
     const selectedStep = Math.max(0, ...Object.keys(steps).map(Number))
     return {
       ...next,
       steps,
+      messages,
       selectedStep,
       selectedStage: selectedStep ? state.selectedStage : undefined,
     }

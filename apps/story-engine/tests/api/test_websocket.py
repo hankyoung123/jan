@@ -117,3 +117,48 @@ def test_event_sequence_is_monotonic_and_queue_overflow_requires_resync() -> Non
         assert queued[0].payload["reason"] == "subscriber_queue_overflow"
 
     asyncio.run(exercise())
+
+
+def test_model_deltas_are_delivered_live_but_excluded_from_replay() -> None:
+    async def exercise() -> None:
+        bus = EngineEventBus(queue_size=32, history_size=32)
+        subscriber = bus.subscribe("fog-harbor")
+        try:
+            started = bus.publish(
+                project_id="fog-harbor",
+                subject_id="call:one",
+                event_type="model.message.started",
+                payload={},
+            )
+            deltas = [
+                bus.publish(
+                    project_id="fog-harbor",
+                    subject_id="call:one",
+                    event_type="model.message.delta",
+                    payload={"index": index},
+                )
+                for index in range(20)
+            ]
+            completed = bus.publish(
+                project_id="fog-harbor",
+                subject_id="call:one",
+                event_type="model.message.completed",
+                payload={},
+            )
+            replay = bus.events_after(
+                project_id="fog-harbor",
+                after_sequence=0,
+            )
+            await asyncio.sleep(0)
+            live_types = []
+            while not subscriber.queue.empty():
+                live_types.append(subscriber.queue.get_nowait().type)
+        finally:
+            bus.unsubscribe(subscriber)
+
+        assert replay == (started, completed)
+        assert live_types.count("model.message.delta") == len(deltas)
+        assert deltas[-1].sequence > started.sequence
+        assert completed.sequence > deltas[-1].sequence
+
+    asyncio.run(exercise())

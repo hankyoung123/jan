@@ -624,6 +624,13 @@ def test_runtime_language_model_publishes_unified_message_parts(
         step=3,
         component_ids=("writer:draft",),
     )
+    model.set_trace_context(
+        step=3,
+        component_ids=("writer:draft",),
+        stage="actor_action",
+        task_label="正文生成",
+        stage_event_id="stage-event:writer",
+    )
 
     assert model.sample_text("Write.", terminators=()) == "A concise answer."
 
@@ -639,7 +646,9 @@ def test_runtime_language_model_publishes_unified_message_parts(
     assert events[2].part.text_delta == "A concise answer."
     assert events[3].metadata.model == "test-provider/test-writer"
     assert events[3].metadata.step == 3
-    assert events[3].metadata.stage == "draft"
+    assert events[3].metadata.stage == "actor_action"
+    assert events[3].metadata.task_label == "正文生成"
+    assert events[3].metadata.stage_event_id == "stage-event:writer"
 
 
 def test_runtime_language_model_publishes_failed_message_status(

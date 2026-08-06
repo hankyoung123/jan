@@ -214,6 +214,7 @@ class SimulationApplicationService:
             "simulation.started",
             payload={
                 "session_id": snapshot.session_id,
+                "branch_id": snapshot.branch_id,
                 "checkpoint_id": manifest.head_checkpoint_id,
                 "restored": True,
                 "step": snapshot.current_step,
@@ -280,6 +281,7 @@ class SimulationApplicationService:
             "simulation.started",
             payload={
                 "session_id": snapshot.session_id,
+                "branch_id": snapshot.branch_id,
                 "checkpoint_id": checkpoint_id,
                 "restored": True,
                 "step": snapshot.current_step,

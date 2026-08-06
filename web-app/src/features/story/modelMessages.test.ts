@@ -173,4 +173,40 @@ describe('modelMessages', () => {
       },
     })
   })
+
+  it('uses complete terminal parts to recover deltas missed during reconnect', () => {
+    let state: StoryModelMessageMap = {}
+    state = reduceModelMessages(
+      state,
+      event(1, 'model.message.started', messageEventPayload({ reset: true }))
+    )
+    state = reduceModelMessages(
+      state,
+      event(
+        2,
+        'model.message.delta',
+        messageEventPayload({
+          part: { type: 'text', text_delta: '不完整' },
+        })
+      )
+    )
+    state = reduceModelMessages(
+      state,
+      event(
+        3,
+        'model.message.completed',
+        messageEventPayload({
+          parts: [
+            { type: 'reasoning', text: '完整推理' },
+            { type: 'text', text: '完整正文' },
+          ],
+        })
+      )
+    )
+
+    expect(state['call:one'].parts).toEqual([
+      { type: 'reasoning', text: '完整推理' },
+      { type: 'text', text: '完整正文' },
+    ])
+  })
 })
