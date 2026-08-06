@@ -179,13 +179,14 @@ def test_session_contract_captures_control_and_checkpoint_state() -> None:
     assert snapshot.checkpoint_id is None
 
 
-def test_session_request_rejects_an_opening_roster_larger_than_four() -> None:
-    with pytest.raises(ValidationError, match="too_long"):
-        TurnSessionRequest(
-            project_id="fog-harbor",
-            branch_id="main",
-            premise_text="The whole cast gathers at the harbor.",
-            actor_ids=tuple(f"agent-{index}" for index in range(5)),
-            content_locale="en-US",
-            control=ControlPolicy(mode=ControlMode.STEP),
-        )
+def test_session_request_accepts_a_cast_larger_than_one_scene_roster() -> None:
+    request = TurnSessionRequest(
+        project_id="fog-harbor",
+        branch_id="main",
+        premise_text="The whole cast gathers at the harbor.",
+        actor_ids=tuple(f"agent-{index}" for index in range(5)),
+        content_locale="en-US",
+        control=ControlPolicy(mode=ControlMode.STEP),
+    )
+
+    assert request.actor_ids == tuple(f"agent-{index}" for index in range(5))

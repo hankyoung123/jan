@@ -46,13 +46,21 @@ def _bind_server_socket(
 
 def _serve(settings: EngineSettings, port_file: Path | None) -> None:
     server_socket = _bind_server_socket(settings, port_file)
+    server: uvicorn.Server | None = None
+
+    def request_shutdown() -> None:
+        if server is None:
+            raise RuntimeError("server is not ready")
+        server.should_exit = True
+
     try:
         config = uvicorn.Config(
-            create_app(settings),
+            create_app(settings, shutdown_request=request_shutdown),
             host=settings.host,
             port=settings.port,
         )
-        uvicorn.Server(config).run(sockets=[server_socket])
+        server = uvicorn.Server(config)
+        server.run(sockets=[server_socket])
     finally:
         server_socket.close()
         if port_file is not None:

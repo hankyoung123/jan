@@ -355,8 +355,5 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
         message["content"] for message in resolution_call["messages"]
     )
     assert "Existing characters:" in resolution_prompt
-    assert (
-        "- actor-a: Actor A, active character, location: archive"
-        in resolution_prompt
-    )
-    assert "must not appear in entity_changes" in resolution_prompt
+    assert "- Actor A, active character, location: archive" in resolution_prompt
+    assert "Use these exact display names" in resolution_prompt

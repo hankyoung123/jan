@@ -1,6 +1,7 @@
 import json
 import re
 import time
+import uuid
 from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -10,14 +11,64 @@ from fastapi.testclient import TestClient
 
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
+from story_engine.domain.simulation import TurnSessionStatus
 from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.gateway import ModelPartSink
 from story_engine.models.registry import ProfileRegistry
+from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.persistence.simulation_log import SimulationLogStore
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.wiki.store import WikiStore
 
 AUTH = {"Authorization": "Bearer integration-token"}
+
+
+def _advance(
+    client: TestClient,
+    session_id: str,
+    operation: str = "step",
+    *,
+    command_id: str | None = None,
+    expected_state_hash: str | None = None,
+):
+    if expected_state_hash is None:
+        expected_state_hash = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()["state_hash"]
+    return client.post(
+        f"/projects/fog-harbor/simulations/{session_id}/{operation}",
+        headers=AUTH,
+        json={
+            "command_id": command_id or f"command:{uuid.uuid4().hex}",
+            "expected_state_hash": expected_state_hash,
+        },
+    )
+
+
+def _wait_for_projection(
+    client: TestClient,
+    session_id: str,
+    *,
+    kind: str,
+    status: str,
+    minimum_attempt_count: int = 0,
+) -> dict[str, Any]:
+    for _ in range(200):
+        response = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}/projections",
+            headers=AUTH,
+        )
+        assert response.status_code == 200, response.text
+        task = next((item for item in response.json() if item["kind"] == kind), None)
+        if (
+            task is not None
+            and task["status"] == status
+            and task["attempt_count"] >= minimum_attempt_count
+        ):
+            return task
+        time.sleep(0.01)
+    raise AssertionError(f"{kind} projection did not reach {status}")
 
 
 class ReplayGatewayTransport:
@@ -55,21 +106,21 @@ class ReplayGatewayTransport:
         properties = schema.get("properties", {})
         if not isinstance(properties, Mapping):
             properties = {}
-        actor_ids = (
-            properties.get("actor_ids") if isinstance(properties, Mapping) else None
+        actor_names = (
+            properties.get("actor_names") if isinstance(properties, Mapping) else None
         )
-        if isinstance(actor_ids, Mapping):
-            items = actor_ids.get("items", {})
+        if isinstance(actor_names, Mapping):
+            items = actor_names.get("items", {})
             candidates = items.get("enum", []) if isinstance(items, Mapping) else []
             selected = [
                 candidate
                 for candidate in candidates
-                if candidate == "chen-mo"
-                or (self.promote_npc and candidate == "harbor-guard")
+                if candidate == "陈默"
+                or (self.promote_npc and candidate == "Harbor Guard")
             ]
             if not selected and candidates:
                 selected = [candidates[0]]
-            return json.dumps({"actor_ids": selected})
+            return json.dumps({"actor_names": selected})
         if "output_type" in properties:
             return json.dumps(
                 {
@@ -84,7 +135,6 @@ class ReplayGatewayTransport:
             if self.entity_change == "create":
                 entity_changes = [
                     {
-                        "entity_id": "harbor-guard",
                         "display_name": "Harbor Guard",
                         "identity": "A wary guard.",
                         "core_desire": "Keep the harbor safe.",
@@ -96,26 +146,22 @@ class ReplayGatewayTransport:
                     "event_text": self.event_text,
                     "boundary": self.boundary,
                     "visibility": "participants",
-                    "observer_ids": [],
-                    "participant_ids": [
-                        "chen-mo",
-                        *(["harbor-guard"] if self.entity_change == "create" else []),
+                    "observer_names": [],
+                    "participant_names": [
+                        "陈默",
                     ],
                     "entity_changes": entity_changes,
                 }
             )
         if "promote" in properties:
-            event_ids = re.findall(r'"event_id":\s*"([^"]+)"', prompt)
             return json.dumps(
                 {
-                    "character_id": "harbor-guard",
                     "promote": self.promote_npc,
                     "proposed_goal": (
                         "Find who sabotaged the lighthouse"
                         if self.promote_npc
                         else None
                     ),
-                    "evidence_event_ids": event_ids[-1:] if self.promote_npc else [],
                     "reason": (
                         "The guard independently pursues the saboteur."
                         if self.promote_npc
@@ -126,7 +172,7 @@ class ReplayGatewayTransport:
         enum = properties.get("choice", {}).get("enum", [])
         semantic = "No"
         if "Whose turn is next" in prompt:
-            semantic = "chen-mo"
+            semantic = "陈默"
         elif "Classify the boundary" in prompt:
             semantic = self.boundary
         for option in enum:
@@ -172,7 +218,7 @@ class ReplayGatewayTransport:
                     {
                         "updates": [
                             {
-                                "page_id": "index",
+                                "page_ref": "index",
                                 "content": "Invalid store-owned update.",
                                 "source_refs": [0],
                             }
@@ -184,12 +230,12 @@ class ReplayGatewayTransport:
                     int(item) for item in re.findall(r'"source_ref":\s*(\d+)', prompt)
                 ]
                 assert source_refs
-                page_id = "state" if "Scope: World Wiki" in prompt else "beliefs"
+                page_ref = "state" if "Scope: World Wiki" in prompt else "beliefs"
                 content = json.dumps(
                     {
                         "updates": [
                             {
-                                "page_id": page_id,
+                                "page_ref": page_ref,
                                 "content": f"- {self.event_text}",
                                 "source_refs": [source_refs[-1]],
                             }
@@ -210,7 +256,7 @@ class ReplayGatewayTransport:
             entity_changes = "[]"
             if self.entity_change == "create":
                 entity_changes = (
-                    '[{"entity_id":"harbor-guard",'
+                    '[{"display_name":"Harbor Guard",'
                     '"display_name":"Harbor Guard","identity":"A wary guard.",'
                     '"core_desire":"Keep the harbor safe.",'
                     '"location":"lighthouse"}]'
@@ -220,10 +266,9 @@ class ReplayGatewayTransport:
                     "event_text": self.event_text,
                     "boundary": self.boundary,
                     "visibility": "participants",
-                    "observer_ids": [],
-                    "participant_ids": [
-                        "chen-mo",
-                        *(["harbor-guard"] if self.entity_change == "create" else []),
+                    "observer_names": [],
+                    "participant_names": [
+                        "陈默",
                     ],
                     "entity_changes": json.loads(entity_changes),
                 }
@@ -293,10 +338,7 @@ def test_real_application_chain_checkpoints_rebuilds_and_resumes(
         )
         assert started.status_code == 201
         session_id = started.json()["session_id"]
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        stepped = _advance(client, session_id)
         assert stepped.status_code == 200
         assert stepped.json()["status"] == "paused"
         checkpoint_id = stepped.json()["checkpoint_id"]
@@ -323,10 +365,7 @@ def test_real_application_chain_checkpoints_rebuilds_and_resumes(
         assert restored.json()["current_step"] == 1
         assert restored.json()["status"] == "paused"
 
-        accepted = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/resume",
-            headers=AUTH,
-        )
+        accepted = _advance(client, session_id, "resume")
         assert accepted.status_code == 202
         for _ in range(200):
             snapshot = client.get(
@@ -366,10 +405,7 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
                 },
             },
         ).json()
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
-            headers=AUTH,
-        ).json()
+        stepped = _advance(client, started["session_id"]).json()
 
         sources = client.get(
             "/projects/fog-harbor/branches/main/narrative-sources",
@@ -453,22 +489,22 @@ def test_early_checkpoint_writer_uses_its_historical_wiki_without_future_facts(
                 "premise_text": "The lighthouse suddenly goes dark.",
                 "actor_ids": ["chen-mo"],
                 "content_locale": "en-US",
-                "control": {"mode": "step", "max_steps": 3},
+                "control": {"mode": "step", "max_steps": 3, "max_scenes": 3},
                 "output": {
                     "wiki_mode": "after_scene",
                     "manuscript_mode": "manual",
                 },
             },
         ).json()
-        first = client.post(
-            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
-            headers=AUTH,
-        ).json()
-        transport.event_text = "Chen Mo discovers a future hidden transmitter."
-        client.post(
-            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
-            headers=AUTH,
+        first = _advance(client, started["session_id"]).json()
+        _wait_for_projection(
+            client,
+            started["session_id"],
+            kind="wiki",
+            status="succeeded",
         )
+        transport.event_text = "Chen Mo discovers a future hidden transmitter."
+        _advance(client, started["session_id"])
 
         generated = client.post(
             "/projects/fog-harbor/branches/main/manuscript/scenes/generate",
@@ -508,10 +544,7 @@ def test_editor_failure_keeps_the_writer_draft_on_disk(tmp_path: Path) -> None:
                 "control": {"mode": "step", "max_steps": 2},
             },
         ).json()
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
-            headers=AUTH,
-        ).json()
+        stepped = _advance(client, started["session_id"]).json()
 
         with pytest.raises(RuntimeError, match="editor unavailable"):
             client.post(
@@ -564,19 +597,28 @@ def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
                 "premise_text": "The lighthouse suddenly goes dark.",
                 "actor_ids": ["chen-mo", "lin-lan"],
                 "content_locale": "en-US",
-                "control": {"mode": "step", "max_steps": 3},
+                "control": {"mode": "step", "max_steps": 3, "max_scenes": 3},
                 "output": {
                     "wiki_mode": "after_scene",
                     "manuscript_mode": "after_scene",
                 },
             },
         ).json()
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
-            headers=AUTH,
-        )
+        stepped = _advance(client, started["session_id"])
         assert stepped.status_code == 200, stepped.text
         checkpoint_id = stepped.json()["checkpoint_id"]
+        _wait_for_projection(
+            client,
+            started["session_id"],
+            kind="wiki",
+            status="succeeded",
+        )
+        _wait_for_projection(
+            client,
+            started["session_id"],
+            kind="manuscript",
+            status="succeeded",
+        )
 
         wiki = client.get(
             "/projects/fog-harbor/branches/main/wiki",
@@ -636,7 +678,9 @@ def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
         assert scenes[0]["source_checkpoint_id"] == checkpoint_id
 
 
-def test_wiki_failure_pauses_blocks_and_can_be_retried(tmp_path: Path) -> None:
+def test_wiki_projection_failure_does_not_pause_and_can_be_retried(
+    tmp_path: Path,
+) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     transport = ReplayGatewayTransport(boundary="scene", fail_wiki_attempts=1)
     with TestClient(
@@ -649,7 +693,7 @@ def test_wiki_failure_pauses_blocks_and_can_be_retried(tmp_path: Path) -> None:
                 "premise_text": "The lighthouse suddenly goes dark.",
                 "actor_ids": ["chen-mo"],
                 "content_locale": "en-US",
-                "control": {"mode": "step", "max_steps": 3},
+                "control": {"mode": "step", "max_steps": 3, "max_scenes": 3},
                 "output": {
                     "wiki_mode": "after_scene",
                     "manuscript_mode": "manual",
@@ -658,62 +702,114 @@ def test_wiki_failure_pauses_blocks_and_can_be_retried(tmp_path: Path) -> None:
         ).json()
         session_id = started["session_id"]
 
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        stepped = _advance(client, session_id)
         assert stepped.status_code == 200
-        failed = client.get(
-            f"/projects/fog-harbor/simulations/{session_id}",
-            headers=AUTH,
-        ).json()
-        assert failed["status"] == "paused"
-        assert failed["maintenance_status"] == "failed"
-        assert "wiki unavailable" in failed["maintenance_error_text"]
-
-    with TestClient(
-        create_app(_settings(tmp_path), model_transport=transport)
-    ) as client:
-        recovered = client.get(
-            f"/projects/fog-harbor/simulations/{session_id}",
-            headers=AUTH,
+        failed = _wait_for_projection(
+            client,
+            session_id,
+            kind="wiki",
+            status="failed",
         )
-        assert recovered.status_code == 200, recovered.text
-        assert recovered.json()["status"] == "paused"
-        assert recovered.json()["maintenance_status"] == "failed"
-        assert "wiki unavailable" in recovered.json()["maintenance_error_text"]
-
-        blocked = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
-        assert blocked.status_code == 409
-        assert "retry maintenance" in blocked.json()["detail"]
-
-        retried = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/maintenance/retry",
-            headers=AUTH,
-        )
-        assert retried.status_code == 200, retried.text
-        assert retried.json()["maintenance_status"] == "succeeded"
-        assert retried.json()["status"] == "paused"
-
-    with TestClient(
-        create_app(_settings(tmp_path), model_transport=transport)
-    ) as client:
-        recovered = client.get(
-            f"/projects/fog-harbor/simulations/{session_id}",
-            headers=AUTH,
-        )
-        assert recovered.status_code == 200, recovered.text
-        assert recovered.json()["status"] == "paused"
-        assert recovered.json()["maintenance_status"] == "succeeded"
-
-        continued = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        assert "wiki unavailable" in failed["error_text"]
+        transport.boundary = "none"
+        continued = _advance(client, session_id)
         assert continued.status_code == 200, continued.text
+
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        recovered = _wait_for_projection(
+            client,
+            session_id,
+            kind="wiki",
+            status="failed",
+        )
+        assert "wiki unavailable" in recovered["error_text"]
+        retried = client.post(
+            (
+                f"/projects/fog-harbor/simulations/{session_id}/projections/"
+                f"{recovered['task_id']}/retry"
+            ),
+            headers=AUTH,
+        )
+        assert retried.status_code == 202, retried.text
+        succeeded = _wait_for_projection(
+            client,
+            session_id,
+            kind="wiki",
+            status="succeeded",
+        )
+        assert succeeded["attempt_count"] == 2
+
+
+def test_projection_rebuild_replays_reachable_wiki_tasks_in_checkpoint_order(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    transport = ReplayGatewayTransport(boundary="scene")
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3, "max_scenes": 3},
+                "output": {
+                    "wiki_mode": "after_scene",
+                    "manuscript_mode": "manual",
+                },
+            },
+        ).json()
+        session_id = started["session_id"]
+
+        first = _advance(client, session_id)
+        assert first.status_code == 200, first.text
+        _wait_for_projection(client, session_id, kind="wiki", status="succeeded")
+        second = _advance(client, session_id)
+        assert second.status_code == 200, second.text
+        for _ in range(200):
+            existing = client.get(
+                f"/projects/fog-harbor/simulations/{session_id}/projections",
+                headers=AUTH,
+            ).json()
+            wiki_tasks = [task for task in existing if task["kind"] == "wiki"]
+            if len(wiki_tasks) == 2 and all(
+                task["status"] == "succeeded" for task in wiki_tasks
+            ):
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("initial Wiki projections did not complete")
+
+        rebuilt = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/projections/rebuild",
+            headers=AUTH,
+            json={"kind": "wiki"},
+        )
+        assert rebuilt.status_code == 202, rebuilt.text
+        assert len(rebuilt.json()) == 2
+
+        for _ in range(200):
+            tasks = client.get(
+                f"/projects/fog-harbor/simulations/{session_id}/projections",
+                headers=AUTH,
+            ).json()
+            wiki_tasks = [task for task in tasks if task["kind"] == "wiki"]
+            if len(wiki_tasks) == 2 and all(
+                task["status"] == "succeeded"
+                and task["attempt_count"] >= 2
+                for task in wiki_tasks
+            ):
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("Wiki projection rebuild did not complete")
+
+        assert [task["step"] for task in wiki_tasks] == [0, 1]
 
 
 def test_repeated_wiki_protocol_errors_degrade_without_blocking_next_step(
@@ -743,17 +839,15 @@ def test_repeated_wiki_protocol_errors_degrade_without_blocking_next_step(
         ).json()
         session_id = started["session_id"]
 
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        stepped = _advance(client, session_id)
         assert stepped.status_code == 200, stepped.text
-        degraded = client.get(
-            f"/projects/fog-harbor/simulations/{session_id}",
-            headers=AUTH,
-        ).json()
-        assert degraded["maintenance_status"] == "degraded"
-        assert "failed after 2 attempts" in degraded["maintenance_error_text"]
+        failed = _wait_for_projection(
+            client,
+            session_id,
+            kind="wiki",
+            status="failed",
+        )
+        assert "failed after 2 attempts" in failed["error_text"]
 
         wiki = client.get(
             "/projects/fog-harbor/branches/main/wiki",
@@ -761,18 +855,24 @@ def test_repeated_wiki_protocol_errors_degrade_without_blocking_next_step(
         ).json()
         assert wiki["stale"] is True
         assert wiki["degraded"] is True
-        assert "unknown page_id 'index'" in wiki["degradation_reason"]
+        assert "unknown page_ref 'index'" in wiki["degradation_reason"]
 
         scenes = client.get(
             "/projects/fog-harbor/branches/main/manuscript/scenes",
             headers=AUTH,
         ).json()
         assert scenes == []
+        _wait_for_projection(
+            client,
+            session_id,
+            kind="manuscript",
+            status="failed",
+        )
         manuscript = client.post(
             "/projects/fog-harbor/branches/main/manuscript/scenes/generate",
             headers=AUTH,
             json={
-                "checkpoint_id": degraded["checkpoint_id"],
+                "checkpoint_id": stepped.json()["checkpoint_id"],
                 "from_step": 0,
                 "to_step": 0,
                 "chapter_id": "chapter-001",
@@ -784,16 +884,11 @@ def test_repeated_wiki_protocol_errors_degrade_without_blocking_next_step(
             "cannot generate manuscript from stale Wiki" in manuscript.json()["detail"]
         )
 
-        continued = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        continued = _advance(client, session_id)
         assert continued.status_code == 200, continued.text
 
 
-def test_failed_wiki_retry_can_transition_to_degraded(
-    tmp_path: Path,
-) -> None:
+def test_wiki_projection_retry_can_transition_to_degraded(tmp_path: Path) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     transport = ReplayGatewayTransport(
         boundary="scene",
@@ -810,7 +905,7 @@ def test_failed_wiki_retry_can_transition_to_degraded(
                 "premise_text": "The lighthouse suddenly goes dark.",
                 "actor_ids": ["chen-mo"],
                 "content_locale": "en-US",
-                "control": {"mode": "step", "max_steps": 3},
+                "control": {"mode": "step", "max_steps": 3, "max_scenes": 3},
                 "output": {
                     "wiki_mode": "after_scene",
                     "manuscript_mode": "manual",
@@ -819,23 +914,30 @@ def test_failed_wiki_retry_can_transition_to_degraded(
         ).json()
         session_id = started["session_id"]
 
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        stepped = _advance(client, session_id)
         assert stepped.status_code == 200, stepped.text
-        failed = client.get(
-            f"/projects/fog-harbor/simulations/{session_id}",
-            headers=AUTH,
-        ).json()
-        assert failed["maintenance_status"] == "failed"
+        failed = _wait_for_projection(
+            client,
+            session_id,
+            kind="wiki",
+            status="failed",
+        )
 
         retried = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/maintenance/retry",
+            (
+                f"/projects/fog-harbor/simulations/{session_id}/projections/"
+                f"{failed['task_id']}/retry"
+            ),
             headers=AUTH,
         )
-        assert retried.status_code == 200, retried.text
-        assert retried.json()["maintenance_status"] == "degraded"
+        assert retried.status_code == 202, retried.text
+        _wait_for_projection(
+            client,
+            session_id,
+            kind="wiki",
+            status="failed",
+            minimum_attempt_count=2,
+        )
 
         wiki = client.get(
             "/projects/fog-harbor/branches/main/wiki",
@@ -844,14 +946,11 @@ def test_failed_wiki_retry_can_transition_to_degraded(
         assert wiki["stale"] is True
         assert wiki["degraded"] is True
 
-        continued = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        continued = _advance(client, session_id)
         assert continued.status_code == 200, continued.text
 
 
-def test_wiki_degradation_write_failure_remains_blocking(
+def test_wiki_degradation_write_failure_remains_an_isolated_task_failure(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -881,7 +980,7 @@ def test_wiki_degradation_write_failure_remains_blocking(
                 "premise_text": "The lighthouse suddenly goes dark.",
                 "actor_ids": ["chen-mo"],
                 "content_locale": "en-US",
-                "control": {"mode": "step", "max_steps": 3},
+                "control": {"mode": "step", "max_steps": 3, "max_scenes": 3},
                 "output": {
                     "wiki_mode": "after_scene",
                     "manuscript_mode": "manual",
@@ -890,24 +989,17 @@ def test_wiki_degradation_write_failure_remains_blocking(
         ).json()
         session_id = started["session_id"]
 
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        stepped = _advance(client, session_id)
         assert stepped.status_code == 200, stepped.text
-        failed = client.get(
-            f"/projects/fog-harbor/simulations/{session_id}",
-            headers=AUTH,
-        ).json()
-        assert failed["maintenance_status"] == "failed"
-        assert failed["maintenance_error_text"] == "wiki index is not writable"
-
-        blocked = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
+        failed = _wait_for_projection(
+            client,
+            session_id,
+            kind="wiki",
+            status="failed",
         )
-        assert blocked.status_code == 409
-        assert "retry maintenance" in blocked.json()["detail"]
+        assert failed["error_text"] == "wiki index is not writable"
+        continued = _advance(client, session_id)
+        assert continued.status_code == 200, continued.text
 
 
 def test_writer_failure_keeps_committed_history_and_wiki(
@@ -937,12 +1029,22 @@ def test_writer_failure_keeps_committed_history_and_wiki(
                 },
             },
         ).json()
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
-            headers=AUTH,
-        )
+        stepped = _advance(client, started["session_id"])
 
         assert stepped.status_code == 200
+        _wait_for_projection(
+            client,
+            started["session_id"],
+            kind="wiki",
+            status="succeeded",
+        )
+        failed = _wait_for_projection(
+            client,
+            started["session_id"],
+            kind="manuscript",
+            status="failed",
+        )
+        assert "writer unavailable" in failed["error_text"]
         assert client.get(
             "/projects/fog-harbor/branches/main/simulation-trace",
             headers=AUTH,
@@ -960,13 +1062,6 @@ def test_writer_failure_keeps_committed_history_and_wiki(
             ).json()
             == []
         )
-        failures = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in (
-                tmp_path / "fog-harbor/.story-engine/runtime/output-failures"
-            ).glob("*.md")
-        )
-        assert "writer unavailable" in failures
 
 
 def test_wiki_and_narrative_sources_are_isolated_by_branch(
@@ -990,10 +1085,13 @@ def test_wiki_and_narrative_sources_are_isolated_by_branch(
                 "control": {"mode": "step", "max_steps": 1},
             },
         ).json()
-        main_step = client.post(
-            f"/projects/fog-harbor/simulations/{main['session_id']}/step",
-            headers=AUTH,
-        ).json()
+        main_step = _advance(client, main["session_id"]).json()
+        _wait_for_projection(
+            client,
+            main["session_id"],
+            kind="wiki",
+            status="succeeded",
+        )
         forked = client.post(
             "/projects/fog-harbor/branches",
             headers=AUTH,
@@ -1019,11 +1117,14 @@ def test_wiki_and_narrative_sources_are_isolated_by_branch(
             },
         )
         assert alternate.status_code == 201, alternate.text
-        advanced = client.post(
-            f"/projects/fog-harbor/simulations/{alternate.json()['session_id']}/step",
-            headers=AUTH,
-        )
+        advanced = _advance(client, alternate.json()["session_id"])
         assert advanced.status_code == 200, advanced.text
+        _wait_for_projection(
+            client,
+            alternate.json()["session_id"],
+            kind="wiki",
+            status="succeeded",
+        )
 
         main_world = client.get(
             "/projects/fog-harbor/branches/main/wiki/page",
@@ -1070,10 +1171,7 @@ def test_session_manifest_restores_on_get_and_keeps_terminal_history(
             },
         ).json()
         session_id = started["session_id"]
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        ).json()
+        stepped = _advance(client, session_id).json()
         checkpoint_id = stepped["checkpoint_id"]
         expected_memories = client.get(
             f"/projects/fog-harbor/simulations/{session_id}", headers=AUTH
@@ -1122,9 +1220,7 @@ def test_session_manifest_restores_on_get_and_keeps_terminal_history(
         )
         assert terminal.status_code == 201
         terminal_id = terminal.json()["session_id"]
-        terminal_step = client.post(
-            f"/projects/fog-harbor/simulations/{terminal_id}/step", headers=AUTH
-        )
+        terminal_step = _advance(client, terminal_id)
         assert terminal_step.json()["status"] == "terminated"
 
     with TestClient(
@@ -1135,6 +1231,51 @@ def test_session_manifest_restores_on_get_and_keeps_terminal_history(
         )
         assert archived.status_code == 200
         assert archived.json()["status"] == "terminated"
+
+
+def test_checkpoint_is_authoritative_when_the_session_index_is_stale(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    session_id: str
+    checkpoint_id: str
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=ReplayGatewayTransport())
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+            },
+        ).json()
+        session_id = started["session_id"]
+        stepped = _advance(client, session_id).json()
+        checkpoint_id = stepped["checkpoint_id"]
+
+    kernel = SimulationCommitKernel(tmp_path / "fog-harbor")
+    stale_index = kernel.sessions.load(session_id).model_copy(
+        update={
+            "status": TurnSessionStatus.FAILED,
+            "current_step": 99,
+        }
+    )
+    kernel.sessions.save(stale_index)
+
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=ReplayGatewayTransport())
+    ) as client:
+        restored = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}", headers=AUTH
+        )
+
+    assert restored.status_code == 200
+    assert restored.json()["checkpoint_id"] == checkpoint_id
+    assert restored.json()["status"] == "paused"
+    assert restored.json()["current_step"] == 1
 
 
 def test_new_npc_remains_a_non_agent_before_the_scene_boundary(
@@ -1157,10 +1298,7 @@ def test_new_npc_remains_a_non_agent_before_the_scene_boundary(
                 "control": {"mode": "step", "max_steps": 3},
             },
         ).json()
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
-            headers=AUTH,
-        ).json()
+        stepped = _advance(client, started["session_id"]).json()
         snapshot = client.get(
             f"/projects/fog-harbor/simulations/{started['session_id']}",
             headers=AUTH,
@@ -1195,14 +1333,8 @@ def test_existing_npc_is_reused_across_consecutive_steps(tmp_path: Path) -> None
         ).json()
         session_id = started["session_id"]
 
-        first = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
-        second = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        first = _advance(client, session_id)
+        second = _advance(client, session_id)
         snapshot = client.get(
             f"/projects/fog-harbor/simulations/{session_id}",
             headers=AUTH,
@@ -1225,7 +1357,8 @@ def test_existing_npc_is_reused_across_consecutive_steps(tmp_path: Path) -> None
         )
         assert any(
             "Existing characters:" in prompt
-            and "- harbor-guard: Harbor Guard, ordinary NPC" in prompt
+            and "- Harbor Guard, ordinary NPC" in prompt
+            and "harbor-guard" not in prompt
             for prompt in transport.calls
         )
 
@@ -1251,10 +1384,7 @@ def test_checkpoint_restore_reuses_existing_npc_in_next_resolution(
             },
         ).json()
         session_id = started["session_id"]
-        created = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        created = _advance(client, session_id)
         assert created.status_code == 200, created.text
         checkpoint_id = created.json()["checkpoint_id"]
 
@@ -1271,10 +1401,7 @@ def test_checkpoint_restore_reuses_existing_npc_in_next_resolution(
         )
         assert restored.status_code == 200, restored.text
 
-        next_step = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        next_step = _advance(client, session_id)
         snapshot = client.get(
             f"/projects/fog-harbor/simulations/{session_id}",
             headers=AUTH,
@@ -1321,10 +1448,7 @@ def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
             },
         ).json()
         session_id = started["session_id"]
-        created = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        ).json()
+        created = _advance(client, session_id).json()
         checkpoint_id = created["checkpoint_id"]
         snapshot = client.get(
             f"/projects/fog-harbor/simulations/{session_id}",
@@ -1338,11 +1462,20 @@ def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
         assert "harbor-guard" in snapshot["roster_actor_ids"]
         assert "harbor-guard" in snapshot["memory_snapshots"]
         assert created["promotion_decisions"][0]["promote"] is True
+        promoted_pages = WikiStore(tmp_path / "fog-harbor", "main")
+        assert {
+            "characters/harbor-guard/self.md",
+            "characters/harbor-guard/goals.md",
+            "characters/harbor-guard/beliefs.md",
+        }.issubset({page.path for page in promoted_pages.list_pages()})
+        assert "Find who sabotaged the lighthouse" in promoted_pages.load_page(
+            "characters/harbor-guard/goals.md"
+        ).content
+        assert promoted_pages.load_page(
+            "characters/harbor-guard/self.md"
+        ).source_ids == tuple(created["promotion_decisions"][0]["evidence_event_ids"])
 
-        reused = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        reused = _advance(client, session_id)
         assert reused.status_code == 200, reused.text
         assert reused.json()["resolved_turn"]["effects"] == []
         assert (
@@ -1387,10 +1520,7 @@ def test_game_master_selects_initial_roster_when_actors_are_not_pinned(
         ).json()
         session_id = started["session_id"]
 
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        stepped = _advance(client, session_id)
         snapshot = client.get(
             f"/projects/fog-harbor/simulations/{session_id}",
             headers=AUTH,

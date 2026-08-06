@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from secrets import compare_digest
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -33,7 +33,7 @@ from story_engine.models.registry import ProfileRegistry
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.simulation.engine import RuntimeFactory, StoryTurnEngine
 from story_engine.simulation.factory import ProjectRuntimeFactory
-from story_engine.simulation.output import BoundaryMaintenanceCoordinator
+from story_engine.simulation.projections import ProjectionTaskService
 from story_engine.simulation.service import SimulationApplicationService
 from story_engine.wiki.boundary import WikiBoundaryProcessor
 from story_engine.wiki.consolidator import GatewayWikiConsolidator
@@ -88,6 +88,7 @@ def create_app(
     model_registry: ProfileRegistry | None = None,
     model_transport: ModelTransport | None = None,
     simulation_runtime_factory: RuntimeFactory | None = None,
+    shutdown_request: Callable[[], None] | None = None,
 ) -> FastAPI:
     runtime_settings = settings or EngineSettings()
     require_session_token = _auth_dependency(runtime_settings)
@@ -156,10 +157,10 @@ def create_app(
         commit_kernel_factory=lambda project_id: SimulationCommitKernel(
             runtime_settings.projects_root / project_id
         ),
-        boundary_output_factory=lambda snapshot: BoundaryMaintenanceCoordinator(
-            runtime_settings.projects_root / snapshot.project_id,
+        projection_service_factory=lambda project_id: ProjectionTaskService(
+            runtime_settings.projects_root / project_id,
             wiki_processor=WikiBoundaryProcessor(
-                runtime_settings.projects_root / snapshot.project_id,
+                runtime_settings.projects_root / project_id,
                 consolidator=GatewayWikiConsolidator(
                     gateway,
                 ),
@@ -197,6 +198,22 @@ def create_app(
     )
     async def engine_status() -> StatusResponse:
         return StatusResponse(status="ready")
+
+    @app.post(
+        "/internal/shutdown",
+        response_model=StatusResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=[Depends(require_session_token)],
+        include_in_schema=False,
+    )
+    async def shutdown(background_tasks: BackgroundTasks) -> StatusResponse:
+        if shutdown_request is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Managed shutdown is unavailable",
+            )
+        background_tasks.add_task(shutdown_request)
+        return StatusResponse(status="shutting_down")
 
     @app.websocket("/ws/events")
     async def websocket_events(

@@ -54,7 +54,7 @@ class WikiPatch(RuntimeModel):
         default=None,
         pattern=r"^(public|gm_only|private:.+)$",
     )
-    proposal_page_id: Identifier | None = None
+    proposal_page_ref: Identifier | None = None
     proposal_source_refs: tuple[int, ...] = ()
 
     @model_validator(mode="after")
@@ -73,15 +73,15 @@ class WikiPatch(RuntimeModel):
             raise ValueError("create patch must not carry expected revision")
         if self.visibility is not None:
             validate_wiki_visibility(self.visibility)
-        if (self.proposal_page_id is None) != (not self.proposal_source_refs):
-            raise ValueError("wiki proposal trace requires page id and source refs")
+        if (self.proposal_page_ref is None) != (not self.proposal_source_refs):
+            raise ValueError("wiki proposal trace requires page ref and source refs")
         if len(self.proposal_source_refs) != len(set(self.proposal_source_refs)):
             raise ValueError("wiki proposal source refs must be unique")
         return self
 
 
 class WikiUpdate(RuntimeModel):
-    page_id: Identifier
+    page_ref: Identifier
     content: str = Field(min_length=1, max_length=65_536)
     source_refs: tuple[int, ...] = Field(min_length=1, max_length=256)
 

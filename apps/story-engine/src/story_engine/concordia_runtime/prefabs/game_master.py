@@ -40,18 +40,17 @@ def _resolve_story_event(
                 f"Considering established world truth, what actually results from "
                 f"{active_player_name}'s putative action? Return one compact JSON "
                 "object with event_text, boundary (none|scene|chapter), visibility "
-                "(public|participants|restricted|gm_only), observer_ids, "
-                "participant_ids, and entity_changes. An entity change may only "
+                "(public|participants|restricted|gm_only), observer_names, "
+                "participant_names, and entity_changes. An entity change may only "
                 "introduce a recurring ordinary person as "
-                "{entity_id,display_name,identity,core_desire,"
-                "location}. Do not create an NPC when an existing character can fill "
-                "the role. An ID shown under Existing characters may only appear in "
-                "participant_ids and must never appear in entity_changes. Do not "
-                "assign IDs to incidental people mentioned only in event_text. "
-                "observer_ids "
-                "may contain only active player character "
-                "IDs. participant_ids may contain only existing character IDs or an "
-                "NPC created in this same response. Do not include reasoning or "
+                "{display_name,identity,core_desire,location}. The local runtime "
+                "assigns the character ID from the display name. Do not create an "
+                "NPC when an existing character can fill the role. Use exact display "
+                "names from Existing characters and never return internal IDs. Do not "
+                "assign characters to incidental people mentioned only in event_text. "
+                "observer_names may contain only active player character names. "
+                "participant_names may contain existing character names; a created NPC "
+                "is added locally. Do not include reasoning or "
                 "Markdown."
             ),
             terminators=(),
@@ -66,6 +65,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
     description: str = "A persistent story Game Master with shared world memory."
     params: Mapping[str, str] = dataclasses.field(default_factory=dict)
     entities: Sequence[entity_agent_with_logging.EntityAgentWithLogging] = ()
+    player_display_names: Mapping[str, str] = dataclasses.field(default_factory=dict)
     recipe: AgentRecipe | None = None
 
     def build(
@@ -96,6 +96,10 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         )
         resolution_key = gm_components.switch_act.DEFAULT_RESOLUTION_COMPONENT_KEY
         player_names = tuple(entity.name for entity in self.entities)
+        player_display_names = tuple(
+            self.player_display_names.get(player_name, player_name)
+            for player_name in player_names
+        )
         if not player_names:
             raise ValueError("Story Game Master requires at least one character")
         per_component = component_models or {}
@@ -104,7 +108,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
 
         next_acting = gm_components.next_acting.NextActing(
             model=model,
-            player_names=player_names,
+            player_names=player_display_names,
             components=(
                 instruction_key,
                 locale_key,
@@ -131,7 +135,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                 branch_id=self.params["branch_id"],
             ),
             roster_key: agent_components.constant.Constant(
-                state=", ".join(player_names),
+                state=", ".join(player_display_names),
                 pre_act_label="Available characters",
             ),
             existing_characters_key: agent_components.constant.Constant(
@@ -151,7 +155,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
             ),
             make_observation_key: gm_components.make_observation.MakeObservation(
                 model=model,
-                player_names=player_names,
+                player_names=player_display_names,
                 components=(
                     instruction_key,
                     locale_key,
@@ -164,7 +168,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
             next_acting_key: next_acting,
             next_action_spec_key: SchemaNextActionSpec(
                 model=next_action_spec_model,
-                player_names=player_names,
+                player_names=player_display_names,
                 components=(
                     instruction_key,
                     locale_key,

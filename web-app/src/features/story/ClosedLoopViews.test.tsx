@@ -131,9 +131,13 @@ describe('closed-loop story views', () => {
     expect(screen.getByText('event:session:one:3')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '导演补充' }))
-    const note = screen
-      .getAllByRole('textbox')
-      .find((element) => element.tagName === 'TEXTAREA')!
+    const note = await waitFor(() => {
+      const textarea = screen
+        .getAllByRole('textbox')
+        .find((element) => element.tagName === 'TEXTAREA')
+      expect(textarea).toBeDefined()
+      return textarea!
+    })
     fireEvent.change(note, {
       target: { value: '下一场让潮汐成为压力。' },
     })

@@ -1,4 +1,6 @@
+import hashlib
 import json
+import re
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from threading import Event
@@ -19,7 +21,11 @@ from story_engine.domain.projection import (
     SimulationBoundary,
     StateEffect,
 )
-from story_engine.domain.simulation import GameMasterActor, ResolverContext
+from story_engine.domain.simulation import (
+    CharacterRef,
+    GameMasterActor,
+    ResolverContext,
+)
 
 
 class SimulationCancelledError(RuntimeError):
@@ -53,47 +59,90 @@ class ConcordiaResolverKernel:
         for character in context.existing_characters:
             location = f", location: {character.location}" if character.location else ""
             lines.append(
-                f"- {character.id}: {character.display_name}, "
-                f"{type_labels[character.type]}{location}"
+                f"- {character.display_name}, {type_labels[character.type]}{location}"
             )
         lines.append(
-            "Existing IDs must be referenced through participant_ids and must not "
-            "appear in entity_changes."
+            "Use these exact display names in participant_names or observer_names. "
+            "Do not include an existing character in entity_changes."
         )
         return "\n".join(lines)
+
+    @staticmethod
+    def _characters_by_name(context: ResolverContext) -> dict[str, CharacterRef]:
+        characters_by_name: dict[str, CharacterRef] = {}
+        for character in context.existing_characters:
+            name_key = character.display_name.strip().casefold()
+            if name_key in characters_by_name:
+                raise ResolutionEnvelopeError(
+                    "existing character display names must be unique for "
+                    "semantic GM resolution"
+                )
+            characters_by_name[name_key] = character
+        return characters_by_name
+
+    @classmethod
+    def _resolve_character_names(
+        cls,
+        names: tuple[str, ...],
+        *,
+        context: ResolverContext,
+        field_name: str,
+    ) -> tuple[str, ...]:
+        characters_by_name = cls._characters_by_name(context)
+        resolved_ids: list[str] = []
+        unknown_names: list[str] = []
+        for name in names:
+            character = characters_by_name.get(name.strip().casefold())
+            if character is None:
+                unknown_names.append(name)
+            else:
+                resolved_ids.append(character.id)
+        if unknown_names:
+            raise ResolutionEnvelopeError(
+                f"Game Master resolution references unknown {field_name}: "
+                f"{sorted(unknown_names)}"
+            )
+        return tuple(dict.fromkeys(resolved_ids))
 
     @staticmethod
     def _normalized_entity_changes(
         envelope: ResolutionEnvelope,
         context: ResolverContext,
-    ) -> tuple[tuple[EntityChange, ...], tuple[str, ...]]:
+    ) -> tuple[tuple[tuple[str, EntityChange], ...], tuple[str, ...]]:
         unique_changes: dict[str, EntityChange] = {}
+        existing_by_name = ConcordiaResolverKernel._characters_by_name(context)
         for change in envelope.entity_changes:
-            previous = unique_changes.get(change.entity_id)
+            name_key = (change.display_name or "").strip().casefold()
+            previous = unique_changes.get(name_key)
             if previous is not None and previous != change:
                 raise ResolutionEnvelopeError(
                     "Game Master resolution contains conflicting create_npc "
-                    f"definitions for entity_id {change.entity_id!r}"
+                    f"definitions for {change.display_name!r}"
                 )
-            unique_changes[change.entity_id] = change
+            unique_changes[name_key] = change
 
         existing_by_id = {
             character.id: character for character in context.existing_characters
         }
-        creations: list[EntityChange] = []
+        creations: list[tuple[str, EntityChange]] = []
         existing_references: list[str] = []
+        used_ids = set(existing_by_id)
         for change in unique_changes.values():
-            existing = existing_by_id.get(change.entity_id)
+            name_key = (change.display_name or "").strip().casefold()
+            existing = existing_by_name.get(name_key)
             if existing is None:
-                creations.append(change)
+                base = re.sub(r"[^a-z0-9]+", "-", name_key).strip("-")
+                if not base:
+                    base = hashlib.sha256(name_key.encode("utf-8")).hexdigest()[:12]
+                entity_id = base
+                suffix = 2
+                while entity_id in used_ids:
+                    entity_id = f"{base}-{suffix}"
+                    suffix += 1
+                used_ids.add(entity_id)
+                creations.append((entity_id, change))
                 continue
-            if existing.display_name.casefold() != str(change.display_name).casefold():
-                raise ResolutionEnvelopeError(
-                    f"entity_id collision for {change.entity_id!r}: existing character "
-                    f"is named {existing.display_name!r}, but create_npc used "
-                    f"{change.display_name!r}"
-                )
-            existing_references.append(change.entity_id)
+            existing_references.append(existing.id)
         return tuple(creations), tuple(existing_references)
 
     @staticmethod
@@ -124,32 +173,58 @@ class ConcordiaResolverKernel:
                 f"Game Master resolution JSON failed schema validation at {location}"
             ) from error
 
-        observer_ids = envelope.observer_ids
+        acting_character = next(
+            (
+                character
+                for character in context.existing_characters
+                if character.id == context.acting_actor_id
+            ),
+            None,
+        )
+        if acting_character is None:
+            raise ResolutionEnvelopeError("acting character is not in the registry")
+        observer_ids = ConcordiaResolverKernel._resolve_character_names(
+            envelope.observer_names,
+            context=context,
+            field_name="observer names",
+        )
         if envelope.visibility == EventVisibility.RESTRICTED and not observer_ids:
             observer_ids = (context.acting_actor_id,)
+        non_actor_observers = set(observer_ids) - {
+            character.id
+            for character in context.existing_characters
+            if character.type == "active"
+        }
+        if non_actor_observers:
+            raise ResolutionEnvelopeError(
+                "Game Master resolution uses non-active observer names: "
+                f"{sorted(non_actor_observers)}"
+            )
         entity_changes, existing_references = (
             ConcordiaResolverKernel._normalized_entity_changes(envelope, context)
         )
         participant_ids = tuple(
             dict.fromkeys(
                 (
-                    *(envelope.participant_ids or (context.acting_actor_id,)),
+                    *ConcordiaResolverKernel._resolve_character_names(
+                        envelope.participant_names or (acting_character.display_name,),
+                        context=context,
+                        field_name="participant names",
+                    ),
                     *existing_references,
                 )
             )
         )
-        known_character_ids = {
-            *(character.id for character in context.existing_characters),
-            *(change.entity_id for change in entity_changes),
-        }
-        unknown_participants = set(participant_ids) - known_character_ids
-        if unknown_participants:
-            raise ResolutionEnvelopeError(
-                "Game Master resolution references unknown participant IDs: "
-                f"{sorted(unknown_participants)}"
+        participant_ids = tuple(
+            dict.fromkeys(
+                (
+                    *participant_ids,
+                    *(entity_id for entity_id, _ in entity_changes),
+                )
             )
+        )
         effects: list[StateEffect] = []
-        for index, change in enumerate(entity_changes):
+        for index, (entity_id, change) in enumerate(entity_changes):
             effects.append(
                 StateEffect(
                     effect_id=(
@@ -157,10 +232,10 @@ class ConcordiaResolverKernel:
                     ),
                     operation=EffectOperation.CREATE_CHARACTER,
                     target=EffectTarget.CHARACTER_PROJECTION,
-                    target_id=change.entity_id,
+                    target_id=entity_id,
                     after=(
                         {
-                            "entity_id": change.entity_id,
+                            "entity_id": entity_id,
                             "display_name": change.display_name,
                             "identity": change.identity,
                             "core_desire": change.core_desire,

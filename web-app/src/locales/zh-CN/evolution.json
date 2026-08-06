@@ -33,10 +33,19 @@
     "pause": "正在等待当前步骤完成后暂停……",
     "terminate": "正在等待当前步骤完成后安全终止……"
   },
-  "maintenance": {
-    "failed": "Wiki 维护失败，模拟已暂停。",
-    "degraded": "Wiki 无法解析模型输出。模拟可以继续，但正文生成会暂停，直到 Wiki 重建完成。",
-    "retry": "重试 Wiki 维护"
+  "projections": {
+    "title": "输出投影",
+    "kind": {
+      "wiki": "Wiki",
+      "manuscript": "正文"
+    },
+    "status": {
+      "pending": "等待中",
+      "running": "更新中",
+      "succeeded": "已同步",
+      "failed": "失败"
+    },
+    "retryTask": "重试 {{kind}} 投影"
   },
   "controls": {
     "step": "单步",

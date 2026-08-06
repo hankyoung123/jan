@@ -869,7 +869,6 @@
               "simulation.pause.requested",
               "simulation.termination.requested",
               "simulation.paused",
-              "simulation.maintenance.degraded",
               "simulation.checkpointed",
               "simulation.terminated",
               "simulation.failed",
@@ -1091,17 +1090,6 @@
         "type": "object"
       },
       "JsonValue": {},
-      "MaintenanceStatus": {
-        "enum": [
-          "not_required",
-          "pending",
-          "succeeded",
-          "degraded",
-          "failed"
-        ],
-        "title": "MaintenanceStatus",
-        "type": "string"
-      },
       "ManuscriptExport": {
         "additionalProperties": false,
         "properties": {
@@ -1760,6 +1748,15 @@
             ],
             "title": "Reasoning Effort"
           },
+          "structured_output_retry": {
+            "default": "gateway",
+            "enum": [
+              "gateway",
+              "caller"
+            ],
+            "title": "Structured Output Retry",
+            "type": "string"
+          },
           "task_type": {
             "enum": [
               "actor",
@@ -2132,8 +2129,142 @@
         "title": "ProjectSnapshot",
         "type": "object"
       },
+      "ProjectionKind": {
+        "enum": [
+          "wiki",
+          "manuscript"
+        ],
+        "title": "ProjectionKind",
+        "type": "string"
+      },
+      "ProjectionRebuildRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectionKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ProjectionRebuildRequest",
+        "type": "object"
+      },
+      "ProjectionTask": {
+        "additionalProperties": false,
+        "description": "A rebuildable view update derived from one committed simulation boundary.",
+        "properties": {
+          "attempt_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "boundary": {
+            "$ref": "#/components/schemas/SimulationBoundary"
+          },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_text": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Text"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ProjectionKind"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectionTaskStatus",
+            "default": "pending"
+          },
+          "step": {
+            "minimum": 0.0,
+            "title": "Step",
+            "type": "integer"
+          },
+          "task_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "project_id",
+          "session_id",
+          "branch_id",
+          "checkpoint_id",
+          "step",
+          "boundary",
+          "kind"
+        ],
+        "title": "ProjectionTask",
+        "type": "object"
+      },
+      "ProjectionTaskStatus": {
+        "enum": [
+          "pending",
+          "running",
+          "succeeded",
+          "failed"
+        ],
+        "title": "ProjectionTaskStatus",
+        "type": "string"
+      },
       "PromotionDecision": {
         "additionalProperties": false,
+        "description": "Durable promotion result after local candidate binding.",
         "properties": {
           "character_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
@@ -2941,37 +3072,6 @@
             ],
             "title": "Head Checkpoint Id"
           },
-          "maintenance_boundary": {
-            "$ref": "#/components/schemas/SimulationBoundary",
-            "default": "none"
-          },
-          "maintenance_error_text": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Maintenance Error Text"
-          },
-          "maintenance_status": {
-            "$ref": "#/components/schemas/MaintenanceStatus",
-            "default": "not_required"
-          },
-          "maintenance_step": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Maintenance Step"
-          },
           "project_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Project Id",
@@ -3030,6 +3130,27 @@
           "updated_at"
         ],
         "title": "SessionManifest",
+        "type": "object"
+      },
+      "SimulationAdvanceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "expected_state_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected State Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "expected_state_hash"
+        ],
+        "title": "SimulationAdvanceRequest",
         "type": "object"
       },
       "SimulationBoundary": {
@@ -3135,7 +3256,6 @@
               "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
               "type": "string"
             },
-            "maxItems": 4,
             "title": "Actor Ids",
             "type": "array"
           },
@@ -4340,7 +4460,6 @@
               "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
               "type": "string"
             },
-            "maxItems": 4,
             "title": "Actor Ids",
             "type": "array"
           },
@@ -4496,37 +4615,6 @@
             },
             "title": "Game Master States",
             "type": "object"
-          },
-          "maintenance_boundary": {
-            "$ref": "#/components/schemas/SimulationBoundary",
-            "default": "none"
-          },
-          "maintenance_error_text": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Maintenance Error Text"
-          },
-          "maintenance_status": {
-            "$ref": "#/components/schemas/MaintenanceStatus",
-            "default": "not_required"
-          },
-          "maintenance_step": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Maintenance Step"
           },
           "memory_snapshots": {
             "patternProperties": {
@@ -7727,62 +7815,6 @@
         ]
       }
     },
-    "/projects/{project_id}/simulations/{session_id}/maintenance/retry": {
-      "post": {
-        "operationId": "retry_simulation_maintenance_projects__project_id__simulations__session_id__maintenance_retry_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TurnSessionSnapshot"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "SessionToken": []
-          }
-        ],
-        "summary": "Retry Simulation Maintenance",
-        "tags": [
-          "simulations"
-        ]
-      }
-    },
     "/projects/{project_id}/simulations/{session_id}/pause": {
       "post": {
         "operationId": "pause_simulation_projects__project_id__simulations__session_id__pause_post",
@@ -7839,6 +7871,201 @@
         ]
       }
     },
+    "/projects/{project_id}/simulations/{session_id}/projections": {
+      "get": {
+        "operationId": "list_projection_tasks_projects__project_id__simulations__session_id__projections_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectionTask"
+                  },
+                  "title": "Response List Projection Tasks Projects  Project Id  Simulations  Session Id  Projections Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "List Projection Tasks",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/projections/rebuild": {
+      "post": {
+        "operationId": "rebuild_projection_tasks_projects__project_id__simulations__session_id__projections_rebuild_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectionRebuildRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectionTask"
+                  },
+                  "title": "Response Rebuild Projection Tasks Projects  Project Id  Simulations  Session Id  Projections Rebuild Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Rebuild Projection Tasks",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulations/{session_id}/projections/{task_id}/retry": {
+      "post": {
+        "operationId": "retry_projection_task_projects__project_id__simulations__session_id__projections__task_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectionTask"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Retry Projection Task",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
     "/projects/{project_id}/simulations/{session_id}/resume": {
       "post": {
         "operationId": "resume_simulation_projects__project_id__simulations__session_id__resume_post",
@@ -7862,6 +8089,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationAdvanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "202": {
             "content": {
@@ -7918,6 +8155,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationAdvanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "202": {
             "content": {
@@ -7974,6 +8221,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationAdvanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

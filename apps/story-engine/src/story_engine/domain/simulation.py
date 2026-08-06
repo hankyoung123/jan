@@ -1,4 +1,4 @@
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
 from threading import Event
@@ -31,6 +31,9 @@ class ActorPhase(StrEnum):
 class StoryActor(Protocol):
     @property
     def name(self) -> str: ...
+
+    @property
+    def display_name(self) -> str: ...
 
     @property
     def role(self) -> EntityRole: ...
@@ -187,14 +190,6 @@ class TurnSessionStatus(StrEnum):
     INTERRUPTED = "interrupted"
 
 
-class MaintenanceStatus(StrEnum):
-    NOT_REQUIRED = "not_required"
-    PENDING = "pending"
-    SUCCEEDED = "succeeded"
-    DEGRADED = "degraded"
-    FAILED = "failed"
-
-
 class PendingControl(StrEnum):
     NONE = "none"
     PAUSE = "pause"
@@ -205,14 +200,34 @@ class TurnSessionRequest(RuntimeModel):
     project_id: Identifier
     branch_id: Identifier
     premise_text: str = Field(min_length=1, max_length=131_072)
-    actor_ids: tuple[Identifier, ...] = Field(default=(), max_length=4)
+    # The request identifies the eligible cast; scene participation is capped
+    # separately by the roster planner.
+    actor_ids: tuple[Identifier, ...] = ()
     content_locale: LocaleCode
     control: ControlPolicy
     output: OutputPolicy = OutputPolicy()
     seed: int | None = None
 
 
+class PromotionProposal(RuntimeModel):
+    """Model-written promotion semantics; the candidate ID is local context."""
+
+    promote: bool
+    proposed_goal: str | None = Field(default=None, max_length=16_384)
+    reason: str = Field(min_length=1, max_length=16_384)
+
+    @model_validator(mode="after")
+    def validate_proposal(self) -> "PromotionProposal":
+        if self.promote and not self.proposed_goal:
+            raise ValueError("promotion requires a goal")
+        if not self.promote and self.proposed_goal is not None:
+            raise ValueError("a rejected promotion cannot propose a goal")
+        return self
+
+
 class PromotionDecision(RuntimeModel):
+    """Durable promotion result after local candidate binding."""
+
     character_id: Identifier
     promote: bool
     proposed_goal: str | None = Field(default=None, max_length=16_384)
@@ -221,10 +236,9 @@ class PromotionDecision(RuntimeModel):
 
     @model_validator(mode="after")
     def validate_decision(self) -> "PromotionDecision":
-        if self.promote and (not self.proposed_goal or not self.evidence_event_ids):
-            raise ValueError("promotion requires a goal and evidence events")
-        if not self.promote and self.proposed_goal is not None:
-            raise ValueError("a rejected promotion cannot propose a goal")
+        PromotionProposal.model_validate(
+            self.model_dump(exclude={"character_id", "evidence_event_ids"})
+        )
         return self
 
 
@@ -254,10 +268,6 @@ class TurnSessionSnapshot(RuntimeModel):
     updated_at: datetime
     termination_reason_text: str | None = None
     restoration_notice_text: str | None = None
-    maintenance_status: MaintenanceStatus = MaintenanceStatus.NOT_REQUIRED
-    maintenance_error_text: str | None = None
-    maintenance_step: int | None = Field(default=None, ge=0)
-    maintenance_boundary: SimulationBoundary = SimulationBoundary.NONE
     state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
@@ -278,24 +288,14 @@ class StepResult(RuntimeModel):
 class TurnEngine(Protocol):
     def create_session(self, request: TurnSessionRequest) -> TurnSessionSnapshot: ...
 
-    def run(
+    def advance_one_step(
         self,
         session_id: str,
         *,
         cancellation: Event,
-        on_step: Callable[[StepResult], None] | None = None,
-    ) -> TurnSessionSnapshot: ...
-
-    def step(self, session_id: str, *, cancellation: Event) -> StepResult: ...
+    ) -> StepResult: ...
 
     def pause(self, session_id: str) -> TurnSessionSnapshot: ...
-
-    def resume(
-        self,
-        session_id: str,
-        *,
-        cancellation: Event,
-    ) -> TurnSessionSnapshot: ...
 
     def terminate(
         self,

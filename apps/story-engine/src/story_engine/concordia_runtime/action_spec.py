@@ -84,7 +84,7 @@ class ConcordiaActionSpecCodec:
             raise ActionSpecDecodeError("ActionSpec must be valid JSON") from error
         if not isinstance(payload, dict):
             raise ActionSpecDecodeError("ActionSpec JSON must be an object")
-        allowed = {"call_to_action", "output_type", "options", "option_ids", "tag"}
+        allowed = {"call_to_action", "output_type", "options", "tag"}
         if set(payload) - allowed:
             raise ActionSpecDecodeError("ActionSpec JSON contains unknown fields")
         try:
@@ -104,7 +104,7 @@ class ConcordiaActionSpecCodec:
             concordia_spec,
             spec_id=spec_id,
             content_locale=content_locale,
-            option_ids=tuple(envelope.option_ids) if envelope.option_ids else None,
+            option_ids=None,
         )
         if spec.output_type == ActionOutputType.NEXT_ACTING:
             if actor_ids is None:

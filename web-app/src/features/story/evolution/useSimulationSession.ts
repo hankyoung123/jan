@@ -11,7 +11,9 @@ export type CommitResult = components['schemas']['CommitResult']
 export type ControlMode = components['schemas']['ControlMode']
 export type BranchManifest = components['schemas']['BranchManifest']
 export type BranchComparison = components['schemas']['BranchComparisonResponse']
+export type ProjectionTask = components['schemas']['ProjectionTask']
 type SimulationStartRequest = components['schemas']['SimulationStartRequest']
+type SimulationAdvanceRequest = components['schemas']['SimulationAdvanceRequest']
 
 type Operation =
   | 'load'
@@ -27,7 +29,7 @@ type Operation =
   | 'fork'
   | 'locale'
   | 'compare'
-  | 'maintenance'
+  | 'projection'
 
 interface StartOptions {
   branchId: string
@@ -43,6 +45,7 @@ export function useSimulationSession(projectId?: string) {
   const [lastStep, setLastStep] = useState<StepResult | null>(null)
   const [branches, setBranches] = useState<BranchManifest[]>([])
   const [sessions, setSessions] = useState<SessionManifest[]>([])
+  const [projections, setProjections] = useState<ProjectionTask[]>([])
   const [pending, setPending] = useState<Set<Operation>>(new Set())
   const [error, setError] = useState<string | null>(null)
 
@@ -76,6 +79,23 @@ export function useSimulationSession(projectId?: string) {
     else url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
   }, [])
+  const refreshProjections = useCallback(async () => {
+    if (!projectId || !sessionId) {
+      setProjections([])
+      return
+    }
+    try {
+      const tasks = await engineRequest<ProjectionTask[]>(
+        `/projects/${projectId}/simulations/${sessionId}/projections`
+      )
+      setProjections(tasks)
+    } catch {
+      // A session can predate its first boundary. Projection status is optional
+      // operational data and must not make the core session unreadable.
+      setProjections([])
+    }
+  }, [projectId, sessionId])
+
   const refreshSession = useCallback(async () => {
     if (!projectId || !sessionId) return
     const updated = await engineRequest<SessionSnapshot>(
@@ -84,6 +104,18 @@ export function useSimulationSession(projectId?: string) {
     setSession(updated)
     syncUrl(updated)
   }, [projectId, sessionId, syncUrl])
+
+  useEffect(() => {
+    void refreshProjections()
+  }, [refreshProjections])
+
+  useEffect(() => {
+    if (!projections.some((task) => task.status === 'pending' || task.status === 'running')) {
+      return
+    }
+    const interval = window.setInterval(() => void refreshProjections(), 1_500)
+    return () => window.clearInterval(interval)
+  }, [projections, refreshProjections])
 
   const load = useCallback(async () => {
     if (!projectId) {
@@ -192,6 +224,7 @@ export function useSimulationSession(projectId?: string) {
       if (created) {
         setSession(created)
         setLastStep(null)
+        setProjections([])
         syncUrl(created)
       }
       return created
@@ -201,15 +234,19 @@ export function useSimulationSession(projectId?: string) {
 
   const step = useCallback(async () => {
     if (!projectId || !session) return null
+    const command = {
+      command_id: `command:${crypto.randomUUID()}`,
+      expected_state_hash: session.state_hash,
+    } satisfies SimulationAdvanceRequest
     const result = await perform('step', () =>
       engineRequest<StepResult>(
         `/projects/${projectId}/simulations/${session.session_id}/step`,
-        { method: 'POST' }
+        { method: 'POST', body: JSON.stringify(command) }
       )
     )
     if (result) {
       setLastStep(result)
-      await refreshSession()
+      await Promise.all([refreshSession(), refreshProjections()])
     }
     return result
   }, [perform, projectId, refreshSession, session])
@@ -217,6 +254,10 @@ export function useSimulationSession(projectId?: string) {
   const control = useCallback(
     async (action: 'run' | 'pause' | 'resume' | 'terminate' | 'cancel') => {
       if (!projectId || !session) return null
+      const command = {
+        command_id: `command:${crypto.randomUUID()}`,
+        expected_state_hash: session.state_hash,
+      } satisfies SimulationAdvanceRequest
       const updated = await perform(action, () =>
         engineRequest<SessionSnapshot>(
           `/projects/${projectId}/simulations/${session.session_id}/${action}`,
@@ -225,7 +266,9 @@ export function useSimulationSession(projectId?: string) {
             body:
               action === 'terminate' || action === 'cancel'
                 ? JSON.stringify({ reason_text: `user requested ${action}` })
-                : undefined,
+                : action === 'run' || action === 'resume'
+                  ? JSON.stringify(command)
+                  : undefined,
           }
         )
       )
@@ -250,20 +293,21 @@ export function useSimulationSession(projectId?: string) {
     return committed
   }, [perform, projectId, refreshSession, session])
 
-  const retryMaintenance = useCallback(async () => {
+  const retryProjection = useCallback(async (taskId: string) => {
     if (!projectId || !session) return null
-    const updated = await perform('maintenance', () =>
-      engineRequest<SessionSnapshot>(
-        `/projects/${projectId}/simulations/${session.session_id}/maintenance/retry`,
+    const task = await perform('projection', () =>
+      engineRequest<ProjectionTask>(
+        `/projects/${projectId}/simulations/${session.session_id}/projections/${taskId}/retry`,
         { method: 'POST' }
       )
     )
-    if (updated) {
-      setSession(updated)
-      syncUrl(updated)
+    if (task) {
+      setProjections((current) =>
+        current.map((item) => (item.task_id === task.task_id ? task : item))
+      )
     }
-    return updated
-  }, [perform, projectId, session, syncUrl])
+    return task
+  }, [perform, projectId, session])
 
   const restore = useCallback(
     async (checkpointId: string) => {
@@ -347,6 +391,7 @@ export function useSimulationSession(projectId?: string) {
     const currentBranch = session?.branch_id || 'main'
     setSession(null)
     setLastStep(null)
+    setProjections([])
     setError(null)
     syncUrl(null, currentBranch)
   }, [session?.branch_id, syncUrl])
@@ -374,6 +419,7 @@ export function useSimulationSession(projectId?: string) {
     project,
     branches,
     sessions,
+    projections,
     session,
     lastStep,
     error,
@@ -384,7 +430,7 @@ export function useSimulationSession(projectId?: string) {
     step,
     control,
     checkpoint,
-    retryMaintenance,
+    retryProjection,
     restore,
     fork,
     switchLocale,

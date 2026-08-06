@@ -55,7 +55,6 @@ export function useSimulationStream({
       if (
         event.type === 'simulation.step.completed' ||
         event.type === 'simulation.paused' ||
-        event.type === 'simulation.maintenance.degraded' ||
         event.type === 'simulation.terminated' ||
         event.type === 'simulation.failed' ||
         event.type === 'simulation.checkpointed'

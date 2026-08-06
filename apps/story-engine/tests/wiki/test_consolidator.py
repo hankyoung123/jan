@@ -61,7 +61,7 @@ def _valid_proposal() -> dict[str, Any]:
     return {
         "updates": [
             {
-                "page_id": "state",
+                "page_ref": "state",
                 "content": "The lighthouse is dark.",
                 "source_refs": [0],
             }
@@ -108,7 +108,7 @@ def test_wiki_output_schema_contains_only_lightweight_proposal_fields() -> None:
     update = schema["$defs"]["WikiUpdate"]
 
     assert set(schema["properties"]) == {"updates"}
-    assert set(update["properties"]) == {"page_id", "content", "source_refs"}
+    assert set(update["properties"]) == {"page_ref", "content", "source_refs"}
     assert update["additionalProperties"] is False
     serialized = str(schema)
     for forbidden in (
@@ -130,19 +130,19 @@ def test_wiki_output_schema_contains_only_lightweight_proposal_fields() -> None:
             {
                 "updates": [
                     {
-                        "page_id": "index",
+                        "page_ref": "index",
                         "content": "Do not edit the index.",
                         "source_refs": [0],
                     }
                 ]
             },
-            "unknown page_id 'index'",
+            "unknown page_ref 'index'",
         ),
         (
             {
                 "updates": [
                     {
-                        "page_id": "state",
+                        "page_ref": "state",
                         "content": "Bad section field.",
                         "source_refs": [0],
                         "section": "Invented Heading",
@@ -155,19 +155,19 @@ def test_wiki_output_schema_contains_only_lightweight_proposal_fields() -> None:
             {
                 "updates": [
                     {
-                        "page_id": "missing",
+                        "page_ref": "missing",
                         "content": "Missing page.",
                         "source_refs": [0],
                     }
                 ]
             },
-            "unknown page_id 'missing'",
+            "unknown page_ref 'missing'",
         ),
         (
             {
                 "updates": [
                     {
-                        "page_id": "state",
+                        "page_ref": "state",
                         "content": "Unknown source.",
                         "source_refs": [99],
                     }
@@ -189,12 +189,13 @@ def test_consolidator_retries_invalid_proposals_with_exact_constraints(
     assert patches[0].path == "world/state.md"
     assert patches[0].operation.value == "append_history"
     assert patches[0].source_ids == ("event:session:1:1",)
-    assert patches[0].proposal_page_id == "state"
+    assert patches[0].proposal_page_ref == "state"
     assert patches[0].proposal_source_refs == (0,)
     assert len(gateway.calls) == 2
+    assert gateway.calls[0].structured_output_retry == "caller"
     correction = gateway.calls[1].messages[2].content
     assert error_fragment in correction
-    assert "Allowed page_ids: ['state']" in correction
+    assert "Allowed page_refs: ['state']" in correction
     assert "Allowed source_refs: [0]" in correction
 
 
@@ -222,7 +223,7 @@ def test_consolidator_prompt_hides_paths_and_real_source_ids() -> None:
     assert "index.md" not in prompt
     assert "log.md" not in prompt
     assert "SCHEMA.md" not in prompt
-    assert '"page_id": "state"' in prompt
+    assert '"page_ref": "state"' in prompt
     assert '"source_ref": 0' in prompt
     assert "WikiPatch" not in schema
     assert patches[0].content == "## Step 1\n\nThe lighthouse is dark."

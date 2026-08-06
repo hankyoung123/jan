@@ -46,10 +46,8 @@ def _event() -> ResolvedEvent:
 def test_editor_automatically_recommends_promotion_from_scene_evidence() -> None:
     model = PromotionModel(
         {
-            "character_id": "temporary-pilot",
             "promote": True,
             "proposed_goal": "主动引导客船避开近港暗礁",
-            "evidence_event_ids": ["event:session:1:4"],
             "reason": "已经表现出独立、持续的行动目标。",
         }
     )
@@ -58,17 +56,19 @@ def test_editor_automatically_recommends_promotion_from_scene_evidence() -> None
 
     assert decision.promote is True
     assert decision.proposed_goal == "主动引导客船避开近港暗礁"
+    assert decision.evidence_event_ids == ("event:session:1:4",)
     assert "completed scene boundary" in model.prompts[0]
-    assert "event:session:1:4" in model.prompts[0]
+    assert "Do not return character or event IDs" in model.prompts[0]
+    assert "temporary-pilot" not in model.prompts[0]
+    assert "event:session:1:4" not in model.prompts[0]
+    assert "临时引航员" in model.prompts[0]
 
 
 def test_editor_may_leave_an_ordinary_person_as_npc() -> None:
     model = PromotionModel(
         {
-            "character_id": "temporary-pilot",
             "promote": False,
             "proposed_goal": None,
-            "evidence_event_ids": [],
             "reason": "该人物只是在履行临时职责。",
         }
     )
@@ -78,10 +78,9 @@ def test_editor_may_leave_an_ordinary_person_as_npc() -> None:
     assert decision.promote is False
 
 
-def test_editor_cannot_cite_evidence_outside_the_completed_scene() -> None:
+def test_editor_rejects_model_authored_evidence_ids() -> None:
     model = PromotionModel(
         {
-            "character_id": "temporary-pilot",
             "promote": True,
             "proposed_goal": "追查幕后指使者",
             "evidence_event_ids": ["event:invented:99"],
@@ -89,7 +88,7 @@ def test_editor_cannot_cite_evidence_outside_the_completed_scene() -> None:
         }
     )
 
-    with pytest.raises(ValueError, match="unknown evidence"):
+    with pytest.raises(ValueError, match="evidence_event_ids"):
         AutomaticPromotionReviewer(model).review(_npc(), (_event(),))
 
 

@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
+from story_engine.domain.models import Character
 from story_engine.domain.wiki import (
     DirectorInstruction,
     WikiBranchView,
@@ -298,6 +299,130 @@ class WikiStore:
         batch.commit()
         return tuple(self.branch_root.rglob("*.md"))
 
+    def ensure_active_character_pages(
+        self,
+        character: Character,
+        *,
+        checkpoint_id: str,
+        step: int,
+        source_ids: tuple[str, ...],
+    ) -> tuple[Path, ...]:
+        """Create the Store-owned Wiki lifecycle pages for a promoted Agent."""
+
+        if character.type != "active":
+            return ()
+        if not source_ids:
+            raise ValueError("promoted character pages require source IDs")
+        if not self.exists():
+            raise FileNotFoundError("Wiki branch must be initialized before promotion")
+
+        subject_id = character.id
+        visibility = f"private:{subject_id}"
+        name = character.display_name or subject_id
+        pages = {
+            f"characters/{subject_id}/self.md": WikiPage(
+                branch_id=self.branch_id,
+                path=f"characters/{subject_id}/self.md",
+                subject_id=subject_id,
+                visibility=visibility,
+                updated_at_step=step,
+                source_ids=source_ids,
+                checkpoint_id=checkpoint_id,
+                content=(
+                    f"# {name}\n\n"
+                    f"## Identity\n\n{character.identity}\n\n"
+                    f"## Core Desire\n\n{character.core_desire}"
+                ),
+            ),
+            f"characters/{subject_id}/goals.md": WikiPage(
+                branch_id=self.branch_id,
+                path=f"characters/{subject_id}/goals.md",
+                subject_id=subject_id,
+                visibility=visibility,
+                updated_at_step=step,
+                source_ids=source_ids,
+                checkpoint_id=checkpoint_id,
+                content=(
+                    "# Goals\n\n## Current\n\n"
+                    + (character.current_goal or character.core_desire)
+                ),
+            ),
+            f"characters/{subject_id}/beliefs.md": WikiPage(
+                branch_id=self.branch_id,
+                path=f"characters/{subject_id}/beliefs.md",
+                subject_id=subject_id,
+                visibility=visibility,
+                updated_at_step=step,
+                source_ids=source_ids,
+                checkpoint_id=checkpoint_id,
+                content="# Beliefs\n\n- No confirmed private observations yet.",
+            ),
+        }
+        existing = {page.path: page for page in self.list_pages()}
+        created = {
+            path: page for path, page in pages.items() if path not in existing
+        }
+        if not created:
+            return ()
+        candidate = {**existing, **created}
+        owned_indexes = {
+            path: self._bump_revision(index, existing.get(path))
+            for path, index in self._owned_indexes(
+                list(candidate.values()),
+                step=step,
+                checkpoint_id=checkpoint_id,
+            ).items()
+        }
+        candidate.update(owned_indexes)
+        self._validate_links(candidate)
+        current_view = self.view()
+        batch = AtomicBatch(self.root)
+        for path, page in created.items():
+            batch.add(
+                self._relative_to_project(self.page_path(path)),
+                _render(page),
+                overwrite=False,
+            )
+        for path, page in owned_indexes.items():
+            batch.add(
+                self._relative_to_project(self.page_path(path)),
+                _render(page),
+                overwrite=path in existing,
+            )
+        existing_log = (self.branch_root / "log.md").read_text(encoding="utf-8")
+        batch.add(
+            self._relative_to_project(self.branch_root / "log.md"),
+            existing_log.rstrip()
+            + f"\n- step {step}: initialized active character Wiki `{subject_id}`\n",
+        )
+        version_root = self.wiki_root / ".versions" / self.branch_id / checkpoint_id
+        for path, page in candidate.items():
+            version_path = version_root / path
+            batch.add(
+                self._relative_to_project(version_path),
+                _render(page.model_copy(update={"checkpoint_id": checkpoint_id})),
+                overwrite=version_path.exists(),
+            )
+        branch_index = self._render_index(
+            list(candidate.values()),
+            checkpoint_id=checkpoint_id,
+            step=step,
+            stale=current_view.stale,
+            degraded=current_view.degraded,
+            degradation_reason=current_view.degradation_reason,
+        )
+        batch.add(
+            self._relative_to_project(self.branch_root / "index.md"),
+            branch_index,
+        )
+        batch.add(
+            self._relative_to_project(version_root / "index.md"),
+            branch_index,
+            overwrite=(version_root / "index.md").exists(),
+        )
+        batch.commit()
+        return tuple(self.page_path(path) for path in created)
+
     def load_page(self, relative_path: str) -> WikiPage:
         path = self.page_path(relative_path)
         return _parse(relative_path, path.read_text(encoding="utf-8"))
@@ -579,11 +704,11 @@ class WikiStore:
         entries = "\n".join(
             f"- step {step}: `{patch.operation.value}` `{patch.path}` "
             + (
-                f"page_id={patch.proposal_page_id} "
+                f"page_ref={patch.proposal_page_ref} "
                 "source_refs="
                 + ",".join(str(item) for item in patch.proposal_source_refs)
                 + " "
-                if patch.proposal_page_id is not None
+                if patch.proposal_page_ref is not None
                 else ""
             )
             + f"sources={','.join(patch.source_ids)}"

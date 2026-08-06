@@ -21,6 +21,7 @@ import type { StepViewModel } from './simulationViewModel'
 import {
   type ControlMode,
   type ProjectSnapshot,
+  type ProjectionTask,
   useSimulationSession,
 } from './useSimulationSession'
 import { useSimulationStream } from './useSimulationStream'
@@ -31,6 +32,64 @@ import {
 } from './viewUrl'
 
 const CONTROL_MODES: ControlMode[] = ['step', 'scene', 'chapter', 'autonomous']
+
+function ProjectionTasks({
+  tasks,
+  pending,
+  onRetry,
+}: {
+  tasks: ProjectionTask[]
+  pending: boolean
+  onRetry: (taskId: string) => void
+}) {
+  const { t } = useTranslation('evolution')
+  if (tasks.length === 0) return null
+
+  return (
+    <section aria-label={t('projections.title')} className="border">
+      <header className="flex items-center justify-between border-b px-3 py-2">
+        <h2 className="text-sm font-medium">{t('projections.title')}</h2>
+        <span className="text-xs text-muted-foreground">{tasks.length}</span>
+      </header>
+      <ul className="divide-y">
+        {tasks.map((task) => {
+          const label = t(`projections.kind.${task.kind}`)
+          const failed = task.status === 'failed'
+          return (
+            <li className="flex items-center gap-3 px-3 py-2 text-sm" key={task.task_id}>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="font-medium">{label}</span>
+                  <span className={failed ? 'text-destructive' : 'text-muted-foreground'}>
+                    {t(`projections.status.${task.status}`)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">S{task.step}</span>
+                </div>
+                {task.error_text && (
+                  <p className="mt-1 break-words text-xs text-destructive" role="alert">
+                    {task.error_text}
+                  </p>
+                )}
+              </div>
+              {failed && (
+                <Button
+                  aria-label={t('projections.retryTask', { kind: label })}
+                  disabled={pending}
+                  onClick={() => onRetry(task.task_id)}
+                  size="icon"
+                  title={t('projections.retryTask', { kind: label })}
+                  variant="outline"
+                >
+                  <RotateCcw size={14} />
+                </Button>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
 
 function SessionSetup({
   project,
@@ -322,28 +381,11 @@ export function EvolutionView() {
               {simulation.session.restoration_notice_text}
             </p>
           )}
-          {simulation.session.maintenance_status === 'failed' && (
-            <div className="flex flex-wrap items-center justify-between gap-3 border border-destructive p-3 text-sm">
-              <p className="min-w-0 text-destructive">
-                {simulation.session.maintenance_error_text || t('maintenance.failed')}
-              </p>
-              <Button
-                disabled={simulation.isPending('maintenance')}
-                onClick={() => void simulation.retryMaintenance()}
-                variant="outline"
-              >
-                <RotateCcw size={14} /> {t('maintenance.retry')}
-              </Button>
-            </div>
-          )}
-          {simulation.session.maintenance_status === 'degraded' && (
-            <p
-              className="border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800"
-              role="status"
-            >
-              {simulation.session.maintenance_error_text || t('maintenance.degraded')}
-            </p>
-          )}
+          <ProjectionTasks
+            onRetry={(taskId) => void simulation.retryProjection(taskId)}
+            pending={simulation.isPending('projection')}
+            tasks={simulation.projections}
+          />
           <div>
             <SimulationHeader session={simulation.session} />
             <SimulationControls

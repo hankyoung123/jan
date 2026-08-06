@@ -33,10 +33,19 @@
     "pause": "Pausing after the current step…",
     "terminate": "Safely terminating after the current step…"
   },
-  "maintenance": {
-    "failed": "Wiki maintenance failed and the simulation is paused.",
-    "degraded": "Wiki maintenance could not parse the model response. Simulation may continue, but manuscript generation is paused until the Wiki is rebuilt.",
-    "retry": "Retry Wiki maintenance"
+  "projections": {
+    "title": "Output projections",
+    "kind": {
+      "wiki": "Wiki",
+      "manuscript": "Manuscript"
+    },
+    "status": {
+      "pending": "Queued",
+      "running": "Updating",
+      "succeeded": "Current",
+      "failed": "Failed"
+    },
+    "retryTask": "Retry {{kind}} projection"
   },
   "controls": {
     "step": "Single step",

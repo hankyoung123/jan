@@ -35,14 +35,20 @@ class ConcordiaStoryActor:
         *,
         role: EntityRole,
         memory: ConcordiaMemoryBank,
+        display_name: str | None = None,
     ) -> None:
         self._entity = entity
         self._role = role
         self._memory = memory
+        self._display_name = display_name or entity.name
 
     @property
     def name(self) -> str:
         return cast(str, self._entity.name)
+
+    @property
+    def display_name(self) -> str:
+        return self._display_name
 
     @property
     def role(self) -> EntityRole:
@@ -134,7 +140,11 @@ class ConcordiaGameMasterActor(ConcordiaStoryActor):
             ActionSpec(
                 spec_id=f"observation:{session_id}:{step}:{actor.name}",
                 output_type=ActionOutputType.MAKE_OBSERVATION,
-                call_to_action=f"What does {actor.name} observe now?",
+                call_to_action=(
+                    f"What is the current situation faced by {actor.display_name}? "
+                    "What do they now observe? Only include information of which "
+                    "they are aware."
+                ),
                 content_locale=content_locale,
                 tag="observation",
             )
@@ -157,21 +167,26 @@ class ConcordiaGameMasterActor(ConcordiaStoryActor):
         session_id: str,
         step: int,
     ) -> str:
-        actor_ids = tuple(actor.name for actor in actors)
+        actors_by_display_name = {
+            actor.display_name.strip().casefold(): actor for actor in actors
+        }
+        if len(actors_by_display_name) != len(actors):
+            raise ValueError("active actor display names must be unique")
+        actor_names = tuple(actor.display_name for actor in actors)
         selected = self.act(
             ActionSpec(
                 spec_id=f"next-actor:{session_id}:{step}",
                 output_type=ActionOutputType.NEXT_ACTING,
                 call_to_action="Who is next to act?",
-                options=actor_ids,
-                option_ids=actor_ids,
+                options=actor_names,
                 content_locale="en-US",
                 tag="next_acting",
             )
         )
-        if selected not in actor_ids:
-            raise ValueError(f"Game Master selected unknown actor {selected!r}")
-        return selected
+        actor = actors_by_display_name.get(selected.strip().casefold())
+        if actor is None:
+            raise ValueError(f"Game Master selected unknown actor name {selected!r}")
+        return actor.name
 
     def create_action_spec(
         self,
@@ -186,7 +201,7 @@ class ConcordiaGameMasterActor(ConcordiaStoryActor):
                 spec_id=f"next-action-spec:{session_id}:{step}",
                 output_type=ActionOutputType.NEXT_ACTION_SPEC,
                 call_to_action=(
-                    f"In what action spec format should {actor.name} respond?"
+                    f"In what action spec format should {actor.display_name} respond?"
                 ),
                 content_locale=content_locale,
                 tag="next_action_spec",
@@ -283,6 +298,7 @@ class ConcordiaActorFactory:
             entity,
             role=EntityRole.CHARACTER,
             memory=memory,
+            display_name=actor_params.get("display_name"),
         )
 
     def build_game_master(
@@ -306,6 +322,9 @@ class ConcordiaActorFactory:
             entity = StoryGameMasterPrefab(
                 params=dict(gm_params),
                 entities=raw_actors,
+                player_display_names={
+                    actor.name: actor.display_name for actor in actors
+                },
                 recipe=recipe,
             ).build(
                 self._model_for(recipe),
@@ -321,6 +340,7 @@ class ConcordiaActorFactory:
             entity,
             role=EntityRole.GAME_MASTER,
             memory=shared_memory,
+            display_name=name,
         )
 
 

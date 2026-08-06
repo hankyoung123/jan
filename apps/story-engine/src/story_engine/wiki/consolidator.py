@@ -19,7 +19,7 @@ from story_engine.models.gateway import ModelGateway
 
 MAX_CONSOLIDATION_ATTEMPTS = 2
 WIKI_PROTOCOL = (
-    "Immutable protocol: return WikiUpdateProposal only. Use only supplied page_id "
+    "Immutable protocol: return WikiUpdateProposal only. Use only supplied page_ref "
     "and numeric source_refs. Do not invent pages or sources and do not treat "
     "Director Instructions as facts."
 )
@@ -44,7 +44,7 @@ class WikiConsolidator(Protocol):
     ) -> tuple[WikiPatch, ...]: ...
 
 
-def _page_ids(pages: tuple[WikiPage, ...]) -> dict[str, WikiPage]:
+def _page_refs(pages: tuple[WikiPage, ...]) -> dict[str, WikiPage]:
     result: dict[str, WikiPage] = {}
     for page in sorted(pages, key=lambda item: item.path):
         stem = re.sub(r"[^a-z0-9_]+", "_", page.path.rsplit("/", 1)[-1][:-3].lower())
@@ -76,7 +76,7 @@ class GatewayWikiConsolidator:
         content_locale: str,
     ) -> tuple[WikiPatch, ...]:
         scope = "World Wiki" if subject_id is None else f"Character Wiki: {subject_id}"
-        pages_by_id = _page_ids(pages)
+        pages_by_ref = _page_refs(pages)
         sources_by_ref = dict(enumerate(sources))
         last_error: Exception | None = None
         message_id = f"call:{uuid.uuid4().hex}"
@@ -86,7 +86,7 @@ class GatewayWikiConsolidator:
             if attempt and last_error is not None:
                 corrective_hint = (
                     "Your previous proposal was rejected. Correct this exact error: "
-                    f"{last_error}. Allowed page_ids: {sorted(pages_by_id)}. "
+                    f"{last_error}. Allowed page_refs: {sorted(pages_by_ref)}. "
                     f"Allowed source_refs: {sorted(sources_by_ref)}."
                 )
             try:
@@ -105,7 +105,7 @@ class GatewayWikiConsolidator:
                                 role="user",
                                 content=self._prompt(
                                     scope=scope,
-                                    pages_by_id=pages_by_id,
+                                    pages_by_ref=pages_by_ref,
                                     sources_by_ref=sources_by_ref,
                                     content_locale=content_locale,
                                     corrective_hint=corrective_hint,
@@ -116,6 +116,7 @@ class GatewayWikiConsolidator:
                             WikiUpdateProposal.model_json_schema(),
                             ensure_ascii=False,
                         ),
+                        structured_output_retry="caller",
                         max_output_tokens=profile.max_output_tokens,
                         output_token_limit=(
                             "provider"
@@ -141,7 +142,7 @@ class GatewayWikiConsolidator:
                 return self._compile(
                     proposal,
                     step=step,
-                    pages_by_id=pages_by_id,
+                    pages_by_ref=pages_by_ref,
                     sources_by_ref=sources_by_ref,
                 )
             except (StructuredOutputError, ValidationError, WikiProtocolError) as error:
@@ -158,17 +159,17 @@ class GatewayWikiConsolidator:
         proposal: WikiUpdateProposal,
         *,
         step: int,
-        pages_by_id: dict[str, WikiPage],
+        pages_by_ref: dict[str, WikiPage],
         sources_by_ref: dict[int, WikiSource],
     ) -> tuple[WikiPatch, ...]:
         patches: list[WikiPatch] = []
         seen_pages: set[str] = set()
         for update in proposal.updates:
-            page = pages_by_id.get(update.page_id)
+            page = pages_by_ref.get(update.page_ref)
             if page is None:
                 raise WikiProtocolError(
-                    f"unknown page_id {update.page_id!r}; "
-                    f"allowed: {sorted(pages_by_id)}"
+                    f"unknown page_ref {update.page_ref!r}; "
+                    f"allowed: {sorted(pages_by_ref)}"
                 )
             unknown_refs = set(update.source_refs) - set(sources_by_ref)
             if unknown_refs:
@@ -176,11 +177,11 @@ class GatewayWikiConsolidator:
                     f"unknown source_refs {sorted(unknown_refs)}; "
                     f"allowed: {sorted(sources_by_ref)}"
                 )
-            if update.page_id in seen_pages:
+            if update.page_ref in seen_pages:
                 raise WikiProtocolError(
-                    f"duplicate update for page_id {update.page_id!r}"
+                    f"duplicate update for page_ref {update.page_ref!r}"
                 )
-            seen_pages.add(update.page_id)
+            seen_pages.add(update.page_ref)
             patches.append(
                 WikiPatch(
                     path=page.path,
@@ -190,7 +191,7 @@ class GatewayWikiConsolidator:
                         sources_by_ref[item].source_id for item in update.source_refs
                     ),
                     visibility=page.visibility,
-                    proposal_page_id=update.page_id,
+                    proposal_page_ref=update.page_ref,
                     proposal_source_refs=update.source_refs,
                 )
             )
@@ -200,22 +201,22 @@ class GatewayWikiConsolidator:
     def _prompt(
         *,
         scope: str,
-        pages_by_id: dict[str, WikiPage],
+        pages_by_ref: dict[str, WikiPage],
         sources_by_ref: dict[int, WikiSource],
         content_locale: str,
         corrective_hint: str | None,
     ) -> str:
         prompt = (
             "Consolidate durable knowledge without inventing facts. For each changed "
-            "page, return its page_id, concise Markdown content to append, and one or "
+            "page, return its page_ref, concise Markdown content to append, and one or "
             "more numeric source_refs. Omit unchanged pages. The store generates "
             "paths, "
             "operations, visibility, revisions, hashes, and real source IDs. "
             f"Respond in {content_locale}. Scope: {scope}. Editable pages: "
             + json.dumps(
                 [
-                    {"page_id": page_id, "content": page.content}
-                    for page_id, page in pages_by_id.items()
+                    {"page_ref": page_ref, "content": page.content}
+                    for page_ref, page in pages_by_ref.items()
                 ],
                 ensure_ascii=False,
             )

@@ -370,7 +370,7 @@ def test_patch_log_keeps_proposal_refs_and_resolved_source_ids(tmp_path: Path) -
                 source_ids=("event:session:1:1",),
                 expected_revision=page.revision,
                 expected_content_hash=page.content_hash,
-                proposal_page_id="state",
+                proposal_page_ref="state",
                 proposal_source_refs=(0,),
             ),
         ),
@@ -379,6 +379,6 @@ def test_patch_log_keeps_proposal_refs_and_resolved_source_ids(tmp_path: Path) -
     )
 
     log = (root / "wiki/branches/main/log.md").read_text(encoding="utf-8")
-    assert "page_id=state" in log
+    assert "page_ref=state" in log
     assert "source_refs=0" in log
     assert "sources=event:session:1:1" in log

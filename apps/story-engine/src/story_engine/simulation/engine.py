@@ -4,9 +4,7 @@ from collections.abc import Callable
 from threading import Event, RLock
 
 from story_engine.concordia_runtime.resolver import SimulationCancelledError
-from story_engine.domain.projection import SimulationBoundary
 from story_engine.domain.simulation import (
-    MaintenanceStatus,
     PendingControl,
     StepResult,
     TurnSessionRequest,
@@ -195,58 +193,6 @@ class StoryTurnEngine:
             )
             return session.snapshot()
 
-    def begin_maintenance(
-        self,
-        session_id: str,
-        *,
-        step: int,
-        boundary: SimulationBoundary,
-    ) -> TurnSessionSnapshot:
-        session = self._get(session_id)
-        with session.lock:
-            session.maintenance_status = MaintenanceStatus.PENDING
-            session.maintenance_error_text = None
-            session.maintenance_step = step
-            session.maintenance_boundary = boundary
-            session.touch()
-            return session.snapshot()
-
-    def fail_maintenance(
-        self,
-        session_id: str,
-        *,
-        error_text: str,
-    ) -> TurnSessionSnapshot:
-        session = self._get(session_id)
-        with session.lock:
-            session.status = TurnSessionStatus.PAUSED
-            session.pending_control = PendingControl.NONE
-            session.maintenance_status = MaintenanceStatus.FAILED
-            session.maintenance_error_text = error_text
-            session.touch()
-            return session.snapshot()
-
-    def complete_maintenance(self, session_id: str) -> TurnSessionSnapshot:
-        session = self._get(session_id)
-        with session.lock:
-            session.maintenance_status = MaintenanceStatus.SUCCEEDED
-            session.maintenance_error_text = None
-            session.touch()
-            return session.snapshot()
-
-    def degrade_maintenance(
-        self,
-        session_id: str,
-        *,
-        error_text: str,
-    ) -> TurnSessionSnapshot:
-        session = self._get(session_id)
-        with session.lock:
-            session.maintenance_status = MaintenanceStatus.DEGRADED
-            session.maintenance_error_text = error_text
-            session.touch()
-            return session.snapshot()
-
     def switch_locale(
         self,
         session_id: str,
@@ -284,10 +230,6 @@ class StoryTurnEngine:
     @classmethod
     def _ensure_can_advance(cls, session: SimulationSession) -> None:
         cls._ensure_active(session)
-        if session.maintenance_status == MaintenanceStatus.FAILED:
-            raise InvalidSessionTransitionError(
-                "Wiki maintenance failed; retry maintenance before continuing"
-            )
 
     @staticmethod
     def _ensure_user_override(session: SimulationSession) -> None:
@@ -359,86 +301,61 @@ class StoryTurnEngine:
             session.touch()
             return result.model_copy(update={"status": session.status})
 
-    def step(self, session_id: str, *, cancellation: Event) -> StepResult:
-        session = self._get(session_id)
-        with session.lock:
-            self._ensure_can_advance(session)
-            session.status = TurnSessionStatus.RUNNING
-            session.pending_control = PendingControl.NONE
-            session.touch()
-        result = self._execute_one(session, cancellation=cancellation)
-        with session.lock:
-            if session.status == TurnSessionStatus.RUNNING:
-                session.status = TurnSessionStatus.PAUSED
-                session.touch()
-                result = result.model_copy(update={"status": session.status})
-        return result
-
-    def run(
-        self,
-        session_id: str,
-        *,
-        cancellation: Event,
-        on_step: Callable[[StepResult], None] | None = None,
-    ) -> TurnSessionSnapshot:
+    def advance_one_step(self, session_id: str, *, cancellation: Event) -> StepResult:
         session = self._get(session_id)
         with session.lock:
             self._ensure_can_advance(session)
             if session.status != TurnSessionStatus.RUNNING:
                 session.status = TurnSessionStatus.RUNNING
                 session.pending_control = PendingControl.NONE
+            if session.continuous_started_at is None:
+                session.continuous_started_at = time.monotonic()
             session.touch()
-            started = time.monotonic()
-        while True:
-            result = self._execute_one(session, cancellation=cancellation)
-            with session.lock:
-                requested_control = session.pending_control
-                should_pause = (
-                    requested_control == PendingControl.PAUSE
-                    or pauses_after_boundary(
-                        session.request.control,
-                        result.boundary,
-                    )
-                )
-                limit_reason = hard_limit_reason(
+        result = self._execute_one(session, cancellation=cancellation)
+        with session.lock:
+            requested_control = session.pending_control
+            should_pause = (
+                requested_control == PendingControl.PAUSE
+                or pauses_after_boundary(
                     session.request.control,
-                    completed_steps=session.current_step,
-                    completed_scenes=session.completed_scenes,
-                    elapsed_seconds=time.monotonic() - started,
+                    result.boundary,
                 )
-                if limit_reason and session.status == TurnSessionStatus.RUNNING:
-                    session.status = TurnSessionStatus.TERMINATED
-                    session.termination_reason_text = limit_reason
-                if (
-                    requested_control == PendingControl.TERMINATE
-                    and session.status == TurnSessionStatus.RUNNING
-                ):
-                    session.status = TurnSessionStatus.TERMINATED
-                    self._executions.release(
-                        session.request.project_id,
-                        session.request.branch_id,
-                        session.session_id,
-                    )
-                elif should_pause and session.status == TurnSessionStatus.RUNNING:
-                    session.status = TurnSessionStatus.PAUSED
-                if session.status != TurnSessionStatus.RUNNING:
-                    session.pending_control = PendingControl.NONE
-                if session.status == TurnSessionStatus.TERMINATED:
-                    self._executions.release(
-                        session.request.project_id,
-                        session.request.branch_id,
-                        session.session_id,
-                    )
-                session.touch()
-                result_for_sink = result.model_copy(update={"status": session.status})
-            if on_step is not None:
-                on_step(result_for_sink)
-            with session.lock:
-                if session.status != TurnSessionStatus.RUNNING:
-                    session.touch()
-                    return session.snapshot()
+            )
+            started = session.continuous_started_at or time.monotonic()
+            limit_reason = hard_limit_reason(
+                session.request.control,
+                completed_steps=session.current_step,
+                completed_scenes=session.completed_scenes,
+                elapsed_seconds=time.monotonic() - started,
+            )
+            if limit_reason and session.status == TurnSessionStatus.RUNNING:
+                session.status = TurnSessionStatus.TERMINATED
+                session.termination_reason_text = limit_reason
+            if (
+                requested_control == PendingControl.TERMINATE
+                and session.status == TurnSessionStatus.RUNNING
+            ):
+                session.status = TurnSessionStatus.TERMINATED
+                self._executions.release(
+                    session.request.project_id,
+                    session.request.branch_id,
+                    session.session_id,
+                )
+            elif should_pause and session.status == TurnSessionStatus.RUNNING:
+                session.status = TurnSessionStatus.PAUSED
+            if session.status != TurnSessionStatus.RUNNING:
+                session.pending_control = PendingControl.NONE
+                session.continuous_started_at = None
+            if session.status == TurnSessionStatus.TERMINATED:
+                self._executions.release(
+                    session.request.project_id,
+                    session.request.branch_id,
+                    session.session_id,
+                )
+            session.touch()
+            return result.model_copy(update={"status": session.status})
 
-    def prepare_run(
+    def begin_continuous(
         self,
         session_id: str,
         *,
@@ -453,6 +370,7 @@ class StoryTurnEngine:
                 raise InvalidSessionTransitionError("session is already running")
             session.status = TurnSessionStatus.RUNNING
             session.pending_control = PendingControl.NONE
+            session.continuous_started_at = time.monotonic()
             session.touch()
             return session.snapshot()
 
@@ -466,19 +384,6 @@ class StoryTurnEngine:
                 session.status = TurnSessionStatus.PAUSED
             session.touch()
             return session.snapshot()
-
-    def resume(
-        self,
-        session_id: str,
-        *,
-        cancellation: Event,
-        on_step: Callable[[StepResult], None] | None = None,
-    ) -> TurnSessionSnapshot:
-        session = self._get(session_id)
-        with session.lock:
-            if session.status != TurnSessionStatus.PAUSED:
-                raise InvalidSessionTransitionError("only a paused session can resume")
-        return self.run(session_id, cancellation=cancellation, on_step=on_step)
 
     def terminate(
         self,
@@ -576,10 +481,6 @@ class StoryTurnEngine:
                 checkpoint_id=snapshot.checkpoint_id,
                 termination_reason_text=None,
                 restoration_notice_text=snapshot.restoration_notice_text,
-                maintenance_status=snapshot.maintenance_status,
-                maintenance_error_text=snapshot.maintenance_error_text,
-                maintenance_step=snapshot.maintenance_step,
-                maintenance_boundary=snapshot.maintenance_boundary,
                 started_at=snapshot.started_at,
                 updated_at=snapshot.updated_at,
             )

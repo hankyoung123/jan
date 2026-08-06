@@ -21,6 +21,8 @@ const MAX_LOG_LINES: usize = 200;
 const SIDECAR_LOG_TARGET: &str = "story_engine::sidecar";
 const HEALTH_INTERVAL: Duration = Duration::from_millis(100);
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+const SHUTDOWN_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -103,35 +105,106 @@ impl EngineRuntime {
             .map_err(|_| "Story Engine runtime lock is poisoned".to_owned())
     }
 
-    pub fn stop(&self) -> Result<EngineConnection, String> {
-        let (process, connection) = {
+    pub async fn stop(&self) -> Result<EngineConnection, String> {
+        let (process, shutdown_target, connection) = {
             let mut inner = self
                 .inner
                 .lock()
                 .map_err(|_| "Story Engine runtime lock is poisoned".to_owned())?;
             inner.generation = inner.generation.wrapping_add(1);
             let process = inner.process.take();
+            let shutdown_target = inner
+                .connection
+                .base_url
+                .clone()
+                .zip(inner.connection.session_token.clone());
             inner.log_secrets.clear();
             inner.connection.phase = EnginePhase::Stopped;
             inner.connection.session_token = None;
             inner.connection.last_error = None;
-            (process, inner.connection.clone())
+            (process, shutdown_target, inner.connection.clone())
         };
-        terminate_process(process);
+        if let Some(mut process) = process {
+            let started = Instant::now();
+            match shutdown_target {
+                Some((base_url, token)) => {
+                    if let Err(error) = request_sidecar_shutdown(&base_url, &token).await {
+                        record_current_runtime_log(
+                            self,
+                            &format!("Story Engine graceful shutdown request failed: {error}"),
+                            Level::Warn,
+                        );
+                    }
+                }
+                None => record_current_runtime_log(
+                    self,
+                    "Story Engine has no shutdown endpoint; waiting before forced stop",
+                    Level::Warn,
+                ),
+            }
+            let remaining = SHUTDOWN_TIMEOUT.saturating_sub(started.elapsed());
+            if !wait_for_process_exit(&mut process, remaining).await? {
+                record_current_runtime_log(
+                    self,
+                    "Story Engine graceful shutdown timed out; forcing process exit",
+                    Level::Warn,
+                );
+                force_terminate_process(Some(process));
+            }
+        }
         Ok(connection)
     }
 
     pub async fn shutdown(&self) -> Result<EngineConnection, String> {
-        let connection = self.stop()?;
+        let connection = self.stop().await?;
         self.model_bridge.shutdown().await?;
         Ok(connection)
     }
 }
 
-fn terminate_process(process: Option<Child>) {
+fn force_terminate_process(process: Option<Child>) {
     if let Some(mut process) = process {
         let _ = process.kill();
         let _ = process.wait();
+    }
+}
+
+async fn request_sidecar_shutdown(base_url: &str, token: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(SHUTDOWN_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("failed to create shutdown client: {error}"))?;
+    let response = client
+        .post(format!("{base_url}/internal/shutdown"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|error| format!("request failed: {error}"))?;
+    if response.status() != reqwest::StatusCode::ACCEPTED {
+        return Err(format!(
+            "endpoint returned unexpected status {}",
+            response.status()
+        ));
+    }
+    Ok(())
+}
+
+async fn wait_for_process_exit(process: &mut Child, timeout: Duration) -> Result<bool, String> {
+    let started = Instant::now();
+    loop {
+        if process
+            .try_wait()
+            .map_err(|error| format!("failed to inspect Sidecar process: {error}"))?
+            .is_some()
+        {
+            return Ok(true);
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Ok(false);
+        }
+        tokio::time::sleep(HEALTH_INTERVAL.min(remaining)).await;
     }
 }
 
@@ -309,7 +382,7 @@ fn set_crashed(app: &AppHandle, runtime: &EngineRuntime, generation: u64, messag
         (process, inner.connection.clone())
     };
     record_runtime_log(runtime, generation, &crash_log, Level::Error);
-    terminate_process(process);
+    force_terminate_process(process);
     emit_status(app, &connection);
 }
 
@@ -318,7 +391,7 @@ async fn start(
     runtime: Arc<EngineRuntime>,
     is_restart: bool,
 ) -> Result<EngineConnection, String> {
-    let _ = runtime.stop()?;
+    let _ = runtime.stop().await?;
     let model_bridge = runtime.model_bridge.ensure_started(&app).await?;
     let token = session_token();
     let port_file = app
@@ -336,7 +409,7 @@ async fn start(
     let port = match wait_for_announced_port(&mut process, &port_file, startup_timeout()).await {
         Ok(port) => port,
         Err(error) => {
-            terminate_process(Some(process));
+            force_terminate_process(Some(process));
             let _ = std::fs::remove_file(&port_file);
             return Err(error);
         }
@@ -577,6 +650,8 @@ pub fn start_managed_sidecar(app: AppHandle, runtime: Arc<EngineRuntime>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use std::net::TcpListener;
     use std::sync::Once;
 
     struct CapturingLogger;
@@ -741,6 +816,64 @@ mod tests {
             startup_timeout_from(Some(OsString::from("invalid"))),
             Duration::from_secs(60)
         );
+    }
+
+    #[tokio::test]
+    async fn graceful_shutdown_request_uses_the_internal_authenticated_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("shutdown listener");
+        let address = listener.local_addr().expect("shutdown address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("shutdown request");
+            let mut buffer = [0_u8; 2048];
+            let size = stream.read(&mut buffer).expect("read shutdown request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write shutdown response");
+            String::from_utf8_lossy(&buffer[..size]).into_owned()
+        });
+
+        request_sidecar_shutdown(&format!("http://{address}"), "private-session-token")
+            .await
+            .expect("shutdown accepted");
+        let request = server.join().expect("shutdown server").to_ascii_lowercase();
+
+        assert!(request.starts_with("post /internal/shutdown http/1.1\r\n"));
+        assert!(request.contains("authorization: bearer private-session-token\r\n"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn live_process_is_left_running_until_the_grace_period_expires() {
+        let mut process = Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .expect("sleep process");
+        let timeout = Duration::from_millis(50);
+        let started = Instant::now();
+
+        let exited = wait_for_process_exit(&mut process, timeout)
+            .await
+            .expect("inspect process");
+
+        assert!(!exited);
+        assert!(started.elapsed() >= timeout);
+        assert!(process.try_wait().expect("inspect live process").is_none());
+        force_terminate_process(Some(process));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn graceful_process_exit_is_observed_without_forcing_it() {
+        let mut process = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("short-lived process");
+
+        assert!(wait_for_process_exit(&mut process, Duration::from_secs(1))
+            .await
+            .expect("inspect process"));
     }
 
     #[test]

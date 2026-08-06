@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Self
 
@@ -50,10 +50,48 @@ class SimulationBoundary(StrEnum):
     CHAPTER = "chapter"
 
 
+class ProjectionKind(StrEnum):
+    WIKI = "wiki"
+    MANUSCRIPT = "manuscript"
+
+
+class ProjectionTaskStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class ProjectionTask(RuntimeModel):
+    """A rebuildable view update derived from one committed simulation boundary."""
+
+    task_id: Identifier
+    project_id: Identifier
+    session_id: Identifier
+    branch_id: Identifier
+    checkpoint_id: Identifier
+    step: int = Field(ge=0)
+    boundary: SimulationBoundary
+    kind: ProjectionKind
+    status: ProjectionTaskStatus = ProjectionTaskStatus.PENDING
+    attempt_count: int = Field(default=0, ge=0)
+    error_text: str | None = Field(default=None, max_length=16_384)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def timestamps_are_valid(self) -> "ProjectionTask":
+        if self.updated_at < self.created_at:
+            raise ValueError("projection task update precedes creation")
+        if self.completed_at is not None and self.completed_at < self.created_at:
+            raise ValueError("projection task completion precedes creation")
+        return self
+
+
 class EntityChange(RuntimeModel):
     """One ordinary NPC introduced by the Game Master resolution envelope."""
 
-    entity_id: Identifier
     display_name: str | None = Field(default=None, max_length=256)
     identity: str | None = Field(default=None, max_length=16_384)
     core_desire: str | None = Field(default=None, max_length=16_384)
@@ -69,13 +107,18 @@ class EntityChange(RuntimeModel):
 
 
 class ResolutionEnvelope(RuntimeModel):
-    """Structured Game Master resolution for one putative action."""
+    """Semantic Game Master resolution for one putative action.
+
+    Character identifiers are deliberately absent: the resolver maps the names
+    in this model output onto its local character registry before persisting an
+    event.
+    """
 
     event_text: str = Field(min_length=1, max_length=65_536)
     boundary: SimulationBoundary
     visibility: EventVisibility
-    observer_ids: tuple[Identifier, ...] = ()
-    participant_ids: tuple[Identifier, ...] = ()
+    observer_names: tuple[str, ...] = Field(default=(), max_length=64)
+    participant_names: tuple[str, ...] = Field(default=(), max_length=64)
     entity_changes: tuple[EntityChange, ...] = ()
 
 

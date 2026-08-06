@@ -618,23 +618,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/simulations/{session_id}/maintenance/retry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Retry Simulation Maintenance */
-        post: operations["retry_simulation_maintenance_projects__project_id__simulations__session_id__maintenance_retry_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/projects/{project_id}/simulations/{session_id}/pause": {
         parameters: {
             query?: never;
@@ -646,6 +629,57 @@ export interface paths {
         put?: never;
         /** Pause Simulation */
         post: operations["pause_simulation_projects__project_id__simulations__session_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/projections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Projection Tasks */
+        get: operations["list_projection_tasks_projects__project_id__simulations__session_id__projections_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/projections/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rebuild Projection Tasks */
+        post: operations["rebuild_projection_tasks_projects__project_id__simulations__session_id__projections_rebuild_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulations/{session_id}/projections/{task_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Projection Task */
+        post: operations["retry_projection_task_projects__project_id__simulations__session_id__projections__task_id__retry_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1105,7 +1139,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "engine.status" | "workspace.changed" | "simulation.started" | "simulation.step.started" | "simulation.stage.started" | "simulation.stage.completed" | "simulation.stage.failed" | "simulation.step.completed" | "simulation.pause.requested" | "simulation.termination.requested" | "simulation.paused" | "simulation.maintenance.degraded" | "simulation.checkpointed" | "simulation.terminated" | "simulation.failed" | "model.message.started" | "model.message.delta" | "model.message.completed" | "model.message.failed" | "stream.resync_required";
+            type: "engine.status" | "workspace.changed" | "simulation.started" | "simulation.step.started" | "simulation.stage.started" | "simulation.stage.completed" | "simulation.stage.failed" | "simulation.step.completed" | "simulation.pause.requested" | "simulation.termination.requested" | "simulation.paused" | "simulation.checkpointed" | "simulation.terminated" | "simulation.failed" | "model.message.started" | "model.message.delta" | "model.message.completed" | "model.message.failed" | "stream.resync_required";
         };
         /**
          * EventVisibility
@@ -1188,11 +1222,6 @@ export interface components {
             visibility: "public" | "private" | "secret";
         };
         JsonValue: unknown;
-        /**
-         * MaintenanceStatus
-         * @enum {string}
-         */
-        MaintenanceStatus: "not_required" | "pending" | "succeeded" | "degraded" | "failed";
         /** ManuscriptExport */
         ManuscriptExport: {
             /** Branch Id */
@@ -1378,6 +1407,12 @@ export interface components {
             /** Reasoning Effort */
             reasoning_effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
             /**
+             * Structured Output Retry
+             * @default gateway
+             * @enum {string}
+             */
+            structured_output_retry: "gateway" | "caller";
+            /**
              * Task Type
              * @enum {string}
              */
@@ -1515,7 +1550,65 @@ export interface components {
             project: components["schemas"]["ProjectDocument"];
             world: components["schemas"]["WorldState"];
         };
-        /** PromotionDecision */
+        /**
+         * ProjectionKind
+         * @enum {string}
+         */
+        ProjectionKind: "wiki" | "manuscript";
+        /** ProjectionRebuildRequest */
+        ProjectionRebuildRequest: {
+            kind?: components["schemas"]["ProjectionKind"] | null;
+        };
+        /**
+         * ProjectionTask
+         * @description A rebuildable view update derived from one committed simulation boundary.
+         */
+        ProjectionTask: {
+            /**
+             * Attempt Count
+             * @default 0
+             */
+            attempt_count: number;
+            boundary: components["schemas"]["SimulationBoundary"];
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Completed At */
+            completed_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /** Error Text */
+            error_text?: string | null;
+            kind: components["schemas"]["ProjectionKind"];
+            /** Project Id */
+            project_id: string;
+            /** Session Id */
+            session_id: string;
+            /** @default pending */
+            status: components["schemas"]["ProjectionTaskStatus"];
+            /** Step */
+            step: number;
+            /** Task Id */
+            task_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
+        /**
+         * ProjectionTaskStatus
+         * @enum {string}
+         */
+        ProjectionTaskStatus: "pending" | "running" | "succeeded" | "failed";
+        /**
+         * PromotionDecision
+         * @description Durable promotion result after local candidate binding.
+         */
         PromotionDecision: {
             /** Character Id */
             character_id: string;
@@ -1806,14 +1899,6 @@ export interface components {
             current_step: number;
             /** Head Checkpoint Id */
             head_checkpoint_id: string | null;
-            /** @default none */
-            maintenance_boundary: components["schemas"]["SimulationBoundary"];
-            /** Maintenance Error Text */
-            maintenance_error_text?: string | null;
-            /** @default not_required */
-            maintenance_status: components["schemas"]["MaintenanceStatus"];
-            /** Maintenance Step */
-            maintenance_step?: number | null;
             /** Project Id */
             project_id: string;
             /** Restoration Notice Text */
@@ -1833,6 +1918,13 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** SimulationAdvanceRequest */
+        SimulationAdvanceRequest: {
+            /** Command Id */
+            command_id: string;
+            /** Expected State Hash */
+            expected_state_hash: string;
         };
         /**
          * SimulationBoundary
@@ -2391,14 +2483,6 @@ export interface components {
                     [key: string]: components["schemas"]["JsonValue"];
                 };
             };
-            /** @default none */
-            maintenance_boundary: components["schemas"]["SimulationBoundary"];
-            /** Maintenance Error Text */
-            maintenance_error_text?: string | null;
-            /** @default not_required */
-            maintenance_status: components["schemas"]["MaintenanceStatus"];
-            /** Maintenance Step */
-            maintenance_step?: number | null;
             /** Memory Snapshots */
             memory_snapshots: {
                 [key: string]: components["schemas"]["MemorySnapshot"];
@@ -4058,38 +4142,6 @@ export interface operations {
             };
         };
     };
-    retry_simulation_maintenance_projects__project_id__simulations__session_id__maintenance_retry_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TurnSessionSnapshot"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     pause_simulation_projects__project_id__simulations__session_id__pause_post: {
         parameters: {
             query?: never;
@@ -4122,7 +4174,7 @@ export interface operations {
             };
         };
     };
-    resume_simulation_projects__project_id__simulations__session_id__resume_post: {
+    list_projection_tasks_projects__project_id__simulations__session_id__projections_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -4133,6 +4185,111 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectionTask"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rebuild_projection_tasks_projects__project_id__simulations__session_id__projections_rebuild_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectionRebuildRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectionTask"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_projection_task_projects__project_id__simulations__session_id__projections__task_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectionTask"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_simulation_projects__project_id__simulations__session_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulationAdvanceRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {
@@ -4164,7 +4321,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulationAdvanceRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {
@@ -4196,7 +4357,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulationAdvanceRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

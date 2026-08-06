@@ -124,6 +124,7 @@ class ModelRequest(DomainModel):
     task_type: ModelTask
     messages: tuple[Message, ...] = Field(min_length=1, max_length=128)
     output_schema: str | None = Field(default=None, max_length=131_072)
+    structured_output_retry: Literal["gateway", "caller"] = "gateway"
     max_output_tokens: int | None = Field(
         default=None,
         ge=1,

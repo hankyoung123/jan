@@ -9,8 +9,8 @@ from story_engine.domain.projection import EventVisibility, ResolvedEvent
 
 
 class RosterModel:
-    def __init__(self, actor_ids: list[str]) -> None:
-        self.actor_ids = actor_ids
+    def __init__(self, actor_names: list[str]) -> None:
+        self.actor_names = actor_names
         self.calls: list[tuple[str, Mapping[str, Any]]] = []
 
     def sample_json(
@@ -22,18 +22,20 @@ class RosterModel:
     ) -> Mapping[str, Any]:
         assert temperature == 0.1
         self.calls.append((prompt, schema))
-        return {"actor_ids": self.actor_ids}
+        return {"actor_names": self.actor_names}
 
 
-def _candidates(count: int = 6) -> dict[str, str]:
+def _candidates(count: int = 6) -> dict[str, tuple[str, str]]:
     return {
-        f"agent-{index}": f"Active Agent {index}"
+        f"agent-{index}": (f"Active Agent {index}", f"Goal {index}")
         for index in range(count)
     }
 
 
 def test_opening_scene_roster_schema_caps_selection_at_four() -> None:
-    model = RosterModel(["agent-0", "agent-1", "agent-2", "agent-3"])
+    model = RosterModel(
+        ["Active Agent 0", "Active Agent 1", "Active Agent 2", "Active Agent 3"]
+    )
     planner = ConcordiaRosterPlanner(
         model=model,
         premise_text="The harbor loses power.",
@@ -42,14 +44,14 @@ def test_opening_scene_roster_schema_caps_selection_at_four() -> None:
 
     selected = planner.select_initial(_candidates())
 
-    actor_ids_schema = model.calls[0][1]["properties"]["actor_ids"]
-    assert actor_ids_schema["maxItems"] == 4
-    assert len(actor_ids_schema["items"]["enum"]) == 6
+    actor_names_schema = model.calls[0][1]["properties"]["actor_names"]
+    assert actor_names_schema["maxItems"] == 4
+    assert len(actor_names_schema["items"]["enum"]) == 6
     assert selected == ("agent-0", "agent-1", "agent-2", "agent-3")
 
 
 def test_next_scene_can_select_a_newly_promoted_agent() -> None:
-    model = RosterModel(["agent-0", "promoted-agent"])
+    model = RosterModel(["Investigator", "Independent witness"])
     planner = ConcordiaRosterPlanner(
         model=model,
         premise_text="The harbor loses power.",
@@ -67,18 +69,22 @@ def test_next_scene_can_select_a_newly_promoted_agent() -> None:
     )
 
     selected = planner.select_next(
-        {"agent-0": "Investigator", "promoted-agent": "Independent witness"},
+        {
+            "agent-0": ("Investigator", "Find the saboteur"),
+            "promoted-agent": ("Independent witness", "Pursue the saboteur"),
+        },
         current_roster=("agent-0",),
         scene_events=(event,),
     )
 
     assert selected == ("agent-0", "promoted-agent")
     assert "Select the roster for the next scene" in model.calls[0][0]
-    assert "promoted-agent" in model.calls[0][0]
+    assert "Independent witness" in model.calls[0][0]
+    assert "promoted-agent" not in model.calls[0][0]
 
 
 def test_roster_rejects_more_than_four_agents_even_if_model_breaks_schema() -> None:
-    model = RosterModel([f"agent-{index}" for index in range(5)])
+    model = RosterModel([f"Active Agent {index}" for index in range(5)])
     planner = ConcordiaRosterPlanner(
         model=model,
         premise_text="The harbor loses power.",

@@ -14,6 +14,8 @@ def test_openapi_contains_core_paths_and_bearer_security() -> None:
         "/projects/{project_id}/simulations/{session_id}/step",
         "/projects/{project_id}/simulations/{session_id}/run",
         "/projects/{project_id}/simulations/{session_id}/checkpoint",
+        "/projects/{project_id}/simulations/{session_id}/projections",
+        "/projects/{project_id}/simulations/{session_id}/projections/{task_id}/retry",
         "/projects/{project_id}/branches",
         "/projects/{project_id}/branches/{branch_id}/rollback",
         "/projects/{project_id}/branches/{branch_id}/narrative-sources",
@@ -31,6 +33,10 @@ def test_openapi_contains_core_paths_and_bearer_security() -> None:
         "/models/stream",
         "/models/usage",
     } <= set(schema["paths"])
+    assert (
+        "/projects/{project_id}/simulations/{session_id}/maintenance/retry"
+        not in schema["paths"]
+    )
     assert "/models/providers" not in schema["paths"]
     assert "/models/providers/{provider_id}" not in schema["paths"]
     assert not any("/turns" in path for path in schema["paths"])

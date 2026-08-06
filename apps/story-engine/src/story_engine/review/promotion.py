@@ -3,7 +3,7 @@ from typing import Protocol
 
 from story_engine.domain.models import Character
 from story_engine.domain.projection import ResolvedEvent
-from story_engine.domain.simulation import PromotionDecision
+from story_engine.domain.simulation import PromotionDecision, PromotionProposal
 
 
 class PromotionModel(Protocol):
@@ -23,32 +23,50 @@ class AutomaticPromotionReviewer:
     ) -> PromotionDecision:
         if character.type != "npc":
             raise ValueError("only an NPC can receive a promotion review")
-        evidence_ids = {event.event_id for event in events}
-        if not evidence_ids:
+        if not events:
             raise ValueError("promotion review requires confirmed scene evidence")
         context = {
-            "character": character.model_dump(mode="json"),
-            "scene_events": [event.model_dump(mode="json") for event in events],
+            "character": {
+                "display_name": character.display_name or "Unnamed NPC",
+                "identity": character.identity,
+                "core_desire": character.core_desire,
+                "current_goal": character.current_goal,
+                "location": character.location,
+                "emotional_state": character.emotional_state,
+                "resources": character.resources,
+                "relationships": [
+                    relationship.description
+                    for relationship in character.relationships
+                ],
+            },
+            "scene_events": [
+                {
+                    "step": event.step,
+                    "event_text": event.event_text,
+                    "visibility": event.visibility.value,
+                    "importance": event.importance,
+                    "confidence": event.confidence,
+                }
+                for event in events
+            ],
         }
         prompt = (
             "You are the Story Engine Editor evaluating one ordinary NPC at a "
             "completed scene boundary. Promote only when the NPC has demonstrated "
             "an independent, continuing goal and is likely to initiate consequential "
             "future actions. Ordinary participants must remain NPCs. Return exactly "
-            "one PromotionDecision JSON object. character_id must match the supplied "
-            "character. When promote is true, provide a concrete proposed_goal and "
-            "cite one or more supplied event_id values in evidence_event_ids. When "
-            "promote is false, proposed_goal must be null. Context: "
+            "one promotion proposal JSON object with promote, proposed_goal, and "
+            "reason. Do not return character or event IDs; the local runtime binds "
+            "this proposal to the supplied candidate and completed scene. When "
+            "promote is true, provide a concrete proposed_goal. When promote is "
+            "false, proposed_goal must be null. Context: "
             f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}"
         )
-        decision = PromotionDecision.model_validate_json(
+        proposal = PromotionProposal.model_validate_json(
             self.model.sample_text(prompt, temperature=0.1)
         )
-        if decision.character_id != character.id:
-            raise ValueError("promotion decision character does not match candidate")
-        unknown_evidence = set(decision.evidence_event_ids) - evidence_ids
-        if unknown_evidence:
-            raise ValueError(
-                f"promotion decision cites unknown evidence: {sorted(unknown_evidence)}"
-            )
-        return decision
+        return PromotionDecision(
+            character_id=character.id,
+            evidence_event_ids=tuple(event.event_id for event in events),
+            **proposal.model_dump(),
+        )

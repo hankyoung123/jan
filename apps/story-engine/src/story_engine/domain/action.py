@@ -77,7 +77,6 @@ class ActionSpecEnvelope(RuntimeModel):
     call_to_action: str = Field(min_length=1, max_length=32_768)
     output_type: ActionOutputType
     options: tuple[str, ...] = ()
-    option_ids: tuple[str, ...] = ()
     tag: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")
@@ -95,8 +94,6 @@ class ActionSpecEnvelope(RuntimeModel):
                 raise ValueError("ActionSpec options must be unique")
         elif self.options:
             raise ValueError("non-choice ActionSpec cannot contain options")
-        if self.option_ids and len(self.option_ids) != len(self.options):
-            raise ValueError("option_ids must align with options")
         return self
 
 

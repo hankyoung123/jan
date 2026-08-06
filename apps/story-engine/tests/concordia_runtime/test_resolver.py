@@ -119,24 +119,24 @@ def _resolve(
     return result, gm_memory
 
 
-def test_resolution_schema_removes_only_locally_inferable_npc_operation() -> None:
+def test_resolution_schema_keeps_npc_identity_semantic() -> None:
     schema = ResolutionEnvelope.model_json_schema()
     assert set(schema["properties"]) == {
         "event_text",
         "boundary",
         "visibility",
-        "observer_ids",
-        "participant_ids",
+        "observer_names",
+        "participant_names",
         "entity_changes",
     }
     entity = schema["$defs"]["EntityChange"]
     assert set(entity["properties"]) == {
-        "entity_id",
         "display_name",
         "identity",
         "core_desire",
         "location",
     }
+    assert "entity_id" not in entity["properties"]
     assert "operation" not in entity["properties"]
 
 
@@ -206,8 +206,9 @@ def test_invalid_resolution_envelope_fails_without_writing_memory() -> None:
     actor, gm, gm_memory = _runtime(
         resolution_text=(
             '{"event_text":"The lock holds.",'
-            '"entity_changes":[{"entity_id":"npc-1",'
-            '"display_name":"Npc","identity":"x","core_desire":"y",'
+            '"boundary":"none","visibility":"participants",'
+            '"entity_changes":[{"display_name":"Npc",'
+            '"identity":"x","core_desire":"y",'
             '"location":"z",'
             '"unexpected_field":true}]}'
         )
@@ -250,9 +251,9 @@ def test_resolution_envelope_maps_entity_changes_to_effects() -> None:
         resolution_text=(
             '{"event_text":"A new figure enters the archive.",'
             '"boundary":"none","visibility":"public",'
-            '"observer_ids":["actor-a"],"participant_ids":["actor-a","npc-1"],'
-            '"entity_changes":[{"entity_id":"npc-1",'
-            '"display_name":"New Figure","identity":"A quiet archivist.",'
+            '"observer_names":["actor-a"],"participant_names":["actor-a"],'
+            '"entity_changes":[{"display_name":"New Figure",'
+            '"identity":"A quiet archivist.",'
             '"core_desire":"Protect the records.","location":"archive"}]}'
         )
     )
@@ -284,37 +285,34 @@ def test_resolution_envelope_maps_entity_changes_to_effects() -> None:
 
     assert result.events[0].event_text == "A new figure enters the archive."
     assert result.effects[0].operation.value == "create_character"
-    assert result.effects[0].target_id == "npc-1"
+    assert result.effects[0].target_id == "new-figure"
     assert result.effects[0].after is not None
     assert result.effects[0].after["display_name"] == "New Figure"  # type: ignore[index]
 
 
 def test_duplicate_create_npc_with_identical_content_creates_once() -> None:
     entity_change = (
-        '{"entity_id":"npc-1",'
-        '"display_name":"New Figure","identity":"A quiet archivist.",'
+        '{"display_name":"New Figure","identity":"A quiet archivist.",'
         '"core_desire":"Protect the records.","location":"archive"}'
     )
     result, _ = _resolve(
         '{"event_text":"A new figure enters.","boundary":"none",'
-        '"visibility":"participants","participant_ids":["actor-a","npc-1"],'
+        '"visibility":"participants","participant_names":["actor-a"],'
         f'"entity_changes":[{entity_change},{entity_change}]}}'
     )
 
     assert len(result.effects) == 1
-    assert result.effects[0].target_id == "npc-1"
+    assert result.effects[0].target_id == "new-figure"
 
 
 def test_duplicate_create_npc_with_conflicting_content_is_rejected() -> None:
     resolution = (
         '{"event_text":"A figure enters.","boundary":"none",'
-        '"visibility":"participants","participant_ids":["actor-a","npc-1"],'
+        '"visibility":"participants","participant_names":["actor-a"],'
         '"entity_changes":['
-        '{"entity_id":"npc-1",'
-        '"display_name":"New Figure","identity":"A quiet archivist.",'
+        '{"display_name":"New Figure","identity":"A quiet archivist.",'
         '"core_desire":"Protect the records."},'
-        '{"entity_id":"npc-1",'
-        '"display_name":"New Figure","identity":"A harbor guard.",'
+        '{"display_name":"New Figure","identity":"A harbor guard.",'
         '"core_desire":"Protect the records."}]}'
     )
     actor, gm, gm_memory = _runtime(resolution_text=resolution)
@@ -351,9 +349,9 @@ def test_duplicate_create_npc_with_conflicting_content_is_rejected() -> None:
 def test_existing_character_create_is_converted_to_participant_reference() -> None:
     result, _ = _resolve(
         '{"event_text":"The archivist answers.","boundary":"none",'
-        '"visibility":"participants","participant_ids":["actor-a"],'
-        '"entity_changes":[{"entity_id":"npc-1",'
-        '"display_name":"New Figure","identity":"A quiet archivist.",'
+        '"visibility":"participants","participant_names":["actor-a"],'
+        '"entity_changes":[{"display_name":"New Figure",'
+        '"identity":"A quiet archivist.",'
         '"core_desire":"Protect the records."}]}',
         existing_characters=(
             _character_ref(),
@@ -370,12 +368,12 @@ def test_existing_character_create_is_converted_to_participant_reference() -> No
     assert result.events[0].participant_ids == ("actor-a", "npc-1")
 
 
-def test_existing_character_id_with_different_name_is_rejected() -> None:
+def test_differently_named_entity_gets_a_new_local_id() -> None:
     resolution = (
         '{"event_text":"A stranger enters.","boundary":"none",'
-        '"visibility":"participants","participant_ids":["actor-a","npc-1"],'
-        '"entity_changes":[{"entity_id":"npc-1",'
-        '"display_name":"Different Person","identity":"A stranger.",'
+        '"visibility":"participants","participant_names":["actor-a"],'
+        '"entity_changes":[{"display_name":"Different Person",'
+        '"identity":"A stranger.",'
         '"core_desire":"Enter the archive."}]}'
     )
     actor, gm, gm_memory = _runtime(resolution_text=resolution)
@@ -389,28 +387,31 @@ def test_existing_character_id_with_different_name_is_rejected() -> None:
         content_locale="en-US",
     )
 
-    with pytest.raises(ResolutionEnvelopeError, match="entity_id collision"):
-        ConcordiaResolverKernel().resolve(
-            gm,  # type: ignore[arg-type]
-            ResolverContext(
-                session_id="session-1",
-                branch_id="main",
-                step=0,
-                acting_actor_id=selected,
-                putative_event_text="I force the door.",
-                content_locale="en-US",
-                existing_characters=(
-                    _character_ref(),
-                    _character_ref(
-                        "npc-1",
-                        display_name="New Figure",
-                        type="npc",
-                    ),
+    result = ConcordiaResolverKernel().resolve(
+        gm,  # type: ignore[arg-type]
+        ResolverContext(
+            session_id="session-1",
+            branch_id="main",
+            step=0,
+            acting_actor_id=selected,
+            putative_event_text="I force the door.",
+            content_locale="en-US",
+            existing_characters=(
+                _character_ref(),
+                _character_ref(
+                    "npc-1",
+                    display_name="New Figure",
+                    type="npc",
                 ),
             ),
-            cancellation=Event(),
-        )
+        ),
+        cancellation=Event(),
+    )
+    assert result.effects[0].target_id == "different-person"
 
     assert tuple(
         record.record_type for record in gm_memory.retrieve_recent(limit=5)
-    ) == (MemoryRecordType.PUTATIVE_EVENT,)
+    ) == (
+        MemoryRecordType.PUTATIVE_EVENT,
+        MemoryRecordType.WORLD_EVENT,
+    )

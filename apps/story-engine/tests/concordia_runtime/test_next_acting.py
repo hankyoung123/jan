@@ -2,8 +2,6 @@ import json
 from typing import Any
 
 import pytest
-from concordia.environment.engines import sequential  # type: ignore[import-untyped]
-from concordia.typing import entity as concordia_entity  # type: ignore[import-untyped]
 
 from story_engine.concordia_runtime.factory import (
     ConcordiaActorFactory,
@@ -12,6 +10,7 @@ from story_engine.concordia_runtime.factory import (
 )
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
 from story_engine.concordia_runtime.replay import ReplayLanguageModel
+from story_engine.domain.action import ActionOutputType
 from story_engine.domain.memory import MemoryScope
 
 
@@ -23,29 +22,27 @@ from story_engine.domain.memory import MemoryScope
                 "call_to_action": "Answer the witness.",
                 "output_type": "free",
                 "options": [],
-                "option_ids": [],
                 "tag": "dialogue",
             },
-            concordia_entity.OutputType.FREE,
+            ActionOutputType.FREE,
         ),
         (
             {
                 "call_to_action": "Where do you go?",
                 "output_type": "choice",
                 "options": ["home", "London"],
-                "option_ids": ["home-opt", "london-opt"],
                 "tag": "story_action",
             },
-            concordia_entity.OutputType.CHOICE,
+            ActionOutputType.CHOICE,
         ),
     ],
 )
-def test_sequential_next_acting_accepts_envelope_with_option_ids(
+def test_game_master_maps_semantic_actor_name_to_local_id(
     envelope: dict[str, Any],
-    expected_type: concordia_entity.OutputType,
+    expected_type: ActionOutputType,
 ) -> None:
     actor_model = ReplayLanguageModel()
-    gm_model = ReplayLanguageModel(choice_responses=("actor-b",))
+    gm_model = ReplayLanguageModel(choice_responses=("Actor B",))
     action_spec_model = ReplayLanguageModel(
         text_responses=(json.dumps(envelope, ensure_ascii=False),),
     )
@@ -58,7 +55,8 @@ def test_sequential_next_acting_accepts_envelope_with_option_ids(
             ),
             actor_params={
                 "name": actor_id,
-                "identity": f"Identity of {actor_id}.",
+                "display_name": display_name,
+                "identity": f"Identity of {display_name}.",
                 "project_root": ".",
                 "branch_id": "main",
             },
@@ -67,7 +65,7 @@ def test_sequential_next_acting_accepts_envelope_with_option_ids(
                 scope=MemoryScope.CHARACTER,
             ),
         )
-        for actor_id in ("actor-a", "actor-b")
+        for actor_id, display_name in (("actor-a", "Actor A"), ("actor-b", "Actor B"))
     )
     gm = factory.build_game_master(
         default_game_master_recipe(
@@ -88,14 +86,21 @@ def test_sequential_next_acting_accepts_envelope_with_option_ids(
         component_models={"next_action_spec": action_spec_model},
     )
 
-    raw_actor, raw_spec = sequential.Sequential().next_acting(
-        gm.entity,
-        tuple(actor.entity for actor in actors),
+    selected = gm.select_next_actor(
+        actors,
+        session_id="session-1",
+        step=0,
+    )
+    action_spec = gm.create_action_spec(
+        actors[1],
+        session_id="session-1",
+        step=0,
+        content_locale="en-US",
     )
 
-    assert raw_actor.name == "actor-b"
-    assert raw_spec.output_type == expected_type
-    assert raw_spec.call_to_action == envelope["call_to_action"]
-    assert raw_spec.tag == envelope["tag"]
-    if expected_type == concordia_entity.OutputType.CHOICE:
-        assert tuple(raw_spec.options) == tuple(envelope["options"])
+    assert selected == "actor-b"
+    assert action_spec.output_type == expected_type
+    assert action_spec.call_to_action == envelope["call_to_action"]
+    assert action_spec.tag == envelope["tag"]
+    if expected_type == ActionOutputType.CHOICE:
+        assert action_spec.options == tuple(envelope["options"])

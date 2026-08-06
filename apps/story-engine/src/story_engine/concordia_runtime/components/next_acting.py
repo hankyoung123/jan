@@ -16,10 +16,9 @@ class SchemaNextActionSpec(gm_components.next_acting.NextActionSpec):  # type: i
     """Normalize structured Game Master output before Concordia parses it.
 
     The action-spec model is constrained with ``ActionSpecEnvelope`` JSON
-    Schema, which also carries local-only fields such as ``option_ids``. The
-    installed sequential engine parses the raw model string with
-    ``action_spec_from_dict`` and rejects those fields, so the envelope is
-    decoded and re-encoded through the shared codec first.
+    Schema. The installed sequential engine parses the raw model string with
+    ``action_spec_from_dict``, so the envelope is decoded and re-encoded through
+    the shared codec first; local option IDs are never model-authored.
     """
 
     def __init__(

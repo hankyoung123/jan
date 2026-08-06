@@ -1,8 +1,3 @@
-import hashlib
-import json
-import re
-import time
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Self
@@ -10,33 +5,51 @@ from typing import Literal, Self
 from pydantic import Field, JsonValue, ValidationError, model_validator
 
 from story_engine.domain.errors import DomainError
-from story_engine.domain.message import ModelMessageContext
 from story_engine.domain.models import (
-    Character,
     DomainModel,
-    Fact,
     InitialFact,
-    ReviewIssue,
     ReviewResult,
-    WorldState,
 )
 from story_engine.models.contracts import (
     ImageMessagePart,
     ImageUrl,
     Message,
-    ModelRequest,
     TextMessagePart,
 )
-from story_engine.models.gateway import ModelGateway
-from story_engine.wiki.store import WikiStore
+from story_engine.submission.discussion import SubmissionDiscussionService
+from story_engine.submission.project import SubmissionService
+from story_engine.submission.reducer import reduce_submission_draft
 from story_engine.workspace.atomic import atomic_write_text
 from story_engine.workspace.documents import dump_json_envelope, load_json_envelope
 from story_engine.workspace.lock import ProjectLock
-from story_engine.workspace.project_store import (
-    ProjectSeed,
-    ProjectSnapshot,
-    ProjectStore,
-)
+
+__all__ = [
+    "SubmissionCharacter",
+    "SubmissionCharacterProposal",
+    "SubmissionConversationRequest",
+    "SubmissionConversationResponse",
+    "SubmissionConversationUpdate",
+    "SubmissionDiscussionService",
+    "SubmissionDraft",
+    "SubmissionDraftDelta",
+    "SubmissionFactProposal",
+    "SubmissionFilePart",
+    "SubmissionMessage",
+    "SubmissionMessageMetadata",
+    "SubmissionMessagePart",
+    "SubmissionModelOutput",
+    "SubmissionNotRunnableError",
+    "SubmissionPackage",
+    "SubmissionReasoningPart",
+    "SubmissionService",
+    "SubmissionStatus",
+    "SubmissionTextPart",
+    "SubmissionToolPart",
+    "SubmissionWorkspaceState",
+    "SubmissionWorkspaceStore",
+    "fog_harbor_submission",
+    "reduce_submission_draft",
+]
 
 
 class SubmissionNotRunnableError(DomainError):
@@ -361,180 +374,7 @@ class SubmissionModelOutput(DomainModel):
     delta: SubmissionDraftDelta
 
 
-def _local_identifier(text: str, *, prefix: str, index: int) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.casefold()).strip("-")
-    suffix = slug or hashlib.sha256(text.encode("utf-8")).hexdigest()[:10]
-    return f"{prefix}{suffix or index + 1}"
-
-
-def _character_proposals(
-    draft: SubmissionDraft,
-) -> tuple[SubmissionCharacterProposal, ...]:
-    return tuple(
-        SubmissionCharacterProposal(
-            display_name=item.display_name,
-            identity=item.identity,
-            core_desire=item.core_desire,
-            current_goal=item.current_goal,
-            location=item.location,
-            emotional_state=item.emotional_state,
-            resources=item.resources,
-        )
-        for item in draft.characters
-    )
-
-
-def _fact_proposals(
-    draft: SubmissionDraft,
-) -> tuple[SubmissionFactProposal, ...]:
-    character_refs = {item.id: index for index, item in enumerate(draft.characters)}
-    fact_refs = {item.id: index for index, item in enumerate(draft.facts)}
-    return tuple(
-        SubmissionFactProposal(
-            statement=item.statement,
-            visibility=item.visibility,
-            known_by=tuple(character_refs[owner] for owner in item.known_by),
-            supersedes_ref=(
-                fact_refs[item.supersedes_fact_id]
-                if item.supersedes_fact_id is not None
-                else None
-            ),
-        )
-        for item in draft.facts
-    )
-
-
-def apply_submission_delta(
-    draft: SubmissionDraft,
-    delta: SubmissionDraftDelta,
-) -> SubmissionDraft:
-    character_inputs = (
-        delta.characters
-        if delta.characters is not None
-        else _character_proposals(draft)
-    )
-    existing_characters_by_name = {
-        item.display_name.casefold(): item for item in draft.characters
-    }
-    character_ids: list[str] = []
-    used_character_ids: set[str] = set()
-    for character_index, character_input in enumerate(character_inputs):
-        existing_character = existing_characters_by_name.get(
-            character_input.display_name.casefold()
-        )
-        character_id = existing_character.id if existing_character is not None else None
-        if character_id is None and character_index < len(draft.characters):
-            positional_character_id = draft.characters[character_index].id
-            if positional_character_id not in used_character_ids:
-                character_id = positional_character_id
-        character_id = character_id or _local_identifier(
-            character_input.display_name,
-            prefix="character-",
-            index=character_index,
-        )
-        character_id_base = character_id
-        character_id_suffix = 2
-        while character_id in used_character_ids:
-            character_id = f"{character_id_base}-{character_id_suffix}"
-            character_id_suffix += 1
-        used_character_ids.add(character_id)
-        character_ids.append(character_id)
-
-    facts: list[InitialFact]
-    if delta.facts is None:
-        facts = list(draft.facts)
-    else:
-        fact_inputs = delta.facts
-        existing_facts_by_statement = {
-            item.statement.casefold(): item for item in draft.facts
-        }
-        fact_ids: list[str] = []
-        used_fact_ids: set[str] = set()
-        for fact_index, fact_input in enumerate(fact_inputs):
-            existing_fact = existing_facts_by_statement.get(
-                fact_input.statement.casefold()
-            )
-            fact_id = existing_fact.id if existing_fact is not None else None
-            if fact_id is None and fact_index < len(draft.facts):
-                positional_fact_id = draft.facts[fact_index].id
-                if positional_fact_id not in used_fact_ids:
-                    fact_id = positional_fact_id
-            fact_id = fact_id or _local_identifier(
-                fact_input.statement,
-                prefix="fact:",
-                index=fact_index,
-            )
-            fact_id_base = fact_id
-            fact_id_suffix = 2
-            while fact_id in used_fact_ids:
-                fact_id = f"{fact_id_base}-{fact_id_suffix}"
-                fact_id_suffix += 1
-            used_fact_ids.add(fact_id)
-            fact_ids.append(fact_id)
-
-        facts = []
-        for fact_index, fact_input in enumerate(fact_inputs):
-            unknown_refs = set(fact_input.known_by) - set(range(len(character_ids)))
-            if unknown_refs:
-                raise ValueError(
-                    "submission fact has unknown character refs: "
-                    f"{sorted(unknown_refs)}"
-                )
-            if (
-                fact_input.supersedes_ref is not None
-                and not 0 <= fact_input.supersedes_ref < len(fact_ids)
-            ):
-                raise ValueError(
-                    "submission fact has unknown supersedes_ref: "
-                    f"{fact_input.supersedes_ref}"
-                )
-            if fact_input.supersedes_ref == fact_index:
-                raise ValueError("submission fact cannot supersede itself")
-            facts.append(
-                InitialFact(
-                    id=fact_ids[fact_index],
-                    statement=fact_input.statement,
-                    visibility=fact_input.visibility,
-                    known_by=tuple(character_ids[ref] for ref in fact_input.known_by),
-                    supersedes_fact_id=(
-                        fact_ids[fact_input.supersedes_ref]
-                        if fact_input.supersedes_ref is not None
-                        else None
-                    ),
-                )
-            )
-
-    known_facts_by_character = {
-        character_id: tuple(fact.id for fact in facts if character_id in fact.known_by)
-        for character_id in character_ids
-    }
-    characters = tuple(
-        SubmissionCharacter(
-            id=character_ids[index],
-            display_name=character_input.display_name,
-            identity=character_input.identity,
-            core_desire=character_input.core_desire,
-            current_goal=character_input.current_goal,
-            known_fact_ids=known_facts_by_character[character_ids[index]],
-            location=character_input.location,
-            emotional_state=character_input.emotional_state,
-            resources=character_input.resources,
-        )
-        for index, character_input in enumerate(character_inputs)
-    )
-    updates = {
-        name: value
-        for name, value in delta.model_dump().items()
-        if value is not None and name not in {"facts", "characters"}
-    }
-    return SubmissionDraft(
-        **{
-            **draft.model_dump(),
-            **updates,
-            "facts": tuple(facts),
-            "characters": characters,
-        }
-    )
+apply_submission_delta = reduce_submission_draft
 
 
 class SubmissionConversationResponse(DomainModel):
@@ -648,222 +488,6 @@ class SubmissionWorkspaceStore:
         )
 
 
-class SubmissionDiscussionService:
-    def __init__(self, model_gateway: ModelGateway) -> None:
-        self.model_gateway = model_gateway
-
-    async def respond(
-        self,
-        request: SubmissionConversationRequest,
-    ) -> SubmissionConversationResponse:
-        example_draft = SubmissionDraft.from_package(fog_harbor_submission())
-        example_output = SubmissionModelOutput(
-            reply="我会根据你的要求更新设定, 并指出仍需补充的内容。",
-            delta=SubmissionDraftDelta(
-                title=example_draft.title,
-                genre=example_draft.genre,
-                theme=example_draft.theme,
-                tone=example_draft.tone,
-                world_rules=example_draft.world_rules,
-                facts=_fact_proposals(example_draft),
-                characters=_character_proposals(example_draft),
-                initial_time=example_draft.initial_time,
-                initial_location=example_draft.initial_location,
-                initial_incident=example_draft.initial_incident,
-                pressures=example_draft.pressures,
-            ),
-        )
-        protocol = (
-            "Immutable protocol: do not create an outline or future plot; return the "
-            "supplied JSON schema and preserve strict fact knowledge boundaries."
-        )
-        task_context = (
-            "Discuss only creative "
-            "direction, world rules, two to four initial active characters, and "
-            "the concrete initial situation. Do not create an outline or future "
-            "plot. Return only changed draft fields inside delta; omitted fields "
-            "retain "
-            "their current values. facts and characters replace those arrays when "
-            "present. Give every fact a concrete statement and visibility and every "
-            "character a current goal. Do not return any IDs, Review, passed, "
-            "severity, "
-            "or runnable fields. For fact known_by, use zero-based indexes into the "
-            "effective characters array. Public facts require an empty known_by array; "
-            "private or secret facts require every knowing character index. The local "
-            "runtime generates IDs and both directions of knowledge links. "
-            "The following example demonstrates the required JSON output shape; "
-            "update its values from the conversation. EXAMPLE JSON OUTPUT: "
-            f"{json.dumps(example_output.model_dump(mode='json'), ensure_ascii=False)} "
-            "Current draft: "
-            f"{json.dumps(request.draft.model_dump(mode='json'), ensure_ascii=False)}"
-        )
-        profile = self.model_gateway.registry.get_profile("submission_editor")
-        message_id = f"call:{uuid.uuid4().hex}"
-        started = time.monotonic()
-        response = await self.model_gateway.complete(
-            ModelRequest(
-                profile_id="submission_editor",
-                task_type="submission_editor",
-                messages=(
-                    Message(role="system", content=protocol),
-                    Message(role="system", content=profile.default_system_prompt),
-                    Message(role="system", content=task_context),
-                    *(
-                        message.to_model_message()
-                        for message in request.active_messages()
-                    ),
-                ),
-                output_schema=json.dumps(
-                    SubmissionModelOutput.model_json_schema(),
-                    ensure_ascii=False,
-                ),
-                max_output_tokens=profile.max_output_tokens,
-                output_token_limit=(
-                    "provider" if profile.max_output_tokens is None else "profile"
-                ),
-                timeout_seconds=profile.timeout_seconds,
-                temperature=profile.temperature,
-                reasoning_effort=profile.reasoning_effort,
-            ),
-            context=ModelMessageContext(
-                project_id=request.draft.id,
-                message_id=message_id,
-                agent_name=profile.name,
-                task_label="投稿讨论",
-                stage="submission",
-            ),
-        )
-        duration = max(0.0, time.monotonic() - started)
-        output = SubmissionModelOutput.model_validate(response.parsed_output)
-        draft = apply_submission_delta(request.draft, output.delta)
-        missing = draft.missing_requirements()
-        runnable = draft.to_package() is not None
-        if missing:
-            deterministic_issues = tuple(
-                ReviewIssue(
-                    code="submission_missing_requirement",
-                    message=f"投稿仍缺少: {requirement}",
-                    severity="blocking",
-                )
-                for requirement in missing
-            )
-            review = ReviewResult(
-                mode="submission_review",
-                passed=False,
-                summary="初始设定包尚未达到可运行条件。",
-                issues=deterministic_issues,
-            )
-        else:
-            review = ReviewResult(
-                mode="submission_review",
-                passed=True,
-                summary="初始设定包已满足本地运行条件。",
-            )
-        response_group_id = request.response_group_id or message_id
-        version_index = 1 + sum(
-            1
-            for message in request.messages
-            if message.role == "assistant"
-            and (message.metadata.versionGroupId or message.id) == response_group_id
-        )
-        return SubmissionConversationResponse(
-            message=SubmissionMessage(
-                id=message_id,
-                role="assistant",
-                parts=(
-                    *(
-                        (
-                            SubmissionReasoningPart(
-                                text=response.reasoning_content,
-                            ),
-                        )
-                        if response.reasoning_content
-                        else ()
-                    ),
-                    SubmissionTextPart(text=output.reply),
-                ),
-                metadata=SubmissionMessageMetadata(
-                    callId=message_id,
-                    agentType=profile.agent_type,
-                    agentName=profile.name,
-                    taskLabel="投稿讨论",
-                    model=response.model_ref,
-                    duration=duration,
-                    promptTokens=response.usage.prompt_tokens,
-                    completionTokens=response.usage.completion_tokens,
-                    createdAt=datetime.now(UTC),
-                    versionGroupId=response_group_id,
-                    versionIndex=version_index,
-                ),
-            ),
-            draft=draft,
-            review=review,
-            runnable=runnable,
-            missing_requirements=missing,
-        )
-
-
-class SubmissionService:
-    def __init__(self, projects_root: Path) -> None:
-        self.projects_root = projects_root
-
-    def finalize(self, package: SubmissionPackage) -> ProjectSnapshot:
-        self._ensure_runnable(package)
-        seed = ProjectSeed(
-            id=package.id,
-            title=package.title,
-            genre=package.genre,
-            theme=package.theme,
-            tone=package.tone,
-            world=WorldState(
-                current_time=package.initial_time,
-                current_location=package.initial_location,
-                rules=package.world_rules,
-                active_pressures=package.pressures,
-                public_fact_ids=tuple(
-                    fact.id for fact in package.facts if fact.visibility == "public"
-                ),
-                world_variables={
-                    "initial_incident": package.initial_incident,
-                    "round": 0,
-                },
-            ),
-            characters=tuple(
-                Character(
-                    id=item.id,
-                    display_name=item.display_name,
-                    type="active",
-                    identity=item.identity,
-                    core_desire=item.core_desire,
-                    current_goal=item.current_goal,
-                    known_fact_ids=item.known_fact_ids,
-                    location=item.location,
-                    emotional_state=item.emotional_state,
-                    resources=item.resources,
-                )
-                for item in package.characters
-            ),
-            facts=tuple(
-                Fact(
-                    **fact.model_dump(),
-                    source_event_id=f"submission:{package.id}",
-                    introduced_at=datetime.now(UTC),
-                )
-                for fact in package.facts
-            ),
-        )
-        root = self.projects_root / package.id
-        snapshot = ProjectStore(root).create(seed)
-        WikiStore(root, "main").initialize(snapshot)
-        return snapshot
-
-    @staticmethod
-    def _ensure_runnable(package: SubmissionPackage) -> None:
-        distinct_goals = {character.current_goal for character in package.characters}
-        if not package.pressures and len(distinct_goals) < 2:
-            raise SubmissionNotRunnableError(
-                "submission requires world pressure or conflicting character goals"
-            )
 
 
 def fog_harbor_submission() -> SubmissionPackage:

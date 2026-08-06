@@ -9,6 +9,7 @@ from pydantic import Field
 from story_engine.api.model_errors import model_http_error
 from story_engine.config import EngineSettings
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
+from story_engine.domain.projection import ProjectionKind, ProjectionTask
 from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     BranchManifest,
@@ -24,6 +25,7 @@ from story_engine.models.errors import ModelGatewayError
 from story_engine.models.gateway import ModelGateway
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.persistence.simulation_log import SimulationLogRecord
+from story_engine.simulation.commands import SessionCommandConflictError
 from story_engine.simulation.engine import (
     InvalidSessionTransitionError,
     SessionNotFoundError,
@@ -39,7 +41,7 @@ _PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 class SimulationStartRequest(RuntimeModel):
     branch_id: Identifier = "main"
     premise_text: str = Field(min_length=1, max_length=131_072)
-    actor_ids: tuple[Identifier, ...] = Field(default=(), max_length=4)
+    actor_ids: tuple[Identifier, ...] = ()
     content_locale: LocaleCode = "zh-CN"
     control: ControlPolicy
     output: OutputPolicy = OutputPolicy()
@@ -56,6 +58,15 @@ class SimulationRestoreRequest(RuntimeModel):
 
 class SimulationLocaleRequest(RuntimeModel):
     content_locale: LocaleCode
+
+
+class SimulationAdvanceRequest(RuntimeModel):
+    command_id: Identifier
+    expected_state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ProjectionRebuildRequest(RuntimeModel):
+    kind: ProjectionKind | None = None
 
 
 class CheckpointRequest(RuntimeModel):
@@ -233,17 +244,28 @@ def create_simulations_router(
         "/projects/{project_id}/simulations/{session_id}/step",
         response_model=StepResult,
     )
-    async def step_simulation(project_id: str, session_id: str) -> StepResult:
+    async def step_simulation(
+        project_id: str,
+        session_id: str,
+        request: SimulationAdvanceRequest,
+    ) -> StepResult:
         require_live_session(project_id, session_id)
         try:
             return await asyncio.to_thread(
                 service.step,
                 session_id,
+                command_id=request.command_id,
+                expected_state_hash=request.expected_state_hash,
                 cancellation=Event(),
             )
         except ModelGatewayError as error:
             raise model_http_error(error) from error
-        except (InvalidSessionTransitionError, RuntimeError, ValueError) as error:
+        except (
+            InvalidSessionTransitionError,
+            SessionCommandConflictError,
+            RuntimeError,
+            ValueError,
+        ) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
@@ -254,13 +276,23 @@ def create_simulations_router(
     async def run_simulation(
         project_id: str,
         session_id: str,
+        request: SimulationAdvanceRequest,
     ) -> TurnSessionSnapshot:
         require_live_session(project_id, session_id)
         try:
-            return service.run_in_background(session_id)
+            return service.run_in_background(
+                session_id,
+                command_id=request.command_id,
+                expected_state_hash=request.expected_state_hash,
+            )
         except ModelGatewayError as error:
             raise model_http_error(error) from error
-        except (InvalidSessionTransitionError, RuntimeError, ValueError) as error:
+        except (
+            InvalidSessionTransitionError,
+            SessionCommandConflictError,
+            RuntimeError,
+            ValueError,
+        ) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
@@ -285,29 +317,98 @@ def create_simulations_router(
     async def resume_simulation(
         project_id: str,
         session_id: str,
+        request: SimulationAdvanceRequest,
     ) -> TurnSessionSnapshot:
         require_live_session(project_id, session_id)
         try:
-            return service.run_in_background(session_id, resume=True)
+            return service.run_in_background(
+                session_id,
+                command_id=request.command_id,
+                expected_state_hash=request.expected_state_hash,
+                resume=True,
+            )
         except ModelGatewayError as error:
             raise model_http_error(error) from error
-        except (InvalidSessionTransitionError, RuntimeError, ValueError) as error:
+        except (
+            InvalidSessionTransitionError,
+            SessionCommandConflictError,
+            RuntimeError,
+            ValueError,
+        ) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.get(
+        "/projects/{project_id}/simulations/{session_id}/projections",
+        response_model=tuple[ProjectionTask, ...],
+    )
+    async def list_projection_tasks(
+        project_id: str,
+        session_id: str,
+    ) -> tuple[ProjectionTask, ...]:
+        _require_project(settings, project_id)
+        try:
+            service.get_durable(project_id, session_id)
+            return service.list_projections(
+                project_id=project_id,
+                session_id=session_id,
+            )
+        except (FileNotFoundError, SessionNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="Simulation not found",
+            ) from error
+        except (RuntimeError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(
-        "/projects/{project_id}/simulations/{session_id}/maintenance/retry",
-        response_model=TurnSessionSnapshot,
+        "/projects/{project_id}/simulations/{session_id}/projections/{task_id}/retry",
+        response_model=ProjectionTask,
+        status_code=status.HTTP_202_ACCEPTED,
     )
-    async def retry_simulation_maintenance(
+    async def retry_projection_task(
         project_id: str,
         session_id: str,
-    ) -> TurnSessionSnapshot:
-        require_live_session(project_id, session_id)
+        task_id: str,
+    ) -> ProjectionTask:
+        _require_project(settings, project_id)
         try:
-            return await asyncio.to_thread(service.retry_maintenance, session_id)
-        except ModelGatewayError as error:
-            raise model_http_error(error) from error
-        except (InvalidSessionTransitionError, RuntimeError, ValueError) as error:
+            service.get_durable(project_id, session_id)
+            return service.retry_projection(
+                project_id=project_id,
+                session_id=session_id,
+                task_id=task_id,
+            )
+        except (FileNotFoundError, SessionNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="Projection task not found",
+            ) from error
+        except (RuntimeError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.post(
+        "/projects/{project_id}/simulations/{session_id}/projections/rebuild",
+        response_model=tuple[ProjectionTask, ...],
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def rebuild_projection_tasks(
+        project_id: str,
+        session_id: str,
+        request: ProjectionRebuildRequest,
+    ) -> tuple[ProjectionTask, ...]:
+        _require_project(settings, project_id)
+        try:
+            return service.rebuild_projections(
+                project_id=project_id,
+                session_id=session_id,
+                kind=request.kind,
+            )
+        except (FileNotFoundError, SessionNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail="Simulation not found",
+            ) from error
+        except (RuntimeError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.post(

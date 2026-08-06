@@ -9,6 +9,7 @@ import pytest
 from profile_factory import agent_profile as _profile
 
 import story_engine.models.gateway as gateway_module
+import story_engine.models.transport as transport_module
 from story_engine.domain.message import ModelMessageContext, ModelMessageEvent
 from story_engine.models.contracts import (
     Message,
@@ -403,7 +404,7 @@ def test_unrelated_provider_400_does_not_trigger_structured_fallback(
 
 
 @pytest.mark.parametrize("content", ['{"wrong":true}', '{"ok":"bad"}'])
-def test_schema_validation_failure_retries_until_attempt_limit(
+def test_schema_validation_failure_retries_once_with_error_feedback(
     tmp_path: Path,
     content: str,
 ) -> None:
@@ -419,7 +420,29 @@ def test_schema_validation_failure_retries_until_attempt_limit(
 
     with pytest.raises(StructuredOutputError):
         asyncio.run(gateway.complete(_request(output_schema=schema)))
-    assert len(transport.calls) == 3
+    assert len(transport.calls) == 2
+    assert "Your previous response was rejected" in transport.calls[1]["messages"][-1][
+        "content"
+    ]
+
+
+def test_caller_managed_structured_retry_does_not_retry_inside_gateway(
+    tmp_path: Path,
+) -> None:
+    schema = json.dumps({"type": "object", "required": ["ok"]})
+    transport = FakeTransport("not-json", '{"ok":true}')
+    gateway, _ = _gateway(tmp_path, transport)
+
+    with pytest.raises(StructuredOutputError):
+        asyncio.run(
+            gateway.complete(
+                _request(
+                    output_schema=schema,
+                ).model_copy(update={"structured_output_retry": "caller"})
+            )
+        )
+
+    assert len(transport.calls) == 1
 
 
 def test_empty_structured_output_reports_error_after_bounded_retries(
@@ -676,8 +699,8 @@ def test_first_content_deadline_uses_streaming_and_ignores_reasoning(
 def test_sse_transport_overhead_does_not_count_as_final_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(gateway_module, "MAX_RESPONSE_BYTES", 32)
-    monkeypatch.setattr(gateway_module, "MAX_SSE_TRANSPORT_BYTES", 4_096)
+    monkeypatch.setattr(transport_module, "MAX_RESPONSE_BYTES", 32)
+    monkeypatch.setattr(transport_module, "MAX_SSE_TRANSPORT_BYTES", 4_096)
 
     def handler(_request: httpx.Request) -> httpx.Response:
         events = [
@@ -1203,9 +1226,9 @@ def test_free_text_truncation_retries_then_fails_loudly(tmp_path: Path) -> None:
     with pytest.raises(ResponseLimitError, match="truncated at max_tokens") as caught:
         asyncio.run(gateway.complete(_request()))
 
-    assert len(transport.observed) == 3
-    assert gateway.usage.totals().requests == 3
-    assert caught.value.retry_count == 2
+    assert len(transport.observed) == 2
+    assert gateway.usage.totals().requests == 2
+    assert caught.value.retry_count == 1
     assert caught.value.finish_reason == "length"
 
 
@@ -1216,9 +1239,9 @@ def test_empty_free_text_is_retried_then_fails(tmp_path: Path) -> None:
     with pytest.raises(StructuredOutputError, match="empty text content") as caught:
         asyncio.run(gateway.complete(_request()))
 
-    assert len(transport.calls) == 3
-    assert caught.value.retry_count == 2
-    assert gateway.usage.totals().requests == 3
+    assert len(transport.calls) == 2
+    assert caught.value.retry_count == 1
+    assert gateway.usage.totals().requests == 2
 
 
 def test_empty_free_text_recovers_on_retry(tmp_path: Path) -> None:

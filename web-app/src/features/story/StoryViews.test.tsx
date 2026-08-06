@@ -711,10 +711,6 @@ const baseSimulationSession = {
   updated_at: '2026-08-02T00:00:00Z',
   termination_reason_text: null,
   restoration_notice_text: null,
-  maintenance_status: 'not_required',
-  maintenance_error_text: null,
-  maintenance_step: null,
-  maintenance_boundary: 'none',
   state_hash: 'a'.repeat(64),
   active_actor_id: null,
   current_action_spec: null,
@@ -821,21 +817,29 @@ describe('Story simulation', () => {
     })
   })
 
-  it('shows a failed Wiki maintenance state and retries it', async () => {
+  it('shows a failed projection and retries it independently', async () => {
     setActiveStoryProjectId('north-star')
     const failedSession = {
       ...baseSimulationSession,
       status: 'paused',
-      maintenance_status: 'failed',
-      maintenance_error_text: 'Wiki provider timed out',
-      maintenance_step: 1,
-      maintenance_boundary: 'scene',
     }
-    const succeededSession = {
-      ...failedSession,
-      maintenance_status: 'succeeded',
-      maintenance_error_text: null,
+    const failedTask = {
+      task_id: `projection:wiki:${failedSession.checkpoint_id}`,
+      project_id: failedSession.project_id,
+      session_id: failedSession.session_id,
+      branch_id: failedSession.branch_id,
+      checkpoint_id: failedSession.checkpoint_id,
+      step: 1,
+      boundary: 'scene',
+      kind: 'wiki',
+      status: 'failed',
+      attempt_count: 1,
+      error_text: 'Wiki provider timed out',
+      created_at: failedSession.started_at,
+      updated_at: failedSession.updated_at,
+      completed_at: failedSession.updated_at,
     }
+    let tasks = [failedTask]
 
     h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
       if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
@@ -854,22 +858,22 @@ describe('Story simulation', () => {
             updated_at: failedSession.updated_at,
             termination_reason_text: null,
             restoration_notice_text: null,
-            maintenance_status: failedSession.maintenance_status,
-            maintenance_error_text: failedSession.maintenance_error_text,
-            maintenance_step: failedSession.maintenance_step,
-            maintenance_boundary: failedSession.maintenance_boundary,
           },
         ])
       }
       if (path === `/projects/north-star/simulations/${failedSession.session_id}`) {
         return Promise.resolve(failedSession)
       }
+      if (path === `/projects/north-star/simulations/${failedSession.session_id}/projections`) {
+        return Promise.resolve(tasks)
+      }
       if (
         path ===
-          `/projects/north-star/simulations/${failedSession.session_id}/maintenance/retry` &&
+          `/projects/north-star/simulations/${failedSession.session_id}/projections/${failedTask.task_id}/retry` &&
         init?.method === 'POST'
       ) {
-        return Promise.resolve(succeededSession)
+        tasks = [{ ...failedTask, status: 'pending', error_text: null, completed_at: null }]
+        return Promise.resolve(tasks[0])
       }
       if (path.includes('/simulation-events')) return Promise.resolve([])
       if (path.includes('/simulation-trace')) return Promise.resolve([])
@@ -879,69 +883,16 @@ describe('Story simulation', () => {
     renderEvolution()
 
     expect(await screen.findByText('Wiki provider timed out')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Retry Wiki maintenance' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Wiki projection' }))
     await waitFor(() =>
       expect(h.engineRequest).toHaveBeenCalledWith(
-        '/projects/north-star/simulations/session:one/maintenance/retry',
+        `/projects/north-star/simulations/session:one/projections/${failedTask.task_id}/retry`,
         { method: 'POST' }
       )
     )
     await waitFor(() =>
       expect(screen.queryByText('Wiki provider timed out')).not.toBeInTheDocument()
     )
-  })
-
-  it('shows Wiki degradation without offering the blocking retry action', async () => {
-    setActiveStoryProjectId('north-star')
-    const degradedSession = {
-      ...baseSimulationSession,
-      status: 'paused',
-      maintenance_status: 'degraded',
-      maintenance_error_text: 'Wiki proposal failed after 2 attempts',
-      maintenance_step: 1,
-      maintenance_boundary: 'scene',
-    }
-
-    h.engineRequest.mockImplementation((path: string) => {
-      if (path === '/projects/north-star') return Promise.resolve(projectSnapshot)
-      if (path === '/projects/north-star/branches') return Promise.resolve([])
-      if (path === '/projects/north-star/simulations') {
-        return Promise.resolve([
-          {
-            session_id: degradedSession.session_id,
-            project_id: degradedSession.project_id,
-            branch_id: degradedSession.branch_id,
-            status: degradedSession.status,
-            current_step: degradedSession.current_step,
-            completed_scenes: degradedSession.completed_scenes,
-            head_checkpoint_id: degradedSession.checkpoint_id,
-            started_at: degradedSession.started_at,
-            updated_at: degradedSession.updated_at,
-            termination_reason_text: null,
-            restoration_notice_text: null,
-            maintenance_status: degradedSession.maintenance_status,
-            maintenance_error_text: degradedSession.maintenance_error_text,
-            maintenance_step: degradedSession.maintenance_step,
-            maintenance_boundary: degradedSession.maintenance_boundary,
-          },
-        ])
-      }
-      if (path === `/projects/north-star/simulations/${degradedSession.session_id}`) {
-        return Promise.resolve(degradedSession)
-      }
-      if (path.includes('/simulation-events')) return Promise.resolve([])
-      if (path.includes('/simulation-trace')) return Promise.resolve([])
-      throw new Error(`Unexpected request: ${path}`)
-    })
-
-    renderEvolution()
-
-    expect(
-      await screen.findByText('Wiki proposal failed after 2 attempts')
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Retry Wiki maintenance' })
-    ).not.toBeInTheDocument()
   })
 
   it('restores the URL-selected terminal session on a non-main branch', async () => {

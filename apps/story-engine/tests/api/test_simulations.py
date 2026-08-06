@@ -1,5 +1,6 @@
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
@@ -20,9 +21,33 @@ from story_engine.domain.trace import (
 )
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.persistence.session_store import SessionStore
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 
 AUTH = {"Authorization": "Bearer test-token"}
+
+
+def _advance(
+    client: TestClient,
+    session_id: str,
+    operation: str = "step",
+    *,
+    command_id: str | None = None,
+    expected_state_hash: str | None = None,
+):
+    if expected_state_hash is None:
+        expected_state_hash = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()["state_hash"]
+    return client.post(
+        f"/projects/fog-harbor/simulations/{session_id}/{operation}",
+        headers=AUTH,
+        json={
+            "command_id": command_id or f"command:{uuid.uuid4().hex}",
+            "expected_state_hash": expected_state_hash,
+        },
+    )
 
 
 class StubRuntime:
@@ -30,10 +55,12 @@ class StubRuntime:
         self.session_id = session_id
         self.branch_id = request.branch_id
         self.cancellation = Event()
+        self.execute_count = 0
 
     def execute_step(self, step: int, *, cancellation: Event) -> StepResult:
         if cancellation.is_set() or self.cancellation.is_set():
             raise RuntimeError("cancelled")
+        self.execute_count += 1
         return StepResult(
             session_id=self.session_id,
             branch_id=self.branch_id,
@@ -152,14 +179,8 @@ def test_simulation_api_start_step_resume_and_terminate(tmp_path: Path) -> None:
     session_id = started.json()["session_id"]
     assert started.json()["status"] == "created"
 
-    stepped = client.post(
-        f"/projects/fog-harbor/simulations/{session_id}/step",
-        headers=AUTH,
-    )
-    resumed = client.post(
-        f"/projects/fog-harbor/simulations/{session_id}/resume",
-        headers=AUTH,
-    )
+    stepped = _advance(client, session_id)
+    resumed = _advance(client, session_id, "resume")
     for _ in range(100):
         resumed_snapshot = client.get(
             f"/projects/fog-harbor/simulations/{session_id}",
@@ -186,7 +207,234 @@ def test_simulation_api_start_step_resume_and_terminate(tmp_path: Path) -> None:
     assert app.state.event_bus.sequence >= 9
 
 
-def test_simulation_start_rejects_an_opening_roster_larger_than_four(
+def test_direct_terminal_transition_is_restored_from_its_checkpoint(
+    tmp_path: Path,
+) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "灯塔突然熄灭。",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "zh-CN",
+                "control": {"mode": "step", "max_steps": 4},
+            },
+        ).json()
+        session_id = started["session_id"]
+        terminated = client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/terminate",
+            headers=AUTH,
+            json={"reason_text": "用户结束测试"},
+        ).json()
+
+    reopened = TestClient(
+        create_app(
+            EngineSettings(session_token="test-token", projects_root=tmp_path),
+            simulation_runtime_factory=lambda session_id, request: StubRuntime(
+                session_id, request
+            ),  # type: ignore[arg-type]
+        )
+    )
+    with reopened:
+        restored = reopened.get(
+            f"/projects/fog-harbor/simulations/{session_id}", headers=AUTH
+        )
+
+    assert restored.status_code == 200
+    assert restored.json()["status"] == "terminated"
+    assert restored.json()["checkpoint_id"] == terminated["checkpoint_id"]
+    assert restored.json()["termination_reason_text"] == "用户结束测试"
+
+
+def test_two_concurrent_steps_execute_only_one_command(tmp_path: Path) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    entered = Event()
+    release = Event()
+    runtimes: list[BlockingRuntime] = []
+
+    def runtime_factory(session_id: str, request: TurnSessionRequest):
+        runtime = BlockingRuntime(session_id, request, entered, release)
+        runtimes.append(runtime)
+        return runtime
+
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=runtime_factory,  # type: ignore[arg-type]
+    )
+    with TestClient(app) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+            },
+        ).json()
+        session_id = started["session_id"]
+        expected_hash = started["state_hash"]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(
+                _advance,
+                client,
+                session_id,
+                command_id="command:first",
+                expected_state_hash=expected_hash,
+            )
+            assert entered.wait(timeout=1)
+            second = pool.submit(
+                _advance,
+                client,
+                session_id,
+                command_id="command:second",
+                expected_state_hash=expected_hash,
+            )
+            release.set()
+            responses = (first.result(timeout=2), second.result(timeout=2))
+
+        assert sorted(response.status_code for response in responses) == [200, 409]
+        assert runtimes[0].execute_count == 1
+        snapshot = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()
+        assert snapshot["current_step"] == 1
+
+
+def test_repeated_command_id_returns_the_same_step_without_reexecution(
+    tmp_path: Path,
+) -> None:
+    client, app = _client(tmp_path)
+    with client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+            },
+        ).json()
+        session_id = started["session_id"]
+        command_id = "command:idempotent-step"
+
+        first = _advance(
+            client,
+            session_id,
+            command_id=command_id,
+            expected_state_hash=started["state_hash"],
+        )
+        repeated = _advance(
+            client,
+            session_id,
+            command_id=command_id,
+            expected_state_hash=started["state_hash"],
+        )
+
+        assert first.status_code == repeated.status_code == 200
+        assert first.json() == repeated.json()
+        assert app.state.simulation_service.get(session_id).current_step == 1
+
+
+def test_step_rejects_a_stale_expected_state_hash(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+            },
+        ).json()
+        session_id = started["session_id"]
+        first = _advance(
+            client,
+            session_id,
+            command_id="command:current",
+            expected_state_hash=started["state_hash"],
+        )
+
+        stale = _advance(
+            client,
+            session_id,
+            command_id="command:stale",
+            expected_state_hash=started["state_hash"],
+        )
+
+        assert first.status_code == 200
+        assert stale.status_code == 409
+        assert "state changed" in stale.json()["detail"]
+
+
+def test_step_cannot_start_during_background_run(tmp_path: Path) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    entered = Event()
+    release = Event()
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=lambda session_id, request: BlockingRuntime(
+            session_id,
+            request,
+            entered,
+            release,
+        ),  # type: ignore[arg-type]
+    )
+    with TestClient(app) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {
+                    "mode": "autonomous",
+                    "pause_after_scene": False,
+                    "max_steps": 3,
+                },
+            },
+        ).json()
+        session_id = started["session_id"]
+
+        accepted = _advance(
+            client,
+            session_id,
+            "run",
+            command_id="command:background-run",
+            expected_state_hash=started["state_hash"],
+        )
+        assert accepted.status_code == 202
+        assert entered.wait(timeout=1)
+        running = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()
+
+        rejected = _advance(
+            client,
+            session_id,
+            command_id="command:overlapping-step",
+            expected_state_hash=running["state_hash"],
+        )
+        assert rejected.status_code == 409
+        assert "already running" in rejected.json()["detail"]
+
+        client.post(
+            f"/projects/fog-harbor/simulations/{session_id}/pause",
+            headers=AUTH,
+        )
+        release.set()
+
+
+def test_simulation_start_accepts_a_cast_larger_than_one_scene_roster(
     tmp_path: Path,
 ) -> None:
     client, _ = _client(tmp_path)
@@ -202,7 +450,10 @@ def test_simulation_start_rejects_an_opening_roster_larger_than_four(
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 201
+    assert response.json()["request"]["actor_ids"] == [
+        f"agent-{index}" for index in range(5)
+    ]
 
 
 def test_background_run_accepts_pause_while_atomic_step_is_in_flight(
@@ -237,10 +488,7 @@ def test_background_run_accepts_pause_while_atomic_step_is_in_flight(
         ).json()
         session_id = started["session_id"]
 
-        accepted = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/run",
-            headers=AUTH,
-        )
+        accepted = _advance(client, session_id, "run")
         assert accepted.status_code == 202
         assert entered.wait(timeout=1)
         pause = client.post(
@@ -291,13 +539,7 @@ def test_immediate_cancel_discards_in_flight_step_without_failure_event(
             },
         ).json()
         session_id = started["session_id"]
-        assert (
-            client.post(
-                f"/projects/fog-harbor/simulations/{session_id}/run",
-                headers=AUTH,
-            ).status_code
-            == 202
-        )
+        assert _advance(client, session_id, "run").status_code == 202
         assert entered.wait(timeout=1)
 
         cancelled = client.post(
@@ -350,10 +592,7 @@ def test_each_successful_step_is_checkpointed_and_shutdown_does_not_duplicate_it
                 },
             },
         ).json()
-        stepped = client.post(
-            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
-            headers=AUTH,
-        ).json()
+        stepped = _advance(client, started["session_id"]).json()
         assert stepped["checkpoint_id"] != started["checkpoint_id"]
 
     branch = BranchStore(tmp_path / "fog-harbor").load("main")
@@ -391,10 +630,7 @@ def test_failed_stage_is_durable_and_identifies_the_failure_location(
         ).json()
         session_id = started["session_id"]
 
-        failed = client.post(
-            f"/projects/fog-harbor/simulations/{session_id}/step",
-            headers=AUTH,
-        )
+        failed = _advance(client, session_id)
         trace = client.get(
             "/projects/fog-harbor/branches/main/simulation-trace",
             headers=AUTH,
@@ -413,6 +649,164 @@ def test_failed_stage_is_durable_and_identifies_the_failure_location(
         assert restored.status_code == 200
         assert restored.json()["session_id"] == session_id
         assert restored.json()["status"] == "paused"
+
+
+def test_background_failure_reopens_from_last_checkpoint(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=lambda session_id, request: FailingRuntime(
+            session_id,
+            request,
+        ),  # type: ignore[arg-type]
+    )
+    with TestClient(app) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "灯塔突然熄灭。",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "zh-CN",
+                "control": {
+                    "mode": "autonomous",
+                    "pause_after_scene": False,
+                    "max_steps": 3,
+                },
+            },
+        ).json()
+        session_id = started["session_id"]
+        accepted = _advance(
+            client,
+            session_id,
+            "run",
+            command_id="command:failed-background-run",
+            expected_state_hash=started["state_hash"],
+        )
+        assert accepted.status_code == 202
+        current = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        ).json()
+        for _ in range(100):
+            if current["status"] == "failed":
+                break
+            time.sleep(0.01)
+            current = client.get(
+                f"/projects/fog-harbor/simulations/{session_id}",
+                headers=AUTH,
+            ).json()
+        assert current["status"] == "failed"
+        assert current["current_step"] == 0
+        checkpoint_id = started["checkpoint_id"]
+
+    reopened = TestClient(
+        create_app(
+            EngineSettings(session_token="test-token", projects_root=tmp_path),
+            simulation_runtime_factory=lambda session_id, request: StubRuntime(
+                session_id,
+                request,
+            ),  # type: ignore[arg-type]
+        )
+    )
+    with reopened:
+        restored = reopened.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        )
+        assert restored.status_code == 200
+        assert restored.json()["current_step"] == 0
+        assert restored.json()["checkpoint_id"] == checkpoint_id
+        assert restored.json()["restoration_notice_text"]
+
+
+def test_abnormal_sidecar_exit_recovers_checkpoint_not_running_manifest(
+    tmp_path: Path,
+) -> None:
+    client, _ = _client(tmp_path)
+    with client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+            },
+        ).json()
+        session_id = started["session_id"]
+        stepped = _advance(client, session_id).json()
+
+    checkpoint_id = stepped["checkpoint_id"]
+    checkpoint_step = stepped["step"] + 1
+    sessions = SessionStore(tmp_path / "fog-harbor")
+    manifest = sessions.load(session_id)
+    # Simulate a crashed sidecar after it wrote a stale running index but before
+    # another completed step could create a new checkpoint.
+    sessions.save(
+        manifest.model_copy(
+            update={
+                "status": TurnSessionStatus.RUNNING,
+                "current_step": checkpoint_step + 99,
+            }
+        )
+    )
+
+    reopened = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=lambda session_id, request: StubRuntime(
+            session_id,
+            request,
+        ),  # type: ignore[arg-type]
+    )
+    with TestClient(reopened) as client:
+        listed = client.get("/projects/fog-harbor/simulations", headers=AUTH)
+        restored = client.get(
+            f"/projects/fog-harbor/simulations/{session_id}",
+            headers=AUTH,
+        )
+
+    assert listed.status_code == 200
+    assert listed.json()[0]["status"] == "interrupted"
+    assert restored.status_code == 200
+    assert restored.json()["status"] == "paused"
+    assert restored.json()["current_step"] == checkpoint_step
+    assert restored.json()["checkpoint_id"] == checkpoint_id
+    assert restored.json()["restoration_notice_text"]
+
+
+def test_list_does_not_persist_an_uncommitted_live_snapshot(
+    tmp_path: Path,
+) -> None:
+    client, app = _client(tmp_path)
+    with client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 3},
+            },
+        ).json()
+        session_id = started["session_id"]
+        store = SessionStore(tmp_path / "fog-harbor")
+        durable_manifest = store.load(session_id)
+
+        # The engine has entered an in-memory state which has not crossed a
+        # persistence boundary. Listing must not make it durable by rewriting
+        # the session index from that snapshot.
+        app.state.simulation_engine.begin_continuous(session_id)
+        listed = client.get("/projects/fog-harbor/simulations", headers=AUTH)
+        persisted_manifest = store.load(session_id)
+
+    assert listed.status_code == 200
+    assert listed.json()[0]["status"] == "created"
+    assert persisted_manifest == durable_manifest
 
 
 def test_simulation_api_checkpoint_branch_rollback(
@@ -516,18 +910,12 @@ def test_successful_turns_ignore_checkpoint_interval_for_exact_lineage(
     ).json()
     session_id = started["session_id"]
 
-    first = client.post(
-        f"/projects/fog-harbor/simulations/{session_id}/step",
-        headers=AUTH,
-    ).json()
+    first = _advance(client, session_id).json()
     head_after_first = client.get(
         "/projects/fog-harbor/branches/main",
         headers=AUTH,
     ).json()
-    second = client.post(
-        f"/projects/fog-harbor/simulations/{session_id}/step",
-        headers=AUTH,
-    ).json()
+    second = _advance(client, session_id).json()
     trace = client.get(
         "/projects/fog-harbor/branches/main/simulation-trace",
         headers=AUTH,
@@ -571,6 +959,14 @@ def test_openapi_exposes_session_control_surface(tmp_path: Path) -> None:
     assert "/projects/{project_id}/simulations/{session_id}/run" in paths
     assert "/projects/{project_id}/simulations/{session_id}/pause" in paths
     assert "/projects/{project_id}/simulations/{session_id}/resume" in paths
+    assert "/projects/{project_id}/simulations/{session_id}/projections" in paths
+    assert (
+        "/projects/{project_id}/simulations/{session_id}/projections/{task_id}/retry"
+        in paths
+    )
+    assert (
+        "/projects/{project_id}/simulations/{session_id}/maintenance/retry" not in paths
+    )
     assert "/projects/{project_id}/simulations/{session_id}/terminate" in paths
     assert "/projects/{project_id}/simulations/{session_id}/locale" in paths
     assert "/projects/{project_id}/simulations/{session_id}/checkpoint" in paths

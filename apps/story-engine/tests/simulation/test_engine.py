@@ -56,8 +56,8 @@ def _runtime_factory(
                 (
                     '{"event_text":"Resolved event '
                     f'{step}","boundary":"{boundary_values[step]}",'
-                    '"visibility":"participants","observer_ids":[],'
-                    '"participant_ids":["actor-a"],"entity_changes":[]}'
+                    '"visibility":"participants","observer_names":[],'
+                    '"participant_names":["Actor A"],"entity_changes":[]}'
                 ),
             )
         )
@@ -135,6 +135,21 @@ def _request(control: ControlPolicy) -> TurnSessionRequest:
     )
 
 
+def _run_to_boundary(
+    engine: StoryTurnEngine,
+    session_id: str,
+    *,
+    completed: list | None = None,
+) -> object:
+    engine.begin_continuous(session_id)
+    while True:
+        result = engine.advance_one_step(session_id, cancellation=Event())
+        if completed is not None:
+            completed.append(result)
+        if result.status != TurnSessionStatus.RUNNING:
+            return engine.get(session_id)
+
+
 def test_autonomous_run_stops_at_hard_step_limit() -> None:
     engine = StoryTurnEngine(_runtime_factory())
     created = engine.create_session(
@@ -142,10 +157,10 @@ def test_autonomous_run_stops_at_hard_step_limit() -> None:
     )
     completed_steps = []
 
-    snapshot = engine.run(
+    snapshot = _run_to_boundary(
+        engine,
         created.session_id,
-        cancellation=Event(),
-        on_step=completed_steps.append,
+        completed=completed_steps,
     )
 
     assert snapshot.status == TurnSessionStatus.TERMINATED
@@ -162,11 +177,7 @@ def test_replay_runtime_runs_one_hundred_steps_without_state_drift() -> None:
     )
     completed = []
 
-    snapshot = engine.run(
-        created.session_id,
-        cancellation=Event(),
-        on_step=completed.append,
-    )
+    snapshot = _run_to_boundary(engine, created.session_id, completed=completed)
 
     assert snapshot.status == TurnSessionStatus.TERMINATED
     assert snapshot.current_step == 100
@@ -182,14 +193,15 @@ def test_step_mode_pauses_and_resume_runs_exactly_one_more_step() -> None:
         _request(ControlPolicy(mode=ControlMode.STEP, max_steps=4))
     )
 
-    first = engine.step(created.session_id, cancellation=Event())
+    first = engine.advance_one_step(created.session_id, cancellation=Event())
     after_first = engine.get(created.session_id)
-    after_resume = engine.resume(created.session_id, cancellation=Event())
+    after_resume = engine.advance_one_step(created.session_id, cancellation=Event())
+    after_resume_snapshot = engine.get(created.session_id)
 
     assert first.status == TurnSessionStatus.PAUSED
     assert after_first.current_step == 1
     assert after_resume.status == TurnSessionStatus.PAUSED
-    assert after_resume.current_step == 2
+    assert after_resume_snapshot.current_step == 2
 
 
 def test_scene_mode_pauses_only_at_scene_or_chapter_boundary() -> None:
@@ -200,7 +212,7 @@ def test_scene_mode_pauses_only_at_scene_or_chapter_boundary() -> None:
         _request(ControlPolicy(mode=ControlMode.SCENE, max_steps=4, max_scenes=4))
     )
 
-    snapshot = engine.run(created.session_id, cancellation=Event())
+    snapshot = _run_to_boundary(engine, created.session_id)
 
     assert snapshot.status == TurnSessionStatus.PAUSED
     assert snapshot.current_step == 2
@@ -215,7 +227,7 @@ def test_chapter_mode_runs_across_scenes_until_chapter_boundary() -> None:
         _request(ControlPolicy(mode=ControlMode.CHAPTER, max_steps=4, max_scenes=4))
     )
 
-    snapshot = engine.run(created.session_id, cancellation=Event())
+    snapshot = _run_to_boundary(engine, created.session_id)
 
     assert snapshot.status == TurnSessionStatus.PAUSED
     assert snapshot.current_step == 3
@@ -235,7 +247,7 @@ def test_autonomous_mode_can_cross_boundaries_until_a_hard_limit() -> None:
         )
     )
 
-    snapshot = engine.run(created.session_id, cancellation=Event())
+    snapshot = _run_to_boundary(engine, created.session_id)
 
     assert snapshot.status == TurnSessionStatus.TERMINATED
     assert snapshot.current_step == 3
@@ -256,7 +268,7 @@ def test_max_scenes_is_an_enforced_hard_limit() -> None:
         )
     )
 
-    snapshot = engine.run(created.session_id, cancellation=Event())
+    snapshot = _run_to_boundary(engine, created.session_id)
 
     assert snapshot.status == TurnSessionStatus.TERMINATED
     assert snapshot.current_step == 2
@@ -285,7 +297,7 @@ def test_game_master_can_end_session_before_actor_action() -> None:
         _request(ControlPolicy(mode=ControlMode.AUTONOMOUS, max_steps=5))
     )
 
-    snapshot = engine.run(created.session_id, cancellation=Event())
+    snapshot = _run_to_boundary(engine, created.session_id)
 
     assert snapshot.status == TurnSessionStatus.TERMINATED
     assert snapshot.current_step == 0
@@ -301,7 +313,7 @@ def test_precancelled_step_marks_session_cancelled() -> None:
     cancellation.set()
 
     with pytest.raises(SimulationCancelledError):
-        engine.step(created.session_id, cancellation=cancellation)
+        engine.advance_one_step(created.session_id, cancellation=cancellation)
 
     assert engine.get(created.session_id).status == TurnSessionStatus.CANCELLED
 

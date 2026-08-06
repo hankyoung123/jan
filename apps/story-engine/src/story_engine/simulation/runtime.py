@@ -3,10 +3,8 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from threading import Event
 
-from concordia.environment.engines import sequential  # type: ignore[import-untyped]
 from pydantic import JsonValue
 
-from story_engine.concordia_runtime.action_spec import ConcordiaActionSpecCodec
 from story_engine.concordia_runtime.factory import (
     ConcordiaGameMasterActor,
     ConcordiaStoryActor,
@@ -104,7 +102,6 @@ class StorySimulationRuntime:
         self._language_models = list(language_models)
         self._observer = observer
         self._stage_events: list[SimulationStageEvent] = []
-        self._sequential = sequential.Sequential()
         self._actors_by_name = {actor.name: actor for actor in actors}
         self._all_actors_by_name = {
             actor.name: actor for actor in (*actors, *available_actors)
@@ -249,12 +246,15 @@ class StorySimulationRuntime:
             self._plan_next_roster(scene_events)
         return tuple(decisions)
 
-    def _active_roster_candidates(self) -> dict[str, str]:
+    def _active_roster_candidates(self) -> dict[str, tuple[str, str]]:
         return {
             character.id: (
-                f"{character.identity}; goal: "
-                f"{character.current_goal or character.core_desire}; "
-                f"location: {character.location or 'unknown'}"
+                character.display_name or character.id,
+                (
+                    f"{character.identity}; goal: "
+                    f"{character.current_goal or character.core_desire}; "
+                    f"location: {character.location or 'unknown'}"
+                ),
             )
             for character in self.character_states()
             if character.type == "active"
@@ -426,7 +426,11 @@ class StorySimulationRuntime:
                 task_label="终止判断",
                 stage_event_id=stage_event.event_id,
             )
-            if self._sequential.terminate(self.game_master.entity):
+            should_terminate, _ = self.game_master.should_terminate(
+                session_id=self.session_id,
+                step=step,
+            )
+            if should_terminate:
                 self._publish_stage(
                     step=step,
                     stage=current_stage,
@@ -481,10 +485,12 @@ class StorySimulationRuntime:
                     task_label="角色观察",
                     stage_event_id=stage_event.event_id,
                 )
-                observation = self._sequential.make_observation(
-                    self.game_master.entity,
-                    actor.entity,
-                )
+                observation = self.game_master.make_observation(
+                    actor,
+                    session_id=self.session_id,
+                    step=step,
+                    content_locale=self.content_locale,
+                ).observation_text
                 if observation.strip():
                     observation_ids.append(record_id)
                     observation_summaries.append(f"{actor.name}: {observation}")
@@ -534,11 +540,12 @@ class StorySimulationRuntime:
                 task_label="行动角色选择",
                 stage_event_id=stage_event.event_id,
             )
-            raw_actor, raw_spec = self._sequential.next_acting(
-                self.game_master.entity,
-                tuple(actor.entity for actor in self.actors),
+            actor_id = self.game_master.select_next_actor(
+                self.actors,
+                session_id=self.session_id,
+                step=step,
             )
-            actor = self._actors_by_name[raw_actor.name]
+            actor = self._actors_by_name[actor_id]
             self._publish_stage(
                 step=step,
                 stage=current_stage,
@@ -558,9 +565,10 @@ class StorySimulationRuntime:
                 started_at=stage_started,
                 actor_id=actor.name,
             )
-            action_spec = ConcordiaActionSpecCodec.from_concordia(
-                raw_spec,
-                spec_id=f"action:{self.session_id}:{step}",
+            action_spec = self.game_master.create_action_spec(
+                actor,
+                session_id=self.session_id,
+                step=step,
                 content_locale=self.content_locale,
             )
             self._publish_stage(
@@ -608,7 +616,7 @@ class StorySimulationRuntime:
                 task_label="角色行动",
                 stage_event_id=stage_event.event_id,
             )
-            action = raw_actor.act(raw_spec)
+            action = actor.act(action_spec)
             putative_id = f"putative:{self.session_id}:{step}"
             self._publish_stage(
                 step=step,

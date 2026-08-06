@@ -131,6 +131,39 @@ def test_writer_uses_provider_length_and_five_minute_content_deadline(
     assert gateway.contexts[0].stage == "writer"
 
 
+def test_writer_ignores_profile_token_limit(tmp_path: Path) -> None:
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="writer",
+            task_type="writer",
+            model_ref="test-provider/test-writer",
+            max_output_tokens=4096,
+            timeout_seconds=90,
+        )
+    )
+    gateway = RecordingGateway(registry)
+    agent = GatewayManuscriptAgent(gateway)  # type: ignore[arg-type]
+
+    asyncio.run(
+        agent.generate(
+            _source(),
+            project=ProjectCreativeContext(
+                project_id="fog-harbor",
+                title="雾港",
+                genre="悬疑",
+                theme="真相与代价",
+                tone="克制",
+                content_locale="zh-CN",
+            ),
+        )
+    )
+
+    request = gateway.requests[0]
+    assert request.max_output_tokens is None
+    assert request.output_token_limit == "provider"
+
+
 def test_writer_markdown_is_parsed_locally() -> None:
     output = parse_writer_markdown("# 潮声\n\n第一段。\n\n第二段。")
 

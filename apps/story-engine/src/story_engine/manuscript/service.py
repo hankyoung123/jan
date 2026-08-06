@@ -168,12 +168,9 @@ class GatewayManuscriptAgent:
                     ),
                     Message(role="user", content=task_context),
                 ),
-                max_output_tokens=writer_profile.max_output_tokens,
-                output_token_limit=(
-                    "provider"
-                    if writer_profile.max_output_tokens is None
-                    else "profile"
-                ),
+                #正文生成只受首 token 和完成超时约束, 不发送 max_tokens。
+                max_output_tokens=None,
+                output_token_limit="provider",
                 first_content_timeout_seconds=WRITER_FIRST_CONTENT_TIMEOUT_SECONDS,
                 timeout_seconds=writer_profile.timeout_seconds,
                 temperature=writer_profile.temperature,
