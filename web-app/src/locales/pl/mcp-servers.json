@@ -1,0 +1,73 @@
+{
+  "editServer": "Edytuj Serwer MCP",
+  "addServer": "Dodaj Serwer MCP",
+  "browserExtension": {
+    "connecting": {
+      "checking": "Sprawdzanie statusu rozszerzenia..."
+    },
+    "notInstalled": {
+      "title": "Story Engine wykonuje zadania w Twojej przeglądarce",
+      "description": "Zainstaluj rozszerzenie, aby dać Story Engine dostęp do przeglądarki",
+      "getExtension": "Pobierz rozszerzenie"
+    }
+  },
+  "serverName": "Nazwa Serwera",
+  "enterServerName": "Wprowadź nazwę serwera",
+  "command": "Polecenie",
+  "enterCommand": "Wprowadź polecenie (uvx lub npx)",
+  "arguments": "Argumenty",
+  "argument": "{{index}}. argument",
+  "envVars": "Zmienne Środowiskowe",
+  "key": "Klucz",
+  "value": "Wartość",
+  "save": "Zapisz",
+  "status": "Stan",
+  "connected": "Połączono",
+  "disconnected": "Rozłączono",
+  "deleteServer": {
+    "title": "Usuń Serwer MCP",
+    "description": "Na pewno chcesz usunąć serwer MCP {{serverName}}? Tej operacji nie można cofnąć.",
+    "delete": "Usuń",
+    "success": "Serwer MCP {{serverName}} został pomyślnie usunięty"
+  },
+  "editJson": {
+    "title": "Edytuj JSON Serwera MCP: {{serverName}}",
+    "titleAll": "Edytuj JSON Wszystkich Serwerów MCP",
+    "placeholder": "Wprowadź konfigurację JSON",
+    "errorParse": "Błąd parsowania wstępnych danych",
+    "errorPaste": "Wprowadzono JSON o niepoprawnym formacie",
+    "errorFormat": "Niepoprawny format JSON",
+    "errorServerName": "Nazwa serwera jest wymagana i nie może być pusta",
+    "errorMissingServerNameKey": "JSON musi być w formacie {\"serverName\": {config}} - brakuje klucza nazwy serwera",
+    "errorInvalidType": "Niepoprawny typ '{{type}}' dla serwera '{{serverName}}'. Typ musi być 'stdio', 'http' lub 'sse'",
+    "save": "Zapisz"
+  },
+  "checkParams": "Proszę sprawdzić parametry we wprowadzeniu.",
+  "title": "Serwery MCP",
+  "experimental": "Eksperymentalne",
+  "editAllJson": "Edytuj JSON Wszystkich Serwerów",
+  "findMore": "Znajdź więcej serwerów MCP na",
+  "allowPermissions": "Pozwalaj na Wszystkie Użycia Narzędzi MCP",
+  "allowPermissionsDesc": "Po włączeniu będzie automatycznie zezwalać na wszystkie użycia narzędzi MCP bez wyświetlania próśb o zgodę. To ustawienie obowiązuje globalnie dla wszystkich rozmów, w tym nowych czatów.",
+  "noServers": "Nie znaleziono serwerów MCP",
+  "args": "Argumenty",
+  "env": "Zmienne Środowiskowe",
+  "serverStatusActive": "Pomyślnie aktywowano serwer {{serverKey}}",
+  "serverStatusInactive": "Pomyślnie dezaktywowano serwer {{serverKey}}",
+  "runtimeSettings": {
+    "title": "Ustawienia środowiska uruchomieniowego",
+    "description": "Skonfiguruj, jak Story Engine zarządza i ponawia próby połączenia z serwerami MCP.",
+    "toolCallTimeout": "Limit czasu wywołania narzędzia (sekundy)",
+    "toolCallTimeoutDesc": "Maksymalny czas oczekiwania na odpowiedź narzędzia MCP przed przekroczeniem limitu czasu.",
+    "smartToolRouting": "Inteligentne routowanie narzędzi MCP",
+    "smartToolRoutingDesc": "Po włączeniu Story Engine wybiera odpowiednie serwery MCP przed załadowaniem narzędzi. Wyłącz, aby zawsze ładować pełną listę narzędzi MCP.",
+    "useLightweightRouterModel": "Użyj dedykowanego modelu do routowania",
+    "useLightweightRouterModelDesc": "Gdy inteligentne routowanie jest włączone, krok routowania jest wykonywany przez osobny (często mniejszy) model zamiast modelu czatu. Wyłącz, aby zawsze używać aktywnego modelu czatu do routowania.",
+    "routerModel": "Model routowania",
+    "routerModelDesc": "Wybierz dostawcę i model w jednym miejscu. Wyświetlane są tylko lekkie modele, aby routowanie było szybkie i tanie.",
+    "selectRouterModelPlaceholder": "Wybierz model routowania…",
+    "routerModelSearchPlaceholder": "Szukaj modeli…",
+    "routerModelEmptyList": "Brak lekkich modeli. Dodaj mniejszy model lub skonfiguruj klucze API w sekcji Modele.",
+    "routerModelEmptySearch": "Brak wyników dla „{{query}}”."
+  }
+}

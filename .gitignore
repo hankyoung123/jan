@@ -1,15 +1,30 @@
+.env
+.env.*
+!.env.example
+error.log
+*.log
+*.tgz
 .DS_Store
 .idea/
 .vscode/
 
 # JavaScript
 node_modules/
+**/node_modules/
 dist/
+build/
+.build/
 coverage/
+playwright-report/
+test-results/
 .vite/
 *.tsbuildinfo
-apps/desktop/vite.config.js
-apps/desktop/vite.config.d.ts
+package-lock.json
+core/lib/**
+.yarn/
+.yarnrc
+test_results.html
+pre-install
 
 # Python
 .venv/
@@ -22,11 +37,40 @@ __pycache__/
 
 # Rust / Tauri
 target/
-apps/desktop/src-tauri/gen/
+Cargo.lock
+src-tauri/resources/
+src-tauri/gen/apple/
+src-tauri/gen/android/
+!src-tauri/icons/icon.png
 
 # Local engine state
 .story-engine/
-*.log
-.env
-.env.*
-!.env.example
+
+# Documentation builds
+docs/yarn.lock
+docs/out/
+docs/.next/
+website/dist/
+website/.astro/
+website/src/content/config.ts.timestamp-*
+
+# Tooling
+.opencode/
+.cache/
+OpenCode.md
+Claude.md
+CLAUDE.md
+.claude/
+archive/
+test-data/
+llm-docs/
+
+# Auto QA
+autoqa/trajectories/
+autoqa/recordings/
+autoqa/__pycache__/
+
+# Swift Package Manager
+src-tauri/plugins/tauri-plugin-foundation-models/swift-server/.build/
+src-tauri/plugins/tauri-plugin-foundation-models/swift-server/.swiftpm/
+src-tauri/plugins/tauri-plugin-foundation-models/swift-server/Package.resolved

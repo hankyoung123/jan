@@ -1,10 +1,14 @@
 # AI Story Evolution Engine Next
 ## 全新产品开发计划书（AI Coding 指导版）
 
-**版本：** v1.0  
-**日期：** 2026-07-31  
+**版本：** v1.1
+**日期：** 2026-08-01
 **用途：** 作为产品、架构、开发顺序、代码约束与验收标准的统一依据，供 AI Coding 按阶段实施。  
 **适用范围：** 全新版本，不兼容旧项目数据库和旧工作流；旧仓库仅作为交互、组件和经验参考。
+
+文档发生冲突时，实施优先级为：最新 Accepted ADR >
+`architecture.md` / `domain-model.md` / `data-contracts.md` > 本计划 >
+历史实施计划。ADR-0003 已用 Jan-in-place 结构取代早期独立桌面 Workspace。
 
 ---
 
@@ -160,6 +164,11 @@ Novel / Tiptap
 - RAG 接口和 UI 可以借鉴，检索后端默认由 Python Story Engine 重新实现；
 - 仓库必须包含 `THIRD_PARTY_NOTICES.md`、`licenses/` 和修改说明；
 - Jan、Novel 等项目的名称、Logo、插画和商标性资产必须替换。
+
+当前保留的 `core`、assistant、download、llamacpp、mlx 包清单声明为
+AGPL-3.0。在获得上游许可澄清、单独商业许可、替换这些模块，或选择
+AGPL 合规分发之前，闭源安装包发布处于阻塞状态；包含许可证文本本身
+不解除该阻塞。
 
 ---
 
@@ -865,14 +874,13 @@ RAG 结果必须携带来源：
 
 ```text
 ai-story-evolution-engine-next/
-├── apps/
-│   ├── desktop/                 # Jan-based React + Tauri
-│   └── story-engine/            # Python Sidecar
-│
+├── web-app/                     # Jan-based React application
+├── src-tauri/                   # Jan-based Tauri runtime and plugins
+├── core/                        # Jan model and extension contracts
+├── extensions/                  # Model download and local inference
+├── apps/story-engine/           # Python Sidecar
 ├── packages/
-│   ├── ui/                      # 迁移后的 Jan / shadcn 组件
-│   ├── contracts/               # OpenAPI / JSON Schema / TS 类型
-│   └── editor/                  # Novel/Tiptap 封装
+│   └── contracts/               # OpenAPI / JSON Schema / TS 类型
 │
 ├── docs/
 │   ├── product-plan.md
@@ -885,7 +893,8 @@ ai-story-evolution-engine-next/
 │
 ├── licenses/
 ├── THIRD_PARTY_NOTICES.md
-├── pnpm-workspace.yaml
+├── package.json                 # Yarn 4 workspace
+├── yarn.lock
 └── README.md
 ```
 
@@ -1264,10 +1273,10 @@ AI 必须报告：
 
 ```text
 Frontend:
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
+yarn lint
+yarn typecheck
+yarn test
+yarn build
 
 Python:
 ruff check

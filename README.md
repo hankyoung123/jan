@@ -1,73 +1,104 @@
 # AI Story Evolution Engine Next
 
-AI Story Evolution Engine Next is a local-first desktop system for evolving
-long-form stories from character-limited knowledge, independent intent, world
-resolution, editorial review, and explicit user approval.
+AI Story Evolution Engine Next is a local-first desktop system for running
+long-form story simulations with character-limited knowledge, persistent
+Concordia actors, Game Master resolution, branches, checkpoints, and optional
+manuscript editing.
 
-The repository is under active construction. The canonical product
-requirements are in [docs/product-plan.md](docs/product-plan.md).
+The product vision is in [docs/product-plan.md](docs/product-plan.md). The
+current runtime contract is defined by [the architecture](docs/architecture.md)
+and [ADR-0005](docs/adr/0005-concordia-native-runtime.md), which supersede the
+product plan's original candidate-and-approval turn pipeline.
 
-## Locked upstreams
+## Upstream foundation
 
-- Jan `v0.8.4` at `5f30aee467f08941964a83f946e2663e7ae0e01f`
-- Concordia `v2.4.0` at `702998f57da71f87bf4e607abc1325ee51cca21f`
+This branch descends directly from Jan `v0.8.4` at
+`5f30aee467f08941964a83f946e2663e7ae0e01f`. Jan supplies the Tauri shell,
+React infrastructure, settings, Provider management, model acquisition, and
+local llama.cpp/MLX runtimes. Product branding and the general chat domain are
+being replaced while the reusable local-model infrastructure remains intact.
 
-Jan is registered as the `upstream` Git remote. Product code is developed in
-this repository; upstream code is only migrated with a directory-level license
-review and an accompanying notice.
+Concordia is locked to `v2.4.0` at
+`702998f57da71f87bf4e607abc1325ee51cca21f` and will be consumed as an
+unmodified Python dependency. It is the persistent simulation kernel behind
+the project-owned `concordia_runtime`, recipe, persistence, and API layers.
 
-## Planned workspace
+## Workspace
 
 ```text
-apps/desktop       React + Tauri desktop application
-apps/story-engine  FastAPI story engine sidecar
-packages/contracts Shared OpenAPI and generated TypeScript contracts
-packages/ui        Reusable product UI
-packages/editor    Tiptap-based manuscript editor
+web-app/             Jan-based authoritative React application
+src-tauri/            Jan-based authoritative Tauri runtime and plugins
+core/                 Jan model and extension contracts
+extensions/           Jan model download and local inference extensions
+apps/story-engine/    Python story-domain Sidecar
+packages/contracts/   Generated Story Engine OpenAPI/TypeScript contracts
 ```
 
 ## Prerequisites
 
 - Node.js 20 or newer
-- pnpm 10
+- Yarn 4.5.3 through Corepack
 - Rust 1.80 or newer
-- uv
-- Python 3.12
+- Make 3.81 or newer
+- uv and Python 3.12
+- macOS Apple Silicon builds: Metal Toolchain
 
 ## Development
 
-Install workspace dependencies and start the Story Engine:
+Install the Jan workspace and Python environment:
 
 ```bash
-pnpm install
-uv run --project apps/story-engine story-engine serve \
-  --port 39281 --session-token development-token
+corepack enable
+yarn install
+yarn bootstrap:jan
+uv sync --project apps/story-engine --extra dev
 ```
 
-In another terminal, start the desktop web surface:
+Start the Story Engine and Jan-based web application in separate terminals:
 
 ```bash
-pnpm desktop:dev
+yarn story-engine:dev
+yarn dev:web
 ```
 
-Open `http://127.0.0.1:1420`. To run the native shell, use:
+For the native application, use `yarn dev:tauri` after the platform-specific
+Jan prerequisites and local inference binaries are available.
+
+To prepare a release-only updater configuration, provide the product endpoint
+and Tauri public key through the release environment. The command writes an
+ignored `.build/tauri.release.conf.json` and leaves the development config
+unchanged. Then use the release build entrypoint, which consumes that generated
+configuration and enables updater artifacts:
 
 ```bash
-pnpm --filter @story-engine/desktop tauri:dev
+STORY_ENGINE_VERSION=0.2.0 \
+STORY_ENGINE_UPDATER_ENDPOINT=https://updates.example.com/latest.json \
+TAURI_UPDATER_PUBLIC_KEY='...' \
+yarn build:tauri:release
 ```
+
+The private signing key is consumed by the Tauri build environment and is not
+written by this command.
+
+The optional custom HMAC update check reads
+`STORY_ENGINE_UPDATE_SIGNING_KEY` at compile time. Do not commit this value or
+use a development fallback. When it is absent, the custom signed check fails
+closed and the standard Tauri updater path remains available for a configured
+release endpoint.
 
 ## Quality gates
 
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm contracts:check
-pnpm --filter @story-engine/desktop tauri:build
+yarn lint
+yarn typecheck
+yarn test
+yarn contracts:check
+yarn build
 ```
 
-The current shell, navigation, and brand assets are original product code. Jan
-remains the locked upstream reference for lifecycle, model-center, settings,
-and desktop interaction patterns; no Jan source file or trademark asset has
-been copied into this baseline.
+## Attribution
+
+Jan-derived source remains under the Apache License 2.0 with upstream notices
+preserved. Jan names, logos, screenshots, and other trademark assets are not
+part of the product identity. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+and [the migration map](docs/upstream/jan-v0.8.4-migration-map.md).

@@ -22,9 +22,10 @@ following dependency chains as source, not as visual references:
 | `src-tauri/plugins/tauri-plugin-hardware` | Model compatibility and hardware status | Keep |
 
 Jan's `rag-extension`, vector database plugin, general chat domain, assistant
-domain, Jan branding, screenshots, and trademark assets are not product
-foundations. The AGPL RAG implementation is not distributed in the closed
-product; Python implements the V1 retrieval gateway after scope authorization.
+domain, marketing website, end-user documentation site, Jan branding,
+screenshots, and trademark assets are not product foundations. The AGPL RAG
+implementation is not distributed in the closed product; Python implements the
+V1 retrieval gateway after scope authorization.
 
 ## Product-owned additions
 
@@ -41,9 +42,10 @@ baseline:
 ## Credential boundary
 
 Jan Provider screens remain the user-facing configuration surface. Provider
-secrets must be bridged to the Python gateway through an operating-system
-secret store or a token-scoped runtime handoff. They must never be copied into
-story projects, query strings, browser storage, status events, or logs.
+secrets remain in Jan's Rust runtime and operating-system secret store. Python
+calls a token-scoped private Jan proxy and never receives Provider keys. Secrets
+must never be copied into story projects, query strings, browser storage,
+status events, command-line arguments, or logs.
 
 ## Attribution
 

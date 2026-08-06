@@ -1,92 +1,57 @@
-# Data Contracts
+# Data contracts
 
-## API conventions
+## Runtime files
 
-- JSON fields use `snake_case`.
-- Identifiers are stable lower-case strings or ULIDs.
-- Timestamps are ISO-8601 UTC values.
-- Validation errors use FastAPI problem details.
-- Domain conflicts use HTTP `409`; missing resources use `404`.
-- Authenticated requests use `Authorization: Bearer <session-token>`.
-
-## Health
-
-`GET /health` returns:
-
-```json
-{
-  "status": "ok",
-  "service": "story-engine",
-  "version": "0.1.0"
-}
-```
-
-## Submission and evolution
-
-`POST /submissions/finalize` validates a complete initial setting package and
-creates the canonical Markdown project. The package contains creative
-direction, world rules, a concrete incident and pressure, and two to four
-active characters with explicit private fact identifiers. It has no outline
-or future plot contract.
-
-`POST /projects/{project_id}/turns/generate` asks the engine to assemble one
-private context per participant, generate isolated character intents, resolve
-one world outcome, and run the Editor review. The resulting candidate is
-derived state below `.story-engine/turns`.
-
-The client cannot submit its own intents, outcomes, or review verdicts. After
-generation it can invoke only these decision endpoints:
+Each project stores simulation infrastructure below `.story-engine/runtime`:
 
 ```text
-POST /projects/{project_id}/turns/{turn_id}/request-revision
-POST /projects/{project_id}/turns/{turn_id}/confirm
-POST /projects/{project_id}/turns/{turn_id}/discard
+runtime/
+├── branches/<branch-id>.json
+├── checkpoints/checkpoint-<sha256>.json
+└── logs/<branch-id>.jsonl
 ```
 
-Only `confirm` can reach `EventCommitService` and mutate canonical Markdown.
-Revision replaces the derived outcome and reruns review; discard changes only
-the derived candidate lifecycle.
+Branch manifests contain project and branch IDs, parent/fork metadata, head
+checkpoint, head step, locale, and timestamps. Checkpoint envelopes contain a
+schema version, content-addressed checkpoint ID, and one complete
+`TurnSessionSnapshot`. Log records contain the matching checkpoint/state hash,
+`StepResult`, and `TurnTrace`.
 
-## Streaming event envelope
+All persisted models reject unknown fields. Datetimes are timezone-aware.
+Checkpoint load recalculates the canonical JSON hash (excluding only
+`state_hash` and `checkpoint_id`) and rejects tampering.
 
-Clients connect to `GET /ws/events?project_id={project_id}` with the WebSocket
-subprotocols `story-engine.v1` and `story-engine.token.{session-token}`. The
-token is never placed in the URL. Missing, duplicate, or invalid token
-protocols are rejected with close code `1008`.
+`TurnSessionSnapshot.characters` contains the complete branch-local character
+projection. `roster_actor_ids` contains only the current Scene Roster and is
+limited to four Active Agent IDs.
 
-```json
-{
-  "event_id": "01J...",
-  "project_id": "fog-harbor",
-  "turn_id": "01J...",
-  "timestamp": "2026-07-31T04:00:00Z",
-  "type": "character.intent.completed",
-  "payload": {}
-}
-```
+## Commit semantics
 
-The initial event type set is defined in `docs/product-plan.md` section 13.2.
-Unknown event types must be ignored by clients for forward compatibility.
-The bounded in-memory stream drops the oldest queued event for a slow client;
-canonical state remains available through HTTP and Markdown reload.
+Step identity is `(session_id, step)`. Re-appending the identical log record is
+idempotent; conflicting duplicates and non-increasing step sequences are
+rejected. Branch head updates use an expected-head compare-and-swap and reject
+concurrent writers.
 
-## Model profiles
+## Wiki files
 
-`GET /models/profiles` returns the five application-level task routes.
-`PUT /models/profiles/{profile_id}` updates only non-sensitive routing and limit
-data. Provider writes may contain a write-only `api_key`; Provider reads return
-`has_api_key` and never return the credential. Story projects reference profile
-IDs and task overrides only.
+`wiki/branches/<branch-id>/` pages and their version snapshots are written as
+one recoverable `AtomicBatch`. They include only history at or before the
+selected checkpoint boundary. Branch-local log records provide step traces,
+while the checkpoint's Game Master memory supplies inherited world events after
+a fork. Removing Wiki pages does not alter branch manifests, checkpoints, or
+logs.
 
-`POST /models/complete` and `POST /models/stream` share the `ModelRequest`
-contract. Structured calls include a JSON Schema string and fail with the
-stable `structured_output_invalid` code when schema parsing, JSON parsing, or
-validation fails. Streaming uses server-sent event records and applies the same
-final validation before accounting the request as complete.
+## HTTP and TypeScript
 
-## Contract generation
+FastAPI generates `packages/contracts/openapi.json`; `openapi-typescript`
+generates `packages/contracts/src/generated.ts`. Run `yarn contracts:generate`
+after changing a public model or route. CI must fail when generated contracts
+drift from the application schema.
 
-The engine exports OpenAPI deterministically. The root verification command
-fails when generated OpenAPI or TypeScript types differ from committed files.
-Secrets, provider keys, and sidecar tokens are never represented in response
-schemas.
+The production control surface is session-based:
+
+- `/projects/{project_id}/simulations` and session control subroutes;
+- `/projects/{project_id}/branches` for forks;
+- branch rollback and Wiki rebuild routes.
+
+WebSocket envelopes use `subject_id` and the `simulation.*` event family.

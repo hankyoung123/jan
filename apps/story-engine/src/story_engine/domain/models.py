@@ -1,28 +1,18 @@
 from datetime import datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
-
-from story_engine.domain.errors import InvalidTransitionError
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 JsonScalar = str | int | float | bool | None
 CharacterType = Literal["active", "npc", "retired"]
-TurnStatus = Literal[
-    "draft",
-    "reviewed",
-    "needs_revision",
-    "approved",
-    "discarded",
-    "committed",
-]
 ReviewMode = Literal[
     "submission_review",
     "character_review",
     "world_review",
-    "turn_review",
     "promotion_review",
     "manuscript_review",
 ]
+FactVisibility = Literal["public", "private", "secret"]
 
 
 class DomainModel(BaseModel):
@@ -38,13 +28,55 @@ class Relationship(DomainModel):
     description: str = Field(min_length=1)
 
 
-class StateChange(DomainModel):
-    target_type: Literal["character", "world"]
-    target_id: str = Field(min_length=1)
-    field: str = Field(min_length=1)
-    old_value: JsonValue = None
-    new_value: JsonValue
-    reason: str = Field(min_length=1)
+class Fact(DomainModel):
+    id: str = Field(min_length=1)
+    statement: str = Field(min_length=1)
+    visibility: FactVisibility
+    known_by: tuple[str, ...] = ()
+    source_event_id: str = Field(min_length=1)
+    introduced_at: datetime
+    supersedes_fact_id: str | None = None
+
+    @model_validator(mode="after")
+    def visibility_has_valid_owners(self) -> Self:
+        if self.visibility == "public" and self.known_by:
+            raise ValueError("public fact must not have a restricted owner list")
+        if self.visibility != "public" and not self.known_by:
+            raise ValueError("non-public fact requires at least one knowing character")
+        if len(self.known_by) != len(set(self.known_by)):
+            raise ValueError("fact known_by character ids must be unique")
+        if self.introduced_at.tzinfo is None:
+            raise ValueError("introduced_at must include a timezone")
+        return self
+
+
+class InitialFact(DomainModel):
+    id: str = Field(min_length=1)
+    statement: str = Field(min_length=1)
+    visibility: FactVisibility = Field(
+        description=(
+            "Use public for facts known to everyone. Use private or secret only "
+            "when knowledge is restricted to specific characters."
+        )
+    )
+    known_by: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Must be empty when visibility is public. For private or secret facts, "
+            "list every knowing character id exactly once."
+        ),
+    )
+    supersedes_fact_id: str | None = None
+
+    @model_validator(mode="after")
+    def visibility_has_valid_owners(self) -> Self:
+        if self.visibility == "public" and self.known_by:
+            raise ValueError("public initial fact must not have known_by owners")
+        if self.visibility != "public" and not self.known_by:
+            raise ValueError("non-public initial fact requires a knowing character")
+        if len(self.known_by) != len(set(self.known_by)):
+            raise ValueError("initial fact known_by ids must be unique")
+        return self
 
 
 class Character(DomainModel):
@@ -59,7 +91,6 @@ class Character(DomainModel):
     location: str | None = None
     emotional_state: str | None = None
     resources: tuple[str, ...] = ()
-    last_event_id: str | None = None
     version: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
@@ -77,32 +108,6 @@ class WorldState(DomainModel):
     public_fact_ids: tuple[str, ...] = ()
     world_variables: dict[str, JsonScalar] = Field(default_factory=dict)
     version: int = Field(default=0, ge=0)
-
-
-class CharacterIntent(DomainModel):
-    character_id: str = Field(min_length=1)
-    action: str = Field(min_length=1)
-    target: str | None = None
-    goal: str = Field(min_length=1)
-    knowledge_basis: tuple[str, ...] = Field(min_length=1)
-    recognized_risk: str | None = None
-
-
-class NpcCandidate(DomainModel):
-    id: str = Field(min_length=1)
-    identity: str = Field(min_length=1)
-    purpose: str = Field(min_length=1)
-    current_goal: str | None = None
-
-
-class WorldOutcome(DomainModel):
-    summary: str = Field(min_length=1)
-    public_results: tuple[str, ...] = ()
-    hidden_results: tuple[str, ...] = ()
-    character_changes: tuple[StateChange, ...] = ()
-    world_changes: tuple[StateChange, ...] = ()
-    new_npcs: tuple[NpcCandidate, ...] = ()
-    unresolved_consequences: tuple[str, ...] = ()
 
 
 class ReviewIssue(DomainModel):
@@ -123,84 +128,3 @@ class ReviewResult(DomainModel):
         if self.passed and any(issue.severity == "blocking" for issue in self.issues):
             raise ValueError("passing review cannot contain blocking issues")
         return self
-
-
-class StoryEvent(DomainModel):
-    id: str = Field(min_length=1)
-    sequence: int = Field(ge=1)
-    occurred_at: datetime
-    summary: str = Field(min_length=1)
-    participants: tuple[str, ...]
-    public_results: tuple[str, ...] = ()
-    hidden_results: tuple[str, ...] = ()
-    character_changes: tuple[StateChange, ...] = ()
-    world_changes: tuple[StateChange, ...] = ()
-    source_turn_id: str = Field(min_length=1)
-    approved_by_user: bool
-
-    @model_validator(mode="after")
-    def formal_event_is_approved_and_timezone_aware(self) -> Self:
-        if not self.approved_by_user:
-            raise ValueError("formal story event requires user approval")
-        if self.occurred_at.tzinfo is None:
-            raise ValueError("occurred_at must include a timezone")
-        return self
-
-
-class TurnCandidate(DomainModel):
-    id: str = Field(min_length=1)
-    project_id: str = Field(min_length=1)
-    base_world_version: int = Field(ge=0)
-    base_character_versions: dict[str, int]
-    intents: tuple[CharacterIntent, ...] = Field(min_length=1)
-    outcome: WorldOutcome
-    review: ReviewResult | None = None
-    status: TurnStatus = "draft"
-
-    @model_validator(mode="after")
-    def lifecycle_state_is_consistent(self) -> Self:
-        if self.status == "reviewed" and self.review is None:
-            raise ValueError("reviewed candidate requires a review")
-        if self.status == "approved" and (
-            self.review is None or not self.review.passed
-        ):
-            raise ValueError("approved candidate requires a passing review")
-        return self
-
-    def with_review(self, review: ReviewResult) -> Self:
-        if self.status in {"discarded", "committed"}:
-            raise InvalidTransitionError(
-                f"cannot review a candidate with status {self.status}"
-            )
-        status: TurnStatus = "reviewed" if review.passed else "needs_revision"
-        return self.model_copy(update={"review": review, "status": status})
-
-    def with_outcome(self, outcome: WorldOutcome) -> Self:
-        if self.status in {"discarded", "committed"}:
-            raise InvalidTransitionError(
-                f"cannot edit a candidate with status {self.status}"
-            )
-        return self.model_copy(
-            update={"outcome": outcome, "review": None, "status": "draft"}
-        )
-
-    def approve(self) -> Self:
-        if (
-            self.status != "reviewed"
-            or self.review is None
-            or not self.review.passed
-        ):
-            raise InvalidTransitionError(
-                "candidate approval requires a passing current review"
-            )
-        return self.model_copy(update={"status": "approved"})
-
-    def discard(self) -> Self:
-        if self.status == "committed":
-            raise InvalidTransitionError("a committed candidate cannot be discarded")
-        return self.model_copy(update={"status": "discarded"})
-
-    def mark_committed(self) -> Self:
-        if self.status != "approved":
-            raise InvalidTransitionError("only an approved candidate can be committed")
-        return self.model_copy(update={"status": "committed"})

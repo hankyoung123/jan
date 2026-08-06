@@ -1,3 +1,6 @@
+import json
+import re
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -9,11 +12,14 @@ from story_engine.domain.models import (
     Character,
     CharacterType,
     DomainModel,
+    Fact,
+    FactVisibility,
     Relationship,
-    StateChange,
-    StoryEvent,
     WorldState,
 )
+from story_engine.manuscript.models import Scene
+
+_JSON_PAYLOAD = re.compile(r"```json\n(?P<payload>.*?)\n```", re.DOTALL)
 
 
 class ProjectDocument(DomainModel):
@@ -73,7 +79,6 @@ class CharacterDocument(DomainModel):
     location: str | None = None
     emotional_state: str | None = None
     resources: tuple[str, ...] = ()
-    last_event_id: str | None = None
     version: int = Field(default=0, ge=0)
 
     @classmethod
@@ -86,31 +91,57 @@ class CharacterDocument(DomainModel):
         )
 
 
-class EventDocument(DomainModel):
-    schema_name: Literal["story-event/v1"] = Field(
-        default="story-event/v1",
+class FactDocument(DomainModel):
+    schema_name: Literal["fact/v1"] = Field(
+        default="fact/v1",
         serialization_alias="schema",
         validation_alias="schema",
     )
     id: str = Field(min_length=1)
-    sequence: int = Field(ge=1)
-    occurred_at: datetime
-    summary: str = Field(min_length=1)
-    participants: tuple[str, ...]
-    public_results: tuple[str, ...] = ()
-    hidden_results: tuple[str, ...] = ()
-    character_changes: tuple[StateChange, ...] = ()
-    world_changes: tuple[StateChange, ...] = ()
-    source_turn_id: str = Field(min_length=1)
-    approved_by_user: bool
+    statement: str = Field(min_length=1)
+    visibility: FactVisibility
+    known_by: tuple[str, ...] = ()
+    source_event_id: str = Field(min_length=1)
+    introduced_at: datetime
+    supersedes_fact_id: str | None = None
 
     @classmethod
-    def from_domain(cls, event: StoryEvent) -> "EventDocument":
-        return cls.model_validate(event.model_dump())
+    def from_domain(cls, fact: Fact) -> "FactDocument":
+        return cls.model_validate(fact.model_dump())
 
-    def to_domain(self) -> StoryEvent:
-        return StoryEvent.model_validate(
-            self.model_dump(exclude={"schema_name"}),
+    def to_domain(self) -> Fact:
+        return Fact.model_validate(self.model_dump(exclude={"schema_name"}))
+
+
+class SceneDocument(DomainModel):
+    schema_name: Literal["scene/v2"] = Field(
+        default="scene/v2",
+        serialization_alias="schema",
+        validation_alias="schema",
+    )
+    id: str = Field(pattern=r"^scene-[0-9]{6}$")
+    project_id: str = Field(min_length=1)
+    branch_id: str = Field(min_length=1)
+    sequence: int = Field(ge=1)
+    chapter_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    source_event_ids: tuple[str, ...] = Field(min_length=1)
+    source_checkpoint_id: str = Field(min_length=1)
+    source_from_step: int = Field(ge=0)
+    source_to_step: int = Field(ge=0)
+    source_memory_ids: tuple[str, ...] = ()
+    source_wiki_branch_id: str = Field(min_length=1)
+    source_wiki_version_id: str = Field(min_length=1)
+    viewpoint_actor_id: str | None = None
+    version: int = Field(ge=1)
+
+    @classmethod
+    def from_domain(cls, scene: Scene) -> "SceneDocument":
+        return cls.model_validate(scene.model_dump(exclude={"body"}))
+
+    def to_domain(self, body: str) -> Scene:
+        return Scene.model_validate(
+            {**self.model_dump(exclude={"schema_name"}), "body": body}
         )
 
 
@@ -129,6 +160,48 @@ def load_document[DocumentT: DomainModel](
     return model.model_validate(metadata), str(post.content)
 
 
+def dump_json_envelope(
+    *,
+    schema: str,
+    title: str,
+    payload: Mapping[str, Any],
+    metadata: Mapping[str, Any] | None = None,
+    body: str | None = None,
+) -> str:
+    """Render exact structured state inside an inspectable Markdown document."""
+    front_matter = {"schema": schema, **dict(metadata or {})}
+    structured = json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    )
+    content = body or f"# {title}"
+    post = frontmatter.Post(
+        f"{content.rstrip()}\n\n## Structured Payload\n\n```json\n{structured}\n```",
+        **front_matter,
+    )
+    return f"{frontmatter.dumps(post, sort_keys=False).rstrip()}\n"
+
+
+def load_json_envelope(path: Path, *, schema: str) -> dict[str, Any]:
+    try:
+        post = frontmatter.load(path)
+        if post.metadata.get("schema") != schema:
+            raise ValueError("Markdown envelope schema mismatch")
+        matches = tuple(_JSON_PAYLOAD.finditer(str(post.content)))
+        if not matches:
+            raise ValueError("Markdown envelope has no JSON payload")
+        payload = json.loads(matches[-1].group("payload"))
+    except FileNotFoundError:
+        raise
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError(f"Markdown envelope {path.name!r} is invalid") from error
+    if not isinstance(payload, dict):
+        raise ValueError("Markdown envelope payload must be an object")
+    return payload
+
+
 def render_project(document: ProjectDocument) -> str:
     body = f"""# {document.title}
 
@@ -141,11 +214,19 @@ def render_project(document: ProjectDocument) -> str:
     return dump_document(document, body)
 
 
-def render_world(world: WorldState) -> str:
+def render_world(world: WorldState, facts: tuple[Fact, ...]) -> str:
     document = WorldDocument.from_domain(world)
     rules = "\n".join(f"- {item}" for item in world.rules) or "- None"
     pressures = "\n".join(f"- {item}" for item in world.active_pressures) or "- None"
-    facts = "\n".join(f"- {item}" for item in world.public_fact_ids) or "- None"
+    facts_by_id = {fact.id: fact for fact in facts}
+    public_facts = (
+        "\n".join(
+            f"- [{fact_id}] {facts_by_id[fact_id].statement}"
+            for fact_id in world.public_fact_ids
+            if fact_id in facts_by_id
+        )
+        or "- None"
+    )
     variables = (
         "\n".join(f"- {key}: {value}" for key, value in world.world_variables.items())
         or "- None"
@@ -167,7 +248,7 @@ def render_world(world: WorldState) -> str:
 
 ## Public Facts
 
-{facts}
+{public_facts}
 
 ## Variables
 
@@ -176,9 +257,17 @@ def render_world(world: WorldState) -> str:
     return dump_document(document, body)
 
 
-def render_character(character: Character) -> str:
+def render_character(character: Character, facts: tuple[Fact, ...]) -> str:
     document = CharacterDocument.from_domain(character)
-    facts = "\n".join(f"- {item}" for item in character.known_fact_ids) or "- None"
+    facts_by_id = {fact.id: fact for fact in facts}
+    known_facts = (
+        "\n".join(
+            f"- [{fact_id}] {facts_by_id[fact_id].statement}"
+            for fact_id in character.known_fact_ids
+            if fact_id in facts_by_id
+        )
+        or "- None"
+    )
     relationships = (
         "\n".join(
             f"- {relationship.character_id}: {relationship.description}"
@@ -203,7 +292,7 @@ def render_character(character: Character) -> str:
 
 ## Known Facts
 
-{facts}
+{known_facts}
 
 ## Relationships
 
@@ -219,20 +308,12 @@ def render_character(character: Character) -> str:
     return dump_document(document, body)
 
 
-def render_event(event: StoryEvent) -> str:
-    document = EventDocument.from_domain(event)
-    public = "\n".join(f"- {item}" for item in event.public_results) or "- None"
-    hidden = "\n".join(f"- {item}" for item in event.hidden_results) or "- None"
-    body = f"""# Event {event.sequence:06d}
-
-{event.summary}
-
-## Public Results
-
-{public}
-
-## Hidden Results
-
-{hidden}
-"""
+def render_fact(fact: Fact) -> str:
+    document = FactDocument.from_domain(fact)
+    body = f"# Fact\n\n{fact.statement}\n"
     return dump_document(document, body)
+
+
+def render_scene(scene: Scene) -> str:
+    document = SceneDocument.from_domain(scene)
+    return dump_document(document, scene.body)

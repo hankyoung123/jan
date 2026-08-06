@@ -1,0 +1,15 @@
+/**
+ * Conversational extension. Persists and retrieves conversations.
+ * @module
+ */
+export { ConversationalExtension } from './conversational'
+
+/**
+ * Assistant extension for managing assistants.
+ */
+export { AssistantExtension } from './assistant'
+
+/**
+ * MCP extension for managing tools and server communication.
+ */
+export { MCPExtension } from './mcp'

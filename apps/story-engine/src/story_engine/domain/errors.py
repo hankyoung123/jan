@@ -4,4 +4,3 @@ class DomainError(Exception):
 
 class InvalidTransitionError(DomainError):
     """Raised when a candidate lifecycle transition is not allowed."""
-

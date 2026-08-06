@@ -1,0 +1,149 @@
+{
+  "title": "Simulation observatory",
+  "workspace": "Story workspace",
+  "loading": "Loading project",
+  "noProject": "No story project selected",
+  "goToSubmission": "Go to submission",
+  "newSession": "New session",
+  "step": "Step",
+  "tokens": "tokens",
+  "duration": "Duration",
+  "scenes": "{{count}} scenes",
+  "actors": "Actors",
+  "timeline": "Simulation timeline",
+  "timelineEmpty": "Committed steps will appear here.",
+  "locale": "Content locale",
+  "localeApply": "Apply locale",
+  "mode": {
+    "step": "Step mode",
+    "scene": "Scene mode",
+    "chapter": "Chapter mode",
+    "autonomous": "Autonomous"
+  },
+  "status": {
+    "created": "Created",
+    "running": "Running",
+    "paused": "Paused",
+    "terminated": "Terminated",
+    "cancelled": "Cancelled",
+    "failed": "Failed"
+  },
+  "pending": {
+    "none": "No pending control",
+    "pause": "Pausing after the current step…",
+    "terminate": "Safely terminating after the current step…"
+  },
+  "projections": {
+    "title": "Output projections",
+    "kind": {
+      "wiki": "Wiki",
+      "manuscript": "Manuscript"
+    },
+    "status": {
+      "pending": "Queued",
+      "running": "Updating",
+      "succeeded": "Current",
+      "failed": "Failed"
+    },
+    "retryTask": "Retry {{kind}} projection"
+  },
+  "controls": {
+    "step": "Single step",
+    "run": "Run",
+    "pause": "Request pause",
+    "resume": "Resume",
+    "checkpoint": "Checkpoint",
+    "safeTerminate": "Safe terminate",
+    "cancel": "Cancel now"
+  },
+  "setup": {
+    "eyebrow": "Session policy",
+    "title": "Start a simulation",
+    "premise": "Scene goal",
+    "mode": "Control mode",
+    "branch": "Branch ID",
+    "actors": "Initial participants",
+    "actorsHint": "Leave all actors unchecked to let the Game Master admit relevant project actors as the scene develops.",
+    "automaticParticipants": "Automatic participation is enabled.",
+    "selectedParticipants": "{{count}} actors explicitly selected.",
+    "start": "Start session"
+  },
+  "pipeline": {
+    "eyebrow": "Current step pipeline",
+    "waiting": "Waiting for the first step"
+  },
+  "stage": {
+    "termination": "Termination check",
+    "observation": "Generate observations",
+    "actor_selection": "Select actor",
+    "action_spec": "Generate ActionSpec",
+    "actor_action": "Actor action",
+    "resolution": "Game Master resolution",
+    "memory_routing": "Route memories",
+    "promotion": "Evaluate NPC agency",
+    "commit": "Commit and checkpoint"
+  },
+  "stageStatus": {
+    "pending": "pending",
+    "running": "running",
+    "succeeded": "done",
+    "skipped": "skipped",
+    "failed": "failed",
+    "cancelled": "cancelled"
+  },
+  "stepStatus": {
+    "pending": "pending",
+    "running": "running",
+    "completed": "completed",
+    "failed": "failed",
+    "cancelled": "cancelled"
+  },
+  "actorRail": { "title": "Participant state" },
+  "actorStatus": {
+    "idle": "idle",
+    "observing": "observing",
+    "thinking": "thinking",
+    "acting": "acting"
+  },
+  "actor": {
+    "unknownLocation": "Location unknown",
+    "lastObservation": "Latest observation",
+    "memories": "{{count}} memory records"
+  },
+  "inspector": {
+    "title": "Stage inspector",
+    "empty": "Select a stage to inspect its causal inputs and outputs.",
+    "output": "Public result summary",
+    "characterObservations": "Private observations by character",
+    "actorIntent": "Actor intent",
+    "worldResult": "Authoritative world result",
+    "actionSpec": "Action specification",
+    "models": "Models",
+    "noModel": "No model call",
+    "retryFromCheckpoint": "Retry from last checkpoint",
+    "sources": "Sources",
+    "visibleTo": "Visible to",
+    "inputRecords": "Input records",
+    "outputRecords": "Output records",
+    "memoryRouting": "Memory routing",
+    "gmOnly": "Game Master only"
+  },
+  "branch": {
+    "title": "Branch operations",
+    "navigator": "Branch navigator",
+    "newId": "New branch ID",
+    "create": "Create branch",
+    "compareWith": "Compare branch",
+    "compare": "Compare"
+  },
+  "restore": {
+    "title": "Restore and locale",
+    "checkpoint": "Checkpoint ID",
+    "action": "Restore"
+  },
+  "notice": {
+    "branchCreated": "Branch {{branch}} created.",
+    "localeChanged": "Content locale changed to {{locale}}.",
+    "restored": "Session restored from checkpoint."
+  }
+}

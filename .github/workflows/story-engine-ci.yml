@@ -1,0 +1,173 @@
+name: Story Engine CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: story-engine-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Install JavaScript dependencies
+        run: |
+          corepack enable
+          yarn install --immutable
+
+      - name: Build workspace core package
+        run: yarn workspace @janhq/core build
+
+      - name: Lint Web application
+        run: yarn lint:jan
+
+      - name: Test retained Jan infrastructure and Story UI
+        run: yarn test:jan
+
+      - name: Install Chromium for minimum-window layout smoke
+        run: yarn playwright install --with-deps chromium
+
+      - name: Test minimum desktop window layout
+        run: yarn test:visual
+
+      - name: Build Web application
+        run: yarn build:web
+
+  story-engine:
+    name: Python Story Engine
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv and locked dependencies
+        run: |
+          python -m pip install uv==0.11.6
+          uv sync --frozen --project apps/story-engine --extra dev
+
+      - name: Lint Python
+        run: uv run --project apps/story-engine ruff check apps/story-engine/src apps/story-engine/tests
+
+      - name: Type-check Python
+        run: uv run --project apps/story-engine mypy --config-file apps/story-engine/pyproject.toml apps/story-engine/src/story_engine
+
+      - name: Test Python
+        run: uv run --project apps/story-engine pytest -c apps/story-engine/pyproject.toml apps/story-engine/tests
+
+      - name: Verify 100-step Concordia replay
+        run: uv run --project apps/story-engine pytest -c apps/story-engine/pyproject.toml apps/story-engine/tests/simulation/test_engine.py -k one_hundred --durations=1
+
+      - name: Build Python package
+        run: uv run --project apps/story-engine python -m build apps/story-engine
+
+      - name: Build and smoke-test packaged Sidecar
+        run: |
+          uv sync --frozen --project apps/story-engine --extra packaging
+          uv run --frozen --project apps/story-engine --extra packaging pyinstaller --noconfirm --clean --distpath src-tauri/resources --workpath .build/pyinstaller apps/story-engine/packaging/story-engine.spec
+          uv run --frozen --project apps/story-engine python scripts/smoke_story_engine_sidecar.py
+
+  contracts:
+    name: Generated Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install locked dependencies
+        run: |
+          corepack enable
+          yarn install --immutable
+          python -m pip install uv==0.11.6
+          uv sync --frozen --project apps/story-engine --extra dev
+
+      - name: Verify generated OpenAPI and TypeScript contracts
+        run: |
+          yarn contracts:check
+          yarn workspace @story-engine/contracts typecheck
+
+  desktop:
+    name: Desktop Rust and Tauri smoke build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf
+
+      - name: Install JavaScript dependencies and Rust components
+        run: |
+          corepack enable
+          yarn install --immutable
+          rustup component add rustfmt clippy
+
+      - name: Prepare desktop build assets
+        run: |
+          yarn build:icon
+          mkdir -p src-tauri/resources/bin
+          cp LICENSE src-tauri/resources/LICENSE
+          triple="$(rustc -vV | awk '/^host:/ {print $2}')"
+          touch "src-tauri/resources/bin/uv-${triple}"
+          chmod +x "src-tauri/resources/bin/uv-${triple}"
+
+      # Jan v0.8.4 did not enforce whole-tree rustfmt and fails current
+      # rustfmt with a large inherited diff. Keep the product-owned boundary
+      # strict without mechanically rewriting the retained Jan runtime.
+      - name: Check Story Engine Rust formatting
+        run: rustfmt --check --edition 2021 src-tauri/src/core/story_engine_runtime.rs src-tauri/src/core/story_model_bridge.rs
+
+      - name: Test Story Engine desktop runtime
+        run: cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features test-tauri story_engine_runtime::tests --lib
+
+      - name: Lint Rust
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --no-default-features --features test-tauri -- -D warnings
+
+      - name: Smoke-build Tauri without packaging
+        run: yarn tauri build --no-bundle -- --no-default-features --features test-tauri

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN" class="bg-app">
+  <head>
+    <meta charset="UTF-8" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/images/story-engine-logo.png"
+    />
+    
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/images/story-engine-logo.png"
+    />
+    <link rel="apple-touch-icon" href="/images/story-engine-logo.png" />
+    <link
+      rel="preload"
+      as="image"
+      href="/images/story-engine-logo.png"
+      fetchpriority="high"
+    />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover"
+    />
+    <title>Story Engine</title>
+    <style>
+      /* Inlined so it applies on first paint (external CSS is injected late). */
+      #initial-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        background: hsl(0, 0%, 100%);
+        z-index: 9999;
+        opacity: 1;
+        transition: opacity 0.3s ease-in-out;
+      }
+      .dark #initial-loader {
+        background: rgb(25, 25, 25);
+      }
+      #initial-loader img {
+        width: 5rem;
+        height: 5rem;
+        animation: loader-pulse 1.8s ease-in-out 1s infinite;
+      }
+      @keyframes loader-pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(0.96);
+          opacity: 0.82;
+        }
+      }
+      #initial-loader-caption {
+        margin: 0;
+        text-align: center;
+        line-height: 1;
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+          sans-serif;
+        font-size: 0.875rem;
+        font-weight: 400;
+        color: hsl(0, 0%, 45%);
+        opacity: 0;
+        /* Delayed so fast starts never flash the caption. */
+        animation: caption-fade-in 0.3s ease-in-out 1s forwards;
+      }
+      .dark #initial-loader-caption {
+        color: hsl(0, 0%, 65%);
+      }
+      @keyframes caption-fade-in {
+        to {
+          opacity: 1;
+        }
+      }
+      .loaded #initial-loader {
+        opacity: 0;
+        pointer-events: none;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #initial-loader,
+        #initial-loader img,
+        #initial-loader-caption {
+          animation: none;
+          transition: none;
+        }
+        #initial-loader-caption {
+          opacity: 1;
+        }
+      }
+    </style>
+    <script>
+      // Apply dark class synchronously before first paint to avoid a
+      // light-mode flash when the user's effective theme is dark. Truth is
+      // re-resolved by ThemeProvider once React mounts (and, on Linux, after
+      // the XDG portal read completes).
+      (function () {
+        try {
+          var raw = localStorage.getItem('theme')
+          var active = 'auto'
+          if (raw) {
+            var parsed = JSON.parse(raw)
+            var s = parsed && parsed.state
+            if (s && typeof s.activeTheme === 'string') active = s.activeTheme
+          }
+          var dark =
+            active === 'dark' ||
+            (active === 'auto' &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) document.documentElement.classList.add('dark')
+        } catch (_) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="initial-loader" data-tauri-drag-region>
+      <img
+        src="/images/story-engine-logo.png"
+        alt="Story Engine"
+        data-tauri-drag-region
+      />
+      <p id="initial-loader-caption" data-tauri-drag-region>
+        正在启动故事演化引擎...
+      </p>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,10 +1,14 @@
 # AI Story Evolution Engine Next
 ## 全新产品开发计划书（AI Coding 指导版）
 
-**版本：** v1.0  
-**日期：** 2026-07-31  
+**版本：** v1.1
+**日期：** 2026-08-01
 **用途：** 作为产品、架构、开发顺序、代码约束与验收标准的统一依据，供 AI Coding 按阶段实施。  
 **适用范围：** 全新版本，不兼容旧项目数据库和旧工作流；旧仓库仅作为交互、组件和经验参考。
+
+文档发生冲突时，实施优先级为：最新 Accepted ADR >
+`architecture.md` / `domain-model.md` / `data-contracts.md` > 本计划 >
+历史实施计划。ADR-0003 已用 Jan-in-place 结构取代早期独立桌面 Workspace。
 
 ---
 
@@ -101,7 +105,8 @@
 
 - 初始活跃角色：2～4 个。
 - 普通人物默认不是 Agent。
-- 普通人物只有形成独立目标并可能主动影响后续故事时，才提出升级建议。
+- 普通人物只有形成独立目标并可能主动影响后续故事时，才由 Editor
+  在场景边界自动升级。
 - V1 不使用多 Agent 投票和复杂角色等级。
 
 ---
@@ -160,6 +165,11 @@ Novel / Tiptap
 - RAG 接口和 UI 可以借鉴，检索后端默认由 Python Story Engine 重新实现；
 - 仓库必须包含 `THIRD_PARTY_NOTICES.md`、`licenses/` 和修改说明；
 - Jan、Novel 等项目的名称、Logo、插画和商标性资产必须替换。
+
+当前保留的 `core`、assistant、download、llamacpp、mlx 包清单声明为
+AGPL-3.0。在获得上游许可澄清、单独商业许可、替换这些模块，或选择
+AGPL 合规分发之前，闭源安装包发布处于阻塞状态；包含许可证文本本身
+不解除该阻塞。
 
 ---
 
@@ -376,13 +386,16 @@ World Resolver 可以为了回应角色行动创建最小普通人物。
 不能：创建普通人物
 ```
 
-普通人物形成独立目标并可能主动影响后续故事时，Editor 提出：
+普通人物形成独立目标并可能主动影响后续故事时，Editor 在场景边界判断：
 
 ```text
-建议升级为活跃角色 Agent
+自动升级为活跃角色 Agent
 ```
 
-必须由用户确认。系统不得自动升级。
+决策必须引用本场已确认事件作为证据，并随 Step 日志持久化。升级在下一场景
+生效，无需用户确认。分支中的活跃 Agent 总数不设固定上限；每个场景由 Game
+Master 从全部活跃 Agent 中选择 1 至 4 个组成 Scene Roster，每个行动步骤再从
+Roster 中选择 1 个 Acting Agent。系统不自动退休角色。
 
 ## 5.4 正文生成
 
@@ -539,7 +552,6 @@ project/
 ├── sources/
 └── .story-engine/
     ├── turns/
-    ├── reviews/
     ├── cache/
     ├── index/
     └── recovery/
@@ -865,14 +877,13 @@ RAG 结果必须携带来源：
 
 ```text
 ai-story-evolution-engine-next/
-├── apps/
-│   ├── desktop/                 # Jan-based React + Tauri
-│   └── story-engine/            # Python Sidecar
-│
+├── web-app/                     # Jan-based React application
+├── src-tauri/                   # Jan-based Tauri runtime and plugins
+├── core/                        # Jan model and extension contracts
+├── extensions/                  # Model download and local inference
+├── apps/story-engine/           # Python Sidecar
 ├── packages/
-│   ├── ui/                      # 迁移后的 Jan / shadcn 组件
-│   ├── contracts/               # OpenAPI / JSON Schema / TS 类型
-│   └── editor/                  # Novel/Tiptap 封装
+│   └── contracts/               # OpenAPI / JSON Schema / TS 类型
 │
 ├── docs/
 │   ├── product-plan.md
@@ -885,7 +896,8 @@ ai-story-evolution-engine-next/
 │
 ├── licenses/
 ├── THIRD_PARTY_NOTICES.md
-├── pnpm-workspace.yaml
+├── package.json                 # Yarn 4 workspace
+├── yarn.lock
 └── README.md
 ```
 
@@ -928,7 +940,7 @@ POST   /projects/{id}/turns/{turn_id}/discard
 
 GET    /projects/{id}/characters
 GET    /projects/{id}/characters/{character_id}
-POST   /projects/{id}/characters/{character_id}/promote
+GET    /projects/{id}/characters?branch_id={branch_id}
 
 GET    /projects/{id}/events
 GET    /projects/{id}/events/{event_id}
@@ -1117,7 +1129,7 @@ turn.cancelled
 - 用户确认；
 - 乐观并发检查；
 - EventCommitService；
-- NPC 升级建议。
+- 场景边界自动 NPC 晋升。
 
 验收：
 
@@ -1264,10 +1276,10 @@ AI 必须报告：
 
 ```text
 Frontend:
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
+yarn lint
+yarn typecheck
+yarn test
+yarn build
 
 Python:
 ruff check
@@ -1307,7 +1319,7 @@ tauri build smoke test
 - 无限后台自动演化；
 - 角色常驻进程；
 - 复杂角色等级；
-- 自动角色晋升；
+- 回合中途创建或晋升 Agent；
 - 多 Agent 投票；
 - 多个常驻编辑 Agent；
 - 角色自我修改 Prompt；

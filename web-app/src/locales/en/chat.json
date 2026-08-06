@@ -1,0 +1,22 @@
+{
+  "welcome": "Hi, how are you?",
+  "description": "How can I help you today?",
+  "temporaryChat": "Temporary Chat",
+  "temporaryChatDescription": "Start a temporary conversation that won't be saved to your chat history.",
+  "status": {
+    "empty": "No Chats Found"
+  },
+  "sendMessage": "Send Message",
+  "newConversation": "New Conversation",
+  "clearHistory": "Clear History",
+  "embeddings": {
+    "title": "Preparing your documents",
+    "description": "Indexing the attached files so they can be searched and cited. This may take a moment for large documents."
+  },
+  "actions": {
+    "regenerate": "Regenerate response",
+    "continue": "Continue generating"
+  },
+  "done": "Done",
+  "webSources": "{{count}} source(s)"
+}

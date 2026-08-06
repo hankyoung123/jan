@@ -1,0 +1,34 @@
+app-id: com.storyengine.desktop
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: story-engine-desktop
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=home
+  - --talk-name=org.freedesktop.portal.Desktop
+
+modules:
+  - name: story-engine
+    buildsystem: simple
+    build-commands:
+      - test -x stage/usr/bin/story-engine-desktop
+      - cp -a stage/usr/. /app/
+      - install -Dm644 com.storyengine.desktop.desktop /app/share/applications/com.storyengine.desktop.desktop
+      - install -Dm644 com.storyengine.desktop.metainfo.xml /app/share/metainfo/com.storyengine.desktop.metainfo.xml
+      - install -Dm644 com.storyengine.desktop.png /app/share/icons/hicolor/512x512/apps/com.storyengine.desktop.png
+    sources:
+      - type: dir
+        path: ../.build/flatpak-stage
+        dest: stage
+      - type: file
+        path: com.storyengine.desktop.desktop
+      - type: file
+        path: com.storyengine.desktop.metainfo.xml
+      - type: file
+        path: ../src-tauri/icons/icon.png
+        dest-filename: com.storyengine.desktop.png

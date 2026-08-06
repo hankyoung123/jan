@@ -45,4 +45,3 @@ def atomic_write_text(
     finally:
         if temporary_path.exists():
             temporary_path.unlink()
-

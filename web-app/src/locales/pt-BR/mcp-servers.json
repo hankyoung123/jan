@@ -1,0 +1,73 @@
+{
+  "editServer": "Editar Servidor MCP",
+  "addServer": "Adicionar Servidor MCP",
+  "browserExtension": {
+    "connecting": {
+      "checking": "Verificando status da extensão..."
+    },
+    "notInstalled": {
+      "title": "Story Engine completa tarefas no seu navegador",
+      "description": "Instale a extensão para dar ao Story Engine acesso ao navegador",
+      "getExtension": "Obter Extensão"
+    }
+  },
+  "serverName": "Nome do Servidor",
+  "enterServerName": "Digite o nome do servidor",
+  "command": "Comando",
+  "enterCommand": "Digite o comando (uvx ou npx)",
+  "arguments": "Argumentos",
+  "argument": "Argumento {{index}}",
+  "envVars": "Variáveis de Ambiente",
+  "key": "Chave",
+  "value": "Valor",
+  "save": "Salvar",
+  "status": "Status",
+  "connected": "Conectado",
+  "disconnected": "Desconectado",
+  "deleteServer": {
+    "title": "Remover Servidor MCP",
+    "description": "Tem certeza de que deseja remover o servidor MCP {{serverName}}? Esta ação não pode ser desfeita.",
+    "delete": "Remover",
+    "success": "Servidor MCP {{serverName}} removido com sucesso"
+  },
+  "editJson": {
+    "title": "Editar JSON para Servidor MCP: {{serverName}}",
+    "titleAll": "Editar JSON de Todos os Servidores MCP",
+    "placeholder": "Digite a configuração JSON",
+    "errorParse": "Falha ao analisar dados iniciais",
+    "errorPaste": "Formato JSON inválido no conteúdo colado",
+    "errorFormat": "Formato JSON inválido",
+    "errorServerName": " Nome do servidor é obrigatório e não pode estar vazio",
+    "errorMissingServerNameKey": "JSON deve estar estruturado como {\"serverName\": {config}} - chave com nome do servidor ausente",
+    "errorInvalidType": "Tipo inválido '{{type}}' para servidor '{{serverName}}'. Tipo deve ser 'stdio', 'http', ou 'sse'",
+    "save": "Salvar"
+  },
+  "checkParams": "Por favor, verifique os parâmetros de acordo com o tutorial.",
+  "title": "Servidores MCP",
+  "experimental": "Experimental",
+  "editAllJson": "Editar JSON de Todos os Servidores",
+  "findMore": "Encontre mais servidores MCP em",
+  "allowPermissions": "Permitir Todas as Permissões de Ferramentas MCP",
+  "allowPermissionsDesc": "Quando habilitado, todas as chamadas de ferramentas MCP serão automaticamente aprovadas sem mostrar diálogos de permissão. Esta configuração se aplica globalmente a todas as conversas, incluindo novos chats.",
+  "noServers": "Nenhum servidor MCP encontrado",
+  "args": "Args",
+  "env": "Env",
+  "serverStatusActive": "Servidor {{serverKey}} ativado com sucesso",
+  "serverStatusInactive": "Servidor {{serverKey}} desativado com sucesso",
+  "runtimeSettings": {
+    "title": "Configurações de Execução",
+    "description": "Configure como o Story Engine gerencia e tenta novamente os servidores MCP.",
+    "toolCallTimeout": "Tempo limite de chamada da ferramenta (segundos)",
+    "toolCallTimeoutDesc": "Tempo máximo de espera por uma resposta da ferramenta MCP antes de atingir o tempo limite.",
+    "smartToolRouting": "Roteamento inteligente de ferramentas MCP",
+    "smartToolRoutingDesc": "Quando ativado, o Story Engine seleciona servidores MCP relevantes antes de carregar as ferramentas. Desative para sempre carregar a lista completa de ferramentas MCP.",
+    "useLightweightRouterModel": "Usar um modelo dedicado para roteamento",
+    "useLightweightRouterModelDesc": "Com o roteamento inteligente ativo, a etapa de roteamento usa um modelo separado (geralmente menor) em vez do modelo do chat. Desative para sempre usar o modelo ativo do chat para roteamento.",
+    "routerModel": "Modelo de roteamento",
+    "routerModelDesc": "Escolha provedor e modelo em um só lugar. Apenas modelos leves são listados para manter o roteamento rápido e barato.",
+    "selectRouterModelPlaceholder": "Selecionar modelo de roteamento…",
+    "routerModelSearchPlaceholder": "Pesquisar modelos…",
+    "routerModelEmptyList": "Nenhum modelo leve disponível. Adicione um modelo menor ou configure chaves de API em Modelos.",
+    "routerModelEmptySearch": "Nenhum resultado para “{{query}}”."
+  }
+}

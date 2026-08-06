@@ -1,45 +1,42 @@
-# Domain Model
+# Runtime domain model
 
-## Aggregates
+The runtime contracts are strict, immutable Pydantic models under
+`story_engine/domain`. Machine identifiers use stable lowercase IDs and are not
+translated.
 
-`Project` owns identity and creative direction. `WorldState` owns current time,
-location, pressures, public facts, variables, and an optimistic version.
-`Character` owns its private knowledge boundary, goal, relationships, resources,
-location, state, and optimistic version.
+- `ActionSpec` is the serializable boundary for Concordia action requests.
+- `MemoryRecord` and `MemorySnapshot` preserve ownership, visibility, source
+  records, step, locale, and integrity hashes.
+- `ResolvedEvent` and `ResolvedTurn` are lightweight projections of Game
+  Master decisions; natural-language resolution remains authoritative.
+- `TurnSessionRequest` combines project, branch, actors, locale, premise, and
+  `ControlPolicy`.
+- `TurnSessionSnapshot` is the complete recoverable session state.
+- `TurnSessionSnapshot.characters` is the branch-local projection for every
+  registered person. `roster_actor_ids` contains the one to four Active Agents
+  selected for the current scene, not the complete Active Agent Pool.
+- `StepResult` records the actor action and resolved world result for one step.
+- `BranchManifest` points to an immutable head checkpoint and records fork
+  ancestry.
+- `ModelCallTrace` and `TurnTrace` provide request-to-world-event provenance.
 
-`TurnCandidate` is explicitly non-canonical. It records the base world and
-character versions, isolated character intents, a resolver outcome, one review,
-and lifecycle status.
+The legacy project seed models (`Project`, `WorldState`, `Character`, `Fact`)
+remain inputs for constructing initial actor and Game Master memories. They are
+not rewritten after every simulation step. Writer scenes and optional editorial
+amendments remain separate derived authoring workflows.
 
-`StoryEvent` is the immutable canonical record produced from an approved
-candidate. Corrections are new amendment events; existing event files never
-change.
+Core invariants:
 
-## Invariants
-
-- Active characters have a current goal.
-- Character intents express intended action, never successful outcome.
-- Resolver outcomes may see all current intents; characters may not.
-- Character context includes only authorized facts and experienced events.
-- A candidate cannot be approved without a passing current review.
-- Editing a reviewed candidate clears its review and returns it to draft.
-- Commit requires matching base versions for the world and every participant.
-- Only an approved candidate can be committed.
-- Event sequence numbers are monotonically increasing and append-only.
-- Writer inputs contain confirmed events and authorized style/world context only.
-
-## Core value types
-
-- `CharacterIntent`
-- `WorldOutcome`
-- `ReviewResult`
-- `StateChange`
-- `Relationship`
-- `RetrievalEvidence`
-- `ModelRequest`
-- `ModelProfile`
-
-Pydantic schemas are the executable contract for Python. OpenAPI is generated
-from the running API, and TypeScript types are generated from the committed
-OpenAPI document.
-
+1. A character cannot retrieve another character's private memory bank.
+2. Actor actions are putative until resolved by the Game Master.
+3. Checkpoint IDs derive from canonical state hashes.
+4. A branch head advances only after its checkpoint and raw log are durable.
+5. The Wiki is rebuildable from durable history and never required for
+   restoration.
+6. `content_locale` affects prose, never IDs, enums, tags, or hashes.
+7. A Game Master may create an `npc`, but only the Editor may promote it to an
+   `active` Actor, at a completed scene boundary and with event evidence.
+8. Structured participant IDs resolve to registered Characters; private
+   observation owners resolve to active Actors.
+9. The Active Agent Pool has no fixed size limit; a Scene Roster contains at
+   most four Active Agents, and one Acting Agent acts per simulation step.

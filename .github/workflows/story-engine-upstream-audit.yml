@@ -1,0 +1,25 @@
+name: Story Engine upstream audit
+
+on:
+  schedule:
+    - cron: '17 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  jan-upstream-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out Story Engine
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch Jan main
+        run: git fetch --no-tags https://github.com/janhq/jan.git main:refs/remotes/jan-upstream/main
+
+      - name: Generate categorized upstream report
+        run: bash scripts/report-jan-upstream.sh refs/remotes/jan-upstream/main >> "$GITHUB_STEP_SUMMARY"

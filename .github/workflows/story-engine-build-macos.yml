@@ -1,0 +1,70 @@
+name: Story Engine macOS Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version label for the artifact
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: Version label for the artifact
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: Build and smoke-test unsigned Story Engine DMG
+    runs-on: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install locked dependencies
+        run: |
+          corepack enable
+          yarn install --immutable
+          python -m pip install uv==0.11.6
+          uv sync --frozen --project apps/story-engine --extra packaging
+
+      - name: Build the Story Engine macOS bundle
+        run: yarn build
+
+      - name: Smoke-test the DMG in an isolated mount
+        run: |
+          set -euo pipefail
+          dmg="$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$dmg"
+          mount_point="$(mktemp -d "${RUNNER_TEMP}/story-engine-dmg.XXXXXX")"
+          trap 'hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true; rm -rf "$mount_point"' EXIT
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point" >/dev/null
+          app="$(find "$mount_point" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$app"
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print:CFBundleIdentifier' "$app/Contents/Info.plist")"
+          test "$bundle_id" = 'com.storyengine.desktop'
+          test -x "$app/Contents/MacOS/story-engine-desktop"
+          test -x "$app/Contents/Resources/story-engine/story-engine"
+          test -f "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
+          test -f "$app/Contents/Resources/licenses/AGPL-3.0.txt"
+          test -f "$app/Contents/Resources/licenses/Concordia-2.4.0-APACHE-2.0.txt"
+
+      - name: Upload unsigned DMG
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: story-engine-macos-${{ inputs.version }}
+          path: src-tauri/target/release/bundle/dmg/*.dmg

@@ -1,6 +1,6 @@
 # ADR-0001: Platform and upstream locks
 
-- Status: Accepted
+- Status: Superseded by ADR-0003
 - Date: 2026-07-31
 
 ## Decision
@@ -27,4 +27,3 @@ domain ownership explicit while preserving a precise upstream reference.
 Every migrated upstream directory requires attribution and a modification note.
 Jan trademarks and brand assets are excluded. Concordia is accessed only through
 an adapter and is not forked in V1.
-

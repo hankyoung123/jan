@@ -1,0 +1,27 @@
+export const localStorageKey = {
+  LeftPanel: 'left-panel',
+  threads: 'threads',
+  messages: 'messages',
+  theme: 'theme',
+  modelProvider: 'model-provider',
+  settingInterface: 'setting-appearance',
+  settingGeneral: 'setting-general',
+  settingCodeBlock: 'setting-code-block',
+  settingProxyConfig: 'setting-proxy-config',
+  settingWebSearch: 'setting-web-search',
+  productAnalyticPrompt: 'productAnalyticPrompt',
+  productAnalytic: 'productAnalytic',
+  toolApproval: 'tool-approval',
+  toolAvailability: 'tool-availability',
+  mcpGlobalPermissions: 'mcp-global-permissions',
+  lastUsedModel: 'last-used-model',
+  lastUsedAssistant: 'last-used-assistant',
+  defaultAssistantId: 'default-assistant-id',
+  favoriteModels: 'favorite-models',
+  setupCompleted: 'setup-completed',
+  threadManagement: 'thread-management',
+  recentSearches: 'recent-searches',
+  agentMode: 'agent-mode',
+}
+
+export const CACHE_EXPIRY_MS = 1000 * 60 * 60 * 24

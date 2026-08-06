@@ -1,56 +1,122 @@
-from typing import Literal, Self
-from urllib.parse import urlparse
+from typing import Annotated, Literal
 
-from pydantic import Field, JsonValue, model_validator
+from pydantic import BeforeValidator, Field, JsonValue
 
 from story_engine.domain.models import DomainModel
+from story_engine.models.limits import (
+    MAX_MODEL_OUTPUT_TOKENS,
+    MAX_MODEL_TIMEOUT_SECONDS,
+)
 
-ModelTask = Literal["character", "resolver", "editor", "writer", "embedding"]
-ProviderKind = Literal["remote", "local"]
+AgentType = Literal[
+    "actor",
+    "game_master",
+    "writer",
+    "editor",
+    "wiki_maintainer",
+    "submission_editor",
+]
+ModelTask = AgentType
+
+
+def normalize_reasoning_effort(value: object) -> object:
+    if value == "disabled":
+        return "none"
+    return value
+
+
+ReasoningEffort = Annotated[
+    Literal[
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ],
+    BeforeValidator(normalize_reasoning_effort),
+]
 MessageRole = Literal["system", "user", "assistant"]
 
 
-class ProviderConfig(DomainModel):
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
-    name: str = Field(min_length=1, max_length=80)
-    kind: ProviderKind
-    base_url: str = Field(min_length=1, max_length=2048)
-    requires_api_key: bool = False
-
-    @model_validator(mode="after")
-    def endpoint_matches_provider_kind(self) -> Self:
-        parsed = urlparse(self.base_url)
-        if not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError(
-                "provider base_url must be an absolute URL without credentials"
-            )
-        if parsed.query or parsed.fragment:
-            raise ValueError("provider base_url must not contain a query or fragment")
-        if self.kind == "remote" and parsed.scheme != "https":
-            raise ValueError("remote provider base_url must use HTTPS")
-        if self.kind == "local" and (
-            parsed.scheme not in {"http", "https"}
-            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
-        ):
-            raise ValueError("local provider base_url must use a loopback endpoint")
-        return self
-
-
-class ModelProfile(DomainModel):
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
-    name: str = Field(min_length=1, max_length=80)
-    task_type: ModelTask
-    provider_id: str = Field(min_length=1)
-    model: str = Field(min_length=1, max_length=200)
-    max_output_tokens: int = Field(default=2048, ge=1, le=8192)
-    timeout_seconds: int = Field(default=60, ge=1, le=120)
+class AgentProfile(DomainModel):
+    name: str = Field(min_length=1, max_length=100)
+    agent_type: AgentType
+    default_system_prompt: str = Field(min_length=1, max_length=65_536)
+    model: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=200,
+        pattern=r"^[^/\s]+/.+$",
+    )
+    max_output_tokens: int | None = Field(
+        default=2048,
+        ge=1,
+        le=MAX_MODEL_OUTPUT_TOKENS,
+    )
+    timeout_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=MAX_MODEL_TIMEOUT_SECONDS,
+    )
     temperature: float | None = Field(default=None, ge=0, le=2)
-    enabled: bool = True
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
+
+
+class AgentProfilePatch(DomainModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    default_system_prompt: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=65_536,
+    )
+    model: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=200,
+        pattern=r"^[^/\s]+/.+$",
+    )
+    max_output_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_OUTPUT_TOKENS,
+    )
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_TIMEOUT_SECONDS,
+    )
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
+
+
+class TextMessagePart(DomainModel):
+    type: Literal["text"] = "text"
+    text: str = Field(min_length=1, max_length=262_144)
+
+
+class ImageUrl(DomainModel):
+    url: str = Field(min_length=1, max_length=1_048_576)
+
+
+class ImageMessagePart(DomainModel):
+    type: Literal["image_url"] = "image_url"
+    image_url: ImageUrl
+
+
+MessageContentPart = Annotated[
+    TextMessagePart | ImageMessagePart,
+    Field(discriminator="type"),
+]
 
 
 class Message(DomainModel):
     role: MessageRole
-    content: str = Field(min_length=1, max_length=262_144)
+    content: (
+        Annotated[str, Field(min_length=1, max_length=262_144)]
+        | Annotated[tuple[MessageContentPart, ...], Field(min_length=1, max_length=64)]
+    )
 
 
 class ModelRequest(DomainModel):
@@ -58,25 +124,44 @@ class ModelRequest(DomainModel):
     task_type: ModelTask
     messages: tuple[Message, ...] = Field(min_length=1, max_length=128)
     output_schema: str | None = Field(default=None, max_length=131_072)
-    max_output_tokens: int = Field(ge=1, le=8192)
-    timeout_seconds: int = Field(ge=1, le=120)
+    structured_output_retry: Literal["gateway", "caller"] = "gateway"
+    max_output_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_OUTPUT_TOKENS,
+    )
+    output_token_limit: Literal["profile", "provider"] = "profile"
+    first_content_timeout_seconds: int | None = Field(
+        default=None,
+        ge=1,
+        le=300,
+    )
+    timeout_seconds: int = Field(ge=1, le=MAX_MODEL_TIMEOUT_SECONDS)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
 
 
 class ModelUsage(DomainModel):
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
     total_tokens: int = Field(default=0, ge=0)
+    reasoning_tokens: int | None = Field(default=None, ge=0)
 
 
 class ModelResponse(DomainModel):
     profile_id: str
-    provider_id: str
-    model: str
+    model_ref: str | None = None
     content: str
+    reasoning_content: str = ""
     parsed_output: JsonValue = None
     finish_reason: str | None = None
     usage: ModelUsage = Field(default_factory=ModelUsage)
+    retry_count: int = Field(default=0, ge=0)
+    max_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_MODEL_OUTPUT_TOKENS,
+    )
 
 
 class ModelStreamChunk(DomainModel):
@@ -92,15 +177,5 @@ class UsageTotals(DomainModel):
     total_tokens: int = Field(default=0, ge=0)
 
 
-class ProviderView(DomainModel):
-    id: str
-    name: str
-    kind: ProviderKind
-    base_url: str
-    requires_api_key: bool
-    has_api_key: bool
-
-
-class ModelCatalog(DomainModel):
-    providers: tuple[ProviderView, ...]
-    profiles: tuple[ModelProfile, ...]
+class AgentProfileCatalog(DomainModel):
+    profiles: tuple[AgentProfile, ...]
