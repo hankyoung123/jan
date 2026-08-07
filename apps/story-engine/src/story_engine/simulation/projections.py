@@ -18,6 +18,10 @@ from story_engine.domain.simulation import (
     TurnSessionSnapshot,
     WikiMaintenanceMode,
 )
+from story_engine.manuscript.models import (
+    ManuscriptGenerationRequest,
+    WriterSourceSelection,
+)
 from story_engine.manuscript.service import ManuscriptAgent, ManuscriptService
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.persistence.projection_store import ProjectionTaskStore
@@ -394,24 +398,12 @@ class ProjectionTaskService:
             task.branch_id,
             agent=self.manuscript_agent,
         )
-        source = next(
-            (
-                item
-                for item in reversed(service.list_sources())
-                if item.checkpoint_id == task.checkpoint_id
-                and item.to_step == task.step
-                and item.status == "available"
-            ),
-            None,
-        )
-        if source is None:
-            raise ValueError("manuscript projection source is unavailable")
         asyncio.run(
-            service.generate_scene(
-                checkpoint_id=task.checkpoint_id,
-                from_step=source.from_step,
-                to_step=source.to_step,
-                chapter_id=f"chapter-{max(1, snapshot.completed_scenes):03d}",
-                viewpoint_actor_id=None,
+            service.generate(
+                ManuscriptGenerationRequest(
+                    source=WriterSourceSelection(),
+                    chapter_id=f"chapter-{max(1, snapshot.completed_scenes):03d}",
+                    viewpoint_actor_id=None,
+                )
             )
         )

@@ -195,11 +195,20 @@ class ReplayGatewayTransport:
         messages = payload["messages"]
         prompt = "\n".join(str(message["content"]) for message in messages)
         self.calls.append(prompt)
-        if "Writer Context" in prompt:
+        if "Choose a contiguous range" in prompt:
+            source_ids = re.findall(r'"source_id":\s*"([^"]+)"', prompt)
+            content = json.dumps(
+                {
+                    "decision": "ready" if source_ids else "not_ready",
+                    "source_ids": source_ids[:1],
+                    "reason": "The first available scene boundary is coherent.",
+                }
+            )
+        elif "Manuscript Context" in prompt:
             if self.fail_writer:
                 raise RuntimeError("writer unavailable")
             content = f"# The Severed Wire\n\n{self.event_text}"
-        elif "Editor Context" in prompt:
+        elif "SOURCE_MANIFEST" in prompt:
             if self.fail_editor:
                 raise RuntimeError("editor unavailable")
             content = json.dumps(
@@ -408,7 +417,7 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
         stepped = _advance(client, started["session_id"]).json()
 
         sources = client.get(
-            "/projects/fog-harbor/branches/main/narrative-sources",
+            "/projects/fog-harbor/branches/main/manuscript/sources",
             headers=AUTH,
         )
         assert sources.status_code == 200
@@ -417,12 +426,10 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
         assert source["checkpoint_id"] == stepped["checkpoint_id"]
 
         generated = client.post(
-            "/projects/fog-harbor/branches/main/manuscript/scenes/generate",
+            "/projects/fog-harbor/branches/main/manuscript/scenes",
             headers=AUTH,
             json={
-                "checkpoint_id": stepped["checkpoint_id"],
-                "from_step": 0,
-                "to_step": 0,
+                "source": {"mode": "scene", "source_id": source["source_id"]},
                 "chapter_id": "chapter-001",
                 "viewpoint_actor_id": "chen-mo",
             },
@@ -430,15 +437,14 @@ def test_simulation_scene_generates_traceable_branch_manuscript(
         assert generated.status_code == 201, generated.text
         draft = generated.json()
         assert draft["branch_id"] == "main"
-        assert draft["source_checkpoint_id"] == stepped["checkpoint_id"]
-        assert draft["source_from_step"] == draft["source_to_step"] == 0
-        assert draft["source_event_ids"]
-        assert draft["source_memory_ids"]
-        assert draft["source_wiki_branch_id"] == "main"
-        assert draft["source_wiki_version_id"] == "seed"
-        assert draft["viewpoint_actor_id"] == "chen-mo"
+        assert draft["source"]["checkpoint_id"] == stepped["checkpoint_id"]
+        assert draft["source"]["from_step"] == draft["source"]["to_step"] == 0
+        assert draft["source"]["event_ids"]
+        assert draft["source"]["memory_ids"]
+        assert draft["source"]["wiki_version_id"] == "seed"
+        assert draft["source"]["viewpoint_actor_id"] == "chen-mo"
         writer_prompt = next(
-            prompt for prompt in transport.calls if "Writer Context" in prompt
+            prompt for prompt in transport.calls if "Manuscript Context" in prompt
         )
         assert "secret:lin-unfiled-duty-roster" not in writer_prompt
 
@@ -507,12 +513,15 @@ def test_early_checkpoint_writer_uses_its_historical_wiki_without_future_facts(
         _advance(client, started["session_id"])
 
         generated = client.post(
-            "/projects/fog-harbor/branches/main/manuscript/scenes/generate",
+            "/projects/fog-harbor/branches/main/manuscript/scenes",
             headers=AUTH,
             json={
-                "checkpoint_id": first["checkpoint_id"],
-                "from_step": 0,
-                "to_step": 0,
+                "source": {
+                    "mode": "manual",
+                    "source_ids": [
+                        f"source:main:{first['checkpoint_id']}:0:0",
+                    ],
+                },
                 "chapter_id": "chapter-001",
                 "viewpoint_actor_id": "chen-mo",
             },
@@ -520,9 +529,11 @@ def test_early_checkpoint_writer_uses_its_historical_wiki_without_future_facts(
 
         assert generated.status_code == 201, generated.text
         draft = generated.json()
-        assert draft["source_wiki_version_id"] == first["checkpoint_id"]
+        assert draft["source"]["wiki_version_id"] == first["checkpoint_id"]
         writer_prompt = next(
-            prompt for prompt in reversed(transport.calls) if "Writer Context" in prompt
+            prompt
+            for prompt in reversed(transport.calls)
+            if "Manuscript Context" in prompt
         )
         assert "first damaged cable" in writer_prompt
         assert "future hidden transmitter" not in writer_prompt
@@ -544,16 +555,14 @@ def test_editor_failure_keeps_the_writer_draft_on_disk(tmp_path: Path) -> None:
                 "control": {"mode": "step", "max_steps": 2},
             },
         ).json()
-        stepped = _advance(client, started["session_id"]).json()
+        _advance(client, started["session_id"])
 
         with pytest.raises(RuntimeError, match="editor unavailable"):
             client.post(
-                "/projects/fog-harbor/branches/main/manuscript/scenes/generate",
+                "/projects/fog-harbor/branches/main/manuscript/scenes",
                 headers=AUTH,
                 json={
-                    "checkpoint_id": stepped["checkpoint_id"],
-                    "from_step": 0,
-                    "to_step": 0,
+                    "source": {"mode": "writer"},
                     "chapter_id": "chapter-001",
                     "viewpoint_actor_id": "chen-mo",
                 },
@@ -675,7 +684,7 @@ def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
         assert "secret:chen-father-disappearance" not in lin_prompt
         assert len(scenes) == 1
         assert scenes[0]["branch_id"] == "main"
-        assert scenes[0]["source_checkpoint_id"] == checkpoint_id
+        assert scenes[0]["source"]["checkpoint_id"] == checkpoint_id
 
 
 def test_wiki_projection_failure_does_not_pause_and_can_be_retried(
@@ -869,12 +878,10 @@ def test_repeated_wiki_protocol_errors_degrade_without_blocking_next_step(
             status="failed",
         )
         manuscript = client.post(
-            "/projects/fog-harbor/branches/main/manuscript/scenes/generate",
+            "/projects/fog-harbor/branches/main/manuscript/scenes",
             headers=AUTH,
             json={
-                "checkpoint_id": stepped.json()["checkpoint_id"],
-                "from_step": 0,
-                "to_step": 0,
+                "source": {"mode": "writer"},
                 "chapter_id": "chapter-001",
                 "viewpoint_actor_id": None,
             },
@@ -1137,10 +1144,10 @@ def test_wiki_and_narrative_sources_are_isolated_by_branch(
             headers=AUTH,
         ).json()
         main_sources = client.get(
-            "/projects/fog-harbor/branches/main/narrative-sources", headers=AUTH
+            "/projects/fog-harbor/branches/main/manuscript/sources", headers=AUTH
         ).json()
         alternate_sources = client.get(
-            "/projects/fog-harbor/branches/alternate/narrative-sources", headers=AUTH
+            "/projects/fog-harbor/branches/alternate/manuscript/sources", headers=AUTH
         ).json()
 
         assert "flooded tunnel" not in json.dumps(main_world)

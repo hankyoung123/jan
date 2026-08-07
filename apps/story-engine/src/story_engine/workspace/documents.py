@@ -17,7 +17,11 @@ from story_engine.domain.models import (
     Relationship,
     WorldState,
 )
-from story_engine.manuscript.models import Scene
+from story_engine.manuscript.models import (
+    ManuscriptContextManifest,
+    ManuscriptSourceManifest,
+    Scene,
+)
 
 _JSON_PAYLOAD = re.compile(r"```json\n(?P<payload>.*?)\n```", re.DOTALL)
 
@@ -125,14 +129,8 @@ class SceneDocument(DomainModel):
     sequence: int = Field(ge=1)
     chapter_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
-    source_event_ids: tuple[str, ...] = Field(min_length=1)
-    source_checkpoint_id: str = Field(min_length=1)
-    source_from_step: int = Field(ge=0)
-    source_to_step: int = Field(ge=0)
-    source_memory_ids: tuple[str, ...] = ()
-    source_wiki_branch_id: str = Field(min_length=1)
-    source_wiki_version_id: str = Field(min_length=1)
-    viewpoint_actor_id: str | None = None
+    source: ManuscriptSourceManifest
+    context_manifest: ManuscriptContextManifest
     version: int = Field(ge=1)
 
     @classmethod

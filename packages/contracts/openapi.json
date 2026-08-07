@@ -1090,6 +1090,114 @@
         "type": "object"
       },
       "JsonValue": {},
+      "ManualSourceSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "const": "manual",
+            "default": "manual",
+            "title": "Mode",
+            "type": "string"
+          },
+          "source_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Source Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_ids"
+        ],
+        "title": "ManualSourceSelection",
+        "type": "object"
+      },
+      "ManuscriptContextManifest": {
+        "additionalProperties": false,
+        "description": "Small durable audit record; it never stores prompt or fact bodies.",
+        "properties": {
+          "instruction": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruction"
+          },
+          "memory_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 128,
+            "title": "Memory Ids",
+            "type": "array"
+          },
+          "previous_scene_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Scene Id"
+          },
+          "selected_source_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 32,
+            "title": "Selected Source Ids",
+            "type": "array"
+          },
+          "selection_reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Selection Reason",
+            "type": "string"
+          },
+          "target_words": {
+            "anyOf": [
+              {
+                "maximum": 50000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Words"
+          },
+          "wiki_page_paths": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 128,
+            "title": "Wiki Page Paths",
+            "type": "array"
+          }
+        },
+        "required": [
+          "selected_source_ids",
+          "selection_reason"
+        ],
+        "title": "ManuscriptContextManifest",
+        "type": "object"
+      },
       "ManuscriptExport": {
         "additionalProperties": false,
         "properties": {
@@ -1144,6 +1252,82 @@
         "title": "ManuscriptGenerationMode",
         "type": "string"
       },
+      "ManuscriptGenerationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "chapter_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Chapter Id",
+            "type": "string"
+          },
+          "instruction": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruction"
+          },
+          "source": {
+            "discriminator": {
+              "mapping": {
+                "manual": "#/components/schemas/ManualSourceSelection",
+                "scene": "#/components/schemas/SceneSourceSelection",
+                "writer": "#/components/schemas/WriterSourceSelection"
+              },
+              "propertyName": "mode"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ManualSourceSelection"
+              },
+              {
+                "$ref": "#/components/schemas/SceneSourceSelection"
+              },
+              {
+                "$ref": "#/components/schemas/WriterSourceSelection"
+              }
+            ],
+            "title": "Source"
+          },
+          "target_words": {
+            "anyOf": [
+              {
+                "maximum": 50000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Words"
+          },
+          "viewpoint_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Viewpoint Actor Id"
+          }
+        },
+        "required": [
+          "source",
+          "chapter_id"
+        ],
+        "title": "ManuscriptGenerationRequest",
+        "type": "object"
+      },
       "ManuscriptReviewOutput": {
         "additionalProperties": false,
         "properties": {
@@ -1163,6 +1347,196 @@
           "review"
         ],
         "title": "ManuscriptReviewOutput",
+        "type": "object"
+      },
+      "ManuscriptSourceCandidate": {
+        "additionalProperties": false,
+        "description": "A bounded, branch-local range that can be frozen as manuscript input.",
+        "properties": {
+          "available_viewpoint_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Available Viewpoint Ids",
+            "type": "array"
+          },
+          "boundary": {
+            "$ref": "#/components/schemas/SimulationBoundary"
+          },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "estimated_chars": {
+            "maximum": 131072.0,
+            "minimum": 1.0,
+            "title": "Estimated Chars",
+            "type": "integer"
+          },
+          "event_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 128,
+            "minItems": 1,
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "event_summary_text": {
+            "maxLength": 131072,
+            "minLength": 1,
+            "title": "Event Summary Text",
+            "type": "string"
+          },
+          "from_step": {
+            "minimum": 0.0,
+            "title": "From Step",
+            "type": "integer"
+          },
+          "source_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "status": {
+            "default": "available",
+            "enum": [
+              "available",
+              "covered"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title_hint": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Title Hint",
+            "type": "string"
+          },
+          "to_step": {
+            "minimum": 0.0,
+            "title": "To Step",
+            "type": "integer"
+          },
+          "wiki_version_id": {
+            "minLength": 1,
+            "title": "Wiki Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "branch_id",
+          "checkpoint_id",
+          "from_step",
+          "to_step",
+          "boundary",
+          "title_hint",
+          "event_summary_text",
+          "event_ids",
+          "estimated_chars",
+          "wiki_version_id"
+        ],
+        "title": "ManuscriptSourceCandidate",
+        "type": "object"
+      },
+      "ManuscriptSourceManifest": {
+        "additionalProperties": false,
+        "description": "Immutable lineage chosen before the writer is called.",
+        "properties": {
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "event_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 128,
+            "minItems": 1,
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "from_step": {
+            "minimum": 0.0,
+            "title": "From Step",
+            "type": "integer"
+          },
+          "memory_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 128,
+            "title": "Memory Ids",
+            "type": "array"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "source_ids": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "to_step": {
+            "minimum": 0.0,
+            "title": "To Step",
+            "type": "integer"
+          },
+          "viewpoint_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Viewpoint Actor Id"
+          },
+          "wiki_version_id": {
+            "minLength": 1,
+            "title": "Wiki Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "branch_id",
+          "checkpoint_id",
+          "source_ids",
+          "from_step",
+          "to_step",
+          "event_ids",
+          "wiki_version_id"
+        ],
+        "title": "ManuscriptSourceManifest",
         "type": "object"
       },
       "MemoryScope": {
@@ -1906,83 +2280,6 @@
         "title": "ModelUsage",
         "type": "object"
       },
-      "NarrativeSourceSummary": {
-        "additionalProperties": false,
-        "properties": {
-          "available_viewpoint_ids": {
-            "items": {
-              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-              "type": "string"
-            },
-            "title": "Available Viewpoint Ids",
-            "type": "array"
-          },
-          "boundary": {
-            "$ref": "#/components/schemas/SimulationBoundary"
-          },
-          "branch_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Branch Id",
-            "type": "string"
-          },
-          "checkpoint_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Checkpoint Id",
-            "type": "string"
-          },
-          "event_summary_text": {
-            "maxLength": 32768,
-            "minLength": 1,
-            "title": "Event Summary Text",
-            "type": "string"
-          },
-          "from_step": {
-            "minimum": 0.0,
-            "title": "From Step",
-            "type": "integer"
-          },
-          "source_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Source Id",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "available",
-              "drafted",
-              "needs_revision",
-              "saved"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "title_hint": {
-            "maxLength": 512,
-            "minLength": 1,
-            "title": "Title Hint",
-            "type": "string"
-          },
-          "to_step": {
-            "minimum": 0.0,
-            "title": "To Step",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "source_id",
-          "branch_id",
-          "checkpoint_id",
-          "from_step",
-          "to_step",
-          "boundary",
-          "title_hint",
-          "event_summary_text",
-          "available_viewpoint_ids",
-          "status"
-        ],
-        "title": "NarrativeSourceSummary",
-        "type": "object"
-      },
       "OutputPolicy": {
         "additionalProperties": false,
         "properties": {
@@ -2676,6 +2973,9 @@
             "title": "Chapter Id",
             "type": "string"
           },
+          "context_manifest": {
+            "$ref": "#/components/schemas/ManuscriptContextManifest"
+          },
           "id": {
             "pattern": "^scene-[0-9]{6}$",
             "title": "Id",
@@ -2691,47 +2991,8 @@
             "title": "Sequence",
             "type": "integer"
           },
-          "source_checkpoint_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Source Checkpoint Id",
-            "type": "string"
-          },
-          "source_event_ids": {
-            "items": {
-              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Source Event Ids",
-            "type": "array"
-          },
-          "source_from_step": {
-            "minimum": 0.0,
-            "title": "Source From Step",
-            "type": "integer"
-          },
-          "source_memory_ids": {
-            "items": {
-              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-              "type": "string"
-            },
-            "title": "Source Memory Ids",
-            "type": "array"
-          },
-          "source_to_step": {
-            "minimum": 0.0,
-            "title": "Source To Step",
-            "type": "integer"
-          },
-          "source_wiki_branch_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Source Wiki Branch Id",
-            "type": "string"
-          },
-          "source_wiki_version_id": {
-            "minLength": 1,
-            "title": "Source Wiki Version Id",
-            "type": "string"
+          "source": {
+            "$ref": "#/components/schemas/ManuscriptSourceManifest"
           },
           "title": {
             "maxLength": 200,
@@ -2743,18 +3004,6 @@
             "minimum": 1.0,
             "title": "Version",
             "type": "integer"
-          },
-          "viewpoint_actor_id": {
-            "anyOf": [
-              {
-                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Viewpoint Actor Id"
           }
         },
         "required": [
@@ -2765,13 +3014,8 @@
           "chapter_id",
           "title",
           "body",
-          "source_checkpoint_id",
-          "source_from_step",
-          "source_to_step",
-          "source_event_ids",
-          "source_memory_ids",
-          "source_wiki_branch_id",
-          "source_wiki_version_id",
+          "source",
+          "context_manifest",
           "version"
         ],
         "title": "Scene",
@@ -2802,6 +3046,9 @@
             "minLength": 1,
             "title": "Chapter Id",
             "type": "string"
+          },
+          "context_manifest": {
+            "$ref": "#/components/schemas/ManuscriptContextManifest"
           },
           "id": {
             "pattern": "^scene-[0-9]{6}$",
@@ -2834,47 +3081,8 @@
             "title": "Sequence",
             "type": "integer"
           },
-          "source_checkpoint_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Source Checkpoint Id",
-            "type": "string"
-          },
-          "source_event_ids": {
-            "items": {
-              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Source Event Ids",
-            "type": "array"
-          },
-          "source_from_step": {
-            "minimum": 0.0,
-            "title": "Source From Step",
-            "type": "integer"
-          },
-          "source_memory_ids": {
-            "items": {
-              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-              "type": "string"
-            },
-            "title": "Source Memory Ids",
-            "type": "array"
-          },
-          "source_to_step": {
-            "minimum": 0.0,
-            "title": "Source To Step",
-            "type": "integer"
-          },
-          "source_wiki_branch_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Source Wiki Branch Id",
-            "type": "string"
-          },
-          "source_wiki_version_id": {
-            "minLength": 1,
-            "title": "Source Wiki Version Id",
-            "type": "string"
+          "source": {
+            "$ref": "#/components/schemas/ManuscriptSourceManifest"
           },
           "status": {
             "default": "draft",
@@ -2892,18 +3100,6 @@
             "minLength": 1,
             "title": "Title",
             "type": "string"
-          },
-          "viewpoint_actor_id": {
-            "anyOf": [
-              {
-                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Viewpoint Actor Id"
           }
         },
         "required": [
@@ -2914,61 +3110,10 @@
           "chapter_id",
           "title",
           "body",
-          "source_checkpoint_id",
-          "source_from_step",
-          "source_to_step",
-          "source_event_ids",
-          "source_memory_ids",
-          "source_wiki_branch_id",
-          "source_wiki_version_id"
+          "source",
+          "context_manifest"
         ],
         "title": "SceneDraft",
-        "type": "object"
-      },
-      "SceneGenerationRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "chapter_id": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Chapter Id",
-            "type": "string"
-          },
-          "checkpoint_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Checkpoint Id",
-            "type": "string"
-          },
-          "from_step": {
-            "minimum": 0.0,
-            "title": "From Step",
-            "type": "integer"
-          },
-          "to_step": {
-            "minimum": 0.0,
-            "title": "To Step",
-            "type": "integer"
-          },
-          "viewpoint_actor_id": {
-            "anyOf": [
-              {
-                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Viewpoint Actor Id"
-          }
-        },
-        "required": [
-          "checkpoint_id",
-          "from_step",
-          "to_step",
-          "chapter_id"
-        ],
-        "title": "SceneGenerationRequest",
         "type": "object"
       },
       "SceneMutationResult": {
@@ -3005,6 +3150,27 @@
           "review"
         ],
         "title": "SceneMutationResult",
+        "type": "object"
+      },
+      "SceneSourceSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "const": "scene",
+            "default": "scene",
+            "title": "Mode",
+            "type": "string"
+          },
+          "source_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "title": "SceneSourceSelection",
         "type": "object"
       },
       "SceneUpdateRequest": {
@@ -5544,6 +5710,19 @@
         ],
         "title": "WorldState",
         "type": "object"
+      },
+      "WriterSourceSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "const": "writer",
+            "default": "writer",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "title": "WriterSourceSelection",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -6381,11 +6560,9 @@
         "tags": [
           "manuscript"
         ]
-      }
-    },
-    "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/generate": {
+      },
       "post": {
-        "operationId": "generate_scene_projects__project_id__branches__branch_id__manuscript_scenes_generate_post",
+        "operationId": "generate_scene_projects__project_id__branches__branch_id__manuscript_scenes_post",
         "parameters": [
           {
             "in": "path",
@@ -6410,7 +6587,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SceneGenerationRequest"
+                "$ref": "#/components/schemas/ManuscriptGenerationRequest"
               }
             }
           },
@@ -6587,9 +6764,9 @@
         ]
       }
     },
-    "/projects/{project_id}/branches/{branch_id}/narrative-sources": {
+    "/projects/{project_id}/branches/{branch_id}/manuscript/sources": {
       "get": {
-        "operationId": "list_narrative_sources_projects__project_id__branches__branch_id__narrative_sources_get",
+        "operationId": "list_manuscript_sources_projects__project_id__branches__branch_id__manuscript_sources_get",
         "parameters": [
           {
             "in": "path",
@@ -6608,22 +6785,6 @@
               "title": "Branch Id",
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "after_step",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "After Step"
-            }
           }
         ],
         "responses": {
@@ -6632,9 +6793,9 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/NarrativeSourceSummary"
+                    "$ref": "#/components/schemas/ManuscriptSourceCandidate"
                   },
-                  "title": "Response List Narrative Sources Projects  Project Id  Branches  Branch Id  Narrative Sources Get",
+                  "title": "Response List Manuscript Sources Projects  Project Id  Branches  Branch Id  Manuscript Sources Get",
                   "type": "array"
                 }
               }
@@ -6657,7 +6818,7 @@
             "SessionToken": []
           }
         ],
-        "summary": "List Narrative Sources",
+        "summary": "List Manuscript Sources",
         "tags": [
           "manuscript"
         ]

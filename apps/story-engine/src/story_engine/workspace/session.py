@@ -372,6 +372,13 @@ class WorkspaceSessionManager:
         )
         recovering = session.state.last_error is not None
         if not changed_paths and not recovering:
+            # A file can change metadata without changing its canonical content.
+            # Keep the watcher baseline current so that transient signatures do not
+            # trigger a rebuild on every poll.
+            with self._lock:
+                current = self._sessions.get(project_id)
+                if current is session:
+                    current.signatures = _file_signatures(root)
             return session.state
         next_state = WorkspaceState(
             project=snapshot,

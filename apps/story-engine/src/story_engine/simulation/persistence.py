@@ -2,6 +2,7 @@
 
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 
 from pydantic import JsonValue
@@ -442,41 +443,49 @@ class SimulationPersistenceService:
                     update={"checkpoint_id": snapshot.checkpoint_id}
                 )
             commit_completed = datetime.now(UTC)
-            self.publish_stage(
-                SimulationStageEvent(
-                    event_id=f"stage-event:{uuid.uuid4().hex}",
-                    project_id=snapshot.project_id,
-                    session_id=snapshot.session_id,
-                    branch_id=snapshot.branch_id,
-                    step=result.step,
-                    stage=SimulationStage.COMMIT,
-                    status=StageStatus.SUCCEEDED,
-                    summary_text=(
-                        "Step log and checkpoint committed"
-                        if committed is not None
-                        else "Step log committed; checkpoint interval not reached"
-                    ),
-                    checkpoint_id=(
-                        committed.checkpoint_id if committed is not None else None
-                    ),
-                    duration_ms=max(
-                        0,
-                        int((commit_completed - commit_started).total_seconds() * 1000),
-                    ),
-                    started_at=commit_started,
-                    completed_at=commit_completed,
+            # The AtomicBatch above is the authoritative boundary. Observability
+            # notifications happen after it and cannot invalidate the committed
+            # step or its command receipt when an event sink is unavailable.
+            with suppress(Exception):
+                self.publish_stage(
+                    SimulationStageEvent(
+                        event_id=f"stage-event:{uuid.uuid4().hex}",
+                        project_id=snapshot.project_id,
+                        session_id=snapshot.session_id,
+                        branch_id=snapshot.branch_id,
+                        step=result.step,
+                        stage=SimulationStage.COMMIT,
+                        status=StageStatus.SUCCEEDED,
+                        summary_text=(
+                            "Step log and checkpoint committed"
+                            if committed is not None
+                            else "Step log committed; checkpoint interval not reached"
+                        ),
+                        checkpoint_id=(
+                            committed.checkpoint_id if committed is not None else None
+                        ),
+                        duration_ms=max(
+                            0,
+                            int(
+                                (commit_completed - commit_started).total_seconds()
+                                * 1000
+                            ),
+                        ),
+                        started_at=commit_started,
+                        completed_at=commit_completed,
+                    )
                 )
-            )
             if committed is not None:
-                self.publish(
-                    snapshot,
-                    "simulation.checkpointed",
-                    payload={
-                        "session_id": snapshot.session_id,
-                        "checkpoint_id": committed.checkpoint_id,
-                        "step": snapshot.current_step,
-                    },
-                )
+                with suppress(Exception):
+                    self.publish(
+                        snapshot,
+                        "simulation.checkpointed",
+                        payload={
+                            "session_id": snapshot.session_id,
+                            "checkpoint_id": committed.checkpoint_id,
+                            "step": snapshot.current_step,
+                        },
+                    )
             return result, snapshot, committed
         except Exception as error:
             commit_completed = datetime.now(UTC)

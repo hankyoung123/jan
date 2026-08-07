@@ -24,13 +24,16 @@ vi.mock('@/editor/NovelManuscriptEditor', () => ({
   ),
 }))
 
-import { clearActiveStoryProject, setActiveStoryProjectId } from './activeProject'
+import {
+  clearActiveStoryProject,
+  setActiveStoryProjectId,
+} from './activeProject'
 import { SimulationHistoryView } from './history/SimulationHistoryView'
 import { ManuscriptView } from './manuscript/ManuscriptView'
 import { WorldView } from './world/WorldView'
 
 const source = {
-  source_id: 'source:main:0:3',
+  source_id: 'source:main:checkpoint-main-3:0:3',
   branch_id: 'main',
   checkpoint_id: 'checkpoint-main-3',
   from_step: 0,
@@ -38,7 +41,10 @@ const source = {
   boundary: 'scene',
   title_hint: '灯塔机械室',
   event_summary_text: '陈默发现线路被人为切断。',
+  event_ids: ['event:session:one:3'],
+  estimated_chars: 18,
   available_viewpoint_ids: ['chen-mo'],
+  wiki_version_id: 'seed',
   status: 'available',
 }
 
@@ -50,12 +56,27 @@ const scene = {
   chapter_id: 'chapter-001',
   title: '切断的线路',
   body: '陈默在机械室里发现断线。',
-  source_checkpoint_id: 'checkpoint-main-3',
-  source_from_step: 0,
-  source_to_step: 3,
-  source_event_ids: ['event:session:one:3'],
-  source_memory_ids: ['memory:gm:3'],
-  viewpoint_actor_id: 'chen-mo',
+  source: {
+    project_id: 'fog-harbor',
+    branch_id: 'main',
+    checkpoint_id: 'checkpoint-main-3',
+    source_ids: ['source:main:checkpoint-main-3:0:3'],
+    from_step: 0,
+    to_step: 3,
+    event_ids: ['event:session:one:3'],
+    memory_ids: ['memory:gm:3'],
+    wiki_version_id: 'seed',
+    viewpoint_actor_id: 'chen-mo',
+  },
+  context_manifest: {
+    wiki_page_paths: [],
+    memory_ids: ['memory:gm:3'],
+    previous_scene_id: null,
+    selected_source_ids: ['source:main:checkpoint-main-3:0:3'],
+    selection_reason: 'complete scene source selection',
+    target_words: null,
+    instruction: null,
+  },
   base_scene_version: 0,
   revision: 0,
   review: null,
@@ -142,7 +163,9 @@ describe('closed-loop story views', () => {
       target: { value: '下一场让潮汐成为压力。' },
     })
     fireEvent.click(screen.getByRole('button', { name: '保存导演补充' }))
-    expect(await screen.findByText('下一场让潮汐成为压力。')).toBeInTheDocument()
+    expect(
+      await screen.findByText('下一场让潮汐成为压力。')
+    ).toBeInTheDocument()
   })
 
   it('shows a degraded Wiki state and explains that manuscript generation is paused', async () => {
@@ -165,29 +188,34 @@ describe('closed-loop story views', () => {
 
     render(<WorldView />)
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Wiki 维护已降级')
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Wiki 维护已降级'
+    )
     expect(screen.getByRole('status')).toHaveTextContent('正文生成已暂停')
     expect(screen.getByRole('status')).toHaveTextContent(
       'Wiki proposal failed after 2 attempts'
     )
   })
 
-  it('generates manuscript directly from a Narrative Source with lineage', async () => {
+  it('generates a manuscript scene from a frozen source with lineage', async () => {
     setActiveStoryProjectId('fog-harbor')
     let scenes: object[] = []
     h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
-      if (path.endsWith('/narrative-sources')) return Promise.resolve([source])
+      if (path.endsWith('/manuscript/sources')) return Promise.resolve([source])
       if (path.endsWith('/manuscript/scenes') && !init) {
         return Promise.resolve(scenes)
       }
-      if (path.endsWith('/manuscript/scenes/generate')) {
+      if (path.endsWith('/manuscript/scenes') && init?.method === 'POST') {
         expect(init?.body).toBe(
           JSON.stringify({
-            checkpoint_id: 'checkpoint-main-3',
-            from_step: 0,
-            to_step: 3,
+            source: {
+              mode: 'scene',
+              source_id: 'source:main:checkpoint-main-3:0:3',
+            },
             chapter_id: 'chapter-001',
             viewpoint_actor_id: null,
+            target_words: null,
+            instruction: null,
           })
         )
         scenes = [scene]
@@ -197,8 +225,15 @@ describe('closed-loop story views', () => {
     })
 
     render(<ManuscriptView />)
-    expect(await screen.findByText('陈默发现线路被人为切断。')).toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('button', { name: '从此片段生成' }))
+    expect(
+      await screen.findByText('陈默发现线路被人为切断。')
+    ).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('来源模式'), {
+      target: { value: 'scene' },
+    })
+    fireEvent.click(
+      await screen.findByRole('button', { name: '从冻结来源生成' })
+    )
     expect(await screen.findByDisplayValue('切断的线路')).toBeInTheDocument()
     expect(screen.getByText('checkpoint-main-3')).toBeInTheDocument()
     expect(screen.getByText('event:session:one:3')).toBeInTheDocument()
@@ -239,7 +274,9 @@ describe('closed-loop story views', () => {
     ])
 
     render(<SimulationHistoryView />)
-    expect(await screen.findByText('陈默确认线路被人为切断。')).toBeInTheDocument()
+    expect(
+      await screen.findByText('陈默确认线路被人为切断。')
+    ).toBeInTheDocument()
     expect(screen.getByText('灯塔线路被人为切断。')).toBeInTheDocument()
     expect(h.engineRequest).toHaveBeenCalledWith(
       '/projects/fog-harbor/branches/main/simulation-trace?after_step=-1'

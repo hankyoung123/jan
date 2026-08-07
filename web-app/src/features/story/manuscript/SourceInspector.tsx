@@ -26,7 +26,7 @@ function reviewMessage(
       agentName: 'Editor',
       taskLabel: '正文审校',
       branchId: scene.branch_id,
-      step: scene.source_to_step,
+      step: scene.source.to_step,
       stage: 'editor',
       outputStatus: 'completed',
     },
@@ -56,22 +56,22 @@ export function SourceInspector({
             <p className="text-muted-foreground">Branch / Checkpoint</p>
             <p className="mt-1 break-all font-mono">{scene.branch_id}</p>
             <p className="mt-1 break-all font-mono text-[10px]">
-              {scene.source_checkpoint_id}
+              {scene.source.checkpoint_id}
             </p>
           </section>
           <section>
             <p className="text-muted-foreground">Step Range / Viewpoint</p>
             <p className="mt-1 font-mono">
-              {scene.source_from_step}–{scene.source_to_step}
+              {scene.source.from_step}–{scene.source.to_step}
             </p>
             <p className="mt-1">
-              {scene.viewpoint_actor_id || '自动选择主视角'}
+              {scene.source.viewpoint_actor_id || '自动选择主视角'}
             </p>
           </section>
           <section>
             <p className="text-muted-foreground">Resolved Events</p>
             <div className="mt-2 space-y-1 break-all font-mono text-[10px]">
-              {scene.source_event_ids.map((id) => (
+              {scene.source.event_ids.map((id) => (
                 <div key={id}>{id}</div>
               ))}
             </div>
@@ -79,10 +79,33 @@ export function SourceInspector({
           <section>
             <p className="text-muted-foreground">Memory Records</p>
             <div className="mt-2 max-h-56 space-y-1 overflow-y-auto break-all font-mono text-[10px]">
-              {scene.source_memory_ids.map((id) => (
+              {scene.source.memory_ids.map((id) => (
                 <div key={id}>{id}</div>
               ))}
             </div>
+          </section>
+          <section>
+            <p className="text-muted-foreground">Frozen sources</p>
+            <div className="mt-2 space-y-1 break-all font-mono text-[10px]">
+              {scene.source.source_ids.map((id) => (
+                <div key={id}>{id}</div>
+              ))}
+            </div>
+            <p className="mt-2 text-muted-foreground">Selection reason</p>
+            <p className="mt-1">{scene.context_manifest.selection_reason}</p>
+          </section>
+          <section>
+            <p className="text-muted-foreground">Historical Wiki pages</p>
+            <div className="mt-2 space-y-1 break-all font-mono text-[10px]">
+              {scene.context_manifest.wiki_page_paths.map((path) => (
+                <div key={path}>{path}</div>
+              ))}
+            </div>
+            {scene.context_manifest.previous_scene_id && (
+              <p className="mt-2 text-muted-foreground">
+                Previous scene: {scene.context_manifest.previous_scene_id}
+              </p>
+            )}
           </section>
           {showReview && review && (
             <section className="border-t pt-4">

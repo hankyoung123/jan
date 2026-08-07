@@ -5,11 +5,11 @@ from fastapi import APIRouter, HTTPException, status
 from story_engine.api.model_errors import model_http_error
 from story_engine.api.routes.projects import _require_project
 from story_engine.config import EngineSettings
-from story_engine.domain.narrative import NarrativeSourceSummary
 from story_engine.manuscript.models import (
     ManuscriptExport,
+    ManuscriptGenerationRequest,
+    ManuscriptSourceCandidate,
     SceneDraft,
-    SceneGenerationRequest,
     SceneMutationResult,
     SceneUpdateRequest,
 )
@@ -52,18 +52,15 @@ def create_manuscript_router(
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.get(
-        "/projects/{project_id}/branches/{branch_id}/narrative-sources",
-        response_model=tuple[NarrativeSourceSummary, ...],
+        "/projects/{project_id}/branches/{branch_id}/manuscript/sources",
+        response_model=tuple[ManuscriptSourceCandidate, ...],
     )
-    async def list_narrative_sources(
+    async def list_manuscript_sources(
         project_id: str,
         branch_id: str,
-        after_step: int | None = None,
-    ) -> tuple[NarrativeSourceSummary, ...]:
+    ) -> tuple[ManuscriptSourceCandidate, ...]:
         try:
-            return service(project_id, branch_id).list_sources(
-                after_step=after_step,
-            )
+            return service(project_id, branch_id).list_sources()
         except (OSError, ValueError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -93,23 +90,17 @@ def create_manuscript_router(
             raise HTTPException(status_code=404, detail="Scene not found") from error
 
     @router.post(
-        "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/generate",
+        "/projects/{project_id}/branches/{branch_id}/manuscript/scenes",
         response_model=SceneDraft,
         status_code=status.HTTP_201_CREATED,
     )
     async def generate_scene(
         project_id: str,
         branch_id: str,
-        request: SceneGenerationRequest,
+        request: ManuscriptGenerationRequest,
     ) -> SceneDraft:
         try:
-            return await service(project_id, branch_id).generate_scene(
-                checkpoint_id=request.checkpoint_id,
-                from_step=request.from_step,
-                to_step=request.to_step,
-                chapter_id=request.chapter_id,
-                viewpoint_actor_id=request.viewpoint_actor_id,
-            )
+            return await service(project_id, branch_id).generate(request)
         except ModelGatewayError as error:
             raise model_http_error(error) from error
         except (OSError, ValueError) as error:

@@ -3,13 +3,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { engineRequest } from '../engine'
 
-export type NarrativeSourceSummary = components['schemas']['NarrativeSourceSummary']
+export type ManuscriptSourceCandidate =
+  components['schemas']['ManuscriptSourceCandidate']
 export type SceneDraft = components['schemas']['SceneDraft']
 export type SceneMutationResult = components['schemas']['SceneMutationResult']
 export type ManuscriptExport = components['schemas']['ManuscriptExport']
+export type ManuscriptSourceSelection =
+  | components['schemas']['ManualSourceSelection']
+  | components['schemas']['SceneSourceSelection']
+  | components['schemas']['WriterSourceSelection']
 
 export function useManuscript(projectId: string | undefined, branchId: string) {
-  const [sources, setSources] = useState<NarrativeSourceSummary[]>([])
+  const [sources, setSources] = useState<ManuscriptSourceCandidate[]>([])
   const [scenes, setScenes] = useState<SceneDraft[]>([])
   const [loading, setLoading] = useState(Boolean(projectId))
   const [working, setWorking] = useState<string | null>(null)
@@ -30,8 +35,8 @@ export function useManuscript(projectId: string | undefined, branchId: string) {
     setError(null)
     try {
       const [loadedSources, loadedScenes] = await Promise.all([
-        engineRequest<NarrativeSourceSummary[]>(
-          `/projects/${projectId}/branches/${branchId}/narrative-sources`
+        engineRequest<ManuscriptSourceCandidate[]>(
+          `/projects/${projectId}/branches/${branchId}/manuscript/sources`
         ),
         engineRequest<SceneDraft[]>(
           `/projects/${projectId}/branches/${branchId}/manuscript/scenes`
@@ -69,24 +74,26 @@ export function useManuscript(projectId: string | undefined, branchId: string) {
 
   const generate = useCallback(
     async (
-      source: NarrativeSourceSummary,
+      selection: ManuscriptSourceSelection,
       chapterId: string,
-      viewpointActorId: string | null
+      viewpointActorId: string | null,
+      targetWords: number | null,
+      instruction: string | null
     ) => {
       if (!projectId) return null
       setWorking('generate')
       setError(null)
       try {
         const scene = await engineRequest<SceneDraft>(
-          `/projects/${projectId}/branches/${branchId}/manuscript/scenes/generate`,
+          `/projects/${projectId}/branches/${branchId}/manuscript/scenes`,
           {
             method: 'POST',
             body: JSON.stringify({
-              checkpoint_id: source.checkpoint_id,
-              from_step: source.from_step,
-              to_step: source.to_step,
+              source: selection,
               chapter_id: chapterId,
               viewpoint_actor_id: viewpointActorId,
+              target_words: targetWords,
+              instruction,
             }),
           }
         )

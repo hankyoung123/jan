@@ -268,24 +268,8 @@ export interface paths {
         /** List Scenes */
         get: operations["list_scenes_projects__project_id__branches__branch_id__manuscript_scenes_get"];
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/projects/{project_id}/branches/{branch_id}/manuscript/scenes/generate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
         /** Generate Scene */
-        post: operations["generate_scene_projects__project_id__branches__branch_id__manuscript_scenes_generate_post"];
+        post: operations["generate_scene_projects__project_id__branches__branch_id__manuscript_scenes_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -310,15 +294,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/projects/{project_id}/branches/{branch_id}/narrative-sources": {
+    "/projects/{project_id}/branches/{branch_id}/manuscript/sources": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Narrative Sources */
-        get: operations["list_narrative_sources_projects__project_id__branches__branch_id__narrative_sources_get"];
+        /** List Manuscript Sources */
+        get: operations["list_manuscript_sources_projects__project_id__branches__branch_id__manuscript_sources_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1222,6 +1206,42 @@ export interface components {
             visibility: "public" | "private" | "secret";
         };
         JsonValue: unknown;
+        /** ManualSourceSelection */
+        ManualSourceSelection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "manual";
+            /** Source Ids */
+            source_ids: string[];
+        };
+        /**
+         * ManuscriptContextManifest
+         * @description Small durable audit record; it never stores prompt or fact bodies.
+         */
+        ManuscriptContextManifest: {
+            /** Instruction */
+            instruction?: string | null;
+            /**
+             * Memory Ids
+             * @default []
+             */
+            memory_ids: string[];
+            /** Previous Scene Id */
+            previous_scene_id?: string | null;
+            /** Selected Source Ids */
+            selected_source_ids: string[];
+            /** Selection Reason */
+            selection_reason: string;
+            /** Target Words */
+            target_words?: number | null;
+            /**
+             * Wiki Page Paths
+             * @default []
+             */
+            wiki_page_paths: string[];
+        };
         /** ManuscriptExport */
         ManuscriptExport: {
             /** Branch Id */
@@ -1240,6 +1260,19 @@ export interface components {
          * @enum {string}
          */
         ManuscriptGenerationMode: "manual" | "after_scene" | "after_chapter";
+        /** ManuscriptGenerationRequest */
+        ManuscriptGenerationRequest: {
+            /** Chapter Id */
+            chapter_id: string;
+            /** Instruction */
+            instruction?: string | null;
+            /** Source */
+            source: components["schemas"]["ManualSourceSelection"] | components["schemas"]["SceneSourceSelection"] | components["schemas"]["WriterSourceSelection"];
+            /** Target Words */
+            target_words?: number | null;
+            /** Viewpoint Actor Id */
+            viewpoint_actor_id?: string | null;
+        };
         /** ManuscriptReviewOutput */
         ManuscriptReviewOutput: {
             review: components["schemas"]["ReviewResult"];
@@ -1248,6 +1281,73 @@ export interface components {
              * @default []
              */
             unsupported_facts: string[];
+        };
+        /**
+         * ManuscriptSourceCandidate
+         * @description A bounded, branch-local range that can be frozen as manuscript input.
+         */
+        ManuscriptSourceCandidate: {
+            /**
+             * Available Viewpoint Ids
+             * @default []
+             */
+            available_viewpoint_ids: string[];
+            boundary: components["schemas"]["SimulationBoundary"];
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Estimated Chars */
+            estimated_chars: number;
+            /** Event Ids */
+            event_ids: string[];
+            /** Event Summary Text */
+            event_summary_text: string;
+            /** From Step */
+            from_step: number;
+            /** Source Id */
+            source_id: string;
+            /**
+             * Status
+             * @default available
+             * @enum {string}
+             */
+            status: "available" | "covered";
+            /** Title Hint */
+            title_hint: string;
+            /** To Step */
+            to_step: number;
+            /** Wiki Version Id */
+            wiki_version_id: string;
+        };
+        /**
+         * ManuscriptSourceManifest
+         * @description Immutable lineage chosen before the writer is called.
+         */
+        ManuscriptSourceManifest: {
+            /** Branch Id */
+            branch_id: string;
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Event Ids */
+            event_ids: string[];
+            /** From Step */
+            from_step: number;
+            /**
+             * Memory Ids
+             * @default []
+             */
+            memory_ids: string[];
+            /** Project Id */
+            project_id: string;
+            /** Source Ids */
+            source_ids: string[];
+            /** To Step */
+            to_step: number;
+            /** Viewpoint Actor Id */
+            viewpoint_actor_id?: string | null;
+            /** Wiki Version Id */
+            wiki_version_id: string;
         };
         /**
          * MemoryScope
@@ -1466,31 +1566,6 @@ export interface components {
              * @default 0
              */
             total_tokens: number;
-        };
-        /** NarrativeSourceSummary */
-        NarrativeSourceSummary: {
-            /** Available Viewpoint Ids */
-            available_viewpoint_ids: string[];
-            boundary: components["schemas"]["SimulationBoundary"];
-            /** Branch Id */
-            branch_id: string;
-            /** Checkpoint Id */
-            checkpoint_id: string;
-            /** Event Summary Text */
-            event_summary_text: string;
-            /** From Step */
-            from_step: number;
-            /** Source Id */
-            source_id: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "available" | "drafted" | "needs_revision" | "saved";
-            /** Title Hint */
-            title_hint: string;
-            /** To Step */
-            to_step: number;
         };
         /** OutputPolicy */
         OutputPolicy: {
@@ -1777,32 +1852,18 @@ export interface components {
             branch_id: string;
             /** Chapter Id */
             chapter_id: string;
+            context_manifest: components["schemas"]["ManuscriptContextManifest"];
             /** Id */
             id: string;
             /** Project Id */
             project_id: string;
             /** Sequence */
             sequence: number;
-            /** Source Checkpoint Id */
-            source_checkpoint_id: string;
-            /** Source Event Ids */
-            source_event_ids: string[];
-            /** Source From Step */
-            source_from_step: number;
-            /** Source Memory Ids */
-            source_memory_ids: string[];
-            /** Source To Step */
-            source_to_step: number;
-            /** Source Wiki Branch Id */
-            source_wiki_branch_id: string;
-            /** Source Wiki Version Id */
-            source_wiki_version_id: string;
+            source: components["schemas"]["ManuscriptSourceManifest"];
             /** Title */
             title: string;
             /** Version */
             version: number;
-            /** Viewpoint Actor Id */
-            viewpoint_actor_id?: string | null;
         };
         /** SceneDraft */
         SceneDraft: {
@@ -1817,6 +1878,7 @@ export interface components {
             branch_id: string;
             /** Chapter Id */
             chapter_id: string;
+            context_manifest: components["schemas"]["ManuscriptContextManifest"];
             /** Id */
             id: string;
             /** Project Id */
@@ -1829,20 +1891,7 @@ export interface components {
             revision: number;
             /** Sequence */
             sequence: number;
-            /** Source Checkpoint Id */
-            source_checkpoint_id: string;
-            /** Source Event Ids */
-            source_event_ids: string[];
-            /** Source From Step */
-            source_from_step: number;
-            /** Source Memory Ids */
-            source_memory_ids: string[];
-            /** Source To Step */
-            source_to_step: number;
-            /** Source Wiki Branch Id */
-            source_wiki_branch_id: string;
-            /** Source Wiki Version Id */
-            source_wiki_version_id: string;
+            source: components["schemas"]["ManuscriptSourceManifest"];
             /**
              * Status
              * @default draft
@@ -1851,21 +1900,6 @@ export interface components {
             status: "draft" | "reviewed" | "needs_revision" | "saved";
             /** Title */
             title: string;
-            /** Viewpoint Actor Id */
-            viewpoint_actor_id?: string | null;
-        };
-        /** SceneGenerationRequest */
-        SceneGenerationRequest: {
-            /** Chapter Id */
-            chapter_id: string;
-            /** Checkpoint Id */
-            checkpoint_id: string;
-            /** From Step */
-            from_step: number;
-            /** To Step */
-            to_step: number;
-            /** Viewpoint Actor Id */
-            viewpoint_actor_id?: string | null;
         };
         /** SceneMutationResult */
         SceneMutationResult: {
@@ -1877,6 +1911,16 @@ export interface components {
              * @enum {string}
              */
             status: "saved" | "rejected";
+        };
+        /** SceneSourceSelection */
+        SceneSourceSelection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "scene";
+            /** Source Id */
+            source_id: string;
         };
         /** SceneUpdateRequest */
         SceneUpdateRequest: {
@@ -2836,6 +2880,14 @@ export interface components {
                 [key: string]: string | number | boolean | null;
             };
         };
+        /** WriterSourceSelection */
+        WriterSourceSelection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            mode: "writer";
+        };
     };
     responses: never;
     parameters: never;
@@ -3359,7 +3411,7 @@ export interface operations {
             };
         };
     };
-    generate_scene_projects__project_id__branches__branch_id__manuscript_scenes_generate_post: {
+    generate_scene_projects__project_id__branches__branch_id__manuscript_scenes_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3371,7 +3423,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SceneGenerationRequest"];
+                "application/json": components["schemas"]["ManuscriptGenerationRequest"];
             };
         };
         responses: {
@@ -3465,11 +3517,9 @@ export interface operations {
             };
         };
     };
-    list_narrative_sources_projects__project_id__branches__branch_id__narrative_sources_get: {
+    list_manuscript_sources_projects__project_id__branches__branch_id__manuscript_sources_get: {
         parameters: {
-            query?: {
-                after_step?: number | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 project_id: string;
@@ -3485,7 +3535,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NarrativeSourceSummary"][];
+                    "application/json": components["schemas"]["ManuscriptSourceCandidate"][];
                 };
             };
             /** @description Validation Error */

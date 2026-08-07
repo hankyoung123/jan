@@ -67,6 +67,9 @@ jobs:
           yarn build:icon
           yarn copy:assets:tauri
           yarn build:web
+          mkdir -p src-tauri/resources/bin
+          triple="$(rustc -vV | awk '/^host:/ {print $2}')"
+          install -m 0755 "$(command -v uv)" "src-tauri/resources/bin/uv-${triple}"
           yarn tauri build --bundles deb --ci
 
       - name: Stage the Tauri bundle for Flatpak

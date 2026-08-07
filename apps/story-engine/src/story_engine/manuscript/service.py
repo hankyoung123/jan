@@ -6,24 +6,29 @@ from pydantic import ValidationError
 
 from story_engine.domain.message import ModelMessageContext
 from story_engine.domain.models import ReviewIssue, ReviewResult
-from story_engine.domain.narrative import (
-    EditorContext,
-    NarrativeSource,
-    NarrativeSourceSummary,
-    WriterContext,
-)
 from story_engine.manuscript.models import (
     EditorReviewProposal,
+    ManuscriptContext,
     ManuscriptExport,
+    ManuscriptGenerationRequest,
     ManuscriptReviewOutput,
+    ManuscriptSourceCandidate,
+    ManuscriptSourceManifest,
+    ManuscriptWritingIntent,
     ProjectCreativeContext,
     Scene,
     SceneDraft,
     SceneMutationResult,
     SceneUpdateRequest,
+    SourceSelectionResult,
     WriterOutput,
 )
-from story_engine.manuscript.source import NarrativeSourceReader
+from story_engine.manuscript.source import (
+    CandidateSourceBuilder,
+    ManuscriptContextBuilder,
+    SourceSelectionNotReadyError,
+    SourceSelectionValidator,
+)
 from story_engine.models.contracts import Message, ModelRequest
 from story_engine.models.errors import StructuredOutputError
 from story_engine.models.gateway import ModelGateway
@@ -35,14 +40,18 @@ from story_engine.workspace.transaction import AtomicBatch
 
 WRITER_FIRST_CONTENT_TIMEOUT_SECONDS = 300
 WRITER_PROTOCOL = (
-    "Immutable protocol: use only the supplied Writer Context; preserve viewpoint "
-    "permissions; never use Director Instructions as facts; never modify or invent "
-    "simulation history; return only Markdown with exactly one level-one title on "
-    "the first line, one blank line, and the scene prose. Do not use a code fence."
+    "Immutable protocol: FACTS determine what happened. CONTINUITY is only for "
+    "transitions and must never add facts. INTENT only controls expression. Use "
+    "only the supplied Manuscript Context; preserve viewpoint permissions; never "
+    "use Director Instructions as facts; never modify or invent simulation history; "
+    "return only Markdown with exactly one level-one title on the first line, one "
+    "blank line, and the scene prose. Do not use a code fence."
 )
 EDITOR_PROTOCOL = (
-    "Immutable protocol: verify prose only against the supplied Editor Context; "
-    "never modify simulation history; return exactly the requested JSON schema."
+    "Immutable protocol: verify prose only against the supplied Source Manifest "
+    "and Fact Context. CONTINUITY, INTENT, and writer selection reasons are not "
+    "facts and are not supplied. Never modify simulation history; return exactly "
+    "the requested JSON schema."
 )
 
 
@@ -51,59 +60,79 @@ class VersionConflictError(RuntimeError):
 
 
 class ManuscriptAgent(Protocol):
-    async def generate(
+    async def select_source(
         self,
-        source: WriterContext,
+        candidates: tuple[ManuscriptSourceCandidate, ...],
         *,
         project: ProjectCreativeContext,
-    ) -> WriterOutput: ...
+        chapter_id: str,
+        viewpoint_actor_id: str | None,
+        target_words: int | None,
+        instruction: str | None,
+    ) -> SourceSelectionResult: ...
+
+    async def generate(self, context: ManuscriptContext) -> WriterOutput: ...
 
     async def review(
         self,
-        source: EditorContext,
+        context: ManuscriptContext,
         *,
         title: str,
         body: str,
     ) -> ManuscriptReviewOutput: ...
 
 
-def _writer_source_context(source: WriterContext) -> str:
+def _writer_context(context: ManuscriptContext) -> str:
+    visible_source = context.source.model_copy(
+        update={
+            "event_ids": tuple(event.event_id for event in context.facts.events),
+            "memory_ids": tuple(memory.record_id for memory in context.facts.memories),
+        }
+    )
     return json.dumps(
         {
-            "lineage": {
-                **source.source.model_dump(
-                    mode="json",
-                    exclude={"event_ids", "memory_record_ids"},
-                ),
-                "event_ids": [event.event_id for event in source.events],
-                "memory_record_ids": [
-                    record.record_id for record in source.viewpoint_memories
+            "FACTS": {
+                "source_manifest": visible_source.model_dump(mode="json"),
+                "project": context.facts.project.model_dump(mode="json"),
+                "resolved_events": [
+                    event.model_dump(mode="json") for event in context.facts.events
                 ],
+                "viewpoint_allowed_memory": [
+                    record.model_dump(mode="json") for record in context.facts.memories
+                ],
+                "historical_wiki": context.facts.wiki_context,
             },
-            "resolved_events": [
-                event.model_dump(mode="json") for event in source.events
-            ],
-            "selected_viewpoint_memory": [
-                record.model_dump(mode="json") for record in source.viewpoint_memories
-            ],
-            "world_wiki": source.world_wiki_context,
+            "CONTINUITY": {
+                "previous_scene_title": context.continuity.previous_scene_title,
+                "previous_scene_excerpt": context.continuity.previous_scene_excerpt,
+            },
+            "INTENT": context.intent.model_dump(mode="json"),
         },
         ensure_ascii=False,
         default=str,
     )
 
 
-def _editor_source_context(source: EditorContext) -> str:
+def _editor_context(context: ManuscriptContext) -> str:
+    visible_source = context.source.model_copy(
+        update={
+            "event_ids": tuple(event.event_id for event in context.facts.events),
+            "memory_ids": tuple(memory.record_id for memory in context.facts.memories),
+        }
+    )
     return json.dumps(
         {
-            "lineage": source.source.model_dump(mode="json"),
-            "resolved_events": [
-                event.model_dump(mode="json") for event in source.events
-            ],
-            "factual_memory": [
-                record.model_dump(mode="json") for record in source.memories
-            ],
-            "historical_wiki": source.world_wiki_context,
+            "SOURCE_MANIFEST": visible_source.model_dump(mode="json"),
+            "FACTS": {
+                "project": context.facts.project.model_dump(mode="json"),
+                "resolved_events": [
+                    event.model_dump(mode="json") for event in context.facts.events
+                ],
+                "viewpoint_allowed_memory": [
+                    record.model_dump(mode="json") for record in context.facts.memories
+                ],
+                "historical_wiki": context.facts.wiki_context,
+            },
         },
         ensure_ascii=False,
         default=str,
@@ -128,60 +157,101 @@ def parse_writer_markdown(content: str) -> WriterOutput:
 
 
 class GatewayManuscriptAgent:
-    """Run Writer and Editor directly over a privacy-filtered runtime source."""
+    """Use the existing writer/editor profiles over the unified context."""
 
-    def __init__(
-        self,
-        gateway: ModelGateway,
-    ) -> None:
+    def __init__(self, gateway: ModelGateway) -> None:
         self.gateway = gateway
 
-    async def generate(
+    async def select_source(
         self,
-        source: WriterContext,
+        candidates: tuple[ManuscriptSourceCandidate, ...],
         *,
         project: ProjectCreativeContext,
-    ) -> WriterOutput:
-        viewpoint = source.source.viewpoint_actor_id or "automatic_primary_viewpoint"
+        chapter_id: str,
+        viewpoint_actor_id: str | None,
+        target_words: int | None,
+        instruction: str | None,
+    ) -> SourceSelectionResult:
+        profile = self.gateway.registry.get_profile("writer")
+        candidate_payload = [
+            candidate.model_dump(
+                mode="json",
+                exclude={"event_ids", "wiki_version_id", "available_viewpoint_ids"},
+            )
+            for candidate in candidates
+        ]
         task_context = (
-            "Turn the supplied resolved simulation "
-            "history into one novel scene. Every concrete world fact and outcome must "
-            "be supported by the supplied source. Sensory description and stylistic "
-            "language are allowed, but do not invent causes, objects, locations, "
-            "discoveries, or outcomes. The selected viewpoint memory is the only "
-            "character-private memory you may use. When the viewpoint is automatic, "
-            "no character-private memory is supplied or permitted. This is automatic "
-            "primary-viewpoint selection, not an omniscient narration mode. "
-            f"Project: {project.model_dump_json()}. Viewpoint: {viewpoint}. "
-            f"Runtime source: {_writer_source_context(source)}"
+            "Choose a contiguous range from the supplied deterministic candidates. "
+            "Do not invent source IDs, cross branches, or choose covered ranges. "
+            "Return not_ready when no candidate can support a coherent scene. "
+            f"Project: {project.model_dump_json()}. Chapter: {chapter_id}. "
+            f"Viewpoint: {viewpoint_actor_id or 'automatic'}. Target words: "
+            f"{target_words or 'provider default'}. Instruction: {instruction or ''}. "
+            f"Candidates: {json.dumps(candidate_payload, ensure_ascii=False)}"
         )
-        writer_profile = self.gateway.registry.get_profile("writer")
         response = await self.gateway.complete(
             ModelRequest(
                 profile_id="writer",
                 task_type="writer",
                 messages=(
                     Message(role="system", content=WRITER_PROTOCOL),
-                    Message(
-                        role="system",
-                        content=writer_profile.default_system_prompt,
-                    ),
+                    Message(role="system", content=profile.default_system_prompt),
                     Message(role="user", content=task_context),
                 ),
-                #正文生成只受首 token 和完成超时约束, 不发送 max_tokens。
+                output_schema=json.dumps(
+                    SourceSelectionResult.model_json_schema(), ensure_ascii=False
+                ),
+                max_output_tokens=min(profile.max_output_tokens or 512, 512),
+                output_token_limit="profile",
+                timeout_seconds=profile.timeout_seconds,
+                temperature=profile.temperature,
+                reasoning_effort=profile.reasoning_effort,
+            ),
+            context=ModelMessageContext(
+                project_id=project.project_id,
+                agent_name=profile.name,
+                task_label="正文来源选择",
+                branch_id=candidates[0].branch_id if candidates else None,
+                step=candidates[-1].to_step if candidates else None,
+                stage="writer",
+            ),
+        )
+        return SourceSelectionResult.model_validate(response.parsed_output)
+
+    async def generate(self, context: ManuscriptContext) -> WriterOutput:
+        profile = self.gateway.registry.get_profile("writer")
+        response = await self.gateway.complete(
+            ModelRequest(
+                profile_id="writer",
+                task_type="writer",
+                messages=(
+                    Message(role="system", content=WRITER_PROTOCOL),
+                    Message(role="system", content=profile.default_system_prompt),
+                    Message(
+                        role="user",
+                        content=(
+                            "Write one scene from the supplied Manuscript Context. "
+                            "Every concrete event and outcome must be supported by "
+                            "FACTS. Sensory description, dialogue organization, "
+                            "pacing, and style are allowed. FACTS, CONTINUITY, and "
+                            "INTENT are explicitly separated.\n\n"
+                            f"Manuscript Context: {_writer_context(context)}"
+                        ),
+                    ),
+                ),
                 max_output_tokens=None,
                 output_token_limit="provider",
                 first_content_timeout_seconds=WRITER_FIRST_CONTENT_TIMEOUT_SECONDS,
-                timeout_seconds=writer_profile.timeout_seconds,
-                temperature=writer_profile.temperature,
-                reasoning_effort=writer_profile.reasoning_effort,
+                timeout_seconds=profile.timeout_seconds,
+                temperature=profile.temperature,
+                reasoning_effort=profile.reasoning_effort,
             ),
             context=ModelMessageContext(
-                project_id=source.source.project_id,
-                agent_name=writer_profile.name,
+                project_id=context.source.project_id,
+                agent_name=profile.name,
                 task_label="正文生成",
-                branch_id=source.source.branch_id,
-                step=source.source.to_step,
+                branch_id=context.source.branch_id,
+                step=context.source.to_step,
                 stage="writer",
             ),
         )
@@ -189,54 +259,50 @@ class GatewayManuscriptAgent:
 
     async def review(
         self,
-        source: EditorContext,
+        context: ManuscriptContext,
         *,
         title: str,
         body: str,
     ) -> ManuscriptReviewOutput:
-        task_context = (
-            "Compare the prose to the "
-            "supplied runtime source. List each concrete fact asserted by the prose "
-            "that the source does not support in issues. Pure description, "
-            "simile, rhythm, and wording are not unsupported facts. A passing review "
-            "must have no issues. Never propose changing simulation "
-            "history. Return only a concise summary and the issue strings. "
-            f"Runtime source: {_editor_source_context(source)}. "
-            f"Scene title: {title}. Prose: {body}"
-        )
-        editor_profile = self.gateway.registry.get_profile("editor")
+        profile = self.gateway.registry.get_profile("editor")
         response = await self.gateway.complete(
             ModelRequest(
                 profile_id="editor",
                 task_type="editor",
                 messages=(
                     Message(role="system", content=EDITOR_PROTOCOL),
+                    Message(role="system", content=profile.default_system_prompt),
                     Message(
-                        role="system",
-                        content=editor_profile.default_system_prompt,
+                        role="user",
+                        content=(
+                            "Compare the prose to SOURCE_MANIFEST and FACTS. "
+                            "List each concrete fact asserted by the prose that the "
+                            "source does not support. Pure description, simile, "
+                            "rhythm, and wording are not unsupported facts. A passing "
+                            "review has no issues. Never propose changing simulation "
+                            "history. Return only a concise summary and issue strings. "
+                            f"Review context: {_editor_context(context)}. "
+                            f"Scene title: {title}. Prose: {body}"
+                        ),
                     ),
-                    Message(role="user", content=task_context),
                 ),
                 output_schema=json.dumps(
-                    EditorReviewProposal.model_json_schema(),
-                    ensure_ascii=False,
+                    EditorReviewProposal.model_json_schema(), ensure_ascii=False
                 ),
-                max_output_tokens=editor_profile.max_output_tokens,
+                max_output_tokens=profile.max_output_tokens,
                 output_token_limit=(
-                    "provider"
-                    if editor_profile.max_output_tokens is None
-                    else "profile"
+                    "provider" if profile.max_output_tokens is None else "profile"
                 ),
-                timeout_seconds=editor_profile.timeout_seconds,
-                temperature=editor_profile.temperature,
-                reasoning_effort=editor_profile.reasoning_effort,
+                timeout_seconds=profile.timeout_seconds,
+                temperature=profile.temperature,
+                reasoning_effort=profile.reasoning_effort,
             ),
             context=ModelMessageContext(
-                project_id=source.source.project_id,
-                agent_name=editor_profile.name,
+                project_id=context.source.project_id,
+                agent_name=profile.name,
                 task_label="正文审校",
-                branch_id=source.source.branch_id,
-                step=source.source.to_step,
+                branch_id=context.source.branch_id,
+                step=context.source.to_step,
                 stage="editor",
             ),
         )
@@ -263,13 +329,7 @@ class GatewayManuscriptAgent:
 
 
 class ManuscriptService:
-    def __init__(
-        self,
-        root: Path,
-        branch_id: str,
-        *,
-        agent: ManuscriptAgent,
-    ) -> None:
+    def __init__(self, root: Path, branch_id: str, *, agent: ManuscriptAgent) -> None:
         self.root = root
         self.branch_id = branch_id
         self.agent = agent
@@ -279,16 +339,14 @@ class ManuscriptService:
         snapshot = self.projects.load()
         if branch.project_id != snapshot.project.id:
             raise ValueError("branch belongs to another project")
-        self.reader = NarrativeSourceReader(root)
+        self.candidates = CandidateSourceBuilder(root, branch_id)
+        self.selector = SourceSelectionValidator(self.candidates)
+        self.contexts = ManuscriptContextBuilder(root, branch_id)
         self.scenes = SceneStore(root, branch_id)
         self.drafts = SceneDraftStore(root, branch_id)
 
-    def list_sources(
-        self,
-        *,
-        after_step: int | None = None,
-    ) -> tuple[NarrativeSourceSummary, ...]:
-        return self.reader.list_sources(self.branch_id, after_step=after_step)
+    def list_sources(self) -> tuple[ManuscriptSourceCandidate, ...]:
+        return self.candidates.list_candidates()
 
     def _creative_context(self, content_locale: str) -> ProjectCreativeContext:
         project = self.projects.load().project
@@ -301,56 +359,62 @@ class ManuscriptService:
             content_locale=content_locale,
         )
 
-    async def generate_scene(
+    async def resolve_selection(
         self,
-        *,
-        checkpoint_id: str,
-        from_step: int,
-        to_step: int,
-        chapter_id: str,
-        viewpoint_actor_id: str | None,
-    ) -> SceneDraft:
+        request: ManuscriptGenerationRequest,
+    ) -> tuple[ManuscriptSourceManifest, str]:
+        writer_result: SourceSelectionResult | None = None
+        if request.source.mode == "writer":
+            candidates = self.candidates.list_candidates()
+            if not candidates:
+                raise SourceSelectionNotReadyError("没有可供写手选择的连续模拟来源")
+            writer_result = await self.agent.select_source(
+                candidates,
+                project=self._creative_context(
+                    self.branches.load(self.branch_id).content_locale
+                ),
+                chapter_id=request.chapter_id,
+                viewpoint_actor_id=request.viewpoint_actor_id,
+                target_words=request.target_words,
+                instruction=request.instruction,
+            )
+        return self.selector.resolve(
+            request.source,
+            viewpoint_actor_id=request.viewpoint_actor_id,
+            writer_result=writer_result,
+        )
+
+    async def generate(self, request: ManuscriptGenerationRequest) -> SceneDraft:
         wiki = WikiStore(self.root, self.branch_id).view()
         if wiki.stale:
             detail = wiki.degradation_reason or "Wiki requires rebuilding"
             raise ValueError(f"cannot generate manuscript from stale Wiki: {detail}")
-        source = self.reader.build_source(
-            branch_id=self.branch_id,
-            checkpoint_id=checkpoint_id,
-            from_step=from_step,
-            to_step=to_step,
-            viewpoint_actor_id=viewpoint_actor_id,
+        source, selection_reason = await self.resolve_selection(request)
+        writing_intent = ManuscriptWritingIntent(
+            chapter_id=request.chapter_id,
+            target_words=request.target_words,
+            instruction=request.instruction,
         )
-        writer_context = self.reader.load_writer_context(source)
-        output = await self.agent.generate(
-            writer_context,
-            project=self._creative_context(source.content_locale),
+        context, context_manifest = self.contexts.build_context(
+            source,
+            intent=writing_intent,
+            selection_reason=selection_reason,
         )
+        output = await self.agent.generate(context)
         scene_id, sequence = self.scenes.next_identifier()
         draft = SceneDraft(
             id=scene_id,
             project_id=source.project_id,
             branch_id=source.branch_id,
             sequence=sequence,
-            chapter_id=chapter_id,
+            chapter_id=request.chapter_id,
             title=output.title,
             body=output.body,
-            source_checkpoint_id=source.checkpoint_id,
-            source_from_step=source.from_step,
-            source_to_step=source.to_step,
-            source_event_ids=source.event_ids,
-            source_memory_ids=source.memory_record_ids,
-            source_wiki_branch_id=source.wiki_branch_id,
-            source_wiki_version_id=source.wiki_version_id,
-            viewpoint_actor_id=source.viewpoint_actor_id,
+            source=source,
+            context_manifest=context_manifest,
         )
         self.drafts.save(draft, overwrite=False)
-        editor_context = self.reader.load_editor_context(source)
-        review = await self.agent.review(
-            editor_context,
-            title=output.title,
-            body=output.body,
-        )
+        review = await self.agent.review(context, title=output.title, body=output.body)
         grounded = review.review.passed and not review.unsupported_facts
         reviewed = draft.model_copy(
             update={
@@ -361,22 +425,19 @@ class ManuscriptService:
         self.drafts.save(reviewed)
         return reviewed
 
-    def _source_from_draft(self, draft: SceneDraft) -> NarrativeSource:
-        source = self.reader.build_source(
-            branch_id=draft.branch_id,
-            checkpoint_id=draft.source_checkpoint_id,
-            from_step=draft.source_from_step,
-            to_step=draft.source_to_step,
-            viewpoint_actor_id=draft.viewpoint_actor_id,
+    def _context_for_draft(self, draft: SceneDraft) -> ManuscriptContext:
+        context, _ = self.contexts.build_context(
+            draft.source,
+            intent=ManuscriptWritingIntent(
+                chapter_id=draft.chapter_id,
+                target_words=draft.context_manifest.target_words,
+                instruction=draft.context_manifest.instruction,
+            ),
+            selection_reason=draft.context_manifest.selection_reason,
         )
-        if (
-            source.event_ids != draft.source_event_ids
-            or source.memory_record_ids != draft.source_memory_ids
-            or source.wiki_branch_id != draft.source_wiki_branch_id
-            or source.wiki_version_id != draft.source_wiki_version_id
-        ):
+        if context.source != draft.source:
             raise ValueError("scene source lineage changed")
-        return source
+        return context
 
     def get_scene(self, scene_id: str) -> SceneDraft:
         try:
@@ -407,10 +468,9 @@ class ManuscriptService:
             if content_changed
             else draft
         )
-        source = self._source_from_draft(updated)
+        context = self._context_for_draft(updated)
         review = updated.review
         if content_changed or review is None:
-            context = self.reader.load_editor_context(source)
             review = await self.agent.review(
                 context,
                 title=updated.title,
@@ -491,14 +551,8 @@ class ManuscriptService:
             chapter_id=draft.chapter_id,
             title=draft.title,
             body=draft.body,
-            source_checkpoint_id=draft.source_checkpoint_id,
-            source_from_step=draft.source_from_step,
-            source_to_step=draft.source_to_step,
-            source_event_ids=draft.source_event_ids,
-            source_memory_ids=draft.source_memory_ids,
-            source_wiki_branch_id=draft.source_wiki_branch_id,
-            source_wiki_version_id=draft.source_wiki_version_id,
-            viewpoint_actor_id=draft.viewpoint_actor_id,
+            source=draft.source,
+            context_manifest=draft.context_manifest,
             version=draft.base_scene_version + 1,
         )
 
