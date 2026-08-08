@@ -281,9 +281,19 @@ fn sidecar_command(
     token: &str,
     model_bridge: &ModelBridgeConnection,
 ) -> Result<Command, String> {
+    let bundled_binary = app
+        .path()
+        .resource_dir()
+        .map_err(|error| format!("failed to resolve app resources: {error}"))?
+        .join("story-engine")
+        .join(if cfg!(windows) {
+            "story-engine.exe"
+        } else {
+            "story-engine"
+        });
     let mut command = if let Some(binary) = env::var_os("STORY_ENGINE_SIDECAR_BIN") {
         Command::new(binary)
-    } else if cfg!(debug_assertions) {
+    } else if cfg!(debug_assertions) && !bundled_binary.is_file() {
         let project = development_project_path(Path::new(env!("CARGO_MANIFEST_DIR")));
         let mut command =
             Command::new(env::var_os("STORY_ENGINE_UV_BIN").unwrap_or_else(|| "uv".into()));
@@ -292,18 +302,7 @@ fn sidecar_command(
         command.arg("story-engine");
         command
     } else {
-        let binary_name = if cfg!(windows) {
-            "story-engine.exe"
-        } else {
-            "story-engine"
-        };
-        let binary = app
-            .path()
-            .resource_dir()
-            .map_err(|error| format!("failed to resolve app resources: {error}"))?
-            .join("story-engine")
-            .join(binary_name);
-        Command::new(binary)
+        Command::new(bundled_binary)
     };
 
     let data_dir = app
