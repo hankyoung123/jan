@@ -244,15 +244,23 @@ class StoryTurnEngine:
         *,
         cancellation: Event,
         human_intent: str | None = None,
+        eligible_actor_ids: tuple[str, ...] | None = None,
     ) -> StepResult:
         if cancellation.is_set() or session.status == TurnSessionStatus.CANCELLED:
             session.runtime.cancellation.set()
         try:
             if human_intent is None:
-                result = session.runtime.execute_step(
-                    session.current_step,
-                    cancellation=cancellation,
-                )
+                if eligible_actor_ids is None:
+                    result = session.runtime.execute_step(
+                        session.current_step,
+                        cancellation=cancellation,
+                    )
+                else:
+                    result = session.runtime.execute_step(
+                        session.current_step,
+                        cancellation=cancellation,
+                        eligible_actor_ids=eligible_actor_ids,
+                    )
             else:
                 execute_human_turn = getattr(
                     session.runtime, "execute_human_turn", None
@@ -289,8 +297,8 @@ class StoryTurnEngine:
                     session.session_id,
                 )
             raise
-        if cancellation.is_set():
-            with session.lock:
+        with session.lock:
+            if cancellation.is_set() or session.status == TurnSessionStatus.CANCELLED:
                 if session.status != TurnSessionStatus.CANCELLED:
                     session.status = TurnSessionStatus.CANCELLED
                     session.termination_reason_text = "simulation cancelled"
@@ -300,8 +308,7 @@ class StoryTurnEngine:
                         session.request.branch_id,
                         session.session_id,
                     )
-            raise SimulationCancelledError()
-        with session.lock:
+                raise SimulationCancelledError()
             if result.status == TurnSessionStatus.TERMINATED:
                 session.status = TurnSessionStatus.TERMINATED
                 session.termination_reason_text = "Game Master ended the session"
@@ -365,6 +372,7 @@ class StoryTurnEngine:
         *,
         cancellation: Event,
         human_intent: str | None = None,
+        eligible_actor_ids: tuple[str, ...] | None = None,
     ) -> StepResult:
         session = self._get(session_id)
         with session.lock:
@@ -379,6 +387,7 @@ class StoryTurnEngine:
             session,
             cancellation=cancellation,
             human_intent=human_intent,
+            eligible_actor_ids=eligible_actor_ids,
         )
         with session.lock:
             requested_control = session.pending_control

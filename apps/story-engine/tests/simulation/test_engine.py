@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from threading import Event
+from threading import Event, Thread
 
 import pytest
 
@@ -17,6 +17,7 @@ from story_engine.domain.models import Character
 from story_engine.domain.simulation import (
     ControlMode,
     ControlPolicy,
+    StepResult,
     TurnSessionRequest,
     TurnSessionStatus,
 )
@@ -316,6 +317,71 @@ def test_precancelled_step_marks_session_cancelled() -> None:
         engine.advance_one_step(created.session_id, cancellation=cancellation)
 
     assert engine.get(created.session_id).status == TurnSessionStatus.CANCELLED
+
+
+def test_cancel_discards_a_result_that_returns_after_engine_cancel() -> None:
+    entered = Event()
+    release = Event()
+
+    class CancellationIgnoringRuntime:
+        def __init__(self, session_id: str, request: TurnSessionRequest) -> None:
+            self.session_id = session_id
+            self.branch_id = request.branch_id
+            self.cancellation = Event()
+
+        def execute_step(self, step: int, *, cancellation: Event) -> StepResult:
+            del cancellation
+            entered.set()
+            assert release.wait(timeout=2)
+            return StepResult(
+                session_id=self.session_id,
+                branch_id=self.branch_id,
+                step=step,
+                acting_actor_id="actor-a",
+                action_spec=None,
+                action_text="Continue the investigation.",
+                resolved_turn=None,
+                status=TurnSessionStatus.RUNNING,
+            )
+
+        def actor_states(self):
+            return {"actor-a": {}}
+
+        def game_master_states(self):
+            return {"gm": {}}
+
+        def memory_snapshots(self):
+            return {}
+
+        def drain_stage_events(self):
+            return ()
+
+    engine = StoryTurnEngine(CancellationIgnoringRuntime)  # type: ignore[arg-type]
+    created = engine.create_session(
+        _request(ControlPolicy(mode=ControlMode.STEP, max_steps=2))
+    )
+    errors: list[Exception] = []
+
+    def advance() -> None:
+        try:
+            engine.advance_one_step(created.session_id, cancellation=Event())
+        except Exception as error:
+            errors.append(error)
+
+    thread = Thread(target=advance)
+    thread.start()
+    assert entered.wait(timeout=1)
+    engine.cancel(created.session_id, reason_text="emergency stop")
+    release.set()
+    thread.join(timeout=2)
+
+    snapshot = engine.get(created.session_id)
+    assert not thread.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], SimulationCancelledError)
+    assert snapshot.status == TurnSessionStatus.CANCELLED
+    assert snapshot.current_step == 0
+    assert snapshot.raw_log_offset == 0
 
 
 def test_branch_has_only_one_live_session_writer() -> None:

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from story_engine.domain.models import Character
+from story_engine.domain.models import Character, WorldState
 from story_engine.domain.projection import (
     EffectOperation,
     EffectTarget,
@@ -31,6 +31,7 @@ def _character(character_id: str, *, type: str = "active") -> Character:
 def _runtime(
     characters: tuple[Character, ...],
     *,
+    world: WorldState | None = None,
     promotion_reviewer=None,
     promoted_actor_builder=None,
     roster_planner=None,
@@ -49,6 +50,7 @@ def _runtime(
         actors=(actor,),
         game_master=SimpleNamespace(name="gm"),
         characters=characters,
+        world=world,
         promotion_reviewer=promotion_reviewer,
         promoted_actor_builder=promoted_actor_builder,
         game_master_rebuilder=lambda _actors, previous: previous,
@@ -223,9 +225,7 @@ def test_runtime_rejects_recreating_an_existing_character_with_clear_guidance() 
             "core_desire": "Stay safe",
         },
     )
-    runtime = _runtime(
-        (_character("actor-0"), _character("npc-1", type="npc"))
-    )
+    runtime = _runtime((_character("actor-0"), _character("npc-1", type="npc")))
 
     with pytest.raises(
         ValueError,
@@ -274,3 +274,42 @@ def test_resolution_state_updates_are_atomic_and_resources_cannot_appear() -> No
         )
 
     assert runtime.character_states() == before
+
+
+def test_world_time_updates_are_atomic_and_clock_time_cannot_move_backwards() -> None:
+    runtime = _runtime(
+        (_character("actor-0"),),
+        world=WorldState(
+            current_time="18:43",
+            current_location="旅馆大厅",
+        ),
+    )
+    advance = StateEffect(
+        effect_id="effect:time:advance",
+        operation=EffectOperation.SET,
+        target=EffectTarget.WORLD_PROJECTION,
+        path="current_time",
+        after="18:49",
+    )
+
+    changed = runtime._apply_character_effects(
+        _turn(_event("actor-0", effects=(advance,)))
+    )
+
+    assert changed == ("world-updated:current_time",)
+    assert runtime.world_state() is not None
+    assert runtime.world_state().current_time == "18:49"
+
+    backwards = StateEffect(
+        effect_id="effect:time:backwards",
+        operation=EffectOperation.SET,
+        target=EffectTarget.WORLD_PROJECTION,
+        path="current_time",
+        after="18:42",
+    )
+    before = runtime.world_state()
+
+    with pytest.raises(ValueError, match="world time cannot move backwards"):
+        runtime._apply_character_effects(_turn(_event("actor-0", effects=(backwards,))))
+
+    assert runtime.world_state() == before

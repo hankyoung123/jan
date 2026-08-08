@@ -345,6 +345,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/branches/{branch_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Branch Timeline */
+        get: operations["branch_timeline_projects__project_id__branches__branch_id__timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/branches/{branch_id}/wiki": {
         parameters: {
             query?: never;
@@ -1059,6 +1076,17 @@ export interface components {
              * @default user checkpoint
              */
             reason: string;
+        };
+        /** CheckpointTimelineEntry */
+        CheckpointTimelineEntry: {
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Is Current */
+            is_current: boolean;
+            /** Step */
+            step: number;
+            /** World Time */
+            world_time: string;
         };
         /** CommitResult */
         CommitResult: {
@@ -3758,6 +3786,38 @@ export interface operations {
             };
         };
     };
+    branch_timeline_projects__project_id__branches__branch_id__timeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckpointTimelineEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_wiki_projects__project_id__branches__branch_id__wiki_get: {
         parameters: {
             query?: never;
@@ -4092,7 +4152,9 @@ export interface operations {
     };
     get_interactive_session_projects__project_id__simulation_session_get: {
         parameters: {
-            query?: never;
+            query?: {
+                branch_id?: string;
+            };
             header?: never;
             path: {
                 project_id: string;
@@ -4123,7 +4185,9 @@ export interface operations {
     };
     interactive_turn_projects__project_id__simulation_turn_post: {
         parameters: {
-            query?: never;
+            query?: {
+                branch_id?: string;
+            };
             header?: never;
             path: {
                 project_id: string;

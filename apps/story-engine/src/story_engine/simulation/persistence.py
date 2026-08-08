@@ -31,6 +31,7 @@ from story_engine.simulation.engine import (
     SessionNotFoundError,
     StoryTurnEngine,
 )
+from story_engine.simulation.session import calculate_snapshot_state_hash
 
 CommitKernelFactory = Callable[[str], SimulationCommitKernel]
 
@@ -257,6 +258,73 @@ class SimulationPersistenceService:
                 "session_id": snapshot.session_id,
                 "branch_id": snapshot.branch_id,
                 "checkpoint_id": checkpoint_id,
+                "restored": True,
+                "step": snapshot.current_step,
+                "status": snapshot.status.value,
+            },
+        )
+        return snapshot
+
+    def restore_branch(
+        self,
+        project_id: str,
+        *,
+        branch_id: str,
+        observer: SimulationObserver,
+    ) -> TurnSessionSnapshot:
+        """Load a branch head without changing its immutable source checkpoint."""
+        kernel = self.kernel(project_id)
+        branch = kernel.branches.load(branch_id)
+        if branch.project_id != project_id:
+            raise FileNotFoundError(branch_id)
+        for snapshot in self.engine.list_snapshots():
+            if (
+                snapshot.project_id == project_id
+                and snapshot.branch_id == branch_id
+                and snapshot.status
+                in {
+                    TurnSessionStatus.CREATED,
+                    TurnSessionStatus.RUNNING,
+                    TurnSessionStatus.PAUSED,
+                }
+            ):
+                return snapshot
+        if branch.head_checkpoint_id is None:
+            raise ValueError("branch has no checkpoint to restore")
+
+        source = kernel.load_checkpoint(project_id, branch.head_checkpoint_id)
+        if source.branch_id != branch_id:
+            rebound_request = source.request.model_copy(
+                update={"branch_id": branch_id}
+            )
+            rebound = source.model_copy(
+                update={
+                    "session_id": f"session:{uuid.uuid4().hex}",
+                    "branch_id": branch_id,
+                    "request": rebound_request,
+                    "checkpoint_id": branch.head_checkpoint_id,
+                    "state_hash": "0" * 64,
+                }
+            )
+            source = rebound.model_copy(
+                update={"state_hash": calculate_snapshot_state_hash(rebound)}
+            )
+
+        snapshot = self.engine.restore(
+            source.model_copy(update={"checkpoint_id": branch.head_checkpoint_id})
+        )
+        self.engine.attach_observer(snapshot.session_id, observer)
+        snapshot = self.engine.set_restoration_notice(
+            snapshot.session_id,
+            f"已恢复到 Step {snapshot.current_step} 的分支检查点。",
+        )
+        self.publish(
+            snapshot,
+            "simulation.started",
+            payload={
+                "session_id": snapshot.session_id,
+                "branch_id": branch_id,
+                "checkpoint_id": branch.head_checkpoint_id,
                 "restored": True,
                 "step": snapshot.current_step,
                 "status": snapshot.status.value,

@@ -57,6 +57,8 @@ class StoryActor(Protocol):
 class GameMasterActor(StoryActor, Protocol):
     def set_resolution_character_registry(self, registry_text: str) -> None: ...
 
+    def set_resolution_world_state(self, world_state_text: str) -> None: ...
+
     def make_observation(
         self,
         actor: StoryActor,
@@ -127,6 +129,9 @@ class ResolverContext(RuntimeModel):
     putative_event_text: str = Field(min_length=1, max_length=65_536)
     content_locale: LocaleCode
     existing_characters: tuple[CharacterRef, ...] = Field(min_length=1)
+    world_time: str | None = Field(default=None, max_length=1_024)
+    world_location: str | None = Field(default=None, max_length=1_024)
+    world_rules: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def existing_character_ids_are_valid(self) -> "ResolverContext":

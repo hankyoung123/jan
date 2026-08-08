@@ -1,10 +1,11 @@
-import { CircleAlert, LoaderCircle, UserRound } from 'lucide-react'
+import { CircleAlert, GitBranch, LoaderCircle, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { engineRequest } from '../engine'
 import { IntentInput } from './IntentInput'
 import { SceneView } from './SceneView'
 import { SelfLens } from './SelfLens'
+import { Timeline, type TimelineEntry } from './Timeline'
 
 const projectId = 'last-ferry-before'
 
@@ -28,18 +29,40 @@ type SessionResponse = {
   world_time: string
 }
 
+type Branch = {
+  branch_id: string
+  head_checkpoint_id: string | null
+  content_locale: string
+}
+
+function branchPath(path: string, branchId: string) {
+  return branchId === 'main' ? path : `${path}?branch_id=${encodeURIComponent(branchId)}`
+}
+
 export function WorldSessionView() {
   const [session, setSession] = useState<SessionResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [showSelf, setShowSelf] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [branchId, setBranchId] = useState('main')
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([])
 
   useEffect(() => {
     let disposed = false
-    void engineRequest<SessionResponse>(`/projects/${projectId}/simulation/session`)
-      .then((response) => {
-        if (!disposed) setSession(response)
+    setLoading(true)
+    setError(null)
+    void Promise.all([
+      engineRequest<SessionResponse>(branchPath(`/projects/${projectId}/simulation/session`, branchId)),
+      engineRequest<Branch[]>(`/projects/${projectId}/branches`),
+      engineRequest<TimelineEntry[]>(`/projects/${projectId}/branches/${encodeURIComponent(branchId)}/timeline`),
+    ])
+      .then(([response, availableBranches, checkpoints]) => {
+        if (disposed) return
+        setSession(response)
+        setBranches(availableBranches)
+        setTimeline(checkpoints)
       })
       .catch((cause: unknown) => {
         if (!disposed) setError(cause instanceof Error ? cause.message : '无法打开世界')
@@ -50,20 +73,49 @@ export function WorldSessionView() {
     return () => {
       disposed = true
     }
-  }, [])
+  }, [branchId])
 
   async function submit(text: string) {
     setSending(true)
     setError(null)
     try {
       const response = await engineRequest<SessionResponse>(
-        `/projects/${projectId}/simulation/turn`,
+        branchPath(`/projects/${projectId}/simulation/turn`, branchId),
         { method: 'POST', body: JSON.stringify({ text }) }
       )
       setSession(response)
+      setTimeline((entries) => entries.map((entry) => ({
+        ...entry,
+        is_current: entry.checkpoint_id === response.checkpoint_id,
+      })))
+      void engineRequest<TimelineEntry[]>(`/projects/${projectId}/branches/${encodeURIComponent(branchId)}/timeline`)
+        .then(setTimeline)
+        .catch(() => undefined)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '这次行动没有完成')
     } finally {
+      setSending(false)
+    }
+  }
+
+  async function fork(entry: TimelineEntry) {
+    setSending(true)
+    setError(null)
+    const nextBranchId = `fork-${Date.now().toString(36)}`
+    try {
+      await engineRequest<Branch>(`/projects/${projectId}/branches`, {
+        method: 'POST',
+        body: JSON.stringify({
+          branch_id: nextBranchId,
+          source_checkpoint_id: entry.checkpoint_id,
+          parent_branch_id: branchId,
+          content_locale: 'zh-CN',
+        }),
+      })
+      setSending(false)
+      setBranchId(nextBranchId)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '无法创建分支')
       setSending(false)
     }
   }
@@ -89,18 +141,32 @@ export function WorldSessionView() {
             <h1 className="font-studio text-2xl font-medium">末班船之前</h1>
             <p className="mt-1 text-sm text-muted-foreground">港口旅馆 · {session.world_time}</p>
           </div>
-          <button
-            aria-expanded={showSelf}
-            aria-label="查看自身状态"
-            className="grid size-9 place-items-center border bg-background hover:bg-accent lg:hidden"
-            onClick={() => setShowSelf((visible) => !visible)}
-            title="查看自身状态"
-            type="button"
-          >
-            <UserRound size={17} />
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 border bg-background px-2 text-xs text-muted-foreground">
+              <GitBranch size={14} />
+              <select
+                aria-label="分支"
+                className="h-8 max-w-32 bg-transparent text-foreground outline-none"
+                onChange={(event) => setBranchId(event.target.value)}
+                value={branchId}
+              >
+                {branches.map((branch) => <option key={branch.branch_id} value={branch.branch_id}>{branch.branch_id}</option>)}
+              </select>
+            </label>
+            <button
+              aria-expanded={showSelf}
+              aria-label="查看自身状态"
+              className="grid size-9 place-items-center border bg-background hover:bg-accent lg:hidden"
+              onClick={() => setShowSelf((visible) => !visible)}
+              title="查看自身状态"
+              type="button"
+            >
+              <UserRound size={17} />
+            </button>
+          </div>
         </header>
         {error && <p className="mt-4 text-sm text-destructive" role="status">{error}</p>}
+        <Timeline entries={timeline} onFork={fork} pending={sending} />
         <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_220px]">
           <div className="min-w-0">
             <SceneView sceneText={session.perception.scene_text} visibleEvents={events} />

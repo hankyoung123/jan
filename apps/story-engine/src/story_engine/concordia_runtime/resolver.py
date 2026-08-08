@@ -68,6 +68,17 @@ class ConcordiaResolverKernel:
         return "\n".join(lines)
 
     @staticmethod
+    def _world_state_prompt(context: ResolverContext) -> str:
+        lines = [
+            f"- Current time: {context.world_time or 'unknown'}",
+            f"- Current location: {context.world_location or 'unknown'}",
+        ]
+        if context.world_rules:
+            lines.append("- World rules:")
+            lines.extend(f"  - {rule}" for rule in context.world_rules)
+        return "Committed world state:\n" + "\n".join(lines)
+
+    @staticmethod
     def _characters_by_name(context: ResolverContext) -> dict[str, CharacterRef]:
         characters_by_name: dict[str, CharacterRef] = {}
         for character in context.existing_characters:
@@ -313,6 +324,7 @@ class ConcordiaResolverKernel:
         game_master.set_resolution_character_registry(
             self._existing_characters_prompt(context)
         )
+        game_master.set_resolution_world_state(self._world_state_prompt(context))
         raw = game_master.act(
             ActionSpec(
                 spec_id=f"resolve:{context.session_id}:{context.step}",

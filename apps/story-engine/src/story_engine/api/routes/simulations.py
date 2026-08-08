@@ -34,6 +34,7 @@ from story_engine.simulation.engine import (
 )
 from story_engine.simulation.execution import BranchAlreadyActiveError
 from story_engine.simulation.perception import (
+    CheckpointTimelineEntry,
     InteractiveTurnResponse,
     PerceptionBuilder,
 )
@@ -134,33 +135,34 @@ def create_simulations_router(
                 )
         return _require_project(settings, project_id)
 
-    def interactive_session(project_id: str) -> TurnSessionSnapshot:
+    def interactive_session(
+        project_id: str,
+        branch_id: str = "main",
+    ) -> TurnSessionSnapshot:
         root = ensure_default_world(project_id)
         kernel = SimulationCommitKernel(root)
         try:
-            branch = kernel.branches.load("main")
-        except FileNotFoundError:
+            branch = kernel.branches.load(branch_id)
+        except FileNotFoundError as error:
+            if branch_id != "main":
+                raise HTTPException(
+                    status_code=404,
+                    detail="Branch not found",
+                ) from error
             branch = None
         if branch is not None and branch.head_checkpoint_id is not None:
+            if branch.project_id != project_id:
+                raise HTTPException(status_code=404, detail="Branch not found")
             checkpoint = kernel.load_checkpoint(project_id, branch.head_checkpoint_id)
             if checkpoint.player_actor_id is None:
                 raise HTTPException(
                     status_code=409,
                     detail="Project has no configured human actor",
                 )
-            try:
-                durable = service.get_durable(project_id, checkpoint.session_id)
-            except (FileNotFoundError, SessionNotFoundError):
-                durable = service.restore(
-                    project_id,
-                    checkpoint_id=branch.head_checkpoint_id,
-                )
-            if isinstance(durable, SessionManifest):
-                raise HTTPException(
-                    status_code=409,
-                    detail="Interactive world session is not available",
-                )
-            return durable
+            return service.restore_branch(project_id, branch_id=branch_id)
+
+        if branch_id != "main":
+            raise HTTPException(status_code=404, detail="Branch not found")
 
         project = ProjectStore(root).load()
         player = next(
@@ -175,7 +177,7 @@ def create_simulations_router(
         return service.start(
             TurnSessionRequest(
                 project_id=project_id,
-                branch_id="main",
+                branch_id=branch_id,
                 premise_text=project.world.scene_text or project.project.title,
                 actor_ids=tuple(
                     character.id
@@ -248,9 +250,10 @@ def create_simulations_router(
     async def interactive_turn(
         project_id: str,
         request: InteractiveTurnRequest,
+        branch_id: str = "main",
     ) -> InteractiveTurnResponse:
         try:
-            session = interactive_session(project_id)
+            session = interactive_session(project_id, branch_id)
             result = await asyncio.to_thread(
                 service.interactive_turn,
                 session.session_id,
@@ -274,9 +277,14 @@ def create_simulations_router(
         "/projects/{project_id}/simulation/session",
         response_model=InteractiveTurnResponse,
     )
-    async def get_interactive_session(project_id: str) -> InteractiveTurnResponse:
+    async def get_interactive_session(
+        project_id: str,
+        branch_id: str = "main",
+    ) -> InteractiveTurnResponse:
         try:
-            return PerceptionBuilder().initial(interactive_session(project_id))
+            return PerceptionBuilder().initial(
+                interactive_session(project_id, branch_id)
+            )
         except (
             BranchAlreadyActiveError,
             InvalidSessionTransitionError,
@@ -693,6 +701,40 @@ def create_simulations_router(
                 only_left_entities=tuple(sorted(left_entities - right_entities)),
                 only_right_entities=tuple(sorted(right_entities - left_entities)),
             )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="Branch not found") from error
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.get(
+        "/projects/{project_id}/branches/{branch_id}/timeline",
+        response_model=tuple[CheckpointTimelineEntry, ...],
+    )
+    async def branch_timeline(
+        project_id: str,
+        branch_id: str,
+    ) -> tuple[CheckpointTimelineEntry, ...]:
+        try:
+            kernel = kernel_for(project_id)
+            branch = kernel.branches.load(branch_id)
+            if branch.project_id != project_id:
+                raise FileNotFoundError(branch_id)
+            if branch.head_checkpoint_id is None:
+                return ()
+            entries = []
+            for checkpoint_id in kernel.checkpoints.lineage(branch.head_checkpoint_id):
+                snapshot = kernel.load_checkpoint(project_id, checkpoint_id)
+                if snapshot.world is None:
+                    raise ValueError("checkpoint has no player-visible world state")
+                entries.append(
+                    CheckpointTimelineEntry(
+                        checkpoint_id=checkpoint_id,
+                        step=snapshot.current_step,
+                        world_time=snapshot.world.current_time,
+                        is_current=checkpoint_id == branch.head_checkpoint_id,
+                    )
+                )
+            return tuple(entries)
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Branch not found") from error
         except (OSError, ValueError) as error:

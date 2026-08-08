@@ -136,6 +136,44 @@ class StorySimulationRuntime:
     def pending_scene_events(self) -> tuple[ResolvedEvent, ...]:
         return tuple(self._pending_scene_events)
 
+    @staticmethod
+    def _clock_minutes(value: object) -> int | None:
+        if not isinstance(value, str):
+            return None
+        match = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", value.strip())
+        if match is None:
+            return None
+        return int(match.group(1)) * 60 + int(match.group(2))
+
+    def _resolver_context(
+        self,
+        *,
+        step: int,
+        acting_actor_id: str,
+        putative_event_text: str,
+    ) -> ResolverContext:
+        world = self._world
+        return ResolverContext(
+            session_id=self.session_id,
+            branch_id=self.branch_id,
+            step=step,
+            acting_actor_id=acting_actor_id,
+            putative_event_text=putative_event_text,
+            content_locale=self.content_locale,
+            existing_characters=tuple(
+                CharacterRef(
+                    id=character.id,
+                    display_name=character.display_name or character.id,
+                    type=character.type,
+                    location=character.location,
+                )
+                for character in self.character_states()
+            ),
+            world_time=world.current_time if world is not None else None,
+            world_location=world.current_location if world is not None else None,
+            world_rules=world.rules if world is not None else (),
+        )
+
     def _apply_character_effects(self, resolved: ResolvedTurn) -> tuple[str, ...]:
         candidate_effects = (
             *resolved.effects,
@@ -257,6 +295,15 @@ class StorySimulationRuntime:
                     raise ValueError("world state update path is not supported")
                 if effect.after is not None and not isinstance(effect.after, str):
                     raise ValueError("world state update must be a string")
+                if effect.path == "current_time":
+                    previous_minutes = self._clock_minutes(world.current_time)
+                    next_minutes = self._clock_minutes(effect.after)
+                    if (
+                        previous_minutes is not None
+                        and next_minutes is not None
+                        and next_minutes < previous_minutes
+                    ):
+                        raise ValueError("world time cannot move backwards")
                 world_update: dict[str, object] = {
                     effect.path: effect.after,
                     "version": world.version + 1,
@@ -492,7 +539,13 @@ class StorySimulationRuntime:
             self._observer.publish(event)
         return event
 
-    def execute_step(self, step: int, *, cancellation: Event) -> StepResult:
+    def execute_step(
+        self,
+        step: int,
+        *,
+        cancellation: Event,
+        eligible_actor_ids: tuple[str, ...] | None = None,
+    ) -> StepResult:
         current_stage = SimulationStage.TERMINATION
         stage_started = datetime.now(UTC)
         stage_event = self._publish_stage(
@@ -624,8 +677,22 @@ class StorySimulationRuntime:
                 task_label="行动角色选择",
                 stage_event_id=stage_event.event_id,
             )
+            eligible_actors = self.actors
+            if eligible_actor_ids is not None:
+                eligible_ids = set(eligible_actor_ids)
+                unknown_eligible_ids = eligible_ids - set(self._actors_by_name)
+                if unknown_eligible_ids:
+                    raise ValueError(
+                        "eligible actors are not in the current roster: "
+                        f"{sorted(unknown_eligible_ids)}"
+                    )
+                eligible_actors = tuple(
+                    actor for actor in self.actors if actor.name in eligible_ids
+                )
+                if not eligible_actors:
+                    raise ValueError("automatic step requires an eligible actor")
             actor_id = self.game_master.select_next_actor(
-                self.actors,
+                eligible_actors,
                 session_id=self.session_id,
                 step=step,
             )
@@ -736,22 +803,10 @@ class StorySimulationRuntime:
             )
             resolved = self.resolver.resolve(
                 self.game_master,
-                ResolverContext(
-                    session_id=self.session_id,
-                    branch_id=self.branch_id,
+                self._resolver_context(
                     step=step,
                     acting_actor_id=actor.name,
                     putative_event_text=action,
-                    content_locale=self.content_locale,
-                    existing_characters=tuple(
-                        CharacterRef(
-                            id=character.id,
-                            display_name=character.display_name or character.id,
-                            type=character.type,
-                            location=character.location,
-                        )
-                        for character in self.character_states()
-                    ),
                 ),
                 cancellation=self.cancellation,
             )
@@ -984,22 +1039,10 @@ class StorySimulationRuntime:
             )
             resolved = self.resolver.resolve(
                 self.game_master,
-                ResolverContext(
-                    session_id=self.session_id,
-                    branch_id=self.branch_id,
+                self._resolver_context(
                     step=step,
                     acting_actor_id=actor.name,
                     putative_event_text=action,
-                    content_locale=self.content_locale,
-                    existing_characters=tuple(
-                        CharacterRef(
-                            id=character.id,
-                            display_name=character.display_name or character.id,
-                            type=character.type,
-                            location=character.location,
-                        )
-                        for character in self.character_states()
-                    ),
                 ),
                 cancellation=self.cancellation,
             )

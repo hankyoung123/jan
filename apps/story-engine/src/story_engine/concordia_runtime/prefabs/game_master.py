@@ -25,6 +25,7 @@ from story_engine.concordia_runtime.components import (
 from story_engine.domain.recipe import AgentRecipe
 
 EXISTING_CHARACTERS_COMPONENT_KEY = "existing_characters"
+RESOLUTION_WORLD_STATE_COMPONENT_KEY = "resolution_world_state"
 
 
 def _resolve_story_event(
@@ -54,7 +55,10 @@ def _resolve_story_event(
                 "participant_names, entity_changes, and state_updates. State updates "
                 "may only set a known character's location, conditions, resources, "
                 "beliefs, or current_goal, or the world's current_time or "
-                "current_location. Use display names, never internal IDs. Do not add "
+                "current_location. The committed world state gives the current time: "
+                "never move a clock-formatted time backwards, and advance it by a "
+                "plausible amount whenever the action consumes time. Use display "
+                "names, never internal IDs. Do not add "
                 "a resource unless it is transferred from an established actor. An "
                 "entity change may only "
                 "introduce a recurring ordinary person as "
@@ -99,6 +103,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         pacing_key = "pacing"
         roster_key = "player_characters"
         existing_characters_key = EXISTING_CHARACTERS_COMPONENT_KEY
+        resolution_world_state_key = RESOLUTION_WORLD_STATE_COMPONENT_KEY
         observation_to_memory_key = "observation_to_memory"
         recent_events_key = "recent_events"
         world_wiki_key = "world_wiki"
@@ -157,6 +162,10 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                 state="No character registry supplied.",
                 pre_act_label="Existing characters",
             ),
+            resolution_world_state_key: agent_components.constant.Constant(
+                state="No committed world state supplied.",
+                pre_act_label="Committed world state",
+            ),
             observation_to_memory_key: (
                 agent_components.observation.ObservationToMemory()
             ),
@@ -202,6 +211,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                     pacing_key,
                     world_wiki_key,
                     existing_characters_key,
+                    resolution_world_state_key,
                     recent_events_key,
                 ),
                 notify_observers=False,

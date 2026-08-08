@@ -29,6 +29,13 @@ class InteractiveTurnResponse(RuntimeModel):
     world_time: str
 
 
+class CheckpointTimelineEntry(RuntimeModel):
+    checkpoint_id: Identifier
+    step: int
+    world_time: str
+    is_current: bool
+
+
 def _is_visible(event: ResolvedEvent, player_actor_id: str) -> bool:
     if event.visibility == EventVisibility.PUBLIC:
         return True

@@ -151,6 +151,7 @@ class SimulationCommandService:
         cancellation: Event,
         command_receipt: CommandReceiptCommit | None = None,
         human_intent: str | None = None,
+        eligible_actor_ids: tuple[str, ...] | None = None,
     ) -> StepResult:
         with self._run_lock:
             if self._shutting_down:
@@ -163,9 +164,10 @@ class SimulationCommandService:
         try:
             result = self.engine.advance_one_step(
                 session_id,
-                cancellation=cancellation,
-                human_intent=human_intent,
-            )
+            cancellation=cancellation,
+            human_intent=human_intent,
+            eligible_actor_ids=eligible_actor_ids,
+        )
         except Exception as error:
             snapshot = self.engine.get(session_id)
             if snapshot.status == TurnSessionStatus.FAILED:
@@ -220,8 +222,55 @@ class SimulationCommandService:
             record_receipt=not self.persistence.configured,
         )
 
+    @staticmethod
+    def _combine_interactive_turn_results(
+        player_result: StepResult,
+        npc_result: StepResult,
+    ) -> StepResult:
+        if player_result.resolved_turn is None:
+            return npc_result
+        if npc_result.resolved_turn is None:
+            return player_result
+        boundary = (
+            npc_result.boundary
+            if npc_result.boundary.value != "none"
+            else player_result.boundary
+        )
+        resolved_turn = player_result.resolved_turn.model_copy(
+            update={
+                "raw_resolution_text": "\n".join(
+                    (
+                        player_result.resolved_turn.raw_resolution_text,
+                        npc_result.resolved_turn.raw_resolution_text,
+                    )
+                ),
+                "events": (
+                    *player_result.resolved_turn.events,
+                    *npc_result.resolved_turn.events,
+                ),
+                "effects": (
+                    *player_result.resolved_turn.effects,
+                    *npc_result.resolved_turn.effects,
+                ),
+                "boundary": boundary,
+            }
+        )
+        return player_result.model_copy(
+            update={
+                "resolved_turn": resolved_turn,
+                "status": npc_result.status,
+                "boundary": boundary,
+                "promotion_decisions": (
+                    *player_result.promotion_decisions,
+                    *npc_result.promotion_decisions,
+                ),
+                "checkpoint_id": npc_result.checkpoint_id
+                or player_result.checkpoint_id,
+            }
+        )
+
     def interactive_turn(self, session_id: str, *, text: str) -> StepResult:
-        """Commit a player-supplied intent as one ordinary simulation step."""
+        """Commit a player intent, then one GM-selected NPC response when available."""
         state = self.engine.get(session_id)
         command_id = f"interactive:{uuid.uuid4().hex}"
         receipt = self._commands.receipt_commit(
@@ -235,14 +284,45 @@ class SimulationCommandService:
             operation="interactive_turn",
             expected_state_hash=state.state_hash,
             current_state=lambda: self.engine.get(session_id),
-            command=lambda: self._step(
+            command=lambda: self._interactive_turn_steps(
                 session_id,
-                cancellation=Event(),
-                command_receipt=receipt,
-                human_intent=text,
+                text=text,
+                receipt=receipt,
             ),
             record_receipt=not self.persistence.configured,
         )
+
+    def _interactive_turn_steps(
+        self,
+        session_id: str,
+        *,
+        text: str,
+        receipt: CommandReceiptCommit,
+    ) -> StepResult:
+        player_result = self._step(
+            session_id,
+            cancellation=Event(),
+            command_receipt=receipt,
+            human_intent=text,
+        )
+        snapshot = self.engine.get(session_id)
+        npc_actor_ids = tuple(
+            actor_id
+            for actor_id in snapshot.roster_actor_ids
+            if actor_id != snapshot.player_actor_id
+        )
+        if not npc_actor_ids or snapshot.status in {
+            TurnSessionStatus.TERMINATED,
+            TurnSessionStatus.CANCELLED,
+            TurnSessionStatus.FAILED,
+        }:
+            return player_result
+        npc_result = self._step(
+            session_id,
+            cancellation=Event(),
+            eligible_actor_ids=npc_actor_ids,
+        )
+        return self._combine_interactive_turn_results(player_result, npc_result)
 
     def run(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:
         if self.engine.get(session_id).status != TurnSessionStatus.RUNNING:

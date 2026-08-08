@@ -18,6 +18,7 @@ from story_engine.concordia_runtime.prefabs import (
 )
 from story_engine.concordia_runtime.prefabs.game_master import (
     EXISTING_CHARACTERS_COMPONENT_KEY,
+    RESOLUTION_WORLD_STATE_COMPONENT_KEY,
 )
 from story_engine.domain.action import (
     ActionOutputType,
@@ -143,6 +144,17 @@ class ConcordiaGameMasterActor(ConcordiaStoryActor):
         if not isinstance(registry, dict):
             raise ValueError("Game Master state has no character registry component")
         registry["state"] = registry_text
+        self.set_state(state)
+
+    def set_resolution_world_state(self, world_state_text: str) -> None:
+        state = self.get_state()
+        components = state.get("context_components")
+        if not isinstance(components, dict):
+            raise ValueError("Game Master state has no context components")
+        world_state = components.get(RESOLUTION_WORLD_STATE_COMPONENT_KEY)
+        if not isinstance(world_state, dict):
+            raise ValueError("Game Master state has no world state component")
+        world_state["state"] = world_state_text
         self.set_state(state)
 
     def make_observation(

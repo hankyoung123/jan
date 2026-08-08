@@ -658,6 +658,36 @@
         "title": "CheckpointRequest",
         "type": "object"
       },
+      "CheckpointTimelineEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          },
+          "world_time": {
+            "title": "World Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkpoint_id",
+          "step",
+          "world_time",
+          "is_current"
+        ],
+        "title": "CheckpointTimelineEntry",
+        "type": "object"
+      },
       "CommitResult": {
         "additionalProperties": false,
         "properties": {
@@ -7188,6 +7218,66 @@
         ]
       }
     },
+    "/projects/{project_id}/branches/{branch_id}/timeline": {
+      "get": {
+        "operationId": "branch_timeline_projects__project_id__branches__branch_id__timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CheckpointTimelineEntry"
+                  },
+                  "title": "Response Branch Timeline Projects  Project Id  Branches  Branch Id  Timeline Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Branch Timeline",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
     "/projects/{project_id}/branches/{branch_id}/wiki": {
       "get": {
         "operationId": "get_wiki_projects__project_id__branches__branch_id__wiki_get",
@@ -7791,6 +7881,16 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "branch_id",
+            "required": false,
+            "schema": {
+              "default": "main",
+              "title": "Branch Id",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -7836,6 +7936,16 @@
             "required": true,
             "schema": {
               "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch_id",
+            "required": false,
+            "schema": {
+              "default": "main",
+              "title": "Branch Id",
               "type": "string"
             }
           }

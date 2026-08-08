@@ -52,9 +52,45 @@ class InteractiveRuntime:
             scene_text="雨水浸透了门口的地毯。",
         )
 
-    def execute_step(self, step: int, *, cancellation: Event) -> StepResult:
-        del step, cancellation
-        raise AssertionError("interactive endpoint must not start an autonomous step")
+    def execute_step(
+        self,
+        step: int,
+        *,
+        cancellation: Event,
+        eligible_actor_ids: tuple[str, ...] | None = None,
+    ) -> StepResult:
+        assert not cancellation.is_set()
+        assert eligible_actor_ids == ("zhang-ye",)
+        event = ResolvedEvent(
+            event_id=f"event:{self.session_id}:{step}",
+            session_id=self.session_id,
+            step=step,
+            actor_id="zhang-ye",
+            event_text="张野避开了你的视线，朝旅馆门口走去。",
+            visibility=EventVisibility.PARTICIPANTS,
+            participant_ids=("player", "zhang-ye"),
+            content_locale="zh-CN",
+            occurred_at=datetime.now(UTC),
+        )
+        return StepResult(
+            session_id=self.session_id,
+            branch_id=self.branch_id,
+            step=step,
+            acting_actor_id="zhang-ye",
+            action_spec=None,
+            action_text="我离开旅馆。",
+            resolved_turn=ResolvedTurn(
+                session_id=self.session_id,
+                branch_id=self.branch_id,
+                step=step,
+                acting_actor_id="zhang-ye",
+                putative_event_text="我离开旅馆。",
+                raw_resolution_text=event.event_text,
+                events=(event,),
+                content_locale="zh-CN",
+            ),
+            status=TurnSessionStatus.RUNNING,
+        )
 
     def execute_human_turn(
         self,
@@ -171,8 +207,110 @@ def test_interactive_turn_creates_default_world_and_returns_only_perception(
     checkpoint = CheckpointStore(tmp_path / "last-ferry-before").load(
         body["checkpoint_id"]
     )
-    assert checkpoint.current_step == 1
+    assert checkpoint.current_step == 2
     assert checkpoint.player_actor_id == "player"
+
+
+def test_interactive_turn_commits_a_visible_npc_response_after_player_intent(
+    tmp_path,
+) -> None:
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=lambda session_id, request: InteractiveRuntime(
+            session_id, request
+        ),  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        client.get(
+            "/projects/last-ferry-before/simulation/session",
+            headers=AUTH,
+        )
+        response = client.post(
+            "/projects/last-ferry-before/simulation/turn",
+            headers=AUTH,
+            json={"text": "我杀了张野。"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["visible_events"] == [
+        "你试图攻击张野，但他后退躲开了；张野没有死亡。",
+        "张野避开了你的视线，朝旅馆门口走去。",
+    ]
+    checkpoint = CheckpointStore(tmp_path / "last-ferry-before").load(
+        body["checkpoint_id"]
+    )
+    assert checkpoint.current_step == 2
+
+
+def test_interactive_branch_resumes_from_selected_checkpoint_without_moving_main(
+    tmp_path,
+) -> None:
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=lambda session_id, request: InteractiveRuntime(
+            session_id, request
+        ),  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        opened = client.get(
+            "/projects/last-ferry-before/simulation/session",
+            headers=AUTH,
+        ).json()
+        main_turn = client.post(
+            "/projects/last-ferry-before/simulation/turn",
+            headers=AUTH,
+            json={"text": "我杀了张野。"},
+        ).json()
+        fork = client.post(
+            "/projects/last-ferry-before/branches",
+            headers=AUTH,
+            json={
+                "branch_id": "alternate",
+                "source_checkpoint_id": main_turn["checkpoint_id"],
+                "parent_branch_id": "main",
+                "content_locale": "zh-CN",
+            },
+        )
+        timeline = client.get(
+            "/projects/last-ferry-before/branches/alternate/timeline",
+            headers=AUTH,
+        )
+        reopened = client.get(
+            "/projects/last-ferry-before/simulation/session?branch_id=alternate",
+            headers=AUTH,
+        )
+        alternate_turn = client.post(
+            "/projects/last-ferry-before/simulation/turn?branch_id=alternate",
+            headers=AUTH,
+            json={"text": "我用相机长焦从楼下观察二楼窗户。"},
+        )
+        branches = client.get(
+            "/projects/last-ferry-before/branches",
+            headers=AUTH,
+        ).json()
+
+    assert fork.status_code == 201
+    assert timeline.status_code == 200
+    timeline_entries = timeline.json()
+    assert [entry["step"] for entry in timeline_entries] == [0, 1, 2]
+    assert timeline_entries[0]["checkpoint_id"] == opened["checkpoint_id"]
+    assert timeline_entries[-1] == {
+        "checkpoint_id": main_turn["checkpoint_id"],
+        "step": 2,
+        "world_time": "18:43",
+        "is_current": True,
+    }
+    assert all(entry["is_current"] is False for entry in timeline_entries[:-1])
+    assert reopened.status_code == 200
+    assert reopened.json()["checkpoint_id"] == main_turn["checkpoint_id"]
+    assert alternate_turn.status_code == 200
+    assert alternate_turn.json()["checkpoint_id"] != main_turn["checkpoint_id"]
+    heads = {branch["branch_id"]: branch["head_checkpoint_id"] for branch in branches}
+    assert heads["main"] == main_turn["checkpoint_id"]
+    assert heads["alternate"] == alternate_turn.json()["checkpoint_id"]
 
 
 def test_interactive_session_survives_thirty_one_turns_and_reopens_from_branch_head(
@@ -202,7 +340,7 @@ def test_interactive_session_survives_thirty_one_turns_and_reopens_from_branch_h
     checkpoint = CheckpointStore(tmp_path / "last-ferry-before").load(
         final_checkpoint_id
     )
-    assert checkpoint.current_step == 31
+    assert checkpoint.current_step == 62
     assert checkpoint.world is not None
     assert checkpoint.characters[0].resources == ("相机", "手机")
 

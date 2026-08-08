@@ -94,6 +94,18 @@ class SimulationApplicationService:
             observer=self,
         )
 
+    def restore_branch(
+        self,
+        project_id: str,
+        *,
+        branch_id: str,
+    ) -> TurnSessionSnapshot:
+        return self.persistence.restore_branch(
+            project_id,
+            branch_id=branch_id,
+            observer=self,
+        )
+
     def step(
         self,
         session_id: str,
