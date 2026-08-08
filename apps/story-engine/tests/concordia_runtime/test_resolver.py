@@ -1,3 +1,4 @@
+import json
 from threading import Event
 
 import pytest
@@ -8,6 +9,7 @@ from story_engine.concordia_runtime.factory import (
     default_game_master_recipe,
 )
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
+from story_engine.concordia_runtime.prefabs.game_master import _resolve_story_event
 from story_engine.concordia_runtime.replay import ReplayLanguageModel
 from story_engine.concordia_runtime.resolver import (
     ConcordiaResolverKernel,
@@ -99,6 +101,9 @@ def _resolve(
     resolution_text: str,
     *,
     existing_characters: tuple[CharacterRef, ...] | None = None,
+    putative_event_text: str = "I force the door.",
+    world_time: str | None = None,
+    world_location: str | None = None,
 ):
     actor, gm, gm_memory = _runtime(resolution_text=resolution_text)
     selected = gm.select_next_actor(  # type: ignore[attr-defined]
@@ -119,9 +124,11 @@ def _resolve(
             branch_id="main",
             step=0,
             acting_actor_id=selected,
-            putative_event_text="I force the door.",
+            putative_event_text=putative_event_text,
             content_locale="en-US",
             existing_characters=existing_characters or (_character_ref(),),
+            world_time=world_time,
+            world_location=world_location,
         ),
         cancellation=Event(),
     )
@@ -191,6 +198,102 @@ def test_resolver_separates_putative_action_from_world_event() -> None:
         MemoryRecordType.WORLD_EVENT,
     )
     assert records[1].source_record_ids == (records[0].record_id,)
+
+
+@pytest.mark.parametrize(
+    ("case", "intent", "expected_event"),
+    (
+        (
+            "Case 01",
+            "I kill Zhang.",
+            "Zhang slips aside before the blow lands; he is alive and on guard.",
+        ),
+        (
+            "Case 03",
+            "I read a lockpicking tutorial and open the door.",
+            (
+                "You learn the basic principle, but without tools or practice "
+                "the door remains locked."
+            ),
+        ),
+        (
+            "Case 04",
+            "I follow Zhang without anyone noticing.",
+            (
+                "Zhang notices your footsteps and changes course before you can "
+                "follow unseen."
+            ),
+        ),
+        (
+            "Case 05",
+            "I grab Zhang's bag.",
+            "Zhang twists free, keeps his bag, and heads for the exit.",
+        ),
+        (
+            "Case 06",
+            "Zhang tries to take the player's camera.",
+            (
+                "The player notices Zhang reaching for the camera and pulls it "
+                "back before he takes it."
+            ),
+        ),
+        (
+            "Case 11",
+            "I use my telephoto lens from below to inspect the second-floor window.",
+            (
+                "Through the rain you make out a silhouette at the second-floor "
+                "window, but not its identity."
+            ),
+        ),
+    ),
+)
+def test_model_controlled_forced_intents_commit_only_the_gm_resolution(
+    case: str,
+    intent: str,
+    expected_event: str,
+) -> None:
+    result, _ = _resolve(
+        json.dumps(
+            {
+                "event_text": expected_event,
+                "boundary": "none",
+                "visibility": "participants",
+            }
+        ),
+        putative_event_text=intent,
+        world_time="18:43",
+        world_location="Harbor inn",
+    )
+
+    assert case.startswith("Case")
+    assert result.putative_event_text == intent
+    assert result.events[0].event_text == expected_event
+    assert result.events[0].event_text != intent
+    assert result.effects == ()
+
+
+def test_resolution_instruction_conserves_decisive_evidence() -> None:
+    class RecordingDocument:
+        def __init__(self) -> None:
+            self.premise = ""
+            self.question = ""
+
+        def statement(self, text: str) -> None:
+            self.premise = text
+
+        def open_question(self, *, question: str, terminators: tuple[str, ...]) -> str:
+            self.question = question
+            assert terminators == ()
+            return "{}"
+
+    document = RecordingDocument()
+    _resolve_story_event(document, "Committed world: locked room.", "the player")
+
+    assert document.premise == "Committed world: locked room."
+    assert "Do not invent decisive evidence" in document.question
+    assert (
+        "secrets, passages, witnesses, alibis, or causal history" in document.question
+    )
 
 
 def test_direct_human_intent_sets_concordia_active_actor_before_resolution() -> None:

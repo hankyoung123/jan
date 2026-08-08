@@ -187,7 +187,15 @@ class ProjectionTaskService:
         ordered: list[ProjectionTask] = []
         for task in sorted(planned_by_id.values(), key=self._task_order):
             if task.task_id in self._queued:
-                raise RuntimeError("projection task is already running")
+                queued = self.store.load(task.task_id)
+                if queued.status in {
+                    ProjectionTaskStatus.PENDING,
+                    ProjectionTaskStatus.RUNNING,
+                }:
+                    raise RuntimeError("projection task is already running")
+                # A worker persists completion before its finally block removes
+                # this transient marker. The durable task status is authoritative.
+                self._queued.discard(task.task_id)
             existing = self.store.create(task)
             if existing.status == ProjectionTaskStatus.RUNNING:
                 raise RuntimeError("projection task is already running")

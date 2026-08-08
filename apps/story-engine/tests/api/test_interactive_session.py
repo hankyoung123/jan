@@ -170,7 +170,7 @@ class InteractiveRuntime:
         return ()
 
 
-def test_interactive_turn_creates_default_world_and_returns_only_perception(
+def test_case_01_interactive_turn_treats_asserted_death_as_an_intent(
     tmp_path,
 ) -> None:
     app = create_app(
@@ -211,7 +211,7 @@ def test_interactive_turn_creates_default_world_and_returns_only_perception(
     assert checkpoint.player_actor_id == "player"
 
 
-def test_interactive_turn_commits_a_visible_npc_response_after_player_intent(
+def test_cases_06_and_10_npc_intent_is_resolved_and_can_act_autonomously(
     tmp_path,
 ) -> None:
     app = create_app(
@@ -244,7 +244,7 @@ def test_interactive_turn_commits_a_visible_npc_response_after_player_intent(
     assert checkpoint.current_step == 2
 
 
-def test_interactive_branch_resumes_from_selected_checkpoint_without_moving_main(
+def test_case_12_interactive_branch_resumes_without_moving_main(
     tmp_path,
 ) -> None:
     app = create_app(

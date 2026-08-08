@@ -239,7 +239,7 @@ def test_runtime_rejects_recreating_an_existing_character_with_clear_guidance() 
         )
 
 
-def test_resolution_state_updates_are_atomic_and_resources_cannot_appear() -> None:
+def test_case_02_resource_updates_are_atomic_and_cannot_materialize_a_gun() -> None:
     runtime = _runtime((_character("actor-0"), _character("actor-1")))
     location_update = StateEffect(
         effect_id="effect:move:actor-0",
@@ -274,6 +274,35 @@ def test_resolution_state_updates_are_atomic_and_resources_cannot_appear() -> No
         )
 
     assert runtime.character_states() == before
+
+
+def test_case_07_player_belief_changes_do_not_rewrite_world_truth() -> None:
+    runtime = _runtime(
+        (_character("actor-0"), _character("actor-1")),
+        world=WorldState(
+            current_time="18:43",
+            current_location="旅馆大厅",
+            scene_text="张野站在柜台附近。",
+        ),
+    )
+    belief_update = StateEffect(
+        effect_id="effect:belief:actor-0",
+        operation=EffectOperation.SET,
+        target=EffectTarget.CHARACTER_PROJECTION,
+        target_id="actor-0",
+        path="beliefs",
+        after=["张野是幕后凶手。"],
+    )
+    world_before = runtime.world_state()
+
+    changed = runtime._apply_character_effects(
+        _turn(_event("actor-0", effects=(belief_update,)))
+    )
+
+    player = next(item for item in runtime.character_states() if item.id == "actor-0")
+    assert changed == ("state-updated:actor-0:beliefs",)
+    assert player.beliefs == ("张野是幕后凶手。",)
+    assert runtime.world_state() == world_before
 
 
 def test_world_time_updates_are_atomic_and_clock_time_cannot_move_backwards() -> None:

@@ -89,7 +89,7 @@ def _event(
     )
 
 
-def test_perception_excludes_private_events_and_internal_state() -> None:
+def test_case_08_perception_excludes_private_events_and_internal_state() -> None:
     snapshot = _snapshot()
     result = StepResult(
         session_id=snapshot.session_id,
@@ -146,15 +146,18 @@ def test_default_world_has_frozen_truth_seed_and_human_actor() -> None:
     assert player.capabilities == ("调查采访", "摄影", "熟悉本地港口", "普通驾驶能力")
     assert player.conditions == ("右手轻伤",)
     assert "枪" not in player.resources
-    assert all(f"truth:{name}" in facts for name in (
-        "message-sender",
-        "why-player-was-called",
-        "lin-concealment",
-        "zhang-goal",
-        "locked-room-use",
-        "room-entry",
-        "key-item-location",
-        "event-timeline",
-        "ferry-connection",
-        "final",
-    ))
+    assert all(
+        f"truth:{name}" in facts
+        for name in (
+            "message-sender",
+            "why-player-was-called",
+            "lin-concealment",
+            "zhang-goal",
+            "locked-room-use",
+            "room-entry",
+            "key-item-location",
+            "event-timeline",
+            "ferry-connection",
+            "final",
+        )
+    )

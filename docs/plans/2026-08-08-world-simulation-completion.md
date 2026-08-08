@@ -108,6 +108,30 @@ Add model-controlled integration tests for outcome assertion, nonexistent gun, t
 
 Run: `yarn lint:story && yarn typecheck:story && yarn test:story && yarn test:web && yarn build:story && yarn build:web`
 
+#### Acceptance evidence
+
+The forced cases below use the real Concordia resolver with a replay-controlled
+model where resolution semantics are being checked. Runtime, API, and
+perception tests exercise the relevant durable boundary. Case 09 is an MVP GM
+protocol rule rather than a separate evidence engine, so its automated check
+asserts the GM instruction directly; the real-model playtest below remains the
+required behavioral validation.
+
+| Case | Evidence |
+| --- | --- |
+| 01 outcome assertion | `test_model_controlled_forced_intents_commit_only_the_gm_resolution[Case 01-*]`; `test_case_01_interactive_turn_treats_asserted_death_as_an_intent` |
+| 02 nonexistent gun | `test_case_02_resource_updates_are_atomic_and_cannot_materialize_a_gun` |
+| 03 tutorial and locked door | `test_model_controlled_forced_intents_commit_only_the_gm_resolution[Case 03-*]` |
+| 04 stealth assertion | `test_model_controlled_forced_intents_commit_only_the_gm_resolution[Case 04-*]` |
+| 05 NPC resistance | `test_model_controlled_forced_intents_commit_only_the_gm_resolution[Case 05-*]` |
+| 06 NPC putative intent | `test_model_controlled_forced_intents_commit_only_the_gm_resolution[Case 06-*]`; `test_cases_06_and_10_npc_intent_is_resolved_and_can_act_autonomously` |
+| 07 belief isolation | `test_case_07_player_belief_changes_do_not_rewrite_world_truth` |
+| 08 private perception | `test_case_08_perception_excludes_private_events_and_internal_state` |
+| 09 evidence conservation | `test_resolution_instruction_conserves_decisive_evidence` |
+| 10 autonomous departure | `test_cases_06_and_10_npc_intent_is_resolved_and_can_act_autonomously` |
+| 11 non-preset observation | `test_model_controlled_forced_intents_commit_only_the_gm_resolution[Case 11-*]` |
+| 12 branch divergence | `test_case_12_interactive_branch_resumes_without_moving_main` |
+
 ### Task 5: Manual Model-Backed Playtest
 
 **Files:**
