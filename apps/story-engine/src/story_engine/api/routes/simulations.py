@@ -1,5 +1,6 @@
 import asyncio
 import re
+from contextlib import suppress
 from pathlib import Path
 from threading import Event
 
@@ -14,6 +15,7 @@ from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     BranchManifest,
     CommitResult,
+    ControlMode,
     ControlPolicy,
     OutputPolicy,
     StepResult,
@@ -31,9 +33,16 @@ from story_engine.simulation.engine import (
     SessionNotFoundError,
 )
 from story_engine.simulation.execution import BranchAlreadyActiveError
+from story_engine.simulation.perception import (
+    InteractiveTurnResponse,
+    PerceptionBuilder,
+)
 from story_engine.simulation.service import SimulationApplicationService
+from story_engine.submission.project import SubmissionService
+from story_engine.submission.service import last_ferry_before_submission
 from story_engine.wiki.boundary import WikiBoundaryProcessor, branch_records
 from story_engine.wiki.consolidator import GatewayWikiConsolidator
+from story_engine.workspace.project_store import ProjectStore
 
 _PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
@@ -46,6 +55,10 @@ class SimulationStartRequest(RuntimeModel):
     control: ControlPolicy
     output: OutputPolicy = OutputPolicy()
     seed: int | None = None
+
+
+class InteractiveTurnRequest(RuntimeModel):
+    text: str = Field(min_length=1, max_length=32_768)
 
 
 class SimulationTerminateRequest(RuntimeModel):
@@ -109,6 +122,73 @@ def create_simulations_router(
 ) -> APIRouter:
     router = APIRouter(tags=["simulations"])
 
+    def ensure_default_world(project_id: str) -> Path:
+        if project_id != "last-ferry-before":
+            return _require_project(settings, project_id)
+        root = settings.projects_root / project_id
+        if not (root / "project.md").is_file():
+            settings.projects_root.mkdir(parents=True, exist_ok=True)
+            with suppress(FileExistsError):
+                SubmissionService(settings.projects_root).finalize(
+                    last_ferry_before_submission()
+                )
+        return _require_project(settings, project_id)
+
+    def interactive_session(project_id: str) -> TurnSessionSnapshot:
+        root = ensure_default_world(project_id)
+        kernel = SimulationCommitKernel(root)
+        try:
+            branch = kernel.branches.load("main")
+        except FileNotFoundError:
+            branch = None
+        if branch is not None and branch.head_checkpoint_id is not None:
+            checkpoint = kernel.load_checkpoint(project_id, branch.head_checkpoint_id)
+            if checkpoint.player_actor_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Project has no configured human actor",
+                )
+            try:
+                durable = service.get_durable(project_id, checkpoint.session_id)
+            except (FileNotFoundError, SessionNotFoundError):
+                durable = service.restore(
+                    project_id,
+                    checkpoint_id=branch.head_checkpoint_id,
+                )
+            if isinstance(durable, SessionManifest):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Interactive world session is not available",
+                )
+            return durable
+
+        project = ProjectStore(root).load()
+        player = next(
+            (character for character in project.characters if character.id == "player"),
+            None,
+        )
+        if player is None or player.type != "active":
+            raise HTTPException(
+                status_code=409,
+                detail="Project has no configured human actor",
+            )
+        return service.start(
+            TurnSessionRequest(
+                project_id=project_id,
+                branch_id="main",
+                premise_text=project.world.scene_text or project.project.title,
+                actor_ids=tuple(
+                    character.id
+                    for character in project.characters
+                    if character.type == "active"
+                ),
+                player_actor_id=player.id,
+                content_locale="zh-CN",
+                control=ControlPolicy(mode=ControlMode.STEP, max_steps=10_000),
+                output=OutputPolicy(),
+            )
+        )
+
     def require_live_session(
         project_id: str,
         session_id: str,
@@ -159,6 +239,51 @@ def create_simulations_router(
         except ModelGatewayError as error:
             raise model_http_error(error) from error
         except (BranchAlreadyActiveError, OSError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.post(
+        "/projects/{project_id}/simulation/turn",
+        response_model=InteractiveTurnResponse,
+    )
+    async def interactive_turn(
+        project_id: str,
+        request: InteractiveTurnRequest,
+    ) -> InteractiveTurnResponse:
+        try:
+            session = interactive_session(project_id)
+            result = await asyncio.to_thread(
+                service.interactive_turn,
+                session.session_id,
+                text=request.text,
+            )
+            snapshot = service.get(session.session_id)
+            return PerceptionBuilder().build(snapshot, result)
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
+        except (
+            BranchAlreadyActiveError,
+            InvalidSessionTransitionError,
+            SessionCommandConflictError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.get(
+        "/projects/{project_id}/simulation/session",
+        response_model=InteractiveTurnResponse,
+    )
+    async def get_interactive_session(project_id: str) -> InteractiveTurnResponse:
+        try:
+            return PerceptionBuilder().initial(interactive_session(project_id))
+        except (
+            BranchAlreadyActiveError,
+            InvalidSessionTransitionError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @router.get(

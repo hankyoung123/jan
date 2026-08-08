@@ -499,6 +499,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/simulation/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Interactive Session */
+        get: operations["get_interactive_session_projects__project_id__simulation_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/simulation/turn": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Interactive Turn */
+        post: operations["interactive_turn_projects__project_id__simulation_turn_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/simulations": {
         parameters: {
             query?: never;
@@ -963,6 +997,21 @@ export interface components {
         };
         /** Character */
         Character: {
+            /**
+             * Beliefs
+             * @default []
+             */
+            beliefs: string[];
+            /**
+             * Capabilities
+             * @default []
+             */
+            capabilities: string[];
+            /**
+             * Conditions
+             * @default []
+             */
+            conditions: string[];
             /** Core Desire */
             core_desire: string;
             /** Current Goal */
@@ -1204,6 +1253,25 @@ export interface components {
              * @enum {string}
              */
             visibility: "public" | "private" | "secret";
+        };
+        /** InteractiveTurnRequest */
+        InteractiveTurnRequest: {
+            /** Text */
+            text: string;
+        };
+        /** InteractiveTurnResponse */
+        InteractiveTurnResponse: {
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            perception: components["schemas"]["PlayerPerception"];
+            player_state: components["schemas"]["PlayerState"];
+            /**
+             * Visible Events
+             * @default []
+             */
+            visible_events: string[];
+            /** World Time */
+            world_time: string;
         };
         JsonValue: unknown;
         /** ManualSourceSelection */
@@ -1579,6 +1647,47 @@ export interface components {
          * @enum {string}
          */
         PendingControl: "none" | "pause" | "terminate";
+        /** PlayerPerception */
+        PlayerPerception: {
+            /** Checkpoint Id */
+            checkpoint_id: string;
+            /** Player State Summary */
+            player_state_summary: string;
+            /** Scene Text */
+            scene_text: string;
+            /**
+             * Visible Changes
+             * @default []
+             */
+            visible_changes: string[];
+            /** World Time */
+            world_time: string;
+        };
+        /** PlayerState */
+        PlayerState: {
+            /**
+             * Capabilities
+             * @default []
+             */
+            capabilities: string[];
+            /**
+             * Conditions
+             * @default []
+             */
+            conditions: string[];
+            /** Identity */
+            identity: string;
+            /**
+             * Possessions
+             * @default []
+             */
+            possessions: string[];
+            /**
+             * Relationships
+             * @default []
+             */
+            relationships: string[];
+        };
         /** ProjectCatalogEntry */
         ProjectCatalogEntry: {
             /** Genre */
@@ -2162,6 +2271,16 @@ export interface components {
         StoryActionKind: "free_action" | "dialogue" | "reaction" | "internal_decision" | "choice" | "wait" | "scene_proposal";
         /** SubmissionCharacter */
         SubmissionCharacter: {
+            /**
+             * Capabilities
+             * @default []
+             */
+            capabilities: string[];
+            /**
+             * Conditions
+             * @default []
+             */
+            conditions: string[];
             /** Core Desire */
             core_desire: string;
             /** Current Goal */
@@ -2181,6 +2300,11 @@ export interface components {
             known_fact_ids: string[];
             /** Location */
             location: string;
+            /**
+             * Relationships
+             * @default []
+             */
+            relationships: components["schemas"]["Relationship"][];
             /**
              * Resources
              * @default []
@@ -2377,6 +2501,11 @@ export interface components {
              * @default []
              */
             pressures: string[];
+            /**
+             * Scene Text
+             * @default
+             */
+            scene_text: string;
             /** Theme */
             theme: string;
             /** Title */
@@ -2480,6 +2609,8 @@ export interface components {
              *     }
              */
             output: components["schemas"]["OutputPolicy"];
+            /** Player Actor Id */
+            player_actor_id?: string | null;
             /** Premise Text */
             premise_text: string;
             /** Project Id */
@@ -2538,6 +2669,8 @@ export interface components {
              * @default []
              */
             pending_scene_events: components["schemas"]["ResolvedEvent"][];
+            /** Player Actor Id */
+            player_actor_id?: string | null;
             /** Project Id */
             project_id: string;
             /** Raw Log Offset */
@@ -2572,6 +2705,7 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            world?: components["schemas"]["WorldState"] | null;
         };
         /**
          * TurnSessionStatus
@@ -2870,6 +3004,11 @@ export interface components {
              * @default []
              */
             rules: string[];
+            /**
+             * Scene Text
+             * @default
+             */
+            scene_text: string;
             /**
              * Version
              * @default 0
@@ -3938,6 +4077,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineEvent"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_interactive_session_projects__project_id__simulation_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractiveTurnResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    interactive_turn_projects__project_id__simulation_turn_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InteractiveTurnRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractiveTurnResponse"];
                 };
             };
             /** @description Validation Error */

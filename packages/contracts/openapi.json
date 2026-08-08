@@ -512,6 +512,30 @@
       "Character": {
         "additionalProperties": false,
         "properties": {
+          "beliefs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Beliefs",
+            "type": "array"
+          },
+          "capabilities": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "conditions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
           "core_desire": {
             "minLength": 1,
             "title": "Core Desire",
@@ -1087,6 +1111,58 @@
           "visibility"
         ],
         "title": "InitialFact",
+        "type": "object"
+      },
+      "InteractiveTurnRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 32768,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "InteractiveTurnRequest",
+        "type": "object"
+      },
+      "InteractiveTurnResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "perception": {
+            "$ref": "#/components/schemas/PlayerPerception"
+          },
+          "player_state": {
+            "$ref": "#/components/schemas/PlayerState"
+          },
+          "visible_events": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Visible Events",
+            "type": "array"
+          },
+          "world_time": {
+            "title": "World Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "perception",
+          "player_state",
+          "checkpoint_id",
+          "world_time"
+        ],
+        "title": "InteractiveTurnResponse",
         "type": "object"
       },
       "JsonValue": {},
@@ -2303,6 +2379,90 @@
         ],
         "title": "PendingControl",
         "type": "string"
+      },
+      "PlayerPerception": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "player_state_summary": {
+            "title": "Player State Summary",
+            "type": "string"
+          },
+          "scene_text": {
+            "title": "Scene Text",
+            "type": "string"
+          },
+          "visible_changes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Visible Changes",
+            "type": "array"
+          },
+          "world_time": {
+            "title": "World Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scene_text",
+          "player_state_summary",
+          "checkpoint_id",
+          "world_time"
+        ],
+        "title": "PlayerPerception",
+        "type": "object"
+      },
+      "PlayerState": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "conditions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "possessions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Possessions",
+            "type": "array"
+          },
+          "relationships": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Relationships",
+            "type": "array"
+          }
+        },
+        "required": [
+          "identity"
+        ],
+        "title": "PlayerState",
+        "type": "object"
       },
       "ProjectCatalogEntry": {
         "additionalProperties": false,
@@ -3873,6 +4033,22 @@
       "SubmissionCharacter": {
         "additionalProperties": false,
         "properties": {
+          "capabilities": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "conditions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
           "core_desire": {
             "minLength": 1,
             "title": "Core Desire",
@@ -3922,6 +4098,14 @@
             "minLength": 1,
             "title": "Location",
             "type": "string"
+          },
+          "relationships": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Relationship"
+            },
+            "title": "Relationships",
+            "type": "array"
           },
           "resources": {
             "default": [],
@@ -4391,6 +4575,11 @@
             "title": "Pressures",
             "type": "array"
           },
+          "scene_text": {
+            "default": "",
+            "title": "Scene Text",
+            "type": "string"
+          },
           "theme": {
             "minLength": 1,
             "title": "Theme",
@@ -4651,6 +4840,18 @@
               "wiki_mode": "after_scene"
             }
           },
+          "player_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player Actor Id"
+          },
           "premise_text": {
             "maxLength": 131072,
             "minLength": 1,
@@ -4803,6 +5004,18 @@
             "title": "Pending Scene Events",
             "type": "array"
           },
+          "player_actor_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player Actor Id"
+          },
           "project_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Project Id",
@@ -4876,6 +5089,16 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "world": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorldState"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -5674,6 +5897,11 @@
             },
             "title": "Rules",
             "type": "array"
+          },
+          "scene_text": {
+            "default": "",
+            "title": "Scene Text",
+            "type": "string"
           },
           "version": {
             "default": 0,
@@ -7546,6 +7774,110 @@
           }
         ],
         "summary": "List Simulation Events",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulation/session": {
+      "get": {
+        "operationId": "get_interactive_session_projects__project_id__simulation_session_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InteractiveTurnResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Get Interactive Session",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
+    "/projects/{project_id}/simulation/turn": {
+      "post": {
+        "operationId": "interactive_turn_projects__project_id__simulation_turn_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InteractiveTurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InteractiveTurnResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Interactive Turn",
         "tags": [
           "simulations"
         ]

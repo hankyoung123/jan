@@ -4,6 +4,7 @@ import {
   CalendarClock,
   LayoutDashboard,
   MessageSquarePlus,
+  PersonStanding,
   Settings,
   Sparkles,
   UsersRound,
@@ -17,6 +18,7 @@ export const primaryRoutes = [
 ]
 
 export const storyRoutes = [
+  { title: '进入世界', url: route.session, icon: PersonStanding },
   { title: '工作台', url: route.home, icon: LayoutDashboard },
   { title: '推进故事', url: route.evolve, icon: Sparkles },
   { title: '角色', url: route.characters, icon: UsersRound },

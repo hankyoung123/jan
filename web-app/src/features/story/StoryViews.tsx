@@ -751,7 +751,9 @@ export function SubmissionView() {
         '/submissions/finalize',
         {
           method: 'POST',
-          body: JSON.stringify(draft satisfies SubmissionPackage),
+          body: JSON.stringify(
+            { ...draft, scene_text: '' } satisfies SubmissionPackage
+          ),
         }
       )
       setActiveStoryProjectId(createdProject.project.id)

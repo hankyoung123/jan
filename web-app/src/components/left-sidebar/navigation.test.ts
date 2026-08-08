@@ -5,6 +5,7 @@ import { primaryRoutes, storyRoutes } from './navigation'
 describe('Story navigation', () => {
   it('exposes the story workspace and cloud-provider entry points', () => {
     expect(storyRoutes.map(({ title, url }) => [title, url])).toEqual([
+      ['进入世界', '/session'],
       ['工作台', '/'],
       ['推进故事', '/evolve'],
       ['角色', '/characters'],

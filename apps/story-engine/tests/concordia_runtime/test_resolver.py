@@ -36,15 +36,24 @@ def _character_ref(
 
 def _runtime(
     resolution_text: str | None = None,
+    *,
+    direct_human_resolution: bool = False,
 ) -> tuple[object, object, ConcordiaMemoryBank]:
     actor_model = ReplayLanguageModel(text_responses=("I force the locked door.",))
+    resolved_text = (
+        resolution_text
+        or '{"event_text":"The lock holds, and the noise alerts the guard.",'
+        '"boundary":"none","visibility":"participants"}'
+    )
     gm_model = ReplayLanguageModel(
         text_responses=(
-            '{"call_to_action":"Try the door.","output_type":"free",'
-            '"options":[],"tag":"action"}',
-            resolution_text
-            or '{"event_text":"The lock holds, and the noise alerts the guard.",'
-            '"boundary":"none","visibility":"participants"}',
+            (resolved_text,)
+            if direct_human_resolution
+            else (
+                '{"call_to_action":"Try the door.","output_type":"free",'
+                '"options":[],"tag":"action"}',
+                resolved_text,
+            )
         ),
         choice_responses=("actor-a", "none"),
     )
@@ -128,6 +137,7 @@ def test_resolution_schema_keeps_npc_identity_semantic() -> None:
         "observer_names",
         "participant_names",
         "entity_changes",
+        "state_updates",
     }
     entity = schema["$defs"]["EntityChange"]
     assert set(entity["properties"]) == {
@@ -138,6 +148,14 @@ def test_resolution_schema_keeps_npc_identity_semantic() -> None:
     }
     assert "entity_id" not in entity["properties"]
     assert "operation" not in entity["properties"]
+    state_update = schema["$defs"]["ResolutionStateUpdate"]
+    assert set(state_update["properties"]) == {
+        "target",
+        "target_name",
+        "path",
+        "value",
+    }
+    assert "target_id" not in state_update["properties"]
 
 
 def test_resolver_separates_putative_action_from_world_event() -> None:
@@ -173,6 +191,27 @@ def test_resolver_separates_putative_action_from_world_event() -> None:
         MemoryRecordType.WORLD_EVENT,
     )
     assert records[1].source_record_ids == (records[0].record_id,)
+
+
+def test_direct_human_intent_sets_concordia_active_actor_before_resolution() -> None:
+    actor, gm, _ = _runtime(direct_human_resolution=True)
+    gm.set_active_actor(actor.name)  # type: ignore[attr-defined]
+
+    result = ConcordiaResolverKernel().resolve(
+        gm,  # type: ignore[arg-type]
+        ResolverContext(
+            session_id="session-1",
+            branch_id="main",
+            step=0,
+            acting_actor_id=actor.name,  # type: ignore[attr-defined]
+            putative_event_text="I force the door.",
+            content_locale="en-US",
+            existing_characters=(_character_ref(),),
+        ),
+        cancellation=Event(),
+    )
+
+    assert result.raw_resolution_text.startswith("The lock holds")
 
 
 def test_cancelled_resolution_does_not_write_memory() -> None:
@@ -288,6 +327,47 @@ def test_resolution_envelope_maps_entity_changes_to_effects() -> None:
     assert result.effects[0].target_id == "new-figure"
     assert result.effects[0].after is not None
     assert result.effects[0].after["display_name"] == "New Figure"  # type: ignore[index]
+
+
+def test_resolution_envelope_binds_state_update_names_to_local_ids() -> None:
+    actor, gm, _ = _runtime(
+        resolution_text=(
+            '{"event_text":"The actor reaches the hall.",'
+            '"boundary":"none","visibility":"participants",'
+            '"participant_names":["actor-a"],'
+            '"state_updates":[{"target":"character_projection",'
+            '"target_name":"actor-a","path":"location",'
+            '"value":"hall"}]}'
+        )
+    )
+    selected = gm.select_next_actor(  # type: ignore[attr-defined]
+        (actor,), session_id="session-1", step=0
+    )
+    gm.create_action_spec(  # type: ignore[attr-defined]
+        actor,
+        session_id="session-1",
+        step=0,
+        content_locale="en-US",
+    )
+
+    result = ConcordiaResolverKernel().resolve(
+        gm,  # type: ignore[arg-type]
+        ResolverContext(
+            session_id="session-1",
+            branch_id="main",
+            step=0,
+            acting_actor_id=selected,
+            putative_event_text="I walk to the hall.",
+            content_locale="en-US",
+            existing_characters=(_character_ref(),),
+        ),
+        cancellation=Event(),
+    )
+
+    assert len(result.effects) == 1
+    assert result.effects[0].target_id == "actor-a"
+    assert result.effects[0].path == "location"
+    assert result.effects[0].after == "hall"
 
 
 def test_duplicate_create_npc_with_identical_content_creates_once() -> None:

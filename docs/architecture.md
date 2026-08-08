@@ -31,6 +31,33 @@ selects the next actor with `NEXT_ACTING`, creates a dynamic
 into a world event. Actor text never becomes world truth without Game Master
 resolution.
 
+## Interactive world sessions
+
+The World Simulation MVP uses the same `StoryTurnEngine`,
+`StorySimulationRuntime`, Game Master, `ResolvedEvent`, checkpoint, branch, and
+commit path as an autonomous step. A human player is an ordinary active
+Character whose intent source is the natural-language request rather than an
+actor model call. There is no `PlayerEngine`, `WorldEngine`, action-permission
+list, or second save-game state.
+
+```text
+World State + Actor State -> Perception -> Human/NPC Intent -> Concordia GM
+-> ResolvedEvent -> runtime state + memory -> checkpoint -> Perception
+```
+
+The runtime treats asserted outcomes as desired outcomes. The GM resolves only
+committed facts, actor knowledge/capabilities/conditions/resources, other
+actors, environment, time, and rules. A resolution may update only explicitly
+store-owned character paths (location, conditions, resources, beliefs, goal)
+or world time/location. A resource update must transfer an already established
+resource; it cannot materialize a weapon, evidence, or capability from actor
+text. The only committed history is `ResolvedEvent`; input, intent, narrative,
+belief, reasoning, and perception are not world truth.
+
+`simulation/perception.py` is a derived, player-facing projection. It reads the
+durable snapshot and visible committed events only. It never reads another
+actor's memory, Game Master state, hidden facts, or model reasoning.
+
 ## Durable state
 
 The branch head checkpoint is canonical for a running simulation. A checkpoint
@@ -53,6 +80,13 @@ The branch Wiki under `wiki/branches/<branch>/` is the maintained human view.
 World, character, and timeline Wiki pages are rebuilt from durable history and
 checkpoints without affecting recovery. Project Markdown still provides
 editable seed material and manuscript export.
+
+The default interactive project, `last-ferry-before`, freezes its truth seed at
+initialization. Its seed contains the message source, reasons for the meeting,
+each NPC's private knowledge and goal, the locked room, item location,
+timeline, ferry relationship, and final truth. The Game Master receives the
+complete seed; every Actor receives public facts plus only its own restricted
+facts.
 
 ## Privacy and locale
 

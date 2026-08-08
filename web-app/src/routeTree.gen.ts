@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorldRouteImport } from './routes/world'
 import { Route as SubmissionRouteImport } from './routes/submission'
+import { Route as SessionRouteImport } from './routes/session'
 import { Route as ManuscriptRouteImport } from './routes/manuscript'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as EvolveRouteImport } from './routes/evolve'
@@ -40,6 +41,11 @@ const WorldRoute = WorldRouteImport.update({
 const SubmissionRoute = SubmissionRouteImport.update({
   id: '/submission',
   path: '/submission',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SessionRoute = SessionRouteImport.update({
+  id: '/session',
+  path: '/session',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ManuscriptRoute = ManuscriptRouteImport.update({
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/evolve': typeof EvolveRoute
   '/logs': typeof LogsRoute
   '/manuscript': typeof ManuscriptRoute
+  '/session': typeof SessionRoute
   '/submission': typeof SubmissionRoute
   '/world': typeof WorldRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
@@ -175,6 +182,7 @@ export interface FileRoutesByTo {
   '/evolve': typeof EvolveRoute
   '/logs': typeof LogsRoute
   '/manuscript': typeof ManuscriptRoute
+  '/session': typeof SessionRoute
   '/submission': typeof SubmissionRoute
   '/world': typeof WorldRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
@@ -200,6 +208,7 @@ export interface FileRoutesById {
   '/evolve': typeof EvolveRoute
   '/logs': typeof LogsRoute
   '/manuscript': typeof ManuscriptRoute
+  '/session': typeof SessionRoute
   '/submission': typeof SubmissionRoute
   '/world': typeof WorldRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
@@ -226,6 +235,7 @@ export interface FileRouteTypes {
     | '/evolve'
     | '/logs'
     | '/manuscript'
+    | '/session'
     | '/submission'
     | '/world'
     | '/project/$projectId'
@@ -250,6 +260,7 @@ export interface FileRouteTypes {
     | '/evolve'
     | '/logs'
     | '/manuscript'
+    | '/session'
     | '/submission'
     | '/world'
     | '/project/$projectId'
@@ -274,6 +285,7 @@ export interface FileRouteTypes {
     | '/evolve'
     | '/logs'
     | '/manuscript'
+    | '/session'
     | '/submission'
     | '/world'
     | '/project/$projectId'
@@ -299,6 +311,7 @@ export interface RootRouteChildren {
   EvolveRoute: typeof EvolveRoute
   LogsRoute: typeof LogsRoute
   ManuscriptRoute: typeof ManuscriptRoute
+  SessionRoute: typeof SessionRoute
   SubmissionRoute: typeof SubmissionRoute
   WorldRoute: typeof WorldRoute
   ProjectProjectIdRoute: typeof ProjectProjectIdRoute
@@ -331,6 +344,13 @@ declare module '@tanstack/react-router' {
       path: '/submission'
       fullPath: '/submission'
       preLoaderRoute: typeof SubmissionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/session': {
+      id: '/session'
+      path: '/session'
+      fullPath: '/session'
+      preLoaderRoute: typeof SessionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/manuscript': {
@@ -483,6 +503,7 @@ const rootRouteChildren: RootRouteChildren = {
   EvolveRoute: EvolveRoute,
   LogsRoute: LogsRoute,
   ManuscriptRoute: ManuscriptRoute,
+  SessionRoute: SessionRoute,
   SubmissionRoute: SubmissionRoute,
   WorldRoute: WorldRoute,
   ProjectProjectIdRoute: ProjectProjectIdRoute,

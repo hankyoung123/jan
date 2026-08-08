@@ -1,3 +1,4 @@
+import re
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -20,9 +21,10 @@ from story_engine.concordia_runtime.roster import (
 )
 from story_engine.domain.action import ActionOutputType, ActionSpec
 from story_engine.domain.memory import MemorySnapshot
-from story_engine.domain.models import Character
+from story_engine.domain.models import Character, WorldState
 from story_engine.domain.projection import (
     EffectOperation,
+    EffectTarget,
     EventVisibility,
     ResolvedEvent,
     ResolvedTurn,
@@ -64,6 +66,8 @@ class StorySimulationRuntime:
         language_models: Sequence[object] = (),
         observer: SimulationObserver | None = None,
         characters: tuple[Character, ...] = (),
+        world: WorldState | None = None,
+        player_actor_id: str | None = None,
         pending_scene_events: tuple[ResolvedEvent, ...] = (),
         promoted_actor_builder: Callable[
             [Character, tuple[ResolvedEvent, ...]],
@@ -107,6 +111,8 @@ class StorySimulationRuntime:
             actor.name: actor for actor in (*actors, *available_actors)
         }
         self._characters_by_id = {character.id: character for character in characters}
+        self._world = world
+        self.player_actor_id = player_actor_id
         self._pending_scene_events = list(pending_scene_events)
         self._promoted_actor_builder = promoted_actor_builder
         self._promotion_reviewer = promotion_reviewer
@@ -124,6 +130,9 @@ class StorySimulationRuntime:
             self._characters_by_id[key] for key in sorted(self._characters_by_id)
         )
 
+    def world_state(self) -> WorldState | None:
+        return self._world
+
     def pending_scene_events(self) -> tuple[ResolvedEvent, ...]:
         return tuple(self._pending_scene_events)
 
@@ -136,13 +145,14 @@ class StorySimulationRuntime:
             {effect.effect_id: effect for effect in candidate_effects}.values()
         )
         changed: list[str] = []
+        characters = dict(self._characters_by_id)
         new_characters: dict[str, Character] = {}
         for effect in effects:
             if effect.operation != EffectOperation.CREATE_CHARACTER:
                 continue
             if effect.target_id is None or not isinstance(effect.after, dict):
                 raise ValueError("create_character requires a target and payload")
-            if effect.target_id in self._characters_by_id:
+            if effect.target_id in characters:
                 raise ValueError(
                     "GM attempted to recreate existing character "
                     f"{effect.target_id!r}; reference it through participant_ids "
@@ -167,7 +177,8 @@ class StorySimulationRuntime:
             new_characters[character.id] = character
             changed.append(f"npc-created:{character.id}")
 
-        character_ids = {*self._characters_by_id, *new_characters}
+        characters.update(new_characters)
+        character_ids = set(characters)
         actor_ids = set(self._actors_by_name)
         for event in resolved.events:
             unknown_participants = set(event.participant_ids) - character_ids
@@ -182,7 +193,80 @@ class StorySimulationRuntime:
                     "event contains non-actor observer IDs: "
                     f"{sorted(unknown_observers)}"
                 )
-        self._characters_by_id.update(new_characters)
+        initial_resources = {
+            character_id: set(character.resources)
+            for character_id, character in self._characters_by_id.items()
+        }
+        world = self._world
+        for effect in effects:
+            if effect.operation != EffectOperation.SET:
+                continue
+            if effect.target == EffectTarget.CHARACTER_PROJECTION:
+                if effect.target_id is None or effect.path is None:
+                    raise ValueError("character state update requires target and path")
+                target_character = characters.get(effect.target_id)
+                if target_character is None:
+                    raise ValueError(
+                        "character state update targets an unknown character"
+                    )
+                if effect.path in {"location", "current_goal"}:
+                    if effect.after is not None and not isinstance(effect.after, str):
+                        raise ValueError("character text state update must be a string")
+                    update: dict[str, object] = {effect.path: effect.after}
+                elif effect.path in {"conditions", "resources", "beliefs"}:
+                    if not isinstance(effect.after, list) or not all(
+                        isinstance(value, str) and value.strip()
+                        for value in effect.after
+                    ):
+                        raise ValueError(
+                            "character collection state update must be strings"
+                        )
+                    value = tuple(str(item) for item in effect.after)
+                    if len(value) != len(set(value)):
+                        raise ValueError("character state update values must be unique")
+                    if effect.path == "resources":
+                        added = set(value) - set(target_character.resources)
+                        held_by_others = set().union(
+                            *(
+                                resources
+                                for character_id, resources in initial_resources.items()
+                                if character_id != target_character.id
+                            )
+                        )
+                        if not added.issubset(held_by_others):
+                            raise ValueError(
+                                "new resources must transfer from an established actor"
+                            )
+                    update = {effect.path: value}
+                else:
+                    raise ValueError("character state update path is not supported")
+                characters[target_character.id] = Character.model_validate(
+                    target_character.model_copy(
+                        update={
+                            **update,
+                            "version": target_character.version + 1,
+                        }
+                    )
+                )
+                changed.append(f"state-updated:{target_character.id}:{effect.path}")
+                continue
+            if effect.target == EffectTarget.WORLD_PROJECTION:
+                if world is None or effect.path is None:
+                    raise ValueError("world state update requires an initialized world")
+                if effect.path not in {"current_time", "current_location"}:
+                    raise ValueError("world state update path is not supported")
+                if effect.after is not None and not isinstance(effect.after, str):
+                    raise ValueError("world state update must be a string")
+                world_update: dict[str, object] = {
+                    effect.path: effect.after,
+                    "version": world.version + 1,
+                }
+                world = WorldState.model_validate(world.model_copy(update=world_update))
+                changed.append(f"world-updated:{effect.path}")
+                continue
+            raise ValueError("state update targets unsupported projection")
+        self._characters_by_id = characters
+        self._world = world
         return tuple(changed)
 
     def _evaluate_promotions(
@@ -818,6 +902,209 @@ class StorySimulationRuntime:
             )
             raise
 
+    def _record_human_belief(self, text: str) -> None:
+        """Persist an asserted belief without promoting it to world truth."""
+        if self.player_actor_id is None:
+            return
+        player = self._characters_by_id.get(self.player_actor_id)
+        if player is None:
+            return
+        match = re.match(r"^\s*(?:我确定|我相信|我认为)\s*(.+?)\s*[。!]?\s*$", text)
+        if match is None:
+            return
+        belief = match.group(1).strip()
+        if not belief or belief in player.beliefs:
+            return
+        self._characters_by_id[player.id] = player.model_copy(
+            update={
+                "beliefs": (*player.beliefs, belief),
+                "version": player.version + 1,
+            }
+        )
+
+    def execute_human_turn(
+        self,
+        step: int,
+        *,
+        text: str,
+        cancellation: Event,
+    ) -> StepResult:
+        """Resolve one player intent through the same Concordia GM commit path."""
+        if self.player_actor_id is None:
+            raise ValueError("interactive turn requires a player actor")
+        actor = self._actors_by_name.get(self.player_actor_id)
+        if actor is None:
+            raise ValueError("player actor must be part of the current scene roster")
+        action = text.strip()
+        if not action:
+            raise ValueError("interactive turn text must not be empty")
+        self.game_master.set_active_actor(actor.name)
+
+        current_stage = SimulationStage.ACTOR_ACTION
+        stage_started = datetime.now(UTC)
+        try:
+            self._check_cancelled(cancellation)
+            putative_id = f"putative:{self.session_id}:{step}"
+            self._publish_stage(
+                step=step,
+                stage=current_stage,
+                status=StageStatus.RUNNING,
+                started_at=stage_started,
+                actor_id=actor.name,
+            )
+            self._publish_stage(
+                step=step,
+                stage=current_stage,
+                status=StageStatus.SUCCEEDED,
+                started_at=stage_started,
+                actor_id=actor.name,
+                summary_text=action,
+                output_record_ids=(putative_id,),
+                visible_to=(actor.name,),
+            )
+
+            self._check_cancelled(cancellation)
+            current_stage = SimulationStage.RESOLUTION
+            stage_started = datetime.now(UTC)
+            resolution_stage = self._publish_stage(
+                step=step,
+                stage=current_stage,
+                status=StageStatus.RUNNING,
+                started_at=stage_started,
+                actor_id=actor.name,
+                input_record_ids=(putative_id,),
+            )
+            self._set_trace_context(
+                step=step,
+                component_ids=("game-master:resolution",),
+                source_record_ids=(putative_id,),
+                stage=current_stage,
+                task_label="玩家意图结算",
+                stage_event_id=resolution_stage.event_id,
+            )
+            resolved = self.resolver.resolve(
+                self.game_master,
+                ResolverContext(
+                    session_id=self.session_id,
+                    branch_id=self.branch_id,
+                    step=step,
+                    acting_actor_id=actor.name,
+                    putative_event_text=action,
+                    content_locale=self.content_locale,
+                    existing_characters=tuple(
+                        CharacterRef(
+                            id=character.id,
+                            display_name=character.display_name or character.id,
+                            type=character.type,
+                            location=character.location,
+                        )
+                        for character in self.character_states()
+                    ),
+                ),
+                cancellation=self.cancellation,
+            )
+            event_id = f"event:{self.session_id}:{step}"
+            character_effect_ids = self._apply_character_effects(resolved)
+            self._record_human_belief(action)
+            self._publish_stage(
+                step=step,
+                stage=current_stage,
+                status=StageStatus.SUCCEEDED,
+                started_at=stage_started,
+                actor_id=actor.name,
+                summary_text=resolved.raw_resolution_text,
+                input_record_ids=(putative_id,),
+                output_record_ids=(event_id, *character_effect_ids),
+            )
+
+            current_stage = SimulationStage.MEMORY_ROUTING
+            stage_started = datetime.now(UTC)
+            routing_stage = self._publish_stage(
+                step=step,
+                stage=current_stage,
+                status=StageStatus.RUNNING,
+                started_at=stage_started,
+                actor_id=actor.name,
+                input_record_ids=(event_id,),
+            )
+            self._set_trace_context(
+                step=step,
+                component_ids=("memory:routing",),
+                source_record_ids=(event_id,),
+                stage=current_stage,
+                task_label="玩家事件记忆路由",
+                stage_event_id=routing_stage.event_id,
+            )
+            observer_ids: set[str] = set() if resolved.events else {actor.name}
+            for event in resolved.events:
+                if event.visibility == EventVisibility.PUBLIC:
+                    observer_ids.update(self._actors_by_name)
+                elif event.visibility == EventVisibility.PARTICIPANTS:
+                    observer_ids.update(event.participant_ids)
+                elif event.visibility == EventVisibility.RESTRICTED:
+                    observer_ids.update(event.observer_ids)
+            observer_ids.intersection_update(self._actors_by_name)
+            routed_ids: list[str] = []
+            for observer_id in sorted(observer_ids):
+                routed_id = f"event-observation:{self.session_id}:{step}:{observer_id}"
+                self._actors_by_name[observer_id].observe(
+                    PerceptionFrame(
+                        frame_id=routed_id,
+                        session_id=self.session_id,
+                        branch_id=self.branch_id,
+                        actor_id=observer_id,
+                        step=step,
+                        content_locale=self.content_locale,
+                        observation_text=resolved.raw_resolution_text,
+                        source_record_ids=(event_id,),
+                    )
+                )
+                routed_ids.append(routed_id)
+            self._publish_stage(
+                step=step,
+                stage=current_stage,
+                status=StageStatus.SUCCEEDED,
+                started_at=stage_started,
+                actor_id=actor.name,
+                summary_text=(
+                    "World result routed to " + ", ".join(sorted(observer_ids))
+                ),
+                input_record_ids=(event_id,),
+                output_record_ids=tuple(routed_ids),
+                visible_to=tuple(sorted(observer_ids)),
+            )
+            promotion_decisions = self._evaluate_promotions(
+                resolved,
+                stage_event_id=None,
+            )
+            return StepResult(
+                session_id=self.session_id,
+                branch_id=self.branch_id,
+                step=step,
+                acting_actor_id=actor.name,
+                action_spec=None,
+                action_text=action,
+                resolved_turn=resolved,
+                status=TurnSessionStatus.RUNNING,
+                boundary=resolved.boundary,
+                promotion_decisions=promotion_decisions,
+            )
+        except Exception as error:
+            status = (
+                StageStatus.CANCELLED
+                if isinstance(error, SimulationCancelledError)
+                else StageStatus.FAILED
+            )
+            self._publish_stage(
+                step=step,
+                stage=current_stage,
+                status=status,
+                started_at=stage_started,
+                summary_text=str(error),
+                error_code=getattr(error, "code", type(error).__name__.lower()),
+            )
+            raise
+
     def actor_states(self) -> dict[str, dict[str, JsonValue]]:
         return {
             actor.name: actor.get_state() for actor in self._all_actors_by_name.values()
@@ -877,4 +1164,6 @@ class StorySimulationRuntime:
         self._characters_by_id = {
             character.id: character for character in snapshot.characters
         }
+        self._world = snapshot.world
+        self.player_actor_id = snapshot.player_actor_id
         self._pending_scene_events = list(snapshot.pending_scene_events)

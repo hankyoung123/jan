@@ -106,6 +106,38 @@ class EntityChange(RuntimeModel):
         return self
 
 
+class ResolutionStateUpdate(RuntimeModel):
+    """Minimal GM-authored state change, bound to local store-owned paths."""
+
+    target: EffectTarget
+    target_name: str | None = Field(default=None, max_length=256)
+    path: str = Field(min_length=1, max_length=128)
+    value: JsonValue
+
+    @model_validator(mode="after")
+    def uses_a_supported_store_owned_path(self) -> Self:
+        character_paths = {
+            "location",
+            "conditions",
+            "resources",
+            "beliefs",
+            "current_goal",
+        }
+        if self.target == EffectTarget.CHARACTER_PROJECTION:
+            if not self.target_name:
+                raise ValueError("character state update requires a target name")
+            if self.path not in character_paths:
+                raise ValueError("character state update path is not supported")
+        elif self.target == EffectTarget.WORLD_PROJECTION:
+            if self.target_name is not None:
+                raise ValueError("world state update must not name a character")
+            if self.path not in {"current_time", "current_location"}:
+                raise ValueError("world state update path is not supported")
+        else:
+            raise ValueError("resolution state updates cannot target system state")
+        return self
+
+
 class ResolutionEnvelope(RuntimeModel):
     """Semantic Game Master resolution for one putative action.
 
@@ -120,6 +152,7 @@ class ResolutionEnvelope(RuntimeModel):
     observer_names: tuple[str, ...] = Field(default=(), max_length=64)
     participant_names: tuple[str, ...] = Field(default=(), max_length=64)
     entity_changes: tuple[EntityChange, ...] = ()
+    state_updates: tuple[ResolutionStateUpdate, ...] = ()
 
 
 class ResolvedEvent(RuntimeModel):

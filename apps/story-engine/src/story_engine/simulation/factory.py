@@ -430,6 +430,12 @@ class ProjectRuntimeFactory:
             model_traces=model_traces,
             language_models=tuple(models.values()),
             characters=characters,
+            world=restored.world if restored is not None else snapshot.world,
+            player_actor_id=(
+                restored.player_actor_id
+                if restored is not None
+                else request.player_actor_id
+            ),
             pending_scene_events=(
                 restored.pending_scene_events if restored is not None else ()
             ),

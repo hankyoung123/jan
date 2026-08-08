@@ -60,6 +60,7 @@ class SimulationSession:
         memory_snapshots = self.runtime.memory_snapshots()
         roster_ids = getattr(self.runtime, "roster_actor_ids", None)
         character_states = getattr(self.runtime, "character_states", None)
+        world_state = getattr(self.runtime, "world_state", None)
         pending_scene_events = getattr(self.runtime, "pending_scene_events", None)
         provisional = TurnSessionSnapshot(
             session_id=self.session_id,
@@ -69,6 +70,8 @@ class SimulationSession:
             pending_control=self.pending_control,
             content_locale=self.request.content_locale,
             request=self.request,
+            player_actor_id=getattr(self.runtime, "player_actor_id", None),
+            world=(world_state() if world_state is not None else None),
             roster_actor_ids=(
                 roster_ids() if roster_ids is not None else tuple(actor_states)
             ),

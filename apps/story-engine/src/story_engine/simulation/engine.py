@@ -243,14 +243,29 @@ class StoryTurnEngine:
         session: SimulationSession,
         *,
         cancellation: Event,
+        human_intent: str | None = None,
     ) -> StepResult:
         if cancellation.is_set() or session.status == TurnSessionStatus.CANCELLED:
             session.runtime.cancellation.set()
         try:
-            result = session.runtime.execute_step(
-                session.current_step,
-                cancellation=cancellation,
-            )
+            if human_intent is None:
+                result = session.runtime.execute_step(
+                    session.current_step,
+                    cancellation=cancellation,
+                )
+            else:
+                execute_human_turn = getattr(
+                    session.runtime, "execute_human_turn", None
+                )
+                if execute_human_turn is None:
+                    raise InvalidSessionTransitionError(
+                        "simulation runtime does not support interactive turns"
+                    )
+                result = execute_human_turn(
+                    session.current_step,
+                    text=human_intent,
+                    cancellation=cancellation,
+                )
         except SimulationCancelledError:
             with session.lock:
                 session.status = TurnSessionStatus.CANCELLED
@@ -344,7 +359,13 @@ class StoryTurnEngine:
             session.touch()
             return session.snapshot()
 
-    def advance_one_step(self, session_id: str, *, cancellation: Event) -> StepResult:
+    def advance_one_step(
+        self,
+        session_id: str,
+        *,
+        cancellation: Event,
+        human_intent: str | None = None,
+    ) -> StepResult:
         session = self._get(session_id)
         with session.lock:
             self._ensure_can_advance(session)
@@ -354,7 +375,11 @@ class StoryTurnEngine:
             if session.continuous_started_at is None:
                 session.continuous_started_at = time.monotonic()
             session.touch()
-        result = self._execute_one(session, cancellation=cancellation)
+        result = self._execute_one(
+            session,
+            cancellation=cancellation,
+            human_intent=human_intent,
+        )
         with session.lock:
             requested_control = session.pending_control
             should_pause = (

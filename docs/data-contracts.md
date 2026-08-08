@@ -54,4 +54,17 @@ The production control surface is session-based:
 - `/projects/{project_id}/branches` for forks;
 - branch rollback and Wiki rebuild routes.
 
+The interactive world surface adds one player command:
+
+```text
+POST /projects/{project_id}/simulation/turn
+{ "text": "我走过去看看桌上的东西" }
+```
+
+The response is intentionally limited to `perception`, `visible_events`,
+`player_state`, `checkpoint_id`, and `world_time`. It does not serialize a
+complete `TurnSessionSnapshot`, NPC private memory, GM reasoning, secret
+facts, or raw Concordia state. `GET /projects/{project_id}/simulation/session`
+returns the same restricted projection to initialize the session UI.
+
 WebSocket envelopes use `subject_id` and the `simulation.*` event family.

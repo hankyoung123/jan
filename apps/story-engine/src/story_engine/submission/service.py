@@ -1,3 +1,5 @@
+# ruff: noqa: RUF001
+
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Self
@@ -8,6 +10,7 @@ from story_engine.domain.errors import DomainError
 from story_engine.domain.models import (
     DomainModel,
     InitialFact,
+    Relationship,
     ReviewResult,
 )
 from story_engine.models.contracts import (
@@ -48,6 +51,7 @@ __all__ = [
     "SubmissionWorkspaceState",
     "SubmissionWorkspaceStore",
     "fog_harbor_submission",
+    "last_ferry_before_submission",
     "reduce_submission_draft",
 ]
 
@@ -69,6 +73,9 @@ class SubmissionCharacter(DomainModel):
             "never include public fact ids."
         ),
     )
+    relationships: tuple[Relationship, ...] = ()
+    capabilities: tuple[str, ...] = ()
+    conditions: tuple[str, ...] = ()
     location: str = Field(min_length=1)
     emotional_state: str | None = None
     resources: tuple[str, ...] = ()
@@ -86,6 +93,7 @@ class SubmissionPackage(DomainModel):
     initial_time: str = Field(min_length=1)
     initial_location: str = Field(min_length=1)
     initial_incident: str = Field(min_length=1)
+    scene_text: str = ""
     pressures: tuple[str, ...] = ()
 
     @model_validator(mode="after")
@@ -144,7 +152,10 @@ class SubmissionDraft(DomainModel):
 
     @classmethod
     def from_package(cls, package: SubmissionPackage) -> "SubmissionDraft":
-        return cls.model_validate(package.model_dump(mode="json"))
+        # Scene text belongs to the fixed runtime seed, not the submission editor.
+        return cls.model_validate(
+            package.model_dump(mode="json", exclude={"scene_text"})
+        )
 
     def missing_requirements(self) -> tuple[str, ...]:
         missing: list[str] = []
@@ -578,4 +589,185 @@ def fog_harbor_submission() -> SubmissionPackage:
         initial_location="雾港",
         initial_incident="灯塔突然熄灭",
         pressures=("客船即将进入近港航道",),
+    )
+
+
+def last_ferry_before_submission() -> SubmissionPackage:
+    """The fixed MVP world used for interactive world-session integration tests."""
+    return SubmissionPackage(
+        id="last-ferry-before",
+        title="末班船之前",
+        genre="悬疑",
+        theme="事实、信任与错过的代价",
+        tone="现实、克制、持续紧迫",
+        world_rules=(
+            "世界只因已提交的 ResolvedEvent 改变。",
+            "门锁、物品归属、人物位置和时间线必须保持因果一致。",
+            "末班船将在约四十分钟后离港，角色会依照自己的计划行动。",
+        ),
+        facts=(
+            InitialFact(
+                id="fact:stormy-hotel",
+                statement="暴雨中的港口旅馆接待着等待末班船的人。",
+                visibility="public",
+            ),
+            InitialFact(
+                id="fact:last-ferry-time",
+                statement="末班船将在约四十分钟后离港。",
+                visibility="public",
+            ),
+            InitialFact(
+                id="fact:player-message",
+                statement="你收到一条署名林澈、约你到旅馆的消息。",
+                visibility="secret",
+                known_by=("player",),
+            ),
+            InitialFact(
+                id="truth:message-sender",
+                statement="张野借用林澈遗失的旧手机发出了那条消息。",
+                visibility="secret",
+                known_by=("zhang-ye",),
+            ),
+            InitialFact(
+                id="truth:why-player-was-called",
+                statement="张野想借记者身份制造林澈主动约见的假象。",
+                visibility="secret",
+                known_by=("zhang-ye",),
+            ),
+            InitialFact(
+                id="truth:lin-concealment",
+                statement="林澈隐瞒了她曾替张野保管过一份港口交接记录。",
+                visibility="secret",
+                known_by=("lin-che",),
+            ),
+            InitialFact(
+                id="truth:zhang-goal",
+                statement="张野准备带着被篡改的交接记录搭末班船离开。",
+                visibility="secret",
+                known_by=("zhang-ye",),
+            ),
+            InitialFact(
+                id="truth:locked-room-use",
+                statement="二楼锁房是旅馆废弃的账房，记录曾被临时藏在那里。",
+                visibility="secret",
+                known_by=("innkeeper",),
+            ),
+            InitialFact(
+                id="truth:room-entry",
+                statement="今天傍晚张野进入过二楼锁房，店主从楼梯口看见了他。",
+                visibility="secret",
+                known_by=("innkeeper",),
+            ),
+            InitialFact(
+                id="truth:key-item-location",
+                statement="原始交接记录藏在张野旅行包的夹层里。",
+                visibility="secret",
+                known_by=("zhang-ye",),
+            ),
+            InitialFact(
+                id="truth:event-timeline",
+                statement=(
+                    "18:05 林澈发现记录被调包；18:17 张野发出假消息；"
+                    "18:31 张野回到旅馆。"
+                ),
+                visibility="secret",
+                known_by=("lin-che", "zhang-ye"),
+            ),
+            InitialFact(
+                id="truth:ferry-connection",
+                statement="张野选择末班船，是因为船离港后港口监控的当夜备份会被转移。",
+                visibility="secret",
+                known_by=("zhang-ye",),
+            ),
+            InitialFact(
+                id="truth:final",
+                statement="港口事故并非林澈造成，张野篡改记录是为了掩盖自己的责任。",
+                visibility="secret",
+                known_by=("zhang-ye",),
+            ),
+        ),
+        characters=(
+            SubmissionCharacter(
+                id="player",
+                display_name="你",
+                identity="本地调查记者",
+                core_desire="弄清旧友求助消息背后的真相",
+                current_goal="在末班船离港前查明发生了什么",
+                known_fact_ids=("fact:player-message",),
+                location="旅馆一楼大厅",
+                emotional_state="警觉",
+                resources=("手机", "相机", "记者证", "钱包", "车钥匙"),
+                capabilities=("调查采访", "摄影", "熟悉本地港口", "普通驾驶能力"),
+                conditions=("右手轻伤",),
+                relationships=(
+                    Relationship(
+                        character_id="lin-che",
+                        description="林澈是你的旧友。",
+                    ),
+                    Relationship(
+                        character_id="chen-kai",
+                        description="陈凯是你认识的当地警员。",
+                    ),
+                ),
+            ),
+            SubmissionCharacter(
+                id="lin-che",
+                display_name="林澈",
+                identity="在港口工作的你的旧友",
+                core_desire="避免旧事牵连到更多人",
+                current_goal="确认张野是否会带着记录离开",
+                known_fact_ids=("truth:lin-concealment", "truth:event-timeline"),
+                location="旅馆一楼大厅",
+                emotional_state="戒备而犹豫",
+                resources=("旧手机",),
+                relationships=(
+                    Relationship(
+                        character_id="player",
+                        description="你是她仍愿意信任的旧友。",
+                    ),
+                ),
+            ),
+            SubmissionCharacter(
+                id="zhang-ye",
+                display_name="张野",
+                identity="急于离开港口的货运承包人",
+                core_desire="在记录被发现前脱身",
+                current_goal="赶上末班船并保住旅行包",
+                known_fact_ids=(
+                    "truth:message-sender",
+                    "truth:why-player-was-called",
+                    "truth:zhang-goal",
+                    "truth:key-item-location",
+                    "truth:event-timeline",
+                    "truth:ferry-connection",
+                    "truth:final",
+                ),
+                location="旅馆一楼柜台附近",
+                emotional_state="克制但随时准备离开",
+                resources=("旅行包", "船票"),
+                capabilities=("身体强壮", "熟悉港口货运路线"),
+            ),
+            SubmissionCharacter(
+                id="innkeeper",
+                display_name="店主",
+                identity="经营港口旅馆的店主",
+                core_desire="避免警察和媒体把旅馆卷入麻烦",
+                current_goal="让今晚的客人尽快离开",
+                known_fact_ids=("truth:locked-room-use", "truth:room-entry"),
+                location="旅馆柜台",
+                emotional_state="不耐烦",
+                resources=("二楼备用钥匙",),
+            ),
+        ),
+        initial_time="18:43",
+        initial_location="港口旅馆",
+        initial_incident="林澈否认发过那条约见消息，张野正在准备离开。",
+        scene_text=(
+            "雨已经下了很久。\n\n"
+            "林澈坐在靠窗的位置。张野站在柜台附近。\n\n"
+            "门口的地毯已经湿透，墙上的钟刚刚跳到 18:43。\n\n"
+            "林澈看见你，没有起身。\n\n"
+            "“你怎么来了？”"
+        ),
+        pressures=("张野会在末班船离港前按自己的计划行动",),
     )

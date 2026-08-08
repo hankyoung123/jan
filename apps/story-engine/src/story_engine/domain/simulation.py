@@ -9,7 +9,7 @@ from pydantic import Field, JsonValue, model_validator
 from story_engine.domain.action import ActionSpec, EntityRole
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 from story_engine.domain.memory import MemoryBank, MemorySnapshot
-from story_engine.domain.models import Character, CharacterType
+from story_engine.domain.models import Character, CharacterType, WorldState
 from story_engine.domain.projection import (
     ResolvedEvent,
     ResolvedTurn,
@@ -206,6 +206,7 @@ class TurnSessionRequest(RuntimeModel):
     # The request identifies the eligible cast; scene participation is capped
     # separately by the roster planner.
     actor_ids: tuple[Identifier, ...] = ()
+    player_actor_id: Identifier | None = None
     content_locale: LocaleCode
     control: ControlPolicy
     output: OutputPolicy = OutputPolicy()
@@ -253,6 +254,8 @@ class TurnSessionSnapshot(RuntimeModel):
     pending_control: PendingControl = PendingControl.NONE
     content_locale: LocaleCode
     request: TurnSessionRequest
+    player_actor_id: Identifier | None = None
+    world: WorldState | None = None
     roster_actor_ids: tuple[Identifier, ...] = Field(default=(), max_length=4)
     characters: tuple[Character, ...] = ()
     pending_scene_events: tuple[ResolvedEvent, ...] = ()

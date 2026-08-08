@@ -237,3 +237,40 @@ def test_runtime_rejects_recreating_an_existing_character_with_clear_guidance() 
         runtime._apply_character_effects(
             _turn(_event("actor-0", "npc-1", effects=(recreate_npc,)))
         )
+
+
+def test_resolution_state_updates_are_atomic_and_resources_cannot_appear() -> None:
+    runtime = _runtime((_character("actor-0"), _character("actor-1")))
+    location_update = StateEffect(
+        effect_id="effect:move:actor-0",
+        operation=EffectOperation.SET,
+        target=EffectTarget.CHARACTER_PROJECTION,
+        target_id="actor-0",
+        path="location",
+        after="旅馆大厅",
+    )
+
+    changed = runtime._apply_character_effects(
+        _turn(_event("actor-0", effects=(location_update,)))
+    )
+
+    moved = next(item for item in runtime.character_states() if item.id == "actor-0")
+    assert changed == ("state-updated:actor-0:location",)
+    assert moved.location == "旅馆大厅"
+
+    gun_update = StateEffect(
+        effect_id="effect:gun:actor-0",
+        operation=EffectOperation.SET,
+        target=EffectTarget.CHARACTER_PROJECTION,
+        target_id="actor-0",
+        path="resources",
+        after=["手枪"],
+    )
+    before = runtime.character_states()
+
+    with pytest.raises(ValueError, match="new resources must transfer"):
+        runtime._apply_character_effects(
+            _turn(_event("actor-0", effects=(gun_update,)))
+        )
+
+    assert runtime.character_states() == before

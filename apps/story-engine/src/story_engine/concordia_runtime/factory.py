@@ -4,6 +4,9 @@ from datetime import datetime
 from typing import Any, cast
 
 from concordia.agents import entity_agent_with_logging  # type: ignore[import-untyped]
+from concordia.components import (  # type: ignore[import-untyped]
+    game_master as gm_components,
+)
 from concordia.language_model import language_model  # type: ignore[import-untyped]
 from pydantic import JsonValue
 
@@ -117,6 +120,20 @@ class ConcordiaStoryActor:
 
 
 class ConcordiaGameMasterActor(ConcordiaStoryActor):
+    def set_active_actor(self, actor_id: str) -> None:
+        """Set the Concordia turn owner before resolving a direct human intent."""
+        state = self._entity.get_state()
+        components = state.get("context_components")
+        if not isinstance(components, dict):
+            raise ValueError("Game Master state has no context components")
+        next_acting = components.get(
+            gm_components.next_acting.DEFAULT_NEXT_ACTING_COMPONENT_KEY
+        )
+        if not isinstance(next_acting, dict):
+            raise ValueError("Game Master state has no next-acting component")
+        next_acting["currently_active_player"] = actor_id
+        self._entity.set_state(state)
+
     def set_resolution_character_registry(self, registry_text: str) -> None:
         state = self.get_state()
         components = state.get("context_components")

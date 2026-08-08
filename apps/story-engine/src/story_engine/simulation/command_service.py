@@ -1,5 +1,6 @@
 """Single-step and continuous simulation command execution."""
 
+import uuid
 from collections.abc import Callable
 from contextlib import suppress
 from threading import Event, RLock, Thread
@@ -149,6 +150,7 @@ class SimulationCommandService:
         *,
         cancellation: Event,
         command_receipt: CommandReceiptCommit | None = None,
+        human_intent: str | None = None,
     ) -> StepResult:
         with self._run_lock:
             if self._shutting_down:
@@ -159,7 +161,11 @@ class SimulationCommandService:
             if running is not None and running.is_alive():
                 raise InvalidSessionTransitionError("session is already running")
         try:
-            result = self.engine.advance_one_step(session_id, cancellation=cancellation)
+            result = self.engine.advance_one_step(
+                session_id,
+                cancellation=cancellation,
+                human_intent=human_intent,
+            )
         except Exception as error:
             snapshot = self.engine.get(session_id)
             if snapshot.status == TurnSessionStatus.FAILED:
@@ -210,6 +216,30 @@ class SimulationCommandService:
                 session_id,
                 cancellation=cancellation,
                 command_receipt=receipt,
+            ),
+            record_receipt=not self.persistence.configured,
+        )
+
+    def interactive_turn(self, session_id: str, *, text: str) -> StepResult:
+        """Commit a player-supplied intent as one ordinary simulation step."""
+        state = self.engine.get(session_id)
+        command_id = f"interactive:{uuid.uuid4().hex}"
+        receipt = self._commands.receipt_commit(
+            command_id=command_id,
+            operation="interactive_turn",
+            expected_state_hash=state.state_hash,
+        )
+        return self._commands.execute(
+            session_id=session_id,
+            command_id=command_id,
+            operation="interactive_turn",
+            expected_state_hash=state.state_hash,
+            current_state=lambda: self.engine.get(session_id),
+            command=lambda: self._step(
+                session_id,
+                cancellation=Event(),
+                command_receipt=receipt,
+                human_intent=text,
             ),
             record_receipt=not self.persistence.configured,
         )

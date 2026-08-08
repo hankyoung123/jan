@@ -20,6 +20,24 @@ translated.
   ancestry.
 - `ModelCallTrace` and `TurnTrace` provide request-to-world-event provenance.
 
+For World Simulation MVP, the product vocabulary is `World`, `Actor`,
+`Perception`, `Intent`, `Resolution`, and `Memory`:
+
+- `WorldState` is current location/time/rules/pressures and public scene text;
+  its causal changes are represented by committed events and owned state
+  effects.
+- `Character` is the shared Actor abstraction for human and NPC. It includes
+  identity, knowledge references, capabilities, conditions, resources,
+  relationships, location, and beliefs. There are no generic strength, skill,
+  HP, or action-permission fields.
+- `TurnSessionRequest.player_actor_id` identifies a human Actor. The durable
+  snapshot records the same `player_actor_id` and current `WorldState`.
+- `ResolutionStateUpdate` is the minimal structured GM boundary. Local code
+  binds display names to IDs and rejects unsupported paths or unowned resources
+  before a checkpoint can advance.
+- `PlayerPerception` is derived from the checkpoint and event visibility. It is
+  not a copy of World Truth.
+
 The legacy project seed models (`Project`, `WorldState`, `Character`, `Fact`)
 remain inputs for constructing initial actor and Game Master memories. They are
 not rewritten after every simulation step. Writer scenes and optional editorial
@@ -40,3 +58,9 @@ Core invariants:
    observation owners resolve to active Actors.
 9. The Active Agent Pool has no fixed size limit; a Scene Roster contains at
    most four Active Agents, and one Acting Agent acts per simulation step.
+10. User and NPC text are putative intents. Only a valid GM `ResolvedEvent`
+    can commit a world consequence.
+11. World Truth, Actor Knowledge, and Actor Belief are separate. A belief is
+    never promoted to a world fact by assertion alone.
+12. Player perception contains only physical/public/participant-visible event
+    information and the player's own state.

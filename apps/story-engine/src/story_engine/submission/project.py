@@ -39,6 +39,7 @@ class SubmissionService:
             world=WorldState(
                 current_time=package.initial_time,
                 current_location=package.initial_location,
+                scene_text=package.scene_text,
                 rules=package.world_rules,
                 active_pressures=package.pressures,
                 public_fact_ids=tuple(
@@ -58,6 +59,9 @@ class SubmissionService:
                     core_desire=item.core_desire,
                     current_goal=item.current_goal,
                     known_fact_ids=item.known_fact_ids,
+                    relationships=item.relationships,
+                    capabilities=item.capabilities,
+                    conditions=item.conditions,
                     location=item.location,
                     emotional_state=item.emotional_state,
                     resources=item.resources,

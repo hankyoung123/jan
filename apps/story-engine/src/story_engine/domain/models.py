@@ -88,6 +88,9 @@ class Character(DomainModel):
     current_goal: str | None = None
     known_fact_ids: tuple[str, ...] = ()
     relationships: tuple[Relationship, ...] = ()
+    capabilities: tuple[str, ...] = ()
+    conditions: tuple[str, ...] = ()
+    beliefs: tuple[str, ...] = ()
     location: str | None = None
     emotional_state: str | None = None
     resources: tuple[str, ...] = ()
@@ -103,6 +106,7 @@ class Character(DomainModel):
 class WorldState(DomainModel):
     current_time: str = Field(min_length=1)
     current_location: str | None = None
+    scene_text: str = ""
     rules: tuple[str, ...] = ()
     active_pressures: tuple[str, ...] = ()
     public_fact_ids: tuple[str, ...] = ()

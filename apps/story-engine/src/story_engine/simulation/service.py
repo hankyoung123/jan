@@ -109,6 +109,9 @@ class SimulationApplicationService:
             cancellation=cancellation,
         )
 
+    def interactive_turn(self, session_id: str, *, text: str) -> StepResult:
+        return self.commands.interactive_turn(session_id, text=text)
+
     def run(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:
         return self.commands.run(session_id, cancellation=cancellation)
 

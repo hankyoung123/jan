@@ -245,6 +245,29 @@ class ConcordiaResolverKernel:
                     reason_text=envelope.event_text,
                 )
             )
+        for index, update in enumerate(envelope.state_updates):
+            target_id: str | None = None
+            if update.target == EffectTarget.CHARACTER_PROJECTION:
+                assert update.target_name is not None
+                target_ids = ConcordiaResolverKernel._resolve_character_names(
+                    (update.target_name,),
+                    context=context,
+                    field_name="state update target",
+                )
+                target_id = target_ids[0]
+            effects.append(
+                StateEffect(
+                    effect_id=(
+                        f"state-effect:{context.session_id}:{context.step}:{index}"
+                    ),
+                    operation=EffectOperation.SET,
+                    target=update.target,
+                    target_id=target_id,
+                    path=update.path,
+                    after=update.value,
+                    reason_text=envelope.event_text,
+                )
+            )
         event_text = envelope.event_text.strip()
         event = ResolvedEvent(
             event_id=f"event:{context.session_id}:{context.step}",
@@ -295,7 +318,10 @@ class ConcordiaResolverKernel:
                 spec_id=f"resolve:{context.session_id}:{context.step}",
                 output_type=ActionOutputType.RESOLVE,
                 call_to_action=(
-                    "Considering all established facts, what actually happens?"
+                    "Treat the actor text as a putative intent, never a fact or "
+                    "guaranteed outcome. Resolve only from committed world facts, "
+                    "actor state, available resources, environmental conditions, "
+                    "other actors, time, and world rules."
                 ),
                 tag="resolve",
                 content_locale=context.content_locale,

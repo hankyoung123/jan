@@ -2,6 +2,7 @@ export const route = {
   // Story workspace
   home: '/',
   submission: '/submission',
+  session: '/session',
   evolve: '/evolve',
   characters: '/characters',
   world: '/world',

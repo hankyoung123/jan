@@ -48,6 +48,7 @@ class WorldDocument(DomainModel):
     )
     current_time: str = Field(min_length=1)
     current_location: str | None = None
+    scene_text: str = ""
     rules: tuple[str, ...] = ()
     active_pressures: tuple[str, ...] = ()
     public_fact_ids: tuple[str, ...] = ()
@@ -80,6 +81,9 @@ class CharacterDocument(DomainModel):
     current_goal: str | None = None
     known_fact_ids: tuple[str, ...] = ()
     relationships: tuple[Relationship, ...] = ()
+    capabilities: tuple[str, ...] = ()
+    conditions: tuple[str, ...] = ()
+    beliefs: tuple[str, ...] = ()
     location: str | None = None
     emotional_state: str | None = None
     resources: tuple[str, ...] = ()
@@ -236,6 +240,10 @@ def render_world(world: WorldState, facts: tuple[Fact, ...]) -> str:
 - Time: {world.current_time}
 - Location: {world.current_location or "Unknown"}
 
+## Scene
+
+{world.scene_text or "- None"}
+
 ## Rules
 
 {rules}
@@ -274,6 +282,11 @@ def render_character(character: Character, facts: tuple[Fact, ...]) -> str:
         or "- None"
     )
     resources = "\n".join(f"- {item}" for item in character.resources) or "- None"
+    capabilities = (
+        "\n".join(f"- {item}" for item in character.capabilities) or "- None"
+    )
+    conditions = "\n".join(f"- {item}" for item in character.conditions) or "- None"
+    beliefs = "\n".join(f"- {item}" for item in character.beliefs) or "- None"
     body = f"""# {character.display_name or character.id}
 
 ## Identity
@@ -302,6 +315,18 @@ def render_character(character: Character, facts: tuple[Fact, ...]) -> str:
 - Emotion: {character.emotional_state or "Unknown"}
 - Resources:
 {resources}
+
+## Capabilities / Experience
+
+{capabilities}
+
+## Conditions
+
+{conditions}
+
+## Beliefs
+
+{beliefs}
 """
     return dump_document(document, body)
 
