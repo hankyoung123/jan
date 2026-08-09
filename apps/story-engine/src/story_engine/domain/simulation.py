@@ -353,6 +353,7 @@ class StepResult(RuntimeModel):
     resolved_turn: ResolvedTurn | None
     status: TurnSessionStatus
     boundary: SimulationBoundary = SimulationBoundary.NONE
+    follow_up_actor_ids: tuple[Identifier, ...] = Field(default=(), max_length=3)
     promotion_decisions: tuple[PromotionDecision, ...] = ()
     checkpoint_id: Identifier | None = None
 

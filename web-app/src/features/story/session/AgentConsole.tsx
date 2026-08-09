@@ -69,6 +69,25 @@ function statusLabel(status: StageViewModel['status']) {
   return status
 }
 
+function stageAgentLabel(stage: StageViewModel, messages: StoryModelMessage[]) {
+  if (stage.stage === 'resolution') return 'GM'
+  const tracedName = messages[0]?.metadata?.agentName
+  if (tracedName) return tracedName
+  const actorId = stage.actor_id ?? ''
+  if (stage.stage === 'actor_action' && actorId.toLowerCase().includes('player')) {
+    return 'Player'
+  }
+  return actorId || (stage.stage === 'actor_action' ? 'Actor' : 'GM')
+}
+
+function stageTaskLabel(stage: StageViewModel) {
+  const actorId = stage.actor_id ?? ''
+  if (stage.stage === 'actor_action' && actorId.toLowerCase().includes('player')) {
+    return 'Intent'
+  }
+  return stageLabels[stage.stage]
+}
+
 function StatusIcon({ status }: { status: StageViewModel['status'] }) {
   if (status === 'running') {
     return <LoaderCircle aria-label="running" className="animate-spin text-sky-500" size={13} />
@@ -166,13 +185,12 @@ function ModelCall({ message, stage }: { message: StoryModelMessage; stage: Stag
 }
 
 function StageEntry({ stage, messages }: { stage: StageViewModel; messages: StoryModelMessage[] }) {
-  const fallbackRole = stage.stage === 'actor_action' ? 'Actor' : 'GM'
   return (
     <article className={`overflow-hidden rounded-md border bg-background ${stage.status === 'running' ? 'border-sky-500/60 shadow-[0_0_0_1px_rgb(14_165_233_/_0.15)]' : ''}`}>
       <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
         <div className="min-w-0">
-          <div className="truncate font-medium">{messages[0]?.metadata?.agentName ?? stage.actor_id ?? fallbackRole}</div>
-          <div className="text-[10px] text-muted-foreground">{stageLabels[stage.stage]}</div>
+          <div className="truncate font-medium">{stageAgentLabel(stage, messages)}</div>
+          <div className="text-[10px] text-muted-foreground">{stageTaskLabel(stage)}</div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
           <StatusIcon status={stage.status} />

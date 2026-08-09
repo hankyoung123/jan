@@ -4072,6 +4072,16 @@
             ],
             "title": "Checkpoint Id"
           },
+          "follow_up_actor_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Follow Up Actor Ids",
+            "type": "array"
+          },
           "promotion_decisions": {
             "default": [],
             "items": {

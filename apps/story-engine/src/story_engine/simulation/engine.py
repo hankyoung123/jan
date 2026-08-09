@@ -4,6 +4,7 @@ from collections.abc import Callable
 from threading import Event, RLock
 
 from story_engine.concordia_runtime.resolver import SimulationCancelledError
+from story_engine.domain.projection import SimulationBoundary
 from story_engine.domain.simulation import (
     PendingControl,
     StepResult,
@@ -245,21 +246,32 @@ class StoryTurnEngine:
         cancellation: Event,
         human_intent: str | None = None,
         eligible_actor_ids: tuple[str, ...] | None = None,
+        deferred_boundary: SimulationBoundary = SimulationBoundary.NONE,
     ) -> StepResult:
         if cancellation.is_set() or session.status == TurnSessionStatus.CANCELLED:
             session.runtime.cancellation.set()
         try:
             if human_intent is None:
-                if eligible_actor_ids is None:
+                if (
+                    eligible_actor_ids is None
+                    and deferred_boundary == SimulationBoundary.NONE
+                ):
                     result = session.runtime.execute_step(
                         session.current_step,
                         cancellation=cancellation,
+                    )
+                elif deferred_boundary == SimulationBoundary.NONE:
+                    result = session.runtime.execute_step(
+                        session.current_step,
+                        cancellation=cancellation,
+                        eligible_actor_ids=eligible_actor_ids,
                     )
                 else:
                     result = session.runtime.execute_step(
                         session.current_step,
                         cancellation=cancellation,
                         eligible_actor_ids=eligible_actor_ids,
+                        deferred_boundary=deferred_boundary,
                     )
             else:
                 execute_human_turn = getattr(
@@ -402,6 +414,7 @@ class StoryTurnEngine:
         cancellation: Event,
         human_intent: str | None = None,
         eligible_actor_ids: tuple[str, ...] | None = None,
+        deferred_boundary: SimulationBoundary = SimulationBoundary.NONE,
     ) -> StepResult:
         session = self._get(session_id)
         with session.lock:
@@ -417,6 +430,7 @@ class StoryTurnEngine:
             cancellation=cancellation,
             human_intent=human_intent,
             eligible_actor_ids=eligible_actor_ids,
+            deferred_boundary=deferred_boundary,
         )
         with session.lock:
             requested_control = session.pending_control

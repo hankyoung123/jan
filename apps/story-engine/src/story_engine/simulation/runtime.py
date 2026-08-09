@@ -30,6 +30,7 @@ from story_engine.domain.projection import (
     EventVisibility,
     ResolvedEvent,
     ResolvedTurn,
+    SimulationBoundary,
     StateEffect,
 )
 from story_engine.domain.recipe import PerceptionFrame
@@ -544,9 +545,10 @@ class StorySimulationRuntime:
         *,
         event_id: str,
         started_at: datetime,
+        finalize: bool = True,
     ) -> None:
         self._pending_scene_events.extend(resolved.events)
-        if resolved.boundary.value == "none":
+        if not finalize or resolved.boundary == SimulationBoundary.NONE:
             return
         scene_events = tuple(self._pending_scene_events)
         self._pending_scene_events.clear()
@@ -575,6 +577,49 @@ class StorySimulationRuntime:
             started_at=started_at,
             summary_text="Next scene roster selected; ordinary NPCs remain NPCs",
             input_record_ids=(event_id,),
+        )
+
+    def _affected_npc_actor_ids(
+        self,
+        resolved: ResolvedTurn,
+    ) -> tuple[str, ...]:
+        """Return ordered current-scene candidates for one immediate follow-up."""
+        npc_actors = tuple(
+            actor for actor in self.actors if actor.name != self.player_actor_id
+        )
+        if not npc_actors:
+            return ()
+
+        participant_ids = {
+            actor_id
+            for event in resolved.events
+            for actor_id in event.participant_ids
+        }
+        participants = tuple(
+            actor.name for actor in npc_actors if actor.name in participant_ids
+        )
+        if participants:
+            return participants
+
+        observer_ids = {
+            actor_id
+            for event in resolved.events
+            for actor_id in event.observer_ids
+        }
+        observers = tuple(
+            actor.name for actor in npc_actors if actor.name in observer_ids
+        )
+        if observers:
+            return observers
+
+        event_text = "\n".join(event.event_text for event in resolved.events).casefold()
+        return tuple(
+            actor.name
+            for actor in npc_actors
+            if any(
+                alias and alias.casefold() in event_text
+                for alias in {actor.name.strip(), actor.display_name.strip()}
+            )
         )
 
     def _active_roster_candidates(self) -> dict[str, tuple[str, str]]:
@@ -784,6 +829,7 @@ class StorySimulationRuntime:
         *,
         cancellation: Event,
         eligible_actor_ids: tuple[str, ...] | None = None,
+        deferred_boundary: SimulationBoundary = SimulationBoundary.NONE,
     ) -> StepResult:
         current_stage = SimulationStage.TERMINATION
         stage_started = datetime.now(UTC)
@@ -1050,6 +1096,13 @@ class StorySimulationRuntime:
                 ),
                 cancellation=self.cancellation,
             )
+            if (
+                resolved.boundary == SimulationBoundary.NONE
+                and deferred_boundary != SimulationBoundary.NONE
+            ):
+                resolved = resolved.model_copy(
+                    update={"boundary": deferred_boundary}
+                )
             event_id = f"event:{self.session_id}:{step}"
             character_effect_ids = self._apply_character_effects(resolved)
             self._publish_stage(
@@ -1254,6 +1307,7 @@ class StorySimulationRuntime:
                 ),
                 cancellation=self.cancellation,
             )
+            follow_up_actor_ids = self._affected_npc_actor_ids(resolved)
             event_id = f"event:{self.session_id}:{step}"
             belief_effect = self._human_belief_effect(action, step=step)
             if belief_effect is not None:
@@ -1328,13 +1382,17 @@ class StorySimulationRuntime:
                 output_record_ids=tuple(routed_ids),
                 visible_to=tuple(sorted(observer_ids)),
             )
-            if resolved.boundary.value != "none":
+            if (
+                resolved.boundary != SimulationBoundary.NONE
+                and not follow_up_actor_ids
+            ):
                 current_stage = SimulationStage.ACTOR_SELECTION
                 stage_started = datetime.now(UTC)
             self._advance_scene_boundary(
                 resolved,
                 event_id=event_id,
                 started_at=stage_started,
+                finalize=not follow_up_actor_ids,
             )
             return StepResult(
                 session_id=self.session_id,
@@ -1345,7 +1403,12 @@ class StorySimulationRuntime:
                 action_text=action,
                 resolved_turn=resolved,
                 status=TurnSessionStatus.RUNNING,
-                boundary=resolved.boundary,
+                boundary=(
+                    SimulationBoundary.NONE
+                    if follow_up_actor_ids
+                    else resolved.boundary
+                ),
+                follow_up_actor_ids=follow_up_actor_ids,
             )
         except Exception as error:
             status = (

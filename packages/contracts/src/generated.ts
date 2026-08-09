@@ -2301,6 +2301,11 @@ export interface components {
             /** Checkpoint Id */
             checkpoint_id?: string | null;
             /**
+             * Follow Up Actor Ids
+             * @default []
+             */
+            follow_up_actor_ids: string[];
+            /**
              * Promotion Decisions
              * @default []
              */

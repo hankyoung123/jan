@@ -7,6 +7,7 @@ from threading import Event, RLock, Thread
 
 from pydantic import JsonValue
 
+from story_engine.domain.projection import SimulationBoundary
 from story_engine.domain.simulation import (
     StepResult,
     TurnSessionSnapshot,
@@ -110,6 +111,7 @@ class SimulationCommandService:
         command_receipt: CommandReceiptCommit | None = None,
         human_intent: str | None = None,
         eligible_actor_ids: tuple[str, ...] | None = None,
+        deferred_boundary: SimulationBoundary = SimulationBoundary.NONE,
     ) -> StepResult:
         with self._run_lock:
             if self._shutting_down:
@@ -122,10 +124,11 @@ class SimulationCommandService:
         try:
             result = self.engine.advance_one_step(
                 session_id,
-            cancellation=cancellation,
-            human_intent=human_intent,
-            eligible_actor_ids=eligible_actor_ids,
-        )
+                cancellation=cancellation,
+                human_intent=human_intent,
+                eligible_actor_ids=eligible_actor_ids,
+                deferred_boundary=deferred_boundary,
+            )
         except Exception as error:
             snapshot = self.engine.get(session_id)
             if snapshot.status == TurnSessionStatus.FAILED:
@@ -224,6 +227,7 @@ class SimulationCommandService:
                 ),
                 "checkpoint_id": npc_result.checkpoint_id
                 or player_result.checkpoint_id,
+                "follow_up_actor_ids": (),
             }
         )
 
@@ -251,6 +255,7 @@ class SimulationCommandService:
         expected_state_hash: str,
         human_intent: str | None = None,
         eligible_actor_ids: tuple[str, ...] | None = None,
+        deferred_boundary: SimulationBoundary = SimulationBoundary.NONE,
     ) -> StepResult:
         receipt = self._commands.receipt_commit(
             command_id=command_id,
@@ -269,6 +274,7 @@ class SimulationCommandService:
                 command_receipt=receipt,
                 human_intent=human_intent,
                 eligible_actor_ids=eligible_actor_ids,
+                deferred_boundary=deferred_boundary,
             ),
             record_receipt=not self.persistence.configured,
         )
@@ -337,10 +343,12 @@ class SimulationCommandService:
                 starting.project_id,
                 player_result.checkpoint_id,
             )
+        roster_actor_ids = set(snapshot.roster_actor_ids)
         npc_actor_ids = tuple(
             actor_id
-            for actor_id in snapshot.roster_actor_ids
-            if actor_id != snapshot.player_actor_id
+            for actor_id in player_result.follow_up_actor_ids
+            if actor_id in roster_actor_ids
+            and actor_id != snapshot.player_actor_id
         )
         if not npc_actor_ids or snapshot.status in {
             TurnSessionStatus.TERMINATED,
@@ -356,6 +364,11 @@ class SimulationCommandService:
                 operation="interactive_npc_step",
                 expected_state_hash=snapshot.state_hash,
                 eligible_actor_ids=npc_actor_ids,
+                deferred_boundary=(
+                    player_result.resolved_turn.boundary
+                    if player_result.resolved_turn is not None
+                    else SimulationBoundary.NONE
+                ),
             )
         except Exception:
             self._recover_interactive_step(session_id, snapshot)

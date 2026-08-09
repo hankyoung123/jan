@@ -137,6 +137,7 @@ class InteractiveRuntime:
                 content_locale="zh-CN",
             ),
             status=TurnSessionStatus.RUNNING,
+            follow_up_actor_ids=("zhang-ye",),
         )
 
     def actor_states(self):
@@ -212,6 +213,10 @@ def test_case_01_interactive_turn_treats_asserted_death_as_an_intent(
     assert repeated.json() == response.json()
     body = response.json()
     assert set(body) == {
+        "session_id",
+        "branch_id",
+        "step",
+        "status",
         "perception",
         "visible_events",
         "player_state",

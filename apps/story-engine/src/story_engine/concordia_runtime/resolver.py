@@ -339,6 +339,15 @@ class ConcordiaResolverKernel:
                     field_name="state update target",
                 )
                 target_id = target_ids[0]
+                if (
+                    update.path in {"beliefs", "current_goal"}
+                    and target_id != context.acting_actor_id
+                ):
+                    raise ResolutionEnvelopeError(
+                        "Game Master cannot set another Actor's beliefs or "
+                        "current_goal; voluntary NPC behavior must originate "
+                        "from that NPC Actor"
+                    )
             effects.append(
                 StateEffect(
                     effect_id=(
@@ -415,7 +424,10 @@ class ConcordiaResolverKernel:
                     "actor state, available resources, environmental conditions, "
                     "other actors, time, and world rules. Wiki is non-authoritative. "
                     "Keep GM-only truth outside Actor Knowledge until an event "
-                    "actually reveals it."
+                    "actually reveals it. Voluntary NPC behavior must originate "
+                    "from that NPC Actor. Do not supply dialogue, decisions, lies, "
+                    "refusals, cooperation, escape, or new plans for any NPC other "
+                    "than voluntary behavior already stated by the acting Actor."
                 ),
                 tag="resolve",
                 content_locale=context.content_locale,

@@ -66,6 +66,7 @@ describe('WorldSessionView', () => {
 
     expect(await screen.findByText('雨水浸透了门口的地毯。')).toBeInTheDocument()
     expect(screen.getByText('本地调查记者')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-console')).toBeInTheDocument()
     expect(screen.queryByText('调查桌子')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('你的意图'), {

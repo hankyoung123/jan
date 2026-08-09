@@ -196,6 +196,56 @@ describe('AgentConsole', () => {
     expect(state.steps[1].stages.actor_action?.messageIds).toEqual(['call:actor'])
   })
 
+  it('shows the affected NPC Actor Action between the two GM resolutions', () => {
+    let state = reduceSimulationEvent(
+      initialSimulationViewState,
+      event(1, 'simulation.stage.started', stagePayload(0, 'actor_action', 'running', 'player:intent', 'player'))
+    )
+    state = reduceSimulationEvent(state, event(2, 'simulation.stage.completed', {
+        ...stagePayload(0, 'actor_action', 'succeeded', 'player:intent', 'player'),
+        summary_text: '林澈，那条消息是不是你发的？',
+    }))
+    state = reduceSimulationEvent(state, event(3, 'simulation.stage.started',
+      stagePayload(0, 'resolution', 'running', 'gm:player-resolution', 'player')
+    ))
+    state = reduceSimulationEvent(state, event(4, 'simulation.stage.completed', {
+      ...stagePayload(0, 'resolution', 'succeeded', 'gm:player-resolution', 'player'),
+      summary_text: '林澈听到了问题。',
+    }))
+    const rendered = renderConsole(state)
+    state = reduceSimulationEvent(state, event(5, 'simulation.stage.started',
+      stagePayload(1, 'actor_action', 'running', 'npc:intent', 'lin-che')
+    ))
+    state = reduceSimulationEvent(state, event(6, 'model.message.completed', {
+      message_id: 'call:npc-intent',
+      role: 'assistant',
+      metadata: metadata('call:npc-intent', 1, 'actor_action', 'npc:intent', '林澈'),
+      parts: [{ type: 'text', text: '我选择保持沉默。' }],
+    }))
+    state = reduceSimulationEvent(state, event(7, 'simulation.stage.completed', {
+      ...stagePayload(1, 'actor_action', 'succeeded', 'npc:intent', 'lin-che'),
+      summary_text: '我选择保持沉默。',
+    }))
+    state = reduceSimulationEvent(state, event(8, 'simulation.stage.started',
+      stagePayload(1, 'resolution', 'running', 'gm:npc-resolution', 'lin-che')
+    ))
+    state = reduceSimulationEvent(state, event(9, 'simulation.stage.completed', {
+      ...stagePayload(1, 'resolution', 'succeeded', 'gm:npc-resolution', 'lin-che'),
+      summary_text: '林澈的沉默让大厅里的气氛变得紧张。',
+    }))
+
+    rendered.rerender(
+      <AgentConsole collapsed={false} onCollapsedChange={() => undefined} viewState={state} />
+    )
+
+    expect(screen.getByText('Player')).toBeInTheDocument()
+    expect(screen.getAllByText('林澈').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('我选择保持沉默。')).toBeInTheDocument()
+    expect(screen.getByText('Intent')).toBeInTheDocument()
+    expect(screen.getAllByText('GM')).toHaveLength(2)
+    expect(screen.getAllByText('Resolution')).toHaveLength(2)
+  })
+
   it('groups events from different turns under their own steps', () => {
     let state = startedState(1)
     state = reduceSimulationEvent(state, event(2, 'simulation.stage.started', stagePayload(2, 'resolution', 'running', 'stage:step-2', 'gm')))

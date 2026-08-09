@@ -190,13 +190,9 @@ export function WorldSessionView() {
   }
 
   const events = session.visible_events
-  const showAgentConsole =
-    import.meta.env.DEV || import.meta.env.VITE_AGENT_CONSOLE === 'true'
-  const layoutClass = !showAgentConsole
-    ? 'mx-auto max-w-5xl'
-    : agentConsoleCollapsed
-      ? 'mx-auto grid max-w-[90rem] gap-6 lg:grid-cols-[minmax(0,1fr)_48px]'
-      : 'mx-auto grid max-w-[90rem] gap-6 lg:grid-cols-[minmax(0,1fr)_360px]'
+  const layoutClass = agentConsoleCollapsed
+    ? 'mx-auto grid max-w-[90rem] gap-6 lg:grid-cols-[minmax(0,1fr)_48px]'
+    : 'mx-auto grid max-w-[90rem] gap-6 lg:grid-cols-[minmax(0,1fr)_360px]'
   return (
     <main className="h-svh overflow-y-auto bg-neutral-50 px-5 pb-10 pt-10 dark:bg-background md:px-8">
       <div className={layoutClass}>
@@ -258,15 +254,13 @@ export function WorldSessionView() {
             </div>
           </div>
         </div>
-        {showAgentConsole && (
-          <div className="sticky top-0 hidden h-[calc(100svh-5rem)] lg:block">
-            <AgentConsole
-              collapsed={agentConsoleCollapsed}
-              onCollapsedChange={setAgentConsoleCollapsed}
-              viewState={viewState}
-            />
-          </div>
-        )}
+        <div className="sticky top-0 hidden h-[calc(100svh-5rem)] lg:block">
+          <AgentConsole
+            collapsed={agentConsoleCollapsed}
+            onCollapsedChange={setAgentConsoleCollapsed}
+            viewState={viewState}
+          />
+        </div>
       </div>
     </main>
   )
