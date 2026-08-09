@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from threading import Event
 
 import pytest
@@ -17,7 +18,8 @@ from story_engine.concordia_runtime.resolver import (
     SimulationCancelledError,
 )
 from story_engine.domain.memory import MemoryRecordType, MemoryScope
-from story_engine.domain.projection import ResolutionEnvelope
+from story_engine.domain.models import Fact
+from story_engine.domain.projection import ResolutionEnvelope, ResolvedTurn
 from story_engine.domain.simulation import ActorStateContext, ResolverContext
 
 
@@ -135,6 +137,119 @@ def _resolve(
         cancellation=Event(),
     )
     return result, gm_memory
+
+
+def _fact(
+    fact_id: str,
+    statement: str,
+    *,
+    known_by: tuple[str, ...] = ("keeper",),
+) -> Fact:
+    return Fact(
+        id=fact_id,
+        statement=statement,
+        visibility="secret",
+        known_by=known_by,
+        source_event_id="seed:test",
+        introduced_at=datetime(2026, 8, 4, tzinfo=UTC),
+    )
+
+
+def _resolve_with_authoritative_context(
+    *,
+    resolution_text: str,
+    relevant_facts: tuple[Fact, ...],
+    actor_known_facts: tuple[Fact, ...] = (),
+) -> tuple[ResolvedTurn, str]:
+    actor, gm, _ = _runtime(resolution_text=resolution_text)
+    selected = gm.select_next_actor(  # type: ignore[attr-defined]
+        (actor,),
+        session_id="session-1",
+        step=0,
+    )
+    gm.create_action_spec(  # type: ignore[attr-defined]
+        actor,
+        session_id="session-1",
+        step=0,
+        content_locale="en-US",
+    )
+    result = ConcordiaResolverKernel().resolve(
+        gm,  # type: ignore[arg-type]
+        ResolverContext(
+            session_id="session-1",
+            branch_id="main",
+            step=0,
+            acting_actor_id=selected,
+            putative_event_text="I ask who holds the upstairs key.",
+            content_locale="en-US",
+            existing_characters=(_character_ref(),),
+            relevant_canonical_facts=relevant_facts,
+            actor_known_facts=actor_known_facts,
+            wiki_context="Stale Wiki says the key location is uncertain.",
+        ),
+        cancellation=Event(),
+    )
+    state = gm.get_state()  # type: ignore[attr-defined]
+    resolution_state = state["context_components"]["resolution_world_state"]
+    return result, str(resolution_state["state"])
+
+
+def test_gm_secret_truth_does_not_become_actor_knowledge() -> None:
+    secret = _fact(
+        "truth:key-owner",
+        "The upstairs key remains in the innkeeper's possession.",
+    )
+
+    _, prompt = _resolve_with_authoritative_context(
+        resolution_text=(
+            '{"event_text":"The innkeeper keeps the key out of sight.",'
+            '"boundary":"none","visibility":"gm_only"}'
+        ),
+        relevant_facts=(secret,),
+    )
+
+    assert secret.statement in prompt
+    assert "Known facts:\n- None confirmed." in prompt
+    assert "World knows is not Actor knows" in prompt
+
+
+def test_actor_confirmed_fact_enters_resolution_knowledge() -> None:
+    known = _fact(
+        "fact:door-locked",
+        "The actor confirmed that the upstairs room is locked.",
+        known_by=("actor-a",),
+    )
+
+    _, prompt = _resolve_with_authoritative_context(
+        resolution_text=(
+            '{"event_text":"The locked door remains closed.",'
+            '"boundary":"none","visibility":"participants"}'
+        ),
+        relevant_facts=(known,),
+        actor_known_facts=(known,),
+    )
+
+    knowledge_section = prompt.split("Actor Knowledge", maxsplit=1)[1]
+    assert known.statement in knowledge_section
+
+
+def test_gm_resolution_is_constrained_by_fixed_truth_seed() -> None:
+    fixed_truth = _fact(
+        "truth:key-owner",
+        "The upstairs key remains in the innkeeper's possession.",
+    )
+
+    result, prompt = _resolve_with_authoritative_context(
+        resolution_text=(
+            '{"event_text":"The innkeeper still has the upstairs key.",'
+            '"boundary":"none","visibility":"participants"}'
+        ),
+        relevant_facts=(fixed_truth,),
+    )
+
+    assert "immutable constraints" in prompt
+    assert "Canonical Truth and committed state always win" in prompt
+    assert "innkeeper still has" in result.events[0].event_text
 
 
 def test_resolution_schema_keeps_npc_identity_semantic() -> None:

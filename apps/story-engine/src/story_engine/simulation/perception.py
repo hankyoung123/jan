@@ -2,7 +2,11 @@
 
 from story_engine.domain.base import Identifier, RuntimeModel
 from story_engine.domain.projection import EventVisibility, ResolvedEvent
-from story_engine.domain.simulation import StepResult, TurnSessionSnapshot
+from story_engine.domain.simulation import (
+    StepResult,
+    TurnSessionSnapshot,
+    TurnSessionStatus,
+)
 
 
 class PlayerState(RuntimeModel):
@@ -22,6 +26,10 @@ class PlayerPerception(RuntimeModel):
 
 
 class InteractiveTurnResponse(RuntimeModel):
+    session_id: Identifier
+    branch_id: Identifier
+    step: int
+    status: TurnSessionStatus
     perception: PlayerPerception
     visible_events: tuple[str, ...] = ()
     player_state: PlayerState
@@ -125,6 +133,10 @@ class PerceptionBuilder:
             world_time=world.current_time,
         )
         return InteractiveTurnResponse(
+            session_id=snapshot.session_id,
+            branch_id=snapshot.branch_id,
+            step=snapshot.current_step,
+            status=snapshot.status,
             perception=perception,
             visible_events=visible_events,
             player_state=player_state,

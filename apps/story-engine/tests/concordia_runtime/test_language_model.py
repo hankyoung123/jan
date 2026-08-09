@@ -594,6 +594,13 @@ def test_trace_records_provider_reasoning_tokens(tmp_path: Path) -> None:
     assert len(traces) == 1
     assert traces[0].finish_reason == "stop"
     assert traces[0].reasoning_tokens == 7
+    input_messages = [
+        (message.role, message.content) for message in traces[0].input_messages
+    ]
+    assert input_messages == [
+        ("system", "Test instructions for writer."),
+        ("user", "Answer."),
+    ]
     assert [(part.type, part.text) for part in traces[0].message_parts] == [
         ("reasoning", "Consider the evidence."),
         ("text", "A concise answer."),
@@ -649,6 +656,14 @@ def test_runtime_language_model_publishes_unified_message_parts(
     assert events[3].metadata.stage == "actor_action"
     assert events[3].metadata.task_label == "正文生成"
     assert events[3].metadata.stage_event_id == "stage-event:writer"
+    assert events[3].metadata.reasoning_tokens == 7
+    input_messages = [
+        (message.role, message.content) for message in events[0].input_messages
+    ]
+    assert input_messages == [
+        ("system", "Test instructions for writer."),
+        ("user", "Write."),
+    ]
 
 
 def test_runtime_language_model_publishes_failed_message_status(

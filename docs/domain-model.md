@@ -30,6 +30,9 @@ world may define explicit numbers only when its own rules require them.
 - ActorStateContext is a deterministic Concordia-facing projection of
   Character, refreshed after state effects and checkpoint restore; it owns no
   independent state.
+- Project Fact records are the immutable canonical seed. ResolverContext selects
+  only relevant Facts and combines them with current World/Actor projections,
+  recent committed events, the current Intent, and optional Wiki background.
 - TurnSessionRequest.player_actor_id identifies the human-controlled Actor.
 - ActionSpec is the serializable Concordia request boundary.
 - ResolutionStateUpdate is the narrow, validated effect boundary.
@@ -67,3 +70,7 @@ advance a World Session branch head.
 12. IDs, enums, references, paths, and hashes are locale-independent.
 13. Important NPCs and the player obey the same Resolution rule; runtime
     scheduling may still avoid unnecessary NPC model calls.
+14. Wiki Context is optional and non-authoritative; it cannot override Canonical
+    Truth or become necessary for Resolution.
+15. World Session scene boundaries do not automatically promote ordinary NPCs,
+    create Actor memory, or edit Wiki pages.

@@ -2,7 +2,9 @@ import re
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from threading import Event
+from typing import cast
 
 from pydantic import JsonValue
 
@@ -20,8 +22,8 @@ from story_engine.concordia_runtime.roster import (
     ConcordiaRosterPlanner,
 )
 from story_engine.domain.action import ActionOutputType, ActionSpec
-from story_engine.domain.memory import MemorySnapshot
-from story_engine.domain.models import Character, WorldState
+from story_engine.domain.memory import MemoryRecordType, MemorySnapshot
+from story_engine.domain.models import Character, Fact, WorldState
 from story_engine.domain.projection import (
     EffectOperation,
     EffectTarget,
@@ -33,7 +35,6 @@ from story_engine.domain.projection import (
 from story_engine.domain.recipe import PerceptionFrame
 from story_engine.domain.simulation import (
     ActorStateContext,
-    PromotionDecision,
     ResolverContext,
     StepResult,
     TurnSessionSnapshot,
@@ -46,6 +47,7 @@ from story_engine.domain.trace import (
     SimulationStageEvent,
     StageStatus,
 )
+from story_engine.wiki.context import WikiContextBuilder
 
 
 class StorySimulationRuntime:
@@ -67,18 +69,11 @@ class StorySimulationRuntime:
         language_models: Sequence[object] = (),
         observer: SimulationObserver | None = None,
         characters: tuple[Character, ...] = (),
+        canonical_facts: tuple[Fact, ...] = (),
         world: WorldState | None = None,
+        project_root: Path | None = None,
         player_actor_id: str | None = None,
         pending_scene_events: tuple[ResolvedEvent, ...] = (),
-        promoted_actor_builder: Callable[
-            [Character, tuple[ResolvedEvent, ...]],
-            tuple[ConcordiaStoryActor, object],
-        ]
-        | None = None,
-        promotion_reviewer: Callable[
-            [Character, tuple[ResolvedEvent, ...]], PromotionDecision
-        ]
-        | None = None,
         game_master_rebuilder: Callable[
             [tuple[ConcordiaStoryActor, ...], ConcordiaGameMasterActor],
             ConcordiaGameMasterActor,
@@ -112,11 +107,11 @@ class StorySimulationRuntime:
             actor.name: actor for actor in (*actors, *available_actors)
         }
         self._characters_by_id = {character.id: character for character in characters}
+        self._canonical_facts = canonical_facts
         self._world = world
+        self._project_root = project_root
         self.player_actor_id = player_actor_id
         self._pending_scene_events = list(pending_scene_events)
-        self._promoted_actor_builder = promoted_actor_builder
-        self._promotion_reviewer = promotion_reviewer
         self._game_master_rebuilder = game_master_rebuilder
         self._roster_planner = roster_planner
         self._roster_planned = initial_snapshot is not None or initial_roster_selected
@@ -159,6 +154,20 @@ class StorySimulationRuntime:
         putative_event_text: str,
     ) -> ResolverContext:
         world = self._world
+        available_actor_facts = self._actor_known_facts(acting_actor_id)
+        recent_events = self._recent_resolved_event_texts()
+        relevant_facts, participant_ids = self._relevant_canonical_facts(
+            acting_actor_id=acting_actor_id,
+            putative_event_text=putative_event_text,
+            recent_events=recent_events,
+            actor_known_facts=available_actor_facts,
+        )
+        available_actor_fact_ids = {fact.id for fact in available_actor_facts}
+        actor_known_facts = tuple(
+            fact
+            for fact in relevant_facts
+            if fact.id in available_actor_fact_ids
+        )
         return ResolverContext(
             session_id=self.session_id,
             branch_id=self.branch_id,
@@ -173,7 +182,151 @@ class StorySimulationRuntime:
             world_time=world.current_time if world is not None else None,
             world_location=world.current_location if world is not None else None,
             world_rules=world.rules if world is not None else (),
+            world_active_pressures=(
+                world.active_pressures if world is not None else ()
+            ),
+            world_variables=(
+                cast(dict[str, JsonValue], dict(world.world_variables))
+                if world is not None
+                else {}
+            ),
+            relevant_canonical_facts=relevant_facts,
+            actor_known_facts=actor_known_facts,
+            actor_observed_events=self._actor_observed_event_texts(
+                acting_actor_id
+            ),
+            recent_resolved_events=recent_events,
+            wiki_context=self._resolution_wiki_context(
+                participant_ids=participant_ids,
+                putative_event_text=putative_event_text,
+                recent_events=recent_events,
+            ),
         )
+
+    @staticmethod
+    def _search_terms(text: str) -> set[str]:
+        normalized = text.casefold()
+        terms = set(re.findall(r"[a-z0-9][a-z0-9_-]+", normalized))
+        for chunk in re.findall(r"[\u3400-\u9fff]+", normalized):
+            if len(chunk) <= 3:
+                terms.add(chunk)
+            terms.update(chunk[index : index + 2] for index in range(len(chunk) - 1))
+        return terms
+
+    def _actor_known_facts(self, actor_id: str) -> tuple[Fact, ...]:
+        actor = self._characters_by_id[actor_id]
+        known_ids = set(actor.known_fact_ids)
+        return tuple(
+            fact
+            for fact in self._canonical_facts
+            if fact.visibility == "public" or fact.id in known_ids
+        )
+
+    def _actor_observed_event_texts(self, actor_id: str) -> tuple[str, ...]:
+        actor = self._all_actors_by_name.get(actor_id)
+        memory = getattr(actor, "memory", None)
+        if memory is None:
+            return ()
+        records = memory.retrieve_recent(
+            limit=16,
+            record_types=(MemoryRecordType.OBSERVATION,),
+        )
+        return tuple(
+            record.text
+            for record in records
+            if any(
+                source_id.startswith("event:")
+                for source_id in record.source_record_ids
+            )
+        )[-8:]
+
+    def _recent_resolved_event_texts(self) -> tuple[str, ...]:
+        memory = getattr(self.game_master, "memory", None)
+        if memory is None:
+            return tuple(event.event_text for event in self._pending_scene_events[-8:])
+        records = memory.retrieve_recent(
+            limit=8,
+            record_types=(MemoryRecordType.WORLD_EVENT,),
+        )
+        return tuple(record.text for record in records)
+
+    def _relevant_canonical_facts(
+        self,
+        *,
+        acting_actor_id: str,
+        putative_event_text: str,
+        recent_events: tuple[str, ...],
+        actor_known_facts: tuple[Fact, ...],
+    ) -> tuple[tuple[Fact, ...], tuple[str, ...]]:
+        actor = self._characters_by_id[acting_actor_id]
+        context_text = "\n".join(
+            (
+                putative_event_text,
+                actor.location or "",
+                (self._world.current_location or "")
+                if self._world is not None
+                else "",
+                *recent_events[-4:],
+            )
+        ).casefold()
+        participant_ids = {acting_actor_id}
+        for character in self._characters_by_id.values():
+            names = (character.id, character.display_name or character.id)
+            if any(name.casefold() in context_text for name in names):
+                participant_ids.add(character.id)
+            if actor.location and character.location == actor.location:
+                participant_ids.add(character.id)
+        for event in self._pending_scene_events[-4:]:
+            participant_ids.update(event.participant_ids)
+
+        context_terms = self._search_terms(context_text)
+        actor_known_ids = {fact.id for fact in actor_known_facts}
+        scored: list[tuple[int, int, Fact]] = []
+        for index, fact in enumerate(self._canonical_facts):
+            fact_terms = self._search_terms(fact.statement)
+            overlap = len(context_terms & fact_terms)
+            score = overlap * 20
+            if fact.id in actor_known_ids:
+                score += 5
+            if set(fact.known_by) & participant_ids:
+                score += 40
+            if fact.id.casefold().endswith(":final"):
+                score += 10
+            if score > 0:
+                scored.append((score, -index, fact))
+        scored.sort(reverse=True, key=lambda item: (item[0], item[1]))
+        selected = tuple(item[2] for item in scored[:8])
+        return selected, tuple(sorted(participant_ids))
+
+    def _resolution_wiki_context(
+        self,
+        *,
+        participant_ids: tuple[str, ...],
+        putative_event_text: str,
+        recent_events: tuple[str, ...],
+    ) -> str:
+        if self._project_root is None:
+            return "Wiki unavailable for this runtime."
+        world = self._world
+        try:
+            content = WikiContextBuilder(
+                self._project_root,
+                self.branch_id,
+            ).world(
+                participant_ids=participant_ids,
+                location_ids=(
+                    (world.current_location,)
+                    if world and world.current_location
+                    else ()
+                ),
+                entity_ids=participant_ids,
+                keywords=(putative_event_text, *recent_events[-4:]),
+            ).content
+            return content or (
+                "Wiki unavailable or empty; use Canonical Truth and state."
+            )
+        except (FileNotFoundError, OSError, ValueError):
+            return "Wiki unavailable or invalid; use Canonical Truth and state."
 
     @staticmethod
     def _resource_value(effect: StateEffect) -> tuple[str, ...]:
@@ -385,119 +538,44 @@ class StorySimulationRuntime:
         self._world = world
         return tuple(changed)
 
-    def _evaluate_promotions(
-        self,
-        resolved: ResolvedTurn,
-        *,
-        stage_event_id: str | None,
-    ) -> tuple[PromotionDecision, ...]:
-        self._pending_scene_events.extend(resolved.events)
-        if resolved.boundary.value == "none":
-            return ()
-        scene_events = tuple(self._pending_scene_events)
-        candidates = tuple(
-            character
-            for character in self.character_states()
-            if character.type == "npc"
-            and any(character.id in event.participant_ids for event in scene_events)
-        )
-        if candidates and (
-            self._promotion_reviewer is None or self._promoted_actor_builder is None
-        ):
-            raise ValueError("automatic NPC promotion is unavailable")
-        decisions: list[PromotionDecision] = []
-        for character in candidates:
-            evidence = tuple(
-                event for event in scene_events if character.id in event.participant_ids
-            )
-            assert self._promotion_reviewer is not None
-            decision = self._promotion_reviewer(character, evidence)
-            decisions.append(decision)
-            if not decision.promote:
-                continue
-            promoted = Character.model_validate(
-                character.model_copy(
-                    update={
-                        "type": "active",
-                        "current_goal": decision.proposed_goal,
-                        "version": character.version + 1,
-                    }
-                )
-            )
-            assert self._promoted_actor_builder is not None
-            actor, model = self._promoted_actor_builder(promoted, evidence)
-            self._characters_by_id[promoted.id] = promoted
-            self._all_actors_by_name[actor.name] = actor
-            self._language_models.append(model)
-        self._pending_scene_events.clear()
-        if self._roster_planner is not None:
-            if stage_event_id is None:
-                raise ValueError(
-                    "promotion stage event is required for roster planning"
-                )
-            self._set_trace_context(
-                step=resolved.step,
-                component_ids=("game-master:roster-selection",),
-                source_record_ids=tuple(event.event_id for event in scene_events),
-                stage=SimulationStage.PROMOTION,
-                task_label="下一场角色选择",
-                stage_event_id=stage_event_id,
-            )
-            self._plan_next_roster(scene_events)
-        return tuple(decisions)
-
-    def _complete_promotion_stage(
+    def _advance_scene_boundary(
         self,
         resolved: ResolvedTurn,
         *,
         event_id: str,
         started_at: datetime,
-    ) -> tuple[PromotionDecision, ...]:
+    ) -> None:
+        self._pending_scene_events.extend(resolved.events)
         if resolved.boundary.value == "none":
-            return self._evaluate_promotions(resolved, stage_event_id=None)
-
+            return
+        scene_events = tuple(self._pending_scene_events)
+        self._pending_scene_events.clear()
+        if self._roster_planner is None:
+            return
         stage_event = self._publish_stage(
             step=resolved.step,
-            stage=SimulationStage.PROMOTION,
+            stage=SimulationStage.ACTOR_SELECTION,
             status=StageStatus.RUNNING,
             started_at=started_at,
             input_record_ids=(event_id,),
         )
         self._set_trace_context(
             step=resolved.step,
-            component_ids=("editor:automatic-promotion",),
-            source_record_ids=tuple(
-                event.event_id for event in self._pending_scene_events
-            )
-            + tuple(event.event_id for event in resolved.events),
-            stage=SimulationStage.PROMOTION,
-            task_label="NPC 晋升判断",
+            component_ids=("game-master:roster-selection",),
+            source_record_ids=tuple(event.event_id for event in scene_events),
+            stage=SimulationStage.ACTOR_SELECTION,
+            task_label="下一场角色选择",
             stage_event_id=stage_event.event_id,
         )
-        decisions = self._evaluate_promotions(
-            resolved,
-            stage_event_id=stage_event.event_id,
-        )
+        self._plan_next_roster(scene_events)
         self._publish_stage(
             step=resolved.step,
-            stage=SimulationStage.PROMOTION,
+            stage=SimulationStage.ACTOR_SELECTION,
             status=StageStatus.SUCCEEDED,
             started_at=started_at,
-            summary_text=(
-                "; ".join(
-                    f"{decision.character_id}: "
-                    f"{'promoted' if decision.promote else 'remains npc'}"
-                    for decision in decisions
-                )
-                or "No NPC promotion candidates"
-            ),
+            summary_text="Next scene roster selected; ordinary NPCs remain NPCs",
             input_record_ids=(event_id,),
-            output_record_ids=tuple(
-                f"promotion:{self.session_id}:{resolved.step}:{decision.character_id}"
-                for decision in decisions
-            ),
         )
-        return decisions
 
     def _active_roster_candidates(self) -> dict[str, tuple[str, str]]:
         return {
@@ -1042,9 +1120,9 @@ class StorySimulationRuntime:
                 visible_to=tuple(sorted(observer_ids)),
             )
             if resolved.boundary.value != "none":
-                current_stage = SimulationStage.PROMOTION
+                current_stage = SimulationStage.ACTOR_SELECTION
                 stage_started = datetime.now(UTC)
-            promotion_decisions = self._complete_promotion_stage(
+            self._advance_scene_boundary(
                 resolved,
                 event_id=event_id,
                 started_at=stage_started,
@@ -1059,7 +1137,6 @@ class StorySimulationRuntime:
                 resolved_turn=resolved,
                 status=TurnSessionStatus.RUNNING,
                 boundary=resolved.boundary,
-                promotion_decisions=promotion_decisions,
             )
         except Exception as error:
             status = (
@@ -1077,24 +1154,35 @@ class StorySimulationRuntime:
             )
             raise
 
-    def _record_human_belief(self, text: str) -> None:
-        """Persist an asserted belief without promoting it to world truth."""
+    def _human_belief_effect(
+        self,
+        text: str,
+        *,
+        step: int,
+    ) -> StateEffect | None:
+        """Build a deterministic audited effect for an explicit player belief."""
         if self.player_actor_id is None:
-            return
+            return None
         player = self._characters_by_id.get(self.player_actor_id)
         if player is None:
-            return
+            return None
         match = re.match(r"^\s*(?:我确定|我相信|我认为)\s*(.+?)\s*[。!]?\s*$", text)
         if match is None:
-            return
+            return None
         belief = match.group(1).strip()
         if not belief or belief in player.beliefs:
-            return
-        self._characters_by_id[player.id] = player.model_copy(
-            update={
-                "beliefs": (*player.beliefs, belief),
-                "version": player.version + 1,
-            }
+            return None
+        return StateEffect(
+            effect_id=f"belief-effect:{self.session_id}:{step}:{player.id}",
+            operation=EffectOperation.SET,
+            target=EffectTarget.CHARACTER_PROJECTION,
+            target_id=player.id,
+            path="beliefs",
+            before=list(player.beliefs),
+            after=[*player.beliefs, belief],
+            reason_text=f"Player asserted belief: {belief}",
+            required=True,
+            source_record_ids=(f"putative:{self.session_id}:{step}",),
         )
 
     def execute_human_turn(
@@ -1167,8 +1255,12 @@ class StorySimulationRuntime:
                 cancellation=self.cancellation,
             )
             event_id = f"event:{self.session_id}:{step}"
+            belief_effect = self._human_belief_effect(action, step=step)
+            if belief_effect is not None:
+                resolved = resolved.model_copy(
+                    update={"effects": (*resolved.effects, belief_effect)}
+                )
             character_effect_ids = self._apply_character_effects(resolved)
-            self._record_human_belief(action)
             self._publish_stage(
                 step=step,
                 stage=current_stage,
@@ -1237,9 +1329,9 @@ class StorySimulationRuntime:
                 visible_to=tuple(sorted(observer_ids)),
             )
             if resolved.boundary.value != "none":
-                current_stage = SimulationStage.PROMOTION
+                current_stage = SimulationStage.ACTOR_SELECTION
                 stage_started = datetime.now(UTC)
-            promotion_decisions = self._complete_promotion_stage(
+            self._advance_scene_boundary(
                 resolved,
                 event_id=event_id,
                 started_at=stage_started,
@@ -1254,7 +1346,6 @@ class StorySimulationRuntime:
                 resolved_turn=resolved,
                 status=TurnSessionStatus.RUNNING,
                 boundary=resolved.boundary,
-                promotion_decisions=promotion_decisions,
             )
         except Exception as error:
             status = (

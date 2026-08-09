@@ -226,9 +226,9 @@ export function restoreSimulationTrace(
           parts,
           metadata: {
             callId: call.call_id,
-            agentType: call.profile_id,
-            agentName: call.actor_id ?? call.profile_id,
-            taskLabel: stage,
+            agentType: call.task_type,
+            agentName: call.agent_name ?? call.actor_id ?? call.profile_id,
+            taskLabel: call.task_label ?? stage,
             sessionId: trace.session_id,
             branchId: trace.branch_id,
             step: trace.step,
@@ -238,6 +238,10 @@ export function restoreSimulationTrace(
             duration: call.duration_ms / 1000,
             promptTokens: call.prompt_tokens,
             completionTokens: call.completion_tokens,
+            reasoningTokens: call.reasoning_tokens ?? undefined,
+            retryCount: call.retry_count,
+            inputMessages: call.input_messages,
+            outputSchema: call.output_schema ?? undefined,
             outputStatus:
               call.status === 'succeeded' ? 'completed' : 'failed',
             error: call.error_code ?? undefined,

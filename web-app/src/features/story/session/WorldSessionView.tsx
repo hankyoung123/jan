@@ -1,7 +1,9 @@
 import { CircleAlert, GitBranch, LoaderCircle, UserRound } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
-import { engineRequest } from '../engine'
+import { EngineRequestError, engineRequest } from '../engine'
+import { useSimulationStream } from '../evolution/useSimulationStream'
+import { AgentConsole } from './AgentConsole'
 import { IntentInput } from './IntentInput'
 import { SceneView } from './SceneView'
 import { SelfLens } from './SelfLens'
@@ -10,6 +12,10 @@ import { Timeline, type TimelineEntry } from './Timeline'
 const projectId = 'last-ferry-before'
 
 type SessionResponse = {
+  session_id: string
+  branch_id: string
+  step: number
+  status: string
   perception: {
     scene_text: string
     player_state_summary: string
@@ -35,6 +41,11 @@ type Branch = {
   content_locale: string
 }
 
+type PendingIntent = {
+  text: string
+  commandId: string
+}
+
 function branchPath(path: string, branchId: string) {
   return branchId === 'main' ? path : `${path}?branch_id=${encodeURIComponent(branchId)}`
 }
@@ -48,11 +59,29 @@ export function WorldSessionView() {
   const [branchId, setBranchId] = useState('main')
   const [branches, setBranches] = useState<Branch[]>([])
   const [timeline, setTimeline] = useState<TimelineEntry[]>([])
+  const [retryIntent, setRetryIntent] = useState<PendingIntent | null>(null)
+  const [agentConsoleCollapsed, setAgentConsoleCollapsed] = useState(false)
+
+  const refreshStreamSession = useCallback(() => {
+    void engineRequest<SessionResponse>(
+      branchPath(`/projects/${projectId}/simulation/session`, branchId)
+    ).then(setSession).catch(() => undefined)
+  }, [branchId])
+
+  const { viewState } = useSimulationStream({
+    projectId,
+    sessionId: session?.session_id,
+    sessionStatus: session?.status,
+    currentStep: session?.step,
+    branchId: session?.branch_id ?? branchId,
+    onSessionChanged: refreshStreamSession,
+  })
 
   useEffect(() => {
     let disposed = false
     setLoading(true)
     setError(null)
+    setRetryIntent(null)
     void Promise.all([
       engineRequest<SessionResponse>(branchPath(`/projects/${projectId}/simulation/session`, branchId)),
       engineRequest<Branch[]>(`/projects/${projectId}/branches`),
@@ -75,7 +104,7 @@ export function WorldSessionView() {
     }
   }, [branchId])
 
-  async function submit(text: string) {
+  async function sendIntent(intent: PendingIntent) {
     setSending(true)
     setError(null)
     try {
@@ -84,11 +113,12 @@ export function WorldSessionView() {
         {
           method: 'POST',
           body: JSON.stringify({
-            text,
-            command_id: `interactive:${crypto.randomUUID()}`,
+            text: intent.text,
+            command_id: intent.commandId,
           }),
         }
       )
+      setRetryIntent(null)
       setSession(response)
       setTimeline((entries) => entries.map((entry) => ({
         ...entry,
@@ -98,10 +128,31 @@ export function WorldSessionView() {
         .then(setTimeline)
         .catch(() => undefined)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '这次行动没有完成')
+      if (cause instanceof EngineRequestError) {
+        setRetryIntent(null)
+        setError(cause.message)
+      } else {
+        try {
+          const refreshed = await engineRequest<SessionResponse>(
+            branchPath(`/projects/${projectId}/simulation/session`, branchId)
+          )
+          setSession(refreshed)
+        } catch {
+          // Preserve the original command even when the refresh also loses network.
+        }
+        setRetryIntent(intent)
+        setError('连接中断，已刷新当前世界；可安全重试这次意图。')
+      }
     } finally {
       setSending(false)
     }
+  }
+
+  function submit(text: string) {
+    return sendIntent({
+      text,
+      commandId: `interactive:${crypto.randomUUID()}`,
+    })
   }
 
   async function fork(entry: TimelineEntry) {
@@ -139,10 +190,18 @@ export function WorldSessionView() {
   }
 
   const events = session.visible_events
+  const showAgentConsole =
+    import.meta.env.DEV || import.meta.env.VITE_AGENT_CONSOLE === 'true'
+  const layoutClass = !showAgentConsole
+    ? 'mx-auto max-w-5xl'
+    : agentConsoleCollapsed
+      ? 'mx-auto grid max-w-[90rem] gap-6 lg:grid-cols-[minmax(0,1fr)_48px]'
+      : 'mx-auto grid max-w-[90rem] gap-6 lg:grid-cols-[minmax(0,1fr)_360px]'
   return (
     <main className="h-svh overflow-y-auto bg-neutral-50 px-5 pb-10 pt-10 dark:bg-background md:px-8">
-      <div className="mx-auto max-w-5xl">
-        <header className="flex items-start justify-between border-b pb-5">
+      <div className={layoutClass}>
+        <div className="min-w-0">
+          <header className="flex items-start justify-between border-b pb-5">
           <div>
             <h1 className="font-studio text-2xl font-medium">末班船之前</h1>
             <p className="mt-1 text-sm text-muted-foreground">港口旅馆 · {session.world_time}</p>
@@ -170,20 +229,44 @@ export function WorldSessionView() {
               <UserRound size={17} />
             </button>
           </div>
-        </header>
-        {error && <p className="mt-4 text-sm text-destructive" role="status">{error}</p>}
-        <Timeline entries={timeline} onFork={fork} pending={sending} />
-        <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="min-w-0">
-            <SceneView sceneText={session.perception.scene_text} visibleEvents={events} />
-            <div className="mt-10">
-              <IntentInput disabled={sending} onSubmit={submit} />
+          </header>
+          {error && (
+          <div className="mt-4 flex items-center gap-3 text-sm text-destructive" role="status">
+            <p>{error}</p>
+            {retryIntent && (
+              <button
+                className="border border-destructive/40 px-2 py-1 text-xs hover:bg-destructive/5 disabled:opacity-50"
+                disabled={sending}
+                onClick={() => void sendIntent(retryIntent)}
+                type="button"
+              >
+                重试这次意图
+              </button>
+            )}
+          </div>
+          )}
+          <Timeline entries={timeline} onFork={fork} pending={sending} />
+          <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="min-w-0">
+              <SceneView sceneText={session.perception.scene_text} visibleEvents={events} />
+              <div className="mt-10">
+                <IntentInput disabled={sending} onSubmit={submit} />
+              </div>
+            </div>
+            <div className={showSelf ? 'block' : 'hidden lg:block'}>
+              <SelfLens player={session.player_state} />
             </div>
           </div>
-          <div className={showSelf ? 'block' : 'hidden lg:block'}>
-            <SelfLens player={session.player_state} />
-          </div>
         </div>
+        {showAgentConsole && (
+          <div className="sticky top-0 hidden h-[calc(100svh-5rem)] lg:block">
+            <AgentConsole
+              collapsed={agentConsoleCollapsed}
+              onCollapsedChange={setAgentConsoleCollapsed}
+              viewState={viewState}
+            />
+          </div>
+        )}
       </div>
     </main>
   )

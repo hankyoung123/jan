@@ -63,6 +63,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         branch_id: str | None = None,
         step: int | None = None,
         actor_id: str | None = None,
+        agent_name: str | None = None,
         component_ids: tuple[str, ...] = (),
         source_record_ids: tuple[str, ...] = (),
         project_id: str | None = None,
@@ -84,6 +85,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         self._branch_id = branch_id
         self._step = step
         self._actor_id = actor_id
+        self._agent_name = agent_name
         self._component_ids = component_ids
         self._source_record_ids = source_record_ids
         self._project_id = project_id
@@ -102,7 +104,7 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
         return ModelMessageContext(
             project_id=self._project_id,
             message_id=call_id,
-            agent_name=self._actor_id or profile.name,
+            agent_name=self._agent_name or self._actor_id or profile.name,
             task_label=self._task_label or profile.name,
             session_id=self._session_id,
             branch_id=self._branch_id,
@@ -223,6 +225,8 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
             branch_id=self._branch_id,
             step=self._step,
             actor_id=self._actor_id,
+            agent_name=self._agent_name or self._actor_id or profile.name,
+            task_label=self._task_label or profile.name,
             profile_id=request.profile_id,
             model_ref=response.model_ref if response else profile.model,
             prompt_version=self._prompt_version,
@@ -246,6 +250,8 @@ class JanConcordiaLanguageModel(language_model.LanguageModel):  # type: ignore[m
                     else ()
                 ),
             ),
+            input_messages=request.messages,
+            output_schema=request.output_schema,
             prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             prompt_tokens=(
                 response.usage.prompt_tokens

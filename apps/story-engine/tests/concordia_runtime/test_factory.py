@@ -27,6 +27,10 @@ from story_engine.domain.simulation import ActorStateContext, ResolverContext
 from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.gateway import ModelGateway, ModelPartSink
 from story_engine.models.registry import ProfileRegistry
+from story_engine.submission.service import (
+    SubmissionService,
+    last_ferry_before_submission,
+)
 
 
 def _frame(step: int) -> PerceptionFrame:
@@ -369,3 +373,46 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
     assert '"resources":["Camera","Press card"]' in resolution_prompt
     assert '"beliefs":["The witness is withholding evidence."]' in resolution_prompt
     assert "Use these exact display names" in resolution_prompt
+
+
+def test_actor_prompt_excludes_canonical_facts_the_actor_does_not_know(
+    tmp_path: Path,
+) -> None:
+    snapshot = SubmissionService(tmp_path).finalize(
+        last_ferry_before_submission()
+    )
+    player = next(
+        character for character in snapshot.characters if character.id == "player"
+    )
+    model = ReplayLanguageModel(text_responses=("I keep watching the lobby.",))
+    actor = ConcordiaActorFactory({"actor": model}).build_actor(
+        default_character_recipe(
+            model_profile_id="actor",
+            content_locale="zh-CN",
+        ),
+        actor_params={
+            "name": player.id,
+            "display_name": player.display_name or player.id,
+            "actor_state": ActorStateContext.from_character(player).prompt_text(),
+            "project_root": str(tmp_path / snapshot.project.id),
+            "branch_id": "main",
+        },
+        memory=ConcordiaMemoryBank(
+            owner_id=player.id,
+            scope=MemoryScope.CHARACTER,
+        ),
+    )
+
+    actor.act(
+        ActionSpec(
+            spec_id="action:player:1",
+            output_type=ActionOutputType.FREE,
+            call_to_action="你接下来做什么?",
+            content_locale="zh-CN",
+        )
+    )
+
+    prompt = model.prompts[-1]
+    assert "你收到一条署名林澈、约你到旅馆的消息" in prompt
+    assert "张野借用林澈遗失的旧手机发出了那条消息" not in prompt
+    assert "港口事故并非林澈造成" not in prompt

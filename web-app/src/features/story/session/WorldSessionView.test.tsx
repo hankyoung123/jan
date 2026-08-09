@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({ engineRequest: vi.fn() }))
 
-vi.mock('../engine', () => ({ engineRequest: h.engineRequest }))
+vi.mock('../engine', () => ({
+  engineRequest: h.engineRequest,
+  EngineRequestError: class EngineRequestError extends Error {
+    constructor(message: string, readonly status: number) {
+      super(message)
+    }
+  },
+}))
 
 import { WorldSessionView } from './WorldSessionView'
 
@@ -80,6 +87,55 @@ describe('WorldSessionView', () => {
         ),
       })
     })
+  })
+
+  it('refreshes after a network failure and retries with the same command_id', async () => {
+    let turnAttempts = 0
+    const order: string[] = []
+    h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith('/simulation/session')) {
+        order.push('refresh')
+        return Promise.resolve(response)
+      }
+      if (path.endsWith('/branches')) return Promise.resolve(branches)
+      if (path.endsWith('/timeline')) return Promise.resolve(timeline)
+      if (path.endsWith('/simulation/turn')) {
+        order.push('turn')
+        turnAttempts += 1
+        if (turnAttempts === 1) {
+          return Promise.reject(new TypeError('Failed to fetch'))
+        }
+        return Promise.resolve({
+          ...response,
+          checkpoint_id: 'checkpoint:2',
+          perception: {
+            ...response.perception,
+            checkpoint_id: 'checkpoint:2',
+          },
+        })
+      }
+      return Promise.reject(new Error(`unexpected request: ${path} ${init?.method ?? 'GET'}`))
+    })
+
+    render(<WorldSessionView />)
+    await screen.findByText('雨水浸透了门口的地毯。')
+    fireEvent.change(screen.getByLabelText('你的意图'), {
+      target: { value: '我检查柜台后的钥匙' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '提交意图' }))
+
+    const retry = await screen.findByRole('button', { name: '重试这次意图' })
+    expect(order.slice(-2)).toEqual(['turn', 'refresh'])
+    fireEvent.click(retry)
+
+    await waitFor(() => expect(turnAttempts).toBe(2))
+    const turnCalls = h.engineRequest.mock.calls.filter(([path]) => (
+      path === '/projects/last-ferry-before/simulation/turn'
+    ))
+    const first = JSON.parse(turnCalls[0][1].body)
+    const second = JSON.parse(turnCalls[1][1].body)
+    expect(second).toEqual(first)
+    expect(first.command_id).toMatch(/^interactive:/)
   })
 
   it('forks from an earlier committed checkpoint and opens the new branch', async () => {

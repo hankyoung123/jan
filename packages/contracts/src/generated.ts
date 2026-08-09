@@ -1291,10 +1291,17 @@ export interface components {
         };
         /** InteractiveTurnResponse */
         InteractiveTurnResponse: {
+            /** Branch Id */
+            branch_id: string;
             /** Checkpoint Id */
             checkpoint_id: string;
             perception: components["schemas"]["PlayerPerception"];
             player_state: components["schemas"]["PlayerState"];
+            /** Session Id */
+            session_id: string;
+            status: components["schemas"]["TurnSessionStatus"];
+            /** Step */
+            step: number;
             /**
              * Visible Events
              * @default []
@@ -1485,6 +1492,8 @@ export interface components {
         ModelCallTrace: {
             /** Actor Id */
             actor_id?: string | null;
+            /** Agent Name */
+            agent_name?: string | null;
             /** Branch Id */
             branch_id?: string | null;
             /** Call Id */
@@ -1509,12 +1518,19 @@ export interface components {
             error_code?: string | null;
             /** Finish Reason */
             finish_reason?: string | null;
+            /**
+             * Input Messages
+             * @default []
+             */
+            input_messages: components["schemas"]["Message"][];
             /** Max Tokens */
             max_tokens?: number | null;
             /** Message Parts */
             message_parts: components["schemas"]["ModelMessagePart"][];
             /** Model Ref */
             model_ref?: string | null;
+            /** Output Schema */
+            output_schema?: string | null;
             /** Profile Id */
             profile_id: string;
             /** Prompt Sha256 */
@@ -1552,6 +1568,8 @@ export interface components {
             step?: number | null;
             /** Task Id */
             task_id: string;
+            /** Task Label */
+            task_label?: string | null;
             task_type: components["schemas"]["TaskType"];
             /** Temperature */
             temperature?: number | null;

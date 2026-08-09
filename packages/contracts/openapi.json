@@ -1167,6 +1167,11 @@
       "InteractiveTurnResponse": {
         "additionalProperties": false,
         "properties": {
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
           "checkpoint_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Checkpoint Id",
@@ -1177,6 +1182,18 @@
           },
           "player_state": {
             "$ref": "#/components/schemas/PlayerState"
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TurnSessionStatus"
+          },
+          "step": {
+            "title": "Step",
+            "type": "integer"
           },
           "visible_events": {
             "default": [],
@@ -1192,6 +1209,10 @@
           }
         },
         "required": [
+          "session_id",
+          "branch_id",
+          "step",
+          "status",
           "perception",
           "player_state",
           "checkpoint_id",
@@ -1775,6 +1796,18 @@
             ],
             "title": "Actor Id"
           },
+          "agent_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
           "branch_id": {
             "anyOf": [
               {
@@ -1855,6 +1888,14 @@
             ],
             "title": "Finish Reason"
           },
+          "input_messages": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "title": "Input Messages",
+            "type": "array"
+          },
           "max_tokens": {
             "anyOf": [
               {
@@ -1885,6 +1926,18 @@
               }
             ],
             "title": "Model Ref"
+          },
+          "output_schema": {
+            "anyOf": [
+              {
+                "maxLength": 131072,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema"
           },
           "profile_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
@@ -1990,6 +2043,18 @@
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Task Id",
             "type": "string"
+          },
+          "task_label": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Label"
           },
           "task_type": {
             "$ref": "#/components/schemas/TaskType"

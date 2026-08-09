@@ -57,6 +57,23 @@ Input, narrative, belief, perception, or a failed model call cannot advance the
 head. A failed projection update cannot roll back a valid world commit or
 become a prerequisite for restoring it.
 
+An explicit player belief is represented by a deterministic Actor-state effect
+with the putative action ID as its source. It commits atomically with the turn,
+survives checkpoint restore, and never changes the matching World Fact.
+
+## Resolution context
+
+`ResolverContext` is a bounded request projection, not another state owner. It
+contains Current World State, Relevant Canonical Truth, Actor State, Actor
+Knowledge, Recent ResolvedEvents, Current Intent, and optional Wiki Context.
+Canonical facts are filtered for relevance; the complete World Truth is never
+serialized into every Resolution call.
+
+World Truth, Actor Knowledge, and Actor Belief remain separate fields and
+authorities. Wiki text is non-authoritative and may be missing without weakening
+canonical constraints. Only the Game Master receives hidden canonical facts;
+Actor prompts and player-facing responses do not.
+
 ## Projection files
 
 Branch Wiki pages and manuscript drafts may remain human-readable Markdown.
@@ -87,6 +104,11 @@ runtime derives separate `:player` and `:npc` child commands. Each child has an
 independent durable receipt and checkpoint, so replay does not duplicate an
 already committed player action and an NPC failure restores to the player
 checkpoint.
+
+The client generates `command_id` once per fresh intent. If the network outcome
+is unknown, it first refreshes the restricted session projection and offers a
+retry with the original ID and text. A genuine retry never generates a new ID;
+an explicit HTTP rejection is treated as definitive and discards that retry.
 
 The response is restricted to the requesting Actor's perception, visible
 events, own state, checkpoint identity, and world time. It must not serialize a

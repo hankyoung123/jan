@@ -3,7 +3,6 @@
 import hashlib
 import uuid
 from collections.abc import Callable
-from contextlib import suppress
 from threading import Event, RLock, Thread
 
 from pydantic import JsonValue
@@ -24,7 +23,6 @@ from story_engine.simulation.persistence import SimulationPersistenceService
 from story_engine.simulation.projection_coordinator import (
     SimulationProjectionCoordinator,
 )
-from story_engine.wiki.store import WikiStore
 
 
 class SimulationCommandService:
@@ -79,31 +77,6 @@ class SimulationCommandService:
     ) -> Callable[[], TurnSessionSnapshot]:
         return lambda: snapshot
 
-    def _initialize_promoted_character_wikis(
-        self,
-        result: StepResult,
-        snapshot: TurnSessionSnapshot,
-    ) -> None:
-        if not self.persistence.configured or snapshot.checkpoint_id is None:
-            return
-        characters = {character.id: character for character in snapshot.characters}
-        store = WikiStore(
-            self.persistence.kernel(snapshot.project_id).root,
-            snapshot.branch_id,
-        )
-        for decision in result.promotion_decisions:
-            if not decision.promote:
-                continue
-            character = characters.get(decision.character_id)
-            if character is None:
-                raise ValueError("promoted character is missing from the snapshot")
-            store.ensure_active_character_pages(
-                character,
-                checkpoint_id=snapshot.checkpoint_id,
-                step=result.step,
-                source_ids=decision.evidence_event_ids,
-            )
-
     def _commit_and_project_step(
         self,
         result: StepResult,
@@ -117,22 +90,6 @@ class SimulationCommandService:
             snapshot,
             command_receipt=command_receipt,
         )
-        try:
-            self._initialize_promoted_character_wikis(
-                committed_result,
-                committed_snapshot,
-            )
-        except Exception as error:
-            with suppress(Exception):
-                self.persistence.publish(
-                    committed_snapshot,
-                    "simulation.stage.failed",
-                    payload={
-                        "session_id": committed_snapshot.session_id,
-                        "stage": "promoted_character_wiki",
-                        "error": str(error),
-                    },
-                )
         self.projections.schedule(committed_result, committed_snapshot)
         try:
             self._step_sink(self._snapshot_getter(committed_snapshot))(committed_result)

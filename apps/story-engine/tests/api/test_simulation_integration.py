@@ -1425,7 +1425,7 @@ def test_checkpoint_restore_reuses_existing_npc_in_next_resolution(
         )
 
 
-def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
+def test_dynamic_npc_remains_npc_at_scene_boundary_and_after_restore(
     tmp_path: Path,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
@@ -1434,7 +1434,6 @@ def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
             _settings(tmp_path),
             model_transport=ReplayGatewayTransport(
                 entity_change="create",
-                promote_npc=True,
                 boundary="scene",
             ),
         )
@@ -1464,31 +1463,22 @@ def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
         guard = next(
             item for item in snapshot["characters"] if item["id"] == "harbor-guard"
         )
-        assert guard["type"] == "active"
-        assert guard["current_goal"] == "Find who sabotaged the lighthouse"
-        assert "harbor-guard" in snapshot["roster_actor_ids"]
-        assert "harbor-guard" in snapshot["memory_snapshots"]
-        assert created["promotion_decisions"][0]["promote"] is True
-        promoted_pages = WikiStore(tmp_path / "fog-harbor", "main")
-        assert {
-            "characters/harbor-guard/self.md",
-            "characters/harbor-guard/goals.md",
-            "characters/harbor-guard/beliefs.md",
-        }.issubset({page.path for page in promoted_pages.list_pages()})
-        assert "Find who sabotaged the lighthouse" in promoted_pages.load_page(
-            "characters/harbor-guard/goals.md"
-        ).content
-        assert promoted_pages.load_page(
-            "characters/harbor-guard/self.md"
-        ).source_ids == tuple(created["promotion_decisions"][0]["evidence_event_ids"])
+        assert guard["type"] == "npc"
+        assert guard["current_goal"] is None
+        assert "harbor-guard" not in snapshot["roster_actor_ids"]
+        assert "harbor-guard" not in snapshot["memory_snapshots"]
+        assert created["promotion_decisions"] == []
+        assert all(
+            not page.path.startswith("characters/harbor-guard/")
+            for page in WikiStore(
+                tmp_path / "fog-harbor", "main"
+            ).list_pages()
+        )
 
         reused = _advance(client, session_id)
         assert reused.status_code == 200, reused.text
         assert reused.json()["resolved_turn"]["effects"] == []
-        assert (
-            "harbor-guard"
-            in reused.json()["resolved_turn"]["events"][0]["participant_ids"]
-        )
+        assert reused.json()["promotion_decisions"] == []
 
     with TestClient(
         create_app(_settings(tmp_path), model_transport=ReplayGatewayTransport())
@@ -1500,12 +1490,12 @@ def test_npc_is_automatically_promoted_at_scene_boundary_and_restored(
         )
         assert restored_response.status_code == 200, restored_response.text
         restored = restored_response.json()
-        assert "harbor-guard" in restored["roster_actor_ids"]
+        assert "harbor-guard" not in restored["roster_actor_ids"]
         restored_guard = next(
             item for item in restored["characters"] if item["id"] == "harbor-guard"
         )
-        assert restored_guard["type"] == "active"
-        assert "harbor-guard" in restored["actor_states"]
+        assert restored_guard["type"] == "npc"
+        assert "harbor-guard" not in restored["actor_states"]
 
 
 def test_game_master_selects_initial_roster_when_actors_are_not_pinned(

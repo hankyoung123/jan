@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from story_engine.domain.models import Character, WorldState
+from story_engine.domain.models import Character, Fact, WorldState
 from story_engine.domain.projection import (
     EffectOperation,
     EffectTarget,
@@ -14,7 +14,6 @@ from story_engine.domain.projection import (
     SimulationBoundary,
     StateEffect,
 )
-from story_engine.domain.simulation import PromotionDecision
 from story_engine.domain.trace import SimulationStage, StageStatus
 from story_engine.simulation.runtime import StorySimulationRuntime
 
@@ -24,6 +23,9 @@ def _character(
     *,
     type: str = "active",
     resources: tuple[str, ...] = (),
+    known_fact_ids: tuple[str, ...] = (),
+    beliefs: tuple[str, ...] = (),
+    location: str | None = None,
 ) -> Character:
     return Character(
         id=character_id,
@@ -33,6 +35,9 @@ def _character(
         core_desire=f"Desire of {character_id}",
         current_goal=f"Goal of {character_id}" if type == "active" else None,
         resources=resources,
+        known_fact_ids=known_fact_ids,
+        beliefs=beliefs,
+        location=location,
     )
 
 
@@ -40,8 +45,8 @@ def _runtime(
     characters: tuple[Character, ...],
     *,
     world: WorldState | None = None,
-    promotion_reviewer=None,
-    promoted_actor_builder=None,
+    canonical_facts: tuple[Fact, ...] = (),
+    project_root=None,
     roster_planner=None,
     player_actor_id=None,
 ) -> StorySimulationRuntime:
@@ -72,9 +77,9 @@ def _runtime(
         actors=(actor,),
         game_master=SimpleNamespace(name="gm"),
         characters=characters,
+        canonical_facts=canonical_facts,
         world=world,
-        promotion_reviewer=promotion_reviewer,
-        promoted_actor_builder=promoted_actor_builder,
+        project_root=project_root,
         game_master_rebuilder=lambda _actors, previous: previous,
         available_actors=available_actors,
         roster_planner=roster_planner,
@@ -112,9 +117,88 @@ def _turn(event: ResolvedEvent) -> ResolvedTurn:
     )
 
 
-def test_active_agent_pool_can_exceed_four_while_scene_roster_stays_bounded() -> None:
-    reviewed: list[str] = []
+def _fact(
+    fact_id: str,
+    statement: str,
+    *,
+    visibility: str = "secret",
+    known_by: tuple[str, ...] = ("actor-1",),
+) -> Fact:
+    return Fact(
+        id=fact_id,
+        statement=statement,
+        visibility=visibility,  # type: ignore[arg-type]
+        known_by=known_by if visibility != "public" else (),
+        source_event_id="seed:test",
+        introduced_at=datetime(2026, 8, 4, tzinfo=UTC),
+    )
 
+
+def test_gm_resolution_context_selects_relevant_secret_truth() -> None:
+    key_truth = _fact(
+        "truth:key-owner",
+        "二楼钥匙始终由店主保管。",
+    )
+    unrelated_truth = _fact(
+        "truth:boat-engine",
+        "渡船备用发动机昨晚完成了检修。",
+    )
+    public_background = tuple(
+        _fact(
+            f"fact:background-{index}",
+            f"无关的公开背景记录 {index}。",
+            visibility="public",
+        )
+        for index in range(12)
+    )
+    runtime = _runtime(
+        (
+            _character("actor-0", location="旅馆大厅"),
+            _character("actor-1", location="旅馆柜台"),
+        ),
+        canonical_facts=(key_truth, unrelated_truth, *public_background),
+        world=WorldState(current_time="18:43", current_location="港口旅馆"),
+    )
+
+    context = runtime._resolver_context(
+        step=1,
+        acting_actor_id="actor-0",
+        putative_event_text="我检查是谁拿着二楼钥匙。",
+    )
+
+    assert key_truth in context.relevant_canonical_facts
+    assert unrelated_truth not in context.relevant_canonical_facts
+    assert len(context.relevant_canonical_facts) <= 8
+    assert len(context.relevant_canonical_facts) < len(runtime._canonical_facts)
+    assert set(context.actor_known_facts).issubset(
+        context.relevant_canonical_facts
+    )
+
+
+def test_missing_wiki_does_not_remove_canonical_truth_from_resolution(
+    tmp_path,
+) -> None:
+    key_truth = _fact(
+        "truth:key-owner",
+        "二楼钥匙始终由店主保管。",
+    )
+    runtime = _runtime(
+        (_character("actor-0"), _character("actor-1")),
+        canonical_facts=(key_truth,),
+        project_root=tmp_path / "missing-project",
+    )
+
+    context = runtime._resolver_context(
+        step=1,
+        acting_actor_id="actor-0",
+        putative_event_text="我寻找二楼钥匙。",
+    )
+
+    assert context.relevant_canonical_facts == (key_truth,)
+    assert "Wiki unavailable" in context.wiki_context
+
+
+def test_scene_boundary_keeps_ordinary_npc_out_of_active_agent_roster() -> None:
     class NextRosterPlanner:
         def select_next(
             self,
@@ -131,25 +215,10 @@ def test_active_agent_pool_can_exceed_four_while_scene_roster_stays_bounded() ->
                 "actor-1",
                 "actor-2",
                 "actor-3",
-                "npc-1",
             }
             assert current_roster == ("actor-0",)
             assert scene_events[0].event_id == "event:session-1:0"
-            return ("actor-0", "actor-1", "actor-2", "npc-1")
-
-    def review(
-        character: Character,
-        events: tuple[ResolvedEvent, ...],
-    ) -> PromotionDecision:
-        del events
-        reviewed.append(character.id)
-        return PromotionDecision(
-            character_id=character.id,
-            promote=True,
-            proposed_goal="Take control of the investigation",
-            evidence_event_ids=("event:session-1:0",),
-            reason="The NPC acted independently.",
-        )
+            return ("actor-0", "actor-1", "actor-2", "actor-3")
 
     characters = (
         *(_character(f"actor-{index}") for index in range(4)),
@@ -157,42 +226,34 @@ def test_active_agent_pool_can_exceed_four_while_scene_roster_stays_bounded() ->
     )
     runtime = _runtime(
         characters,
-        promotion_reviewer=review,
-        promoted_actor_builder=lambda character, _events: (
-            SimpleNamespace(name=character.id),
-            object(),
-        ),
         roster_planner=NextRosterPlanner(),
     )
 
-    decisions = runtime._complete_promotion_stage(
+    runtime._advance_scene_boundary(
         _turn(_event("npc-1")),
         event_id="event:session-1:0",
         started_at=datetime.now(UTC),
     )
 
     npc = next(item for item in runtime.character_states() if item.id == "npc-1")
-    assert len(decisions) == 1
-    assert decisions[0].promote is True
-    assert reviewed == ["npc-1"]
-    assert npc.type == "active"
-    assert sum(item.type == "active" for item in runtime.character_states()) == 5
+    assert npc.type == "npc"
+    assert sum(item.type == "active" for item in runtime.character_states()) == 4
     assert runtime.roster_actor_ids() == (
         "actor-0",
         "actor-1",
         "actor-2",
-        "npc-1",
+        "actor-3",
     )
     assert runtime.pending_scene_events() == ()
     assert [
         (event.stage, event.status) for event in runtime.drain_stage_events()
     ] == [
-        (SimulationStage.PROMOTION, StageStatus.RUNNING),
-        (SimulationStage.PROMOTION, StageStatus.SUCCEEDED),
+        (SimulationStage.ACTOR_SELECTION, StageStatus.RUNNING),
+        (SimulationStage.ACTOR_SELECTION, StageStatus.SUCCEEDED),
     ]
 
 
-def test_human_scene_boundary_completes_promotion_stage() -> None:
+def test_human_scene_boundary_selects_next_roster_without_promotion() -> None:
     class NextRosterPlanner:
         def select_next(
             self,
@@ -237,39 +298,23 @@ def test_human_scene_boundary_completes_promotion_stage() -> None:
     assert [
         (event.stage, event.status) for event in runtime.drain_stage_events()
     ][-2:] == [
-        (SimulationStage.PROMOTION, StageStatus.RUNNING),
-        (SimulationStage.PROMOTION, StageStatus.SUCCEEDED),
+        (SimulationStage.ACTOR_SELECTION, StageStatus.RUNNING),
+        (SimulationStage.ACTOR_SELECTION, StageStatus.SUCCEEDED),
     ]
 
 
-def test_rejected_editor_decision_leaves_npc_without_an_actor() -> None:
-    def reject(
-        character: Character,
-        events: tuple[ResolvedEvent, ...],
-    ) -> PromotionDecision:
-        del events
-        return PromotionDecision(
-            character_id=character.id,
-            promote=False,
-            reason="The NPC only performed a temporary duty.",
-        )
-
+def test_scene_boundary_leaves_dynamic_npc_without_an_actor() -> None:
     runtime = _runtime(
         (_character("actor-0"), _character("npc-1", type="npc")),
-        promotion_reviewer=reject,
-        promoted_actor_builder=lambda *_: pytest.fail(
-            "a rejected promotion must not build an Actor"
-        ),
     )
 
-    decisions = runtime._evaluate_promotions(
+    runtime._advance_scene_boundary(
         _turn(_event("npc-1")),
-        stage_event_id="stage-event:promotion",
+        event_id="event:session-1:0",
+        started_at=datetime.now(UTC),
     )
 
     npc = next(item for item in runtime.character_states() if item.id == "npc-1")
-    assert len(decisions) == 1
-    assert decisions[0].promote is False
     assert npc.type == "npc"
     assert npc.current_goal is None
     assert runtime.roster_actor_ids() == ("actor-0",)
@@ -400,23 +445,25 @@ def test_case_07_player_belief_changes_do_not_rewrite_world_truth() -> None:
             scene_text="张野站在柜台附近。",
         ),
     )
-    belief_update = StateEffect(
-        effect_id="effect:belief:actor-0",
-        operation=EffectOperation.SET,
-        target=EffectTarget.CHARACTER_PROJECTION,
-        target_id="actor-0",
-        path="beliefs",
-        after=["张野是幕后凶手。"],
+    runtime.player_actor_id = "actor-0"
+    belief_update = runtime._human_belief_effect(
+        "我认为张野是幕后凶手。",
+        step=3,
     )
+    assert belief_update is not None
     world_before = runtime.world_state()
 
     changed = runtime._apply_character_effects(
-        _turn(_event("actor-0", effects=(belief_update,)))
+        _turn(_event("actor-0")).model_copy(
+            update={"effects": (belief_update,)}
+        )
     )
 
     player = next(item for item in runtime.character_states() if item.id == "actor-0")
     assert changed == ("state-updated:actor-0:beliefs",)
-    assert player.beliefs == ("张野是幕后凶手。",)
+    assert player.beliefs == ("张野是幕后凶手",)
+    assert belief_update.required is True
+    assert belief_update.source_record_ids == ("putative:session-1:3",)
     assert runtime.world_state() == world_before
 
 

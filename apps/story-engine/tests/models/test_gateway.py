@@ -232,6 +232,9 @@ def test_invalid_json_retries_without_provider_specific_branching(
         "model.message.completed",
     ]
     assert events[1].reset is True
+    assert events[0].input_messages == _request(output_schema=schema).messages
+    assert events[0].output_schema == schema
+    assert events[-1].metadata.retry_count == 1
 
 
 def test_schema_validation_failure_resets_before_retry(tmp_path: Path) -> None:

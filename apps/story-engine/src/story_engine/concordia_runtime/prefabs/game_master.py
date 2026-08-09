@@ -169,8 +169,8 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                 pre_act_label="Existing characters",
             ),
             resolution_world_state_key: agent_components.constant.Constant(
-                state="No committed world state supplied.",
-                pre_act_label="Committed world state",
+                state="No authoritative resolution context supplied.",
+                pre_act_label="Authoritative resolution context",
             ),
             observation_to_memory_key: (
                 agent_components.observation.ObservationToMemory()
@@ -215,7 +215,6 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                     instruction_key,
                     locale_key,
                     pacing_key,
-                    world_wiki_key,
                     existing_characters_key,
                     resolution_world_state_key,
                     recent_events_key,

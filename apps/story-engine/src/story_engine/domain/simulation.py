@@ -10,7 +10,7 @@ from pydantic import Field, JsonValue, model_validator
 from story_engine.domain.action import ActionSpec, EntityRole
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 from story_engine.domain.memory import MemoryBank, MemorySnapshot
-from story_engine.domain.models import Character, CharacterType, WorldState
+from story_engine.domain.models import Character, CharacterType, Fact, WorldState
 from story_engine.domain.projection import (
     ResolvedEvent,
     ResolvedTurn,
@@ -162,6 +162,12 @@ class ActorStateContext(RuntimeModel):
 
 
 class ResolverContext(RuntimeModel):
+    """One authoritative, bounded input to Game Master resolution.
+
+    Canonical facts and actor knowledge are explicit so the Wiki remains a
+    semantic aid rather than an accidental source of world truth.
+    """
+
     session_id: Identifier
     branch_id: Identifier
     step: int = Field(ge=0)
@@ -172,6 +178,13 @@ class ResolverContext(RuntimeModel):
     world_time: str | None = Field(default=None, max_length=1_024)
     world_location: str | None = Field(default=None, max_length=1_024)
     world_rules: tuple[str, ...] = ()
+    world_active_pressures: tuple[str, ...] = ()
+    world_variables: dict[str, JsonValue] = Field(default_factory=dict)
+    relevant_canonical_facts: tuple[Fact, ...] = ()
+    actor_known_facts: tuple[Fact, ...] = ()
+    actor_observed_events: tuple[str, ...] = ()
+    recent_resolved_events: tuple[str, ...] = ()
+    wiki_context: str = Field(default="", max_length=32_768)
 
     @model_validator(mode="after")
     def existing_character_ids_are_valid(self) -> "ResolverContext":
@@ -180,6 +193,14 @@ class ResolverContext(RuntimeModel):
             raise ValueError("existing character IDs must be unique")
         if self.acting_actor_id not in character_ids:
             raise ValueError("acting actor must exist in the character registry")
+        canonical_ids = tuple(fact.id for fact in self.relevant_canonical_facts)
+        if len(canonical_ids) != len(set(canonical_ids)):
+            raise ValueError("relevant canonical fact IDs must be unique")
+        known_ids = tuple(fact.id for fact in self.actor_known_facts)
+        if len(known_ids) != len(set(known_ids)):
+            raise ValueError("actor known fact IDs must be unique")
+        if not set(known_ids).issubset(canonical_ids):
+            raise ValueError("actor known facts must be included in canonical truth")
         return self
 
 

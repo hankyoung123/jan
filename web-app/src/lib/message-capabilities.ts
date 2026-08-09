@@ -34,6 +34,13 @@ export interface StoryMessageMetadata {
   duration?: number
   promptTokens?: number
   completionTokens?: number
+  reasoningTokens?: number
+  retryCount?: number
+  inputMessages?: Array<{
+    role: 'system' | 'user' | 'assistant'
+    content: unknown
+  }>
+  outputSchema?: string
   outputStatus?: 'streaming' | 'completed' | 'failed'
   error?: string
   createdAt?: Date | string

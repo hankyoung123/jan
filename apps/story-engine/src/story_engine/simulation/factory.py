@@ -25,10 +25,9 @@ from story_engine.concordia_runtime.roster import (
 from story_engine.domain.action import ActionSpecEnvelope
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.models import Character
-from story_engine.domain.projection import ResolutionEnvelope, ResolvedEvent
+from story_engine.domain.projection import ResolutionEnvelope
 from story_engine.domain.simulation import (
     ActorStateContext,
-    PromotionProposal,
     TurnSessionRequest,
     TurnSessionSnapshot,
 )
@@ -36,7 +35,6 @@ from story_engine.domain.trace import ModelCallTrace
 from story_engine.models.gateway import ModelGateway
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
-from story_engine.review.promotion import AutomaticPromotionReviewer
 from story_engine.simulation.runtime import StorySimulationRuntime
 from story_engine.workspace.project_store import ProjectStore
 
@@ -116,7 +114,10 @@ class ProjectRuntimeFactory:
 
         models: dict[str, JanConcordiaLanguageModel] = {}
 
-        def create_actor_model(actor_id: str) -> JanConcordiaLanguageModel:
+        def create_actor_model(
+            actor_id: str,
+            agent_name: str | None = None,
+        ) -> JanConcordiaLanguageModel:
             key = f"actor:{actor_id}"
             model = JanConcordiaLanguageModel(
                 self._gateway,
@@ -127,6 +128,7 @@ class ProjectRuntimeFactory:
                 session_id=session_id,
                 branch_id=request.branch_id,
                 actor_id=actor_id,
+                agent_name=agent_name,
                 cancellation=cancellation,
                 trace_sink=record_trace,
                 project_id=request.project_id,
@@ -135,7 +137,7 @@ class ProjectRuntimeFactory:
             return model
 
         for character in active_characters:
-            create_actor_model(character.id)
+            create_actor_model(character.id, character.display_name or character.id)
         gm_model_key = "game-master"
         models[gm_model_key] = JanConcordiaLanguageModel(
             self._gateway,
@@ -186,25 +188,6 @@ class ProjectRuntimeFactory:
             ),
         }
         models.update(gm_component_models)
-        promotion_model = JanConcordiaLanguageModel(
-            self._gateway,
-            profile_id="editor",
-            task_type="editor",
-            content_locale=request.content_locale,
-            profile_resolver=lambda: "editor",
-            output_schema=json.dumps(
-                PromotionProposal.model_json_schema(),
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ),
-            session_id=session_id,
-            branch_id=request.branch_id,
-            cancellation=cancellation,
-            trace_sink=record_trace,
-            project_id=request.project_id,
-        )
-        models["promotion-reviewer"] = promotion_model
-        promotion_reviewer = AutomaticPromotionReviewer(promotion_model)
         roster_model = JanConcordiaLanguageModel(
             self._gateway,
             profile_id="game_master",
@@ -230,12 +213,14 @@ class ProjectRuntimeFactory:
 
         def build_character_actor(
             character: Character,
-            evidence: tuple[ResolvedEvent, ...] = (),
         ) -> tuple[ConcordiaStoryActor, JanConcordiaLanguageModel]:
             key = f"actor:{character.id}"
             model = models.get(key)
             if model is None:
-                model = create_actor_model(character.id)
+                model = create_actor_model(
+                    character.id,
+                    character.display_name or character.id,
+                )
                 factory.register_model(key, model)
             memory = ConcordiaMemoryBank(
                 owner_id=character.id,
@@ -262,25 +247,6 @@ class ProjectRuntimeFactory:
                         actor_ids=(character.id,),
                         visible_to=(character.id,),
                         tags=("project_seed",),
-                    )
-                )
-            for event in evidence:
-                memory.add(
-                    MemoryRecord(
-                        record_id=f"promotion-evidence:{event.event_id}:{character.id}",
-                        record_type=MemoryRecordType.OBSERVATION,
-                        scope=MemoryScope.CHARACTER,
-                        owner_id=character.id,
-                        session_id=session_id,
-                        branch_id=request.branch_id,
-                        step=event.step,
-                        text=event.event_text,
-                        content_locale=request.content_locale,
-                        created_at=event.occurred_at,
-                        actor_ids=event.participant_ids,
-                        visible_to=(character.id,),
-                        source_record_ids=(event.event_id,),
-                        tags=("promotion_evidence",),
                     )
                 )
             actor = factory.build_actor(
@@ -440,13 +406,13 @@ class ProjectRuntimeFactory:
             model_traces=model_traces,
             language_models=tuple(models.values()),
             characters=characters,
+            canonical_facts=snapshot.facts,
             world=restored.world if restored is not None else snapshot.world,
+            project_root=project_root,
             player_actor_id=player_actor_id,
             pending_scene_events=(
                 restored.pending_scene_events if restored is not None else ()
             ),
-            promoted_actor_builder=build_character_actor,
-            promotion_reviewer=promotion_reviewer.review,
             game_master_rebuilder=rebuild_game_master,
             available_actors=tuple(actors),
             roster_planner=roster_planner,

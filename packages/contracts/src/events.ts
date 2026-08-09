@@ -43,6 +43,13 @@ export interface StoryMessageMetadata {
   duration_ms?: number | null;
   prompt_tokens: number;
   completion_tokens: number;
+  reasoning_tokens?: number | null;
+  retry_count: number;
+}
+
+export interface ModelInputMessage {
+  role: "system" | "user" | "assistant";
+  content: unknown;
 }
 
 export interface MessagePartDelta {
@@ -77,6 +84,8 @@ export interface ModelMessageEventPayload {
   metadata: StoryMessageMetadata;
   part?: MessagePartDelta | null;
   parts?: CompletedMessagePart[];
+  input_messages?: ModelInputMessage[];
+  output_schema?: string | null;
   error?: string | null;
   reset?: boolean;
 }

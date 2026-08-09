@@ -49,22 +49,34 @@ protocols remain outside project files and domain objects.
 ## Resolution and effects
 
 Human and NPC actions enter the same putative-action path. The Game Master
-receives only authorized context and resolves against current committed facts:
-Actor knowledge, capabilities, conditions, resources, relationships, other
-Actors, environment, time, and world rules.
+receives one bounded `ResolverContext` containing Current World State, Relevant
+Canonical Truth, Actor State, Actor Knowledge, Recent ResolvedEvents, Current
+Intent, and Wiki Context. Resolution keeps three distinct views: what the World
+knows, what the acting Actor knows, and what that Actor merely believes.
+
+Relevant Canonical Truth is selected deterministically from the immutable Fact
+seed using the acting Actor, current location, intent, known facts, participants,
+and recent events. The full world truth is never dumped into a prompt. Game
+Master-only facts may constrain Resolution without entering Actor Knowledge or
+player-visible output.
 
 `Character` is the sole current-state owner for every Actor. The lightweight
 `ActorStateContext` deterministically projects that record into Concordia
 immediately before action and Resolution, and is rebuilt from the checkpoint
 after restore. It is context, not a second mutable state store. The Game Master
 receives this projection directly; Wiki and retrieval are not on the
-Resolution path.
+authoritative Resolution path. A bounded Wiki excerpt may be supplied in
+`ResolverContext` as optional, non-authoritative background. Resolution remains
+valid when Wiki is empty, missing, stale, or malformed.
 
 Structured effects are deliberately narrow. They may update only store-owned
 World or Actor state after validation. A resource effect must transfer or
 consume an established resource; it cannot materialize a weapon, key,
 capability, or decisive clue from actor text. A belief update never changes the
 corresponding World fact.
+When the player explicitly states “我认为……” (or an equivalent belief), the
+runtime records the belief as a deterministic, source-linked Actor state effect
+in the same committed turn. It does not alter the corresponding World Truth.
 
 Evidence Conservation is a Resolution invariant. Runtime generation may add
 ordinary environmental texture, but it cannot invent a decisive clue,
@@ -144,6 +156,10 @@ Lightweight background people may remain environment records until they need
 persistent agency. That optimization must not create a different Resolution
 rule, require an Editor Agent, or impose the old npc-to-active authoring
 lifecycle on the World Session.
+
+Ordinary dynamically mentioned NPCs remain NPCs across scene boundaries. The
+World Session does not run `AutomaticPromotionReviewer`, create promoted Actor
+memory, or edit Wiki pages as a side effect of ordinary play.
 
 ## MVP surface
 

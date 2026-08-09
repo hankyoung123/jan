@@ -3,7 +3,7 @@ from typing import Literal, Protocol, Self
 from pydantic import ConfigDict, Field, JsonValue, model_validator
 
 from story_engine.domain.base import Identifier, RuntimeModel
-from story_engine.models.contracts import AgentType
+from story_engine.models.contracts import AgentType, Message
 
 ModelMessageEventType = Literal[
     "model.message.started",
@@ -39,6 +39,8 @@ class StoryMessageMetadata(RuntimeModel):
     duration_ms: int | None = Field(default=None, ge=0)
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
+    reasoning_tokens: int | None = Field(default=None, ge=0)
+    retry_count: int = Field(default=0, ge=0)
 
 
 class MessagePartDelta(RuntimeModel):
@@ -99,6 +101,8 @@ class ModelMessageEvent(RuntimeModel):
     metadata: StoryMessageMetadata
     part: MessagePartDelta | None = None
     parts: tuple[ModelMessagePart, ...] = ()
+    input_messages: tuple[Message, ...] = ()
+    output_schema: str | None = Field(default=None, max_length=131_072)
     error: str | None = Field(default=None, max_length=8_000)
     reset: bool = False
 
@@ -113,6 +117,10 @@ class ModelMessageEvent(RuntimeModel):
             "model.message.failed",
         } and self.parts:
             raise ValueError("only terminal model messages can contain complete parts")
+        if self.event_type != "model.message.started" and (
+            self.input_messages or self.output_schema is not None
+        ):
+            raise ValueError("only model.message.started can contain request context")
         if self.event_type == "model.message.failed" and not self.error:
             raise ValueError("model.message.failed requires an error")
         return self

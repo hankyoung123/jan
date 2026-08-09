@@ -25,6 +25,7 @@ from story_engine.domain.message import (
 from story_engine.models import transport as _transport
 from story_engine.models.contracts import (
     AgentProfile,
+    Message,
     ModelRequest,
     ModelResponse,
     ModelStreamChunk,
@@ -225,6 +226,8 @@ class ModelGateway:
             duration_ms=duration_ms,
             prompt_tokens=response.usage.prompt_tokens if response else 0,
             completion_tokens=response.usage.completion_tokens if response else 0,
+            reasoning_tokens=response.usage.reasoning_tokens if response else None,
+            retry_count=response.retry_count if response else 0,
         )
 
     def _publish_message(
@@ -238,6 +241,8 @@ class ModelGateway:
         duration_ms: int | None = None,
         part: MessagePartDelta | None = None,
         parts: tuple[ModelMessagePart, ...] = (),
+        input_messages: tuple[Message, ...] = (),
+        output_schema: str | None = None,
         error: str | None = None,
         reset: bool = False,
     ) -> None:
@@ -258,6 +263,8 @@ class ModelGateway:
                     ),
                     part=part,
                     parts=parts,
+                    input_messages=input_messages,
+                    output_schema=output_schema,
                     error=error,
                     reset=reset,
                 )
@@ -635,6 +642,8 @@ class ModelGateway:
                 context=context,
                 profile=profile,
                 duration_ms=duration_ms(),
+                input_messages=request.messages,
+                output_schema=request.output_schema,
                 reset=True,
             )
 
@@ -643,6 +652,8 @@ class ModelGateway:
             message_id=message_id,
             context=context,
             profile=profile,
+            input_messages=request.messages,
+            output_schema=request.output_schema,
             reset=True,
         )
         try:

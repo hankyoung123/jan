@@ -169,6 +169,10 @@ class ConcordiaGameMasterActor(ConcordiaStoryActor):
         world_state["state"] = world_state_text
         self.set_state(state)
 
+    def set_resolution_context(self, context_text: str) -> None:
+        """Refresh the explicit resolver context on the stable state key."""
+        self.set_resolution_world_state(context_text)
+
     def make_observation(
         self,
         actor: StoryActor,

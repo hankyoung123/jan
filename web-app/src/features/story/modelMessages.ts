@@ -59,6 +59,13 @@ function metadataFromEvent(
       metadata.duration_ms == null ? undefined : metadata.duration_ms / 1000,
     promptTokens: metadata.prompt_tokens,
     completionTokens: metadata.completion_tokens,
+    reasoningTokens: metadata.reasoning_tokens ?? current?.reasoningTokens,
+    retryCount: metadata.retry_count ?? current?.retryCount,
+    inputMessages:
+      payload.input_messages?.length
+        ? payload.input_messages
+        : current?.inputMessages,
+    outputSchema: payload.output_schema ?? current?.outputSchema,
     outputStatus,
     error: payload.error ?? undefined,
     createdAt: current?.createdAt ?? timestamp,
