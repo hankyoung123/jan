@@ -116,6 +116,18 @@ class ConcordiaStoryActor:
         locale["content_locale"] = content_locale
         self.set_state(state)
 
+    def set_actor_state(self, actor_state_text: str) -> None:
+        """Refresh the derived Character context without owning business state."""
+        state = self.get_state()
+        components = state.get("context_components")
+        if not isinstance(components, dict):
+            raise ValueError("actor state has no context components")
+        actor_state = components.get("actor_state")
+        if not isinstance(actor_state, dict):
+            raise ValueError("actor state has no ActorStateContext component")
+        actor_state["state"] = actor_state_text
+        self.set_state(state)
+
     def get_last_log(self) -> Mapping[str, JsonValue]:
         return cast(dict[str, JsonValue], self._entity.get_last_log())
 
@@ -388,22 +400,18 @@ def default_character_recipe(
         model_profile_id=model_profile_id,
         components=(
             ComponentRecipe(
-                component_id="identity", component_type="identity", order=0
-            ),
-            ComponentRecipe(component_id="goal", component_type="goal", order=1),
-            ComponentRecipe(
-                component_id="relationships",
-                component_type="relationships",
-                order=2,
+                component_id="actor_state",
+                component_type="actor_state",
+                order=0,
             ),
             ComponentRecipe(
-                component_id="knowledge", component_type="knowledge", order=3
+                component_id="knowledge", component_type="knowledge", order=1
             ),
         ),
         content_locale=content_locale,
         system_instruction_text=(
-            "Act only from this character's identity, goals, relationships, and "
-            "private observations. Propose intent; never decide world outcomes."
+            "Act only from the current Actor State and private observations. "
+            "Propose intent; never decide world outcomes."
         ),
     )
 

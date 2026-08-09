@@ -1,5 +1,6 @@
 import asyncio
 import re
+import uuid
 from contextlib import suppress
 from pathlib import Path
 from threading import Event
@@ -60,6 +61,9 @@ class SimulationStartRequest(RuntimeModel):
 
 class InteractiveTurnRequest(RuntimeModel):
     text: str = Field(min_length=1, max_length=32_768)
+    command_id: Identifier = Field(
+        default_factory=lambda: f"interactive:{uuid.uuid4().hex}"
+    )
 
 
 class SimulationTerminateRequest(RuntimeModel):
@@ -258,9 +262,14 @@ def create_simulations_router(
                 service.interactive_turn,
                 session.session_id,
                 text=request.text,
+                command_id=request.command_id,
             )
             snapshot = service.get(session.session_id)
-            return PerceptionBuilder().build(snapshot, result)
+            return PerceptionBuilder().build(
+                snapshot,
+                result,
+                scene_events=service.current_scene_events(snapshot),
+            )
         except ModelGatewayError as error:
             raise model_http_error(error) from error
         except (
@@ -282,8 +291,10 @@ def create_simulations_router(
         branch_id: str = "main",
     ) -> InteractiveTurnResponse:
         try:
+            snapshot = interactive_session(project_id, branch_id)
             return PerceptionBuilder().initial(
-                interactive_session(project_id, branch_id)
+                snapshot,
+                scene_events=service.current_scene_events(snapshot),
             )
         except (
             BranchAlreadyActiveError,

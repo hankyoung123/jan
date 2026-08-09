@@ -147,6 +147,14 @@ def test_default_world_has_frozen_truth_seed_and_human_actor() -> None:
     assert player.conditions == ("右手轻伤",)
     assert "枪" not in player.resources
     assert all(
+        relationship.character_id != "chen-kai"
+        for relationship in player.relationships
+    )
+    assert "fact:player-knows-chen-kai" in player.known_fact_ids
+    assert facts["fact:player-knows-chen-kai"].statement == (
+        "你认识当地警员陈凯，可以尝试联系他。"  # noqa: RUF001
+    )
+    assert all(
         f"truth:{name}" in facts
         for name in (
             "message-sender",

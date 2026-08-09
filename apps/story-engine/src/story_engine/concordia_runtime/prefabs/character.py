@@ -44,17 +44,9 @@ class StoryCharacterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                 pre_act_label="Story role",
             ),
             "locale": LocalePolicy(self.recipe.content_locale),
-            "identity": agent_components.constant.Constant(
-                state=self.params.get("identity", ""),
-                pre_act_label="Identity",
-            ),
-            "goal": agent_components.constant.Constant(
-                state=self.params.get("goal", ""),
-                pre_act_label="Current goal",
-            ),
-            "relationships": agent_components.constant.Constant(
-                state=self.params.get("relationships", ""),
-                pre_act_label="Relationships",
+            "actor_state": agent_components.constant.Constant(
+                state=self.params.get("actor_state", ""),
+                pre_act_label="Current Actor State",
             ),
             "observation_to_memory": (
                 agent_components.observation.ObservationToMemory()
@@ -76,9 +68,7 @@ class StoryCharacterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         component_order = (
             "system_instruction",
             "locale",
-            "identity",
-            "goal",
-            "relationships",
+            "actor_state",
             "observations",
             "knowledge",
             "observation_to_memory",

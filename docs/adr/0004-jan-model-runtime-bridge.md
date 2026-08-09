@@ -2,7 +2,11 @@
 
 ## Status
 
-Partially superseded by ADR-0006
+Accepted for the private model bridge; amended by ADR-0009
+
+ADR-0009 limits this bridge to model infrastructure for the World Session and
+explicitly scoped projections. Task-profile names from the former
+novel-authoring workflow do not define current MVP product scope.
 
 ## Context
 
@@ -102,7 +106,8 @@ loopback channel.
 
 ## References
 
-- `docs/product-plan.md`, sections 3.2, 3.4, and 9
+- the former AI Story Evolution Engine product plan (available in Git history)
+- the current [Living Story World PRD](../product-plan.md)
 - `docs/adr/0003-jan-fork-integration.md`
 - `docs/upstream/jan-v0.8.4-migration-map.md`
 - [ADR-0006](0006-cloud-only-markdown-first-wiki-runtime.md) supersedes local

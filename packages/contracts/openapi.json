@@ -1146,6 +1146,11 @@
       "InteractiveTurnRequest": {
         "additionalProperties": false,
         "properties": {
+          "command_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Command Id",
+            "type": "string"
+          },
           "text": {
             "maxLength": 32768,
             "minLength": 1,

@@ -18,7 +18,7 @@ from story_engine.concordia_runtime.resolver import (
 )
 from story_engine.domain.memory import MemoryRecordType, MemoryScope
 from story_engine.domain.projection import ResolutionEnvelope
-from story_engine.domain.simulation import CharacterRef, ResolverContext
+from story_engine.domain.simulation import ActorStateContext, ResolverContext
 
 
 def _character_ref(
@@ -27,11 +27,13 @@ def _character_ref(
     display_name: str | None = None,
     type: str = "active",
     location: str | None = None,
-) -> CharacterRef:
-    return CharacterRef(
+) -> ActorStateContext:
+    return ActorStateContext(
         id=character_id,
         display_name=display_name or character_id,
         type=type,  # type: ignore[arg-type]
+        identity=f"Identity of {character_id}",
+        current_goal=f"Goal of {character_id}" if type == "active" else None,
         location=location,
     )
 
@@ -100,7 +102,7 @@ def _runtime(
 def _resolve(
     resolution_text: str,
     *,
-    existing_characters: tuple[CharacterRef, ...] | None = None,
+    existing_characters: tuple[ActorStateContext, ...] | None = None,
     putative_event_text: str = "I force the door.",
     world_time: str | None = None,
     world_location: str | None = None,

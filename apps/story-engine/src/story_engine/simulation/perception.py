@@ -53,6 +53,8 @@ class PerceptionBuilder:
         self,
         snapshot: TurnSessionSnapshot,
         result: StepResult,
+        *,
+        scene_events: tuple[ResolvedEvent, ...] | None = None,
     ) -> InteractiveTurnResponse:
         player_actor_id = snapshot.player_actor_id
         world = snapshot.world
@@ -70,11 +72,23 @@ class PerceptionBuilder:
             raise ValueError(
                 "interactive session player is missing from its character state"
             )
-        events = (
+        result_events = (
             result.resolved_turn.events if result.resolved_turn is not None else ()
         )
         visible_events = tuple(
-            event.event_text for event in events if _is_visible(event, player_actor_id)
+            event.event_text
+            for event in result_events
+            if _is_visible(event, player_actor_id)
+        )
+        current_scene_events = (
+            scene_events
+            if scene_events is not None
+            else snapshot.pending_scene_events or result_events
+        )
+        visible_scene_events = tuple(
+            event.event_text
+            for event in current_scene_events
+            if _is_visible(event, player_actor_id)
         )
         relationships = tuple(
             relationship.description for relationship in player.relationships
@@ -91,8 +105,20 @@ class PerceptionBuilder:
             summary_parts.append("; ".join(player.conditions))
         if player.resources:
             summary_parts.append("; ".join(player.resources))
+        current_location = player.location or world.current_location or "未知地点"
+        if visible_scene_events:
+            scene_text = "\n\n".join(
+                (f"{world.current_time} · {current_location}", *visible_scene_events)
+            )
+        elif snapshot.current_step == 0:
+            scene_text = world.scene_text
+        else:
+            scene_text = (
+                f"{world.current_time} · {current_location}\n\n"
+                "你没有观察到新的可见变化。"
+            )
         perception = PlayerPerception(
-            scene_text=world.scene_text,
+            scene_text=scene_text,
             player_state_summary="\n".join(summary_parts),
             visible_changes=visible_events,
             checkpoint_id=snapshot.checkpoint_id,
@@ -106,7 +132,12 @@ class PerceptionBuilder:
             world_time=world.current_time,
         )
 
-    def initial(self, snapshot: TurnSessionSnapshot) -> InteractiveTurnResponse:
+    def initial(
+        self,
+        snapshot: TurnSessionSnapshot,
+        *,
+        scene_events: tuple[ResolvedEvent, ...] | None = None,
+    ) -> InteractiveTurnResponse:
         return self.build(
             snapshot,
             StepResult(
@@ -119,4 +150,5 @@ class PerceptionBuilder:
                 resolved_turn=None,
                 status=snapshot.status,
             ),
+            scene_events=scene_events,
         )

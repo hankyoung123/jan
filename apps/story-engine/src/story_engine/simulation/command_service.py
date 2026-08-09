@@ -1,5 +1,6 @@
 """Single-step and continuous simulation command execution."""
 
+import hashlib
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
@@ -269,27 +270,80 @@ class SimulationCommandService:
             }
         )
 
-    def interactive_turn(self, session_id: str, *, text: str) -> StepResult:
-        """Commit a player intent, then one GM-selected NPC response when available."""
-        state = self.engine.get(session_id)
-        command_id = f"interactive:{uuid.uuid4().hex}"
+    def _interactive_expected_hash(
+        self,
+        snapshot: TurnSessionSnapshot,
+        *,
+        command_id: str,
+    ) -> str:
+        if self.persistence.configured:
+            receipt = self.persistence.kernel(snapshot.project_id).receipts.load(
+                session_id=snapshot.session_id,
+                command_id=command_id,
+            )
+            if receipt is not None:
+                return str(receipt["expected_state_hash"])
+        return snapshot.state_hash
+
+    def _interactive_step(
+        self,
+        session_id: str,
+        *,
+        command_id: str,
+        operation: str,
+        expected_state_hash: str,
+        human_intent: str | None = None,
+        eligible_actor_ids: tuple[str, ...] | None = None,
+    ) -> StepResult:
         receipt = self._commands.receipt_commit(
             command_id=command_id,
-            operation="interactive_turn",
-            expected_state_hash=state.state_hash,
+            operation=operation,
+            expected_state_hash=expected_state_hash,
         )
         return self._commands.execute(
             session_id=session_id,
             command_id=command_id,
-            operation="interactive_turn",
-            expected_state_hash=state.state_hash,
+            operation=operation,
+            expected_state_hash=expected_state_hash,
             current_state=lambda: self.engine.get(session_id),
-            command=lambda: self._interactive_turn_steps(
+            command=lambda: self._step(
                 session_id,
-                text=text,
-                receipt=receipt,
+                cancellation=Event(),
+                command_receipt=receipt,
+                human_intent=human_intent,
+                eligible_actor_ids=eligible_actor_ids,
             ),
             record_receipt=not self.persistence.configured,
+        )
+
+    def _recover_interactive_step(
+        self,
+        session_id: str,
+        snapshot: TurnSessionSnapshot,
+    ) -> None:
+        restored = self.engine.restore_to_checkpoint(
+            session_id,
+            snapshot,
+            reactivate=True,
+        )
+        if self.persistence.configured:
+            self.persistence.persist(restored)
+
+    def interactive_turn(
+        self,
+        session_id: str,
+        *,
+        text: str,
+        command_id: str | None = None,
+    ) -> StepResult:
+        """Commit player and NPC steps independently; combine only the UI result."""
+        base_command_id = command_id or f"interactive:{uuid.uuid4().hex}"
+        if len(base_command_id) > 116:
+            raise ValueError("interactive command ID is too long")
+        return self._interactive_turn_steps(
+            session_id,
+            text=text,
+            command_id=base_command_id,
         )
 
     def _interactive_turn_steps(
@@ -297,15 +351,35 @@ class SimulationCommandService:
         session_id: str,
         *,
         text: str,
-        receipt: CommandReceiptCommit,
+        command_id: str,
     ) -> StepResult:
-        player_result = self._step(
-            session_id,
-            cancellation=Event(),
-            command_receipt=receipt,
-            human_intent=text,
+        starting = self.engine.get(session_id)
+        player_command_id = f"{command_id}:player"
+        player_expected_hash = self._interactive_expected_hash(
+            starting,
+            command_id=player_command_id,
         )
-        snapshot = self.engine.get(session_id)
+        try:
+            player_result = self._interactive_step(
+                session_id,
+                command_id=player_command_id,
+                operation=(
+                    "interactive_player_step:"
+                    + hashlib.sha256(text.encode()).hexdigest()
+                ),
+                expected_state_hash=player_expected_hash,
+                human_intent=text,
+            )
+        except Exception:
+            self._recover_interactive_step(session_id, starting)
+            raise
+        if player_result.checkpoint_id is None or not self.persistence.configured:
+            snapshot = self.engine.get(session_id)
+        else:
+            snapshot = self.persistence.kernel(starting.project_id).load_checkpoint(
+                starting.project_id,
+                player_result.checkpoint_id,
+            )
         npc_actor_ids = tuple(
             actor_id
             for actor_id in snapshot.roster_actor_ids
@@ -317,11 +391,18 @@ class SimulationCommandService:
             TurnSessionStatus.FAILED,
         }:
             return player_result
-        npc_result = self._step(
-            session_id,
-            cancellation=Event(),
-            eligible_actor_ids=npc_actor_ids,
-        )
+        npc_command_id = f"{command_id}:npc"
+        try:
+            npc_result = self._interactive_step(
+                session_id,
+                command_id=npc_command_id,
+                operation="interactive_npc_step",
+                expected_state_hash=snapshot.state_hash,
+                eligible_actor_ids=npc_actor_ids,
+            )
+        except Exception:
+            self._recover_interactive_step(session_id, snapshot)
+            raise
         return self._combine_interactive_turn_results(player_result, npc_result)
 
     def run(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:

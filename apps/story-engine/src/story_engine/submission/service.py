@@ -623,6 +623,12 @@ def last_ferry_before_submission() -> SubmissionPackage:
                 known_by=("player",),
             ),
             InitialFact(
+                id="fact:player-knows-chen-kai",
+                statement="你认识当地警员陈凯，可以尝试联系他。",
+                visibility="private",
+                known_by=("player",),
+            ),
+            InitialFact(
                 id="truth:message-sender",
                 statement="张野借用林澈遗失的旧手机发出了那条消息。",
                 visibility="secret",
@@ -693,7 +699,10 @@ def last_ferry_before_submission() -> SubmissionPackage:
                 identity="本地调查记者",
                 core_desire="弄清旧友求助消息背后的真相",
                 current_goal="在末班船离港前查明发生了什么",
-                known_fact_ids=("fact:player-message",),
+                known_fact_ids=(
+                    "fact:player-message",
+                    "fact:player-knows-chen-kai",
+                ),
                 location="旅馆一楼大厅",
                 emotional_state="警觉",
                 resources=("手机", "相机", "记者证", "钱包", "车钥匙"),
@@ -703,10 +712,6 @@ def last_ferry_before_submission() -> SubmissionPackage:
                     Relationship(
                         character_id="lin-che",
                         description="林澈是你的旧友。",
-                    ),
-                    Relationship(
-                        character_id="chen-kai",
-                        description="陈凯是你认识的当地警员。",
                     ),
                 ),
             ),

@@ -1,6 +1,6 @@
 # ADR-0002: Markdown is canonical state
 
-- Status: Superseded by ADR-0006
+- Status: Superseded by ADR-0006 and ADR-0009
 - Date: 2026-07-31
 
 ## Decision
@@ -33,8 +33,9 @@ events. The original atomic-write, recovery, and human-readable export goals
 remain accepted; the claim that every simulation step must first become an
 approved Markdown event is superseded by ADR-0005.
 
-## Superseding decision
+## Superseding decisions
 
-See [ADR-0006](0006-cloud-only-markdown-first-wiki-runtime.md) for the current
-Markdown authority, complete Step transaction, and removal of the legacy event
-mutation boundary.
+ADR-0006 later replaced this record's persistence decision. ADR-0009 now
+supersedes both records at the product-authority level: validated
+ResolvedEvents, Checkpoints, Actor State, and Memory are semantic authority,
+while Wiki and Manuscript are projections.

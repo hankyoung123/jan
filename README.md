@@ -1,14 +1,19 @@
-# AI Story Evolution Engine Next
+# Living Story World
 
-AI Story Evolution Engine Next is a local-first desktop system for running
-long-form story simulations with character-limited knowledge, persistent
-Concordia actors, Game Master resolution, branches, checkpoints, and optional
-manuscript editing.
+> 一个真的会回应你的故事世界。
 
-The product vision is in [docs/product-plan.md](docs/product-plan.md). The
-current runtime contract is defined by [the architecture](docs/architecture.md)
-and [ADR-0005](docs/adr/0005-concordia-native-runtime.md), which supersede the
-product plan's original candidate-and-approval turn pipeline.
+Living Story World（产品代号：AI Story Evolution Engine）是一个本地桌面形态的
+Persistent AI World Simulator。用户以一个 Actor 的身份进入持续世界，用自然语言
+表达 Intent；Concordia Game Master 根据当前 Reality 裁定 Outcome，只有验证后的
+ResolvedEvent 能进入历史并改变 World、Actor 和 Memory。
+
+MVP 的核心是 World Session、自由 Intent、受限 Perception、持续时间与状态、NPC
+自主响应、Checkpoint、Timeline 和 Branch。小说正文、Writer、Editor、投稿和传统
+多 Agent 创作流程不是当前产品主流程；保留的相关代码只能作为遗留或未来投影能力。
+
+[Living Story World PRD v1.0](docs/product-plan.md) 是产品最高层定义。
+[Architecture](docs/architecture.md) 和 [ADR-0009](docs/adr/0009-living-story-world-product-boundary.md)
+描述当前工程边界；较早文档与其冲突时，以 PRD 为准。
 
 ## Upstream foundation
 
@@ -16,7 +21,7 @@ This branch descends directly from Jan `v0.8.4` at
 `5f30aee467f08941964a83f946e2663e7ae0e01f`. Jan supplies the Tauri shell,
 React infrastructure, settings, Provider management, model acquisition, and
 local llama.cpp/MLX runtimes. Product branding and the general chat domain are
-being replaced while the reusable local-model infrastructure remains intact.
+being replaced while the reusable model infrastructure remains intact.
 
 Concordia is locked to `v2.4.0` at
 `702998f57da71f87bf4e607abc1325ee51cca21f` and will be consumed as an

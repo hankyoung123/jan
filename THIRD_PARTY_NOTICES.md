@@ -53,7 +53,8 @@ Full license text and per-directory migration records belong in `licenses/`.
   assets are included
 - Integration boundary: Story-owned code under `web-app/src/editor` adapts
   Novel to the Jan desktop shell and shadcn/ui controls; model generation and
-  canonical Markdown writes remain in the Python Story Engine
+  manuscript-projection writes remain in the Python Story Engine and do not
+  commit World Truth
 - License text: the standard Apache License 2.0 text is included at
   `licenses/Concordia-2.4.0-APACHE-2.0.txt`
 

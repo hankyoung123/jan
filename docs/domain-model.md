@@ -1,66 +1,69 @@
-# Runtime domain model
+# Living Story World Domain Model
 
-The runtime contracts are strict, immutable Pydantic models under
-`story_engine/domain`. Machine identifiers use stable lowercase IDs and are not
-translated.
+The product vocabulary is exactly **World, Actor, Perception, Intent,
+Resolution, and Memory**. Existing Python class names are implementation
+details and map into this protocol; they do not define a second product model.
 
-- `ActionSpec` is the serializable boundary for Concordia action requests.
-- `MemoryRecord` and `MemorySnapshot` preserve ownership, visibility, source
-  records, step, locale, and integrity hashes.
-- `ResolvedEvent` and `ResolvedTurn` are lightweight projections of Game
-  Master decisions; natural-language resolution remains authoritative.
-- `TurnSessionRequest` combines project, branch, actors, locale, premise, and
-  `ControlPolicy`.
-- `TurnSessionSnapshot` is the complete recoverable session state.
-- `TurnSessionSnapshot.characters` is the branch-local projection for every
-  registered person. `roster_actor_ids` contains the one to four Active Agents
-  selected for the current scene, not the complete Active Agent Pool.
-- `StepResult` records the actor action and resolved world result for one step.
-- `BranchManifest` points to an immutable head checkpoint and records fork
-  ancestry.
-- `ModelCallTrace` and `TurnTrace` provide request-to-world-event provenance.
+## Product concepts
 
-For World Simulation MVP, the product vocabulary is `World`, `Actor`,
-`Perception`, `Intent`, `Resolution`, and `Memory`:
+- **World**: objective time, locations, rules, environment, hidden truth,
+  important resources, pressures, and committed history.
+- **Actor**: shared abstraction for the player and important NPCs, including
+  identity, knowledge, capabilities/experience, conditions, resources,
+  relationships, location, goal, beliefs, and private Memory.
+- **Perception**: read-only, Actor-scoped projection of what can currently be
+  perceived or known.
+- **Intent**: natural-language attempt submitted by an Actor.
+- **Resolution**: Game Master adjudication of Intent against current Reality.
+- **Memory**: what an Actor experienced and remembers, separate from its
+  current state.
 
-- `WorldState` is current location/time/rules/pressures and public scene text;
-  its causal changes are represented by committed events and owned state
-  effects.
-- `Character` is the shared Actor abstraction for human and NPC. It includes
-  identity, knowledge references, capabilities, conditions, resources,
-  relationships, location, and beliefs. There are no generic strength, skill,
-  HP, or action-permission fields.
-- `TurnSessionRequest.player_actor_id` identifies a human Actor. The durable
-  snapshot records the same `player_actor_id` and current `WorldState`.
-- `ResolutionStateUpdate` is the minimal structured GM boundary. Local code
-  binds display names to IDs and rejects unsupported paths or unowned resources
-  before a checkpoint can advance.
-- `PlayerPerception` is derived from the checkpoint and event visibility. It is
-  not a copy of World Truth.
+The model does not require generic HP, strength, skill-level, success-chance,
+action-permission, combat, inventory-engine, or quest fields. A particular
+world may define explicit numbers only when its own rules require them.
 
-The legacy project seed models (`Project`, `WorldState`, `Character`, `Fact`)
-remain inputs for constructing initial actor and Game Master memories. They are
-not rewritten after every simulation step. Writer scenes and optional editorial
-amendments remain separate derived authoring workflows.
+## Current implementation mapping
 
-Core invariants:
+- WorldState and checkpointed component state implement current World state.
+- Character is the current Actor projection. Player and NPC actions use the
+  same putative action and Resolution semantics.
+- ActorStateContext is a deterministic Concordia-facing projection of
+  Character, refreshed after state effects and checkpoint restore; it owns no
+  independent state.
+- TurnSessionRequest.player_actor_id identifies the human-controlled Actor.
+- ActionSpec is the serializable Concordia request boundary.
+- ResolutionStateUpdate is the narrow, validated effect boundary.
+- ResolvedEvent is the only event type that may enter committed history.
+- MemoryRecord and MemorySnapshot preserve ownership, visibility, sources,
+  step, locale, and integrity metadata.
+- TurnSessionSnapshot is the complete recoverable runtime state.
+- PlayerPerception is a restricted projection, not a World snapshot.
+- BranchManifest and immutable checkpoints define history lineage.
+- ModelCallTrace and TurnTrace provide provenance, never world truth.
 
-1. A character cannot retrieve another character's private memory bank.
-2. Actor actions are putative until resolved by the Game Master.
-3. Checkpoint IDs derive from canonical state hashes.
-4. A branch head advances only after its checkpoint and raw log are durable.
-5. The Wiki is rebuildable from durable history and never required for
-   restoration.
-6. `content_locale` affects prose, never IDs, enums, tags, or hashes.
-7. A Game Master may create an `npc`, but only the Editor may promote it to an
-   `active` Actor, at a completed scene boundary and with event evidence.
-8. Structured participant IDs resolve to registered Characters; private
-   observation owners resolve to active Actors.
-9. The Active Agent Pool has no fixed size limit; a Scene Roster contains at
-   most four Active Agents, and one Acting Agent acts per simulation step.
-10. User and NPC text are putative intents. Only a valid GM `ResolvedEvent`
-    can commit a world consequence.
-11. World Truth, Actor Knowledge, and Actor Belief are separate. A belief is
-    never promoted to a world fact by assertion alone.
-12. Player perception contains only physical/public/participant-visible event
-    information and the player's own state.
+Legacy Project, Fact, StoryEvent, SceneDraft, Wiki, and manuscript models may
+remain as seed inputs, authoring data, or projections. They cannot directly
+advance a World Session branch head.
+
+## Invariants
+
+1. User and NPC text are Intent, never committed outcomes.
+2. Only a validated ResolvedEvent can change World or Actor state.
+3. World Truth, Actor Knowledge, and Actor Belief are separate.
+4. An Actor cannot retrieve another Actor's private Memory.
+5. Perception contains only authorized visible events and the requesting
+   Actor's own relevant state.
+6. Resolution cannot create an unestablished key resource, capability, or
+   decisive piece of evidence from an assertion.
+7. Actor capability, condition, resources, environment, other Actors, and time
+   constrain outcomes.
+8. World time is persistent and monotonic within a branch.
+9. A branch head advances only after its checkpoint and committed event record
+   are durable and validated.
+10. A Branch created from a Checkpoint has independent future history and
+    cannot move the source branch head.
+11. Wiki, Narrative, UI Scene, Summary, and Manuscript are rebuildable
+    projections and are not required for restoration.
+12. IDs, enums, references, paths, and hashes are locale-independent.
+13. Important NPCs and the player obey the same Resolution rule; runtime
+    scheduling may still avoid unnecessary NPC model calls.

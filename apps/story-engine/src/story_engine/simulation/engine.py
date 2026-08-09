@@ -339,22 +339,48 @@ class StoryTurnEngine:
         self,
         session_id: str,
         checkpoint: TurnSessionSnapshot,
+        *,
+        reactivate: bool = False,
     ) -> TurnSessionSnapshot:
         """Replace an in-memory run with its last durable checkpoint state."""
         session = self._get(session_id)
         if checkpoint.session_id != session_id:
             raise ValueError("checkpoint belongs to another session")
         with session.lock:
-            restore_snapshot = getattr(session.runtime, "restore_snapshot", None)
-            if restore_snapshot is not None:
-                restore_snapshot(checkpoint)
-            else:
-                session.runtime.restore_states(
-                    actor_states=checkpoint.actor_states,
-                    game_master_states=checkpoint.game_master_states,
-                    memory_snapshots=checkpoint.memory_snapshots,
+            reclaim = reactivate and session.status in {
+                TurnSessionStatus.TERMINATED,
+                TurnSessionStatus.CANCELLED,
+                TurnSessionStatus.FAILED,
+            }
+            if reclaim:
+                self._executions.claim(
+                    session.request.project_id,
+                    session.request.branch_id,
+                    session.session_id,
                 )
-                session.runtime.set_content_locale(checkpoint.content_locale)
+            try:
+                restore_snapshot = getattr(session.runtime, "restore_snapshot", None)
+                if restore_snapshot is not None:
+                    restore_snapshot(checkpoint)
+                else:
+                    session.runtime.restore_states(
+                        actor_states=checkpoint.actor_states,
+                        game_master_states=checkpoint.game_master_states,
+                        memory_snapshots=checkpoint.memory_snapshots,
+                    )
+                    session.runtime.set_content_locale(checkpoint.content_locale)
+                if reactivate:
+                    session.runtime.cancellation.clear()
+            except Exception:
+                if reclaim:
+                    self._executions.release(
+                        session.request.project_id,
+                        session.request.branch_id,
+                        session.session_id,
+                    )
+                raise
+            if reactivate:
+                session.status = checkpoint.status
             session.current_step = checkpoint.current_step
             session.completed_scenes = checkpoint.completed_scenes
             session.raw_log_offset = checkpoint.raw_log_offset
@@ -363,6 +389,9 @@ class StoryTurnEngine:
             session.checkpoint_id = checkpoint.checkpoint_id
             session.pending_control = PendingControl.NONE
             session.continuous_started_at = None
+            if reactivate:
+                session.termination_reason_text = checkpoint.termination_reason_text
+                session.restoration_notice_text = checkpoint.restoration_notice_text
             session.touch()
             return session.snapshot()
 

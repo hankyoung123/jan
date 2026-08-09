@@ -1,10 +1,16 @@
 # ADR-0006: Cloud-only, Markdown-first LLM Wiki runtime
 
-- Status: Accepted
+- Status: Superseded for product scope and semantic authority by ADR-0009
 - Date: 2026-08-03
 - Supersedes: ADR-0002 EventCommitService clauses, ADR-0004 local-model
   clauses, and ADR-0005 JSON authority and RAG clauses
 - Relates to: ADR-0001, ADR-0003
+
+> Historical implementation decision. ADR-0009 makes validated ResolvedEvents,
+> Checkpoints, Actor State, and Memory the semantic authority and makes Wiki
+> and Manuscript projections. The cloud-provider and atomic-write evidence in
+> this record may remain useful, but Markdown-first Wiki maintenance cannot be
+> a World Session truth or recovery dependency.
 
 ## Context
 

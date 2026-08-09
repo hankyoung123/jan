@@ -4,6 +4,11 @@
 - Date: 2026-07-31
 - Supersedes: ADR-0001 workspace strategy only
 
+> ADR-0009 amends the product boundary in this record. Jan remains the desktop
+> and model foundation, while Writer, Editor, Markdown authoring, review, and
+> retrieval code are legacy or future projection capabilities rather than
+> World Session core dependencies.
+
 ## Context
 
 The product plan requires Jan to be the desktop foundation, including its

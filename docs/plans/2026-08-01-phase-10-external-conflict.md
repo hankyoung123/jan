@@ -1,7 +1,11 @@
 # Phase 10 External Markdown Conflict Audit
 
+> **Historical authoring audit.** External Markdown behavior is not a current
+> World Session authority boundary. The Living Story World PRD and ADR-0009
+> take precedence.
+
 This audit covers the Phase 10 requirement for external Markdown modification
-conflicts in `docs/product-plan.md`.
+conflicts in the then-current product plan, now available through Git history.
 
 ## Result
 

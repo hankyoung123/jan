@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from pydantic import JsonValue
 
+from story_engine.domain.projection import ResolvedEvent, SimulationBoundary
 from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     CommitResult,
@@ -58,6 +59,27 @@ class SimulationPersistenceService:
         if self._commit_kernel_factory is None:
             raise RuntimeError("simulation persistence is not configured")
         return self._commit_kernel_factory(project_id)
+
+    def current_scene_events(
+        self,
+        snapshot: TurnSessionSnapshot,
+    ) -> tuple[ResolvedEvent, ...]:
+        """Return committed events from the latest reachable scene boundary."""
+        if not self.configured or snapshot.checkpoint_id is None:
+            return snapshot.pending_scene_events
+        kernel = self.kernel(snapshot.project_id)
+        records = kernel.logs.reachable(kernel.checkpoints, snapshot.checkpoint_id)
+        start = 0
+        for index, record in enumerate(records):
+            if record.result.boundary != SimulationBoundary.NONE:
+                start = index
+        events: dict[str, ResolvedEvent] = {}
+        for record in records[start:]:
+            if record.result.resolved_turn is None:
+                continue
+            for event in record.result.resolved_turn.events:
+                events[event.event_id] = event
+        return tuple(events.values())
 
     def persist(
         self,

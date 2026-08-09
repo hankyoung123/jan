@@ -1,21 +1,22 @@
-# Story Engine
+# Story Engine Sidecar
 
-FastAPI sidecar that owns AI Story Evolution Engine Next domain logic and
-canonical Markdown state.
+FastAPI sidecar for the Living Story World product (code name:
+AI Story Evolution Engine). It owns the Concordia-backed simulation,
+Resolution boundary, durable checkpoints and branches, Actor memories, and
+restricted player Perception.
+
+Validated ResolvedEvents, checkpoints, Actor state, and Memory are the runtime
+authority. Markdown seeds and Wiki/manuscript output are inputs or rebuildable
+projections; they do not directly commit world consequences.
 
 ## Long-project benchmark
 
-The opt-in benchmark is separate from the unit suite. Its defaults exercise
-10,000 Events, 500 Scenes, 50 active characters, the live workspace watcher,
-incremental RAG, a delayed mock model transport, one turn/commit, and an
-external Markdown refresh:
+The opt-in legacy authoring benchmark is separate from the unit suite. It
+exercises retained workspace, event, manuscript, RAG, and model-gateway code;
+passing it does not establish World Session MVP completion.
 
-```bash
-uv run python benchmarks/long_project.py
-```
+    uv run python benchmarks/long_project.py
 
 Use smaller arguments for a local smoke run:
 
-```bash
-uv run python benchmarks/long_project.py --events 100 --scenes 10 --characters 5 --model-delay-ms 5
-```
+    uv run python benchmarks/long_project.py --events 100 --scenes 10 --characters 5 --model-delay-ms 5

@@ -1,25 +1,25 @@
-# Story Engine Engineering Documentation
+# Living Story World Engineering Documentation
 
-This directory contains the authoritative product and engineering documents for
-AI Story Evolution Engine Next.
+This directory contains the current product and engineering documentation for
+Living Story World (code name: AI Story Evolution Engine).
 
-## Start here
+## Authority order
 
-- [`product-plan.md`](product-plan.md) — product scope, implementation phases,
-  quality gates, and V1 acceptance criteria.
-- [`architecture.md`](architecture.md) — React, Tauri, and Python ownership
-  boundaries.
-- [`domain-model.md`](domain-model.md) — canonical aggregates and invariants.
-- [`data-contracts.md`](data-contracts.md) — HTTP, WebSocket, and generated
-  contract rules.
-- [`ui-flow.md`](ui-flow.md) — user-facing information architecture.
-- [`ai-coding-guide.md`](ai-coding-guide.md) — required change workflow.
+1. [product-plan.md](product-plan.md) — the highest-level product definition,
+   principles, MVP scope, interaction model, and architecture boundaries.
+2. Accepted, non-superseded records under [adr/](adr/) — implementation
+   decisions within the PRD boundary.
+3. [architecture.md](architecture.md), [domain-model.md](domain-model.md),
+   [data-contracts.md](data-contracts.md), and [ui-flow.md](ui-flow.md) —
+   current engineering interpretation and repository contracts.
+4. Dated files under [plans/](plans/) — implementation plans and audit
+   evidence, not independent product authority.
 
-Architecture decisions live under [`adr/`](adr/). Implementation plans live
-under [`plans/`](plans/). The locked Jan baseline and migration boundary are
-recorded under [`upstream/`](upstream/).
+If a lower-level document conflicts with the PRD, the PRD wins. Legacy Writer,
+Editor, submission, manuscript, RAG, and story-authoring documents describe
+retained code or historical work unless the PRD explicitly brings them into
+scope.
 
-The inherited Jan marketing website, end-user documentation, changelog, and
-promotional assets are intentionally excluded. Refer to the locked upstream
-repository when historical Jan documentation is needed; do not copy it back
-into the product documentation tree.
+See [ai-coding-guide.md](ai-coding-guide.md) before changing implementation.
+The locked Jan baseline and migration boundary are recorded under
+[upstream/](upstream/).

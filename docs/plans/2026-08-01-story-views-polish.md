@@ -1,5 +1,9 @@
 # Story Views Polish Implementation Plan
 
+> **Historical UI plan.** Old story-authoring views are not the current
+> primary user loop. The Living Story World PRD, ADR-0009, and World Session UI
+> flow take precedence.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Consolidate the duplicated Story view toggle into one reusable component and add an explicit empty-edge state to the character relationship graph.

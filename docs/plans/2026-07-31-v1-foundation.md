@@ -1,5 +1,9 @@
 # V1 Foundation Implementation Plan
 
+> **Historical product plan.** Platform work may remain reusable, but the old
+> navigation and AI novel-authoring scope are superseded by the Living Story
+> World PRD and ADR-0009.
+
 > **For Codex:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this
 > plan task-by-task without subagent delegation.
 
@@ -158,4 +162,3 @@ pytest, Ruff, mypy, Vitest, Testing Library.
 4. Verify no secret-like values appear below a generated project directory.
 5. Record incomplete V1 phases and their acceptance gaps without claiming them
    complete.
-

@@ -1,5 +1,9 @@
 # Agent Model Settings Implementation Plan
 
+> **Historical configuration plan.** Model-profile infrastructure may remain
+> reusable, but old task-agent categories do not define current MVP scope.
+> The Living Story World PRD and ADR-0009 take precedence.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Provide a working model settings surface for Story Engine task agents and per-character agents, including safe migration of existing model configuration and deterministic runtime resolution.

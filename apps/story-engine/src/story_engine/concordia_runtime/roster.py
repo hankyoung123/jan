@@ -37,9 +37,16 @@ class ConcordiaRosterPlanner:
         instruction: str,
         candidates: Mapping[str, tuple[str, str]],
         context: str,
+        min_count: int,
+        max_count: int,
     ) -> tuple[str, ...]:
-        if not candidates:
+        if min_count < 0 or max_count < min_count:
+            raise ValueError("roster selection bounds are invalid")
+        maximum = min(max_count, len(candidates))
+        if min_count > maximum:
             raise ValueError("roster selection requires at least one active Agent")
+        if not candidates:
+            return ()
         ids_by_name: dict[str, str] = {}
         for actor_id, (display_name, _) in candidates.items():
             normalized_name = display_name.strip().casefold()
@@ -58,8 +65,8 @@ class ConcordiaRosterPlanner:
             "properties": {
                 "actor_names": {
                     "type": "array",
-                    "minItems": 1,
-                    "maxItems": min(MAX_SCENE_ROSTER_SIZE, len(candidates)),
+                    "minItems": min_count,
+                    "maxItems": maximum,
                     "uniqueItems": True,
                     "items": {
                         "enum": [
@@ -71,8 +78,8 @@ class ConcordiaRosterPlanner:
             "additionalProperties": False,
         }
         payload = self._model.sample_json(
-            f"{instruction} Select between one and {MAX_SCENE_ROSTER_SIZE} active "
-            "Agents. Base the decision on location, goals, continuity, and the "
+            f"{instruction} Select between {min_count} and {maximum} eligible "
+            "Actors. Base the decision on location, goals, continuity, and the "
             "scene premise. Return the required JSON only; do not provide "
             "reasoning.\n"
             f"Locale: {self._content_locale}\nPremise: {self._premise_text}\n"
@@ -86,9 +93,9 @@ class ConcordiaRosterPlanner:
         if not all(isinstance(actor_name, str) for actor_name in selected):
             raise ValueError("Game Master roster contains a non-string actor name")
         selected_names = tuple(selected)
-        if not selected_names:
+        if len(selected_names) < min_count:
             raise ValueError("Game Master must select at least one active Agent")
-        if len(selected_names) > MAX_SCENE_ROSTER_SIZE:
+        if len(selected_names) > maximum:
             raise ValueError("Game Master selected too many active Agents")
         if len(selected_names) != len(set(selected_names)):
             raise ValueError("Game Master roster actor names must be unique")
@@ -108,11 +115,16 @@ class ConcordiaRosterPlanner:
     def select_initial(
         self,
         candidates: Mapping[str, tuple[str, str]],
+        *,
+        min_count: int = 1,
+        max_count: int = MAX_SCENE_ROSTER_SIZE,
     ) -> tuple[str, ...]:
         return self._select(
             instruction="Select the opening scene roster.",
             candidates=candidates,
             context="No prior scene has completed.",
+            min_count=min_count,
+            max_count=max_count,
         )
 
     def select_next(
@@ -121,6 +133,8 @@ class ConcordiaRosterPlanner:
         *,
         current_roster: tuple[str, ...],
         scene_events: tuple[ResolvedEvent, ...],
+        min_count: int = 1,
+        max_count: int = MAX_SCENE_ROSTER_SIZE,
     ) -> tuple[str, ...]:
         names_by_id = {
             actor_id: display_name for actor_id, (display_name, _) in candidates.items()
@@ -140,4 +154,6 @@ class ConcordiaRosterPlanner:
                 f"{json.dumps(current_names, ensure_ascii=False)}\n"
                 f"Completed scene events: {event_context}"
             ),
+            min_count=min_count,
+            max_count=max_count,
         )

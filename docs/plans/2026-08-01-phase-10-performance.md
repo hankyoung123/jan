@@ -1,5 +1,8 @@
 # Phase 10 Large-Project Performance Audit
 
+> **Historical performance audit.** Measurements may remain useful, but this
+> audit does not define or prove current World Session MVP completion.
+
 This audit covers the Phase 10 large-project performance requirement and the
 V1 requirement for at least 30 consecutive rounds.
 

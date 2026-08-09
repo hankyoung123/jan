@@ -1,3 +1,4 @@
+import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
@@ -114,11 +115,50 @@ class ActorFactory(Protocol):
     ) -> GameMasterActor: ...
 
 
-class CharacterRef(RuntimeModel):
+class ActorStateContext(RuntimeModel):
+    """Deterministic, read-only projection of the authoritative Character."""
+
     id: Identifier
     display_name: str = Field(min_length=1, max_length=256)
     type: CharacterType
+    identity: str = Field(min_length=1, max_length=16_384)
+    current_goal: str | None = Field(default=None, max_length=16_384)
     location: str | None = Field(default=None, max_length=1024)
+    capabilities: tuple[str, ...] = ()
+    conditions: tuple[str, ...] = ()
+    resources: tuple[str, ...] = ()
+    beliefs: tuple[str, ...] = ()
+    relationships: tuple[str, ...] = ()
+
+    @classmethod
+    def from_character(cls, character: Character) -> "ActorStateContext":
+        return cls(
+            id=character.id,
+            display_name=character.display_name or character.id,
+            type=character.type,
+            identity=character.identity,
+            current_goal=character.current_goal,
+            location=character.location,
+            capabilities=character.capabilities,
+            conditions=character.conditions,
+            resources=character.resources,
+            beliefs=character.beliefs,
+            relationships=tuple(
+                relationship.description
+                for relationship in character.relationships
+            ),
+        )
+
+    def prompt_text(self) -> str:
+        return json.dumps(
+            self.model_dump(
+                mode="json",
+                exclude={"id", "display_name", "type"},
+            ),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
 
 
 class ResolverContext(RuntimeModel):
@@ -128,7 +168,7 @@ class ResolverContext(RuntimeModel):
     acting_actor_id: Identifier
     putative_event_text: str = Field(min_length=1, max_length=65_536)
     content_locale: LocaleCode
-    existing_characters: tuple[CharacterRef, ...] = Field(min_length=1)
+    existing_characters: tuple[ActorStateContext, ...] = Field(min_length=1)
     world_time: str | None = Field(default=None, max_length=1_024)
     world_location: str | None = Field(default=None, max_length=1_024)
     world_rules: tuple[str, ...] = ()

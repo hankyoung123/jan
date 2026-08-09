@@ -1,10 +1,11 @@
 # World Simulation Completion Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Current derived MVP plan.** Execute only within the Living Story World PRD
+> and ADR-0009 boundaries. The PRD remains authoritative if this plan differs.
 
 **Goal:** Complete the World Session MVP's shared actor turn loop, durable branch replay, and required acceptance coverage without adding a second simulation system.
 
-**Architecture:** `StorySimulationRuntime` remains the sole Concordia execution kernel. A player action is committed through its existing human intent path, then one GM-selected non-player action is committed through the existing automatic-step path; the API response derives visible events from both durable results. Branch selection rehydrates a checkpoint into a branch-bound session and the session UI projects existing branch/checkpoint records.
+**Architecture:** `StorySimulationRuntime` remains the sole Concordia execution kernel. A player action is committed through its existing human intent path. When the updated World state gives an NPC a real reason to decide or respond, a GM-selected non-player action uses the same existing automatic-step path; otherwise no artificial NPC action is added. The API response derives visible events from the durable results. Branch selection rehydrates a checkpoint into a branch-bound session and the session UI projects existing branch/checkpoint records.
 
 **Tech Stack:** Python 3.12, FastAPI, Pydantic, Concordia, Vitest, React, TanStack Router.
 
@@ -34,7 +35,7 @@ Tell the GM to use the current committed time, keep clock-formatted times monoto
 
 Run: `uv run --project apps/story-engine --extra dev pytest -q apps/story-engine/tests/concordia_runtime/test_resolver.py apps/story-engine/tests/simulation/test_runtime_lifecycle.py`
 
-### Task 2: Commit an NPC Response After Each Interactive Intent
+### Task 2: Commit Relevant NPC Responses Through the Shared Resolution Path
 
 **Files:**
 - Modify: `apps/story-engine/src/story_engine/simulation/runtime.py`
@@ -46,11 +47,19 @@ Run: `uv run --project apps/story-engine --extra dev pytest -q apps/story-engine
 
 **Step 1: Write failing coverage**
 
-Use a controllable runtime to prove a player input is followed by an eligible NPC action, that both results have separate durable commits, and that the player response includes only the visible events from those commits.
+Use a controllable runtime to prove a player input is followed by an eligible
+NPC action when the current World requires that Actor to decide, that both
+results have separate durable commits, and that the player response includes
+only visible events. Also prove that no NPC action is fabricated when no Actor
+needs to respond.
 
 **Step 2: Reuse the automatic-step execution path**
 
-Add an internal eligible-actor filter to the existing `execute_step` path. The command service executes one human step followed by one NPC-only automatic step when an active NPC is present; it does not add a new engine or direct world mutation API.
+Add an internal eligible-actor filter to the existing `execute_step` path. The
+command service executes one human step and may follow it with one NPC-only
+automatic step when the GM/runtime scheduling decision identifies a relevant
+Actor. Mere NPC presence is insufficient. This does not add a new engine or
+direct world mutation API.
 
 **Step 3: Aggregate only the response projection**
 
@@ -139,7 +148,9 @@ required behavioral validation.
 
 **Step 1: Configure an actual loopback OpenAI-compatible model bridge**
 
-Use a real configured model profile, never a mocked transport, for a 30+ turn interactive session.
+Use a real configured model profile, never a mocked transport, for three
+interactive UI turns. The deterministic API suite retains the 31-turn
+restart/reopen regression without spending Provider time on a long manual run.
 
 **Step 2: Verify restart and branches**
 

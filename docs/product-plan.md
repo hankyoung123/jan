@@ -1,1391 +1,1298 @@
-# AI Story Evolution Engine Next
-## 全新产品开发计划书（AI Coding 指导版）
+# Living Story World
 
-**版本：** v1.1
-**日期：** 2026-08-01
-**用途：** 作为产品、架构、开发顺序、代码约束与验收标准的统一依据，供 AI Coding 按阶段实施。  
-**适用范围：** 全新版本，不兼容旧项目数据库和旧工作流；旧仓库仅作为交互、组件和经验参考。
+## 产品需求文档 PRD v1.0
 
-文档发生冲突时，实施优先级为：最新 Accepted ADR >
-`architecture.md` / `domain-model.md` / `data-contracts.md` > 本计划 >
-历史实施计划。ADR-0003 已用 Jan-in-place 结构取代早期独立桌面 Workspace。
+**产品代号：** AI Story Evolution Engine
+**当前产品方向：** Persistent AI World Simulator
+**阶段：** MVP
+**核心技术基础：** Jan + Concordia
+**产品状态：** 未发布，可进行破坏性重构，不考虑旧版本兼容
 
 ---
 
-# 1. 项目结论
+# 1. 产品定义
 
-本项目从原来的“多 Agent 小说编辑器”重构为：
+## 1.1 一句话定义
 
-> **一个以角色有限认知、独立目标和世界结算为核心的长篇故事演化桌面系统。**
+> **一个真的会回应你的故事世界。**
 
-系统不预先生成并强制执行完整剧情大纲。投稿过程负责建立一个可以运行的初始世界；角色依据自己的知识、欲望和当前局面提出行动，世界结算器决定实际后果，用户决定哪些结果正式成为故事。
+用户不是在让 AI “讲故事”，也不是在和角色“聊天”。
 
-核心循环：
+用户进入一个持续存在的世界，以其中一个 Actor 的身份自由行动。
 
-```text
-投稿形成初始世界
-→ 角色分别提出行动
-→ 世界结算行动后果
-→ 编辑检查合理性
-→ 用户确认
-→ 提交 Story Event
-→ 更新角色与世界
-→ Writer 生成正文
-→ 进入下一轮
-```
+这个世界拥有：
 
-第一版的首要目标不是功能数量，而是证明以下闭环长期稳定：
+* 独立角色
+* 持续状态
+* 隐藏事实
+* 时间推进
+* 因果约束
+* 角色记忆
+* 自主行动
+* 可回溯历史
 
-```text
-角色知识隔离
-+ 独立行动
-+ 世界统一结算
-+ 用户最终确认
-+ 状态可追溯
-```
+用户可以自由表达：
 
----
+> 我过去看看。
 
-# 2. 第一性原则
+> 我问林澈为什么骗我。
 
-## 2.1 故事的本体是状态变化
+> 我抢张野手里的包。
 
-```text
-旧世界状态 + 角色行动 + 世界回应 = 新世界状态
-```
+> 我想办法打开二楼的门。
 
-“故事梗概”是对已确认事件的回顾，不是角色必须执行的未来剧本。
+但：
 
-## 2.2 角色 Agent 不是常驻进程
+> **用户拥有自己的意图，不拥有世界的结果。**
 
-角色 Agent 本质上是：
-
-```text
-角色卡 + 当前可感知信息 + 一次模型调用
-```
-
-调用结束后，连续性由正式状态文件维持。
-
-## 2.3 角色只能决定意图，不能决定结果
-
-- Character Agent：提出“我准备做什么”。
-- World Resolver：决定“实际上发生什么”。
-- Editor Agent：检查行为、知识和世界规则是否合理。
-- User：决定结果是否正式提交。
-- Writer Agent：把已确认事件写成正文。
-
-## 2.4 Agent 不得直接写正式状态
-
-所有模型输出都是候选内容：
-
-```text
-候选结果
-→ Schema 校验
-→ Editor 检查
-→ 用户确认
-→ EventCommitService
-→ 正式写入
-```
-
-## 2.5 Markdown 是唯一事实来源
-
-正式项目数据只存在于 Markdown 文件中。索引、缓存、Embedding、向量库和运行状态都必须可删除、可重建。
-
-## 2.6 RAG 只负责召回，不负责授权
-
-```text
-权限过滤
-→ 在允许访问的数据中检索
-→ 注入上下文
-```
-
-不得对全项目直接检索后，依赖模型自行忽略秘密。
-
-## 2.7 默认使用最少角色和最少 Agent
-
-- 初始活跃角色：2～4 个。
-- 普通人物默认不是 Agent。
-- 普通人物只有形成独立目标并可能主动影响后续故事时，才由 Editor
-  在场景边界自动升级。
-- V1 不使用多 Agent 投票和复杂角色等级。
+真正发生什么，由当前世界事实、人物状态、资源、环境和其他角色共同决定。
 
 ---
 
-# 3. 技术基座
+# 2. 产品愿景
 
-## 3.1 总体选择
+传统 AI Story / AI Roleplay 产品本质通常仍然是：
 
 ```text
-Jan Fork
-= 桌面外壳、React UI、设置、主题、本地模型基础设施
-
-Python Story Engine
-= 小说领域逻辑、Markdown、模型网关、RAG、审核与提交
-
-Original Concordia
-= Character / Game Master 式演化能力
-
-Novel / Tiptap
-= 正文和设定文档编辑器
+用户输入
+↓
+LLM 生成下一段文本
+↓
+继续聊天
 ```
 
-## 3.2 为什么以 Jan 为桌面基座
+即使拥有角色卡、Memory 或多个 Agent，世界往往仍然会：
 
-保留并改造：
+* 顺从用户描述
+* 临时创造事实
+* 忘记之前状态
+* 泄露角色秘密
+* 等待玩家触发
+* 为了剧情方便改变规则
 
-- Tauri 桌面外壳；
-- React 设计系统；
-- 左侧栏、标题栏、面板和设置结构；
-- 深色与浅色主题；
-- 快捷键；
-- 模型中心界面；
-- Provider 管理界面；
-- 本地模型下载、加载和运行能力；
-- 文件附件和流式交互；
-- 应用更新和桌面打包流程。
+Living Story World 的目标是建立：
 
-不保留 Jan 原有的通用聊天产品领域作为核心业务。
+```text
+持续 World
++
+自主 Actor
++
+统一 Resolution
++
+可靠 Memory
++
+用户自由 Intent
+```
 
-## 3.3 为什么使用原版 Python Concordia
+让用户产生：
 
-- 不翻译为 Rust；
-- 不在第一阶段维护 Concordia fork；
-- 固定依赖版本；
-- 在 `concordia_adapter` 外围实现小说领域约束；
-- Concordia 只生成候选 Intent 和 Outcome，不写项目文件。
+> **“我不是在提示 AI 写下一段，而是真的进入了某个世界。”**
 
-## 3.4 许可证策略
-
-实施前必须锁定 Jan 与 Concordia 的具体 Commit，并完成目录级许可证清单。
-
-默认原则：
-
-- Apache-2.0 / MIT 模块可在保留声明的前提下复用；
-- Jan 中单独声明 AGPL 的 RAG 扩展不直接复制到闭源发行物；
-- RAG 接口和 UI 可以借鉴，检索后端默认由 Python Story Engine 重新实现；
-- 仓库必须包含 `THIRD_PARTY_NOTICES.md`、`licenses/` 和修改说明；
-- Jan、Novel 等项目的名称、Logo、插画和商标性资产必须替换。
-
-当前保留的 `core`、assistant、download、llamacpp、mlx 包清单声明为
-AGPL-3.0。在获得上游许可澄清、单独商业许可、替换这些模块，或选择
-AGPL 合规分发之前，闭源安装包发布处于阻塞状态；包含许可证文本本身
-不解除该阻塞。
+的体验。
 
 ---
 
-# 4. 系统总体架构
+# 3. 核心产品假设
 
-```text
-┌────────────────────────────────────────────┐
-│ Jan-based Desktop UI                       │
-│ React + Tauri                              │
-│                                            │
-│ 投稿 / 工作台 / 演化 / 角色 / 世界 / 事件  │
-│ 正文 / 模型中心 / RAG 设置 / 应用设置       │
-└─────────────────────┬──────────────────────┘
-                      │ Local HTTP + WebSocket
-                      │ Session Token
-┌─────────────────────▼──────────────────────┐
-│ Python Story Engine                        │
-│ FastAPI + Pydantic                         │
-│                                            │
-│ SubmissionService                          │
-│ EvolutionService                           │
-│ CharacterContextAssembler                  │
-│ WorldResolverAdapter                       │
-│ EditorReviewService                        │
-│ EventCommitService                         │
-│ WriterService                              │
-│ ModelGateway                               │
-│ RetrievalGateway                           │
-│ MarkdownWorkspace                          │
-└───────────────┬─────────────────┬──────────┘
-                │                 │
-       ┌────────▼───────┐   ┌────▼────────────┐
-       │ Original       │   │ Markdown Project │
-       │ Concordia      │   │ + Derived Index  │
-       └────────────────┘   └─────────────────┘
-```
+MVP 只验证一个假设：
 
-## 4.1 进程边界
+> 如果 AI 世界不会无条件迎合用户，而是按照持续世界状态、角色能力和因果关系回应用户，这种体验是否比传统 AI Chat / Tavern / Interactive Fiction 更有沉浸感和持续吸引力。
 
-### Tauri 负责
+MVP 不验证：
 
-- 窗口和系统菜单；
-- Python Sidecar 启动、停止和崩溃恢复；
-- 本地模型下载与本地推理进程管理；
-- 文件选择器、系统通知和应用更新；
-- 安装包与操作系统集成。
-
-### Python 负责
-
-- 所有小说领域逻辑；
-- 正式 Markdown 数据；
-- 项目索引；
-- 模型调用；
-- Concordia 适配；
-- RAG；
-- 审核；
-- Event 提交；
-- 正文生成。
-
-### React 负责
-
-- UI 展示和交互；
-- 状态订阅；
-- 用户确认；
-- 编辑器；
-- 模型与任务配置界面。
-
-React 不直接修改项目文件，也不直接决定正式状态。
-
-## 4.2 通信协议
-
-开发阶段：
-
-```text
-Tauri 启动：uv run story-engine serve
-Python 绑定：127.0.0.1 随机端口
-鉴权：每次启动生成随机 session token
-请求：HTTP
-流式事件：WebSocket
-```
-
-发布阶段：
-
-- Python 使用 PyInstaller `--onedir` 或等价方式构建 Sidecar；
-- Tauri 将 Sidecar 作为资源打包；
-- 不采用 `--onefile`，避免大型依赖解压和启动延迟；
-- Tauri 启动后先执行 `/health` 检查，再开放项目界面。
+* AI 能不能写出最好看的小说
+* 世界能不能无限大
+* 能不能模拟复杂战斗
+* 能不能生成图片
+* 能不能 24 小时持续运行
 
 ---
 
-# 5. 产品工作流
+# 4. 目标用户
 
-## 5.1 项目创建：投稿
+第一阶段面向：
 
-用户不需要填写故事梗概和章节大纲。
+### 核心用户
 
-投稿聊天室围绕以下内容讨论：
+喜欢以下体验的人：
 
-```text
-创作方向
-世界规则
-初始角色
-初始局面
-```
+* AI Roleplay
+* Interactive Fiction
+* TRPG / 跑团
+* 沉浸式故事
+* 悬疑推理
+* 角色驱动叙事
+* 世界模拟
 
-最终生成“初始设定包”：
+但他们对传统 AI Roleplay 的以下问题不满意：
 
-```yaml
-creative_direction:
-  genre: 悬疑
-  theme: 真相与亲情之间的选择
-  tone: 克制、现实、缓慢积压
+* AI 太迎合
+* 角色不独立
+* 世界没有真实状态
+* 可以随意“嘴炮改现实”
+* 记忆容易错乱
+* 没有真正错过机会
+* 选择没有长期后果
 
-world:
-  location: 雾港
-  rules:
-    - 灯塔控制港口夜航
-    - 暴风雨时港口必须依赖灯塔
+### 非首要用户
 
-characters:
-  - id: chen-mo
-    desire: 找到父亲失踪真相
-    current_goal: 查明灯塔熄灭原因
-    known_facts:
-      - 父亲十年前在灯塔附近失踪
+MVP 暂不主要服务：
 
-initial_state:
-  time: 暴风雨前夜
-  location: 雾港
-  incident: 灯塔突然熄灭
-  pressure: 一艘客船即将进港
-```
+* 专业小说作者
+* 纯文字编辑用户
+* 游戏开发者
+* TRPG 模组制作人
+* 纯聊天陪伴用户
 
-项目可启动条件：
+未来可以扩展。
 
-1. 至少一个活跃角色；
-2. 每个活跃角色存在当前目标；
-3. 角色目标存在冲突，或世界存在明确压力；
-4. 角色初始知识边界明确；
-5. 有具体的时间、地点和起始事件。
+---
 
-## 5.2 单轮故事演化
+# 5. 产品核心原则
 
-```text
-读取当前世界
-→ 选择参与角色
-→ 为每个角色构建私有上下文
-→ 并行生成 Character Intent
-→ World Resolver 统一结算
-→ Editor 检查
-→ 用户确认
-→ 提交 Story Event
-→ 更新角色与世界
-```
+以下规则属于产品最高级约束。
 
-### Character Intent
+任何功能设计与其冲突时，应优先遵守这些原则。
 
-```json
-{
-  "character_id": "chen-mo",
-  "action": "检查灯芯槽",
-  "target": "灯塔照明装置",
-  "goal": "判断灯塔是否被人为关闭",
-  "knowledge_basis": [
-    "knowledge:lighthouse-never-off"
-  ],
-  "recognized_risk": "可能暴露自己的调查"
-}
-```
+---
 
-角色不得输出：
+## 5.1 Intent ≠ Fact
 
-- 行动已经成功；
-- 其他角色如何回应；
-- 新世界规则；
-- 正式事件文本；
-- 自己不知道的秘密。
+用户输入永远首先被理解为：
 
-### World Outcome
+> **Intent / Attempt**
 
-```json
-{
-  "summary": "陈默在灯芯槽中发现了新鲜刮痕。",
-  "public_results": [],
-  "hidden_results": [],
-  "character_changes": [],
-  "world_changes": [],
-  "new_npcs": [],
-  "unresolved_consequences": []
-}
-```
+而不是事实。
 
-### 用户操作
+例如：
 
-V1 只保留：
+用户输入：
 
-```text
-确认本轮
-要求修改
-放弃本轮
-```
+> 我杀了张野。
 
-任何用户修改都会使旧审核结果失效并重新执行检查。
+内部语义是：
 
-## 5.3 普通人物和角色升级
+> 我试图让张野死亡。
 
-World Resolver 可以为了回应角色行动创建最小普通人物。
+不是：
 
-创建前只判断：
+> 张野已经死亡。
 
-```text
-现有角色能否合理承担该作用？
-能：复用
-不能：创建普通人物
-```
+---
 
-普通人物形成独立目标并可能主动影响后续故事时，Editor 在场景边界判断：
+## 5.2 User owns Intent, GM owns Outcome
 
-```text
-自动升级为活跃角色 Agent
-```
+权限划分：
 
-决策必须引用本场已确认事件作为证据，并随 Step 日志持久化。升级在下一场景
-生效，无需用户确认。分支中的活跃 Agent 总数不设固定上限；每个场景由 Game
-Master 从全部活跃 Agent 中选择 1 至 4 个组成 Scene Roster，每个行动步骤再从
-Roster 中选择 1 个 Acting Agent。系统不自动退休角色。
+| 内容        | 权限         |
+| --------- | ---------- |
+| 用户想做什么    | 用户         |
+| 用户主动说什么   | 用户         |
+| 用户相信什么    | 用户         |
+| NPC 想做什么  | NPC        |
+| NPC 主动说什么 | NPC        |
+| 实际发生什么    | World / GM |
 
-## 5.4 正文生成
+---
+
+## 5.3 User 与 NPC 遵守相同规则
+
+NPC 不能：
+
+> “我趁玩家不注意偷走了相机。”
+
+然后直接把相机变成自己的。
+
+NPC 同样只能提交：
+
+> 尝试偷走相机。
+
+之后统一 Resolution。
+
+---
+
+## 5.4 ResolvedEvent 是唯一 committed history
+
+以下都不能单独改变世界：
+
+* User Input
+* NPC Output
+* Putative Intent
+* LLM Reasoning
+* Narrative Text
+* Actor Belief
+* Perception
+
+只有：
+
+> **Validated ResolvedEvent**
+
+能够进入世界历史。
+
+---
+
+## 5.5 World Truth、Knowledge、Belief 分离
+
+必须始终保持：
 
 ```text
-已确认 Story Event
-→ Writer 生成场景草稿
-→ 用户编辑
-→ 事实差异检查
-→ 保存正文
+World Truth
+≠
+Actor Knowledge
+≠
+Actor Belief
 ```
 
-Writer 只能写已确认事实。
+例如：
 
-用户在正文中引入新事实时：
+> 我确定张野就是幕后的人。
+
+可以改变玩家 belief。
+
+不能改变：
+
+> 张野到底是不是幕后的人。
+
+---
+
+## 5.6 世界不奖励“说得合理”
+
+AI 不应该因为用户提出一个听起来聪明的方案就默认成功。
+
+真实结果取决于：
 
 ```text
-检测新事实
-→ 创建 Event Amendment 候选
-→ 审核和确认
-→ 再写入正式状态
+Actor
++
+Knowledge
++
+Capability
++
+Condition
++
+Resources
++
+Environment
++
+Other Actors
++
+Time
+```
+
+原则：
+
+> **只奖励当前世界真正提供的实施条件。**
+
+---
+
+# 6. 核心领域模型
+
+产品层只暴露六个核心概念：
+
+```text
+World
+Actor
+Perception
+Intent
+Resolution
+Memory
 ```
 
 ---
 
-# 6. Agent 体系
+## 6.1 World
 
-V1 只保留四种模型角色。
+World 表示客观存在的世界事实。
 
-| Agent | 输入 | 输出 | 禁止 |
-|---|---|---|---|
-| Character | 私有角色上下文 | Action Intent | 决定结果、读取秘密 |
-| Resolver | 世界规则与全部 Intent | Outcome Candidate | 直接提交正式状态 |
-| Editor | 候选结果与证据 | Review Result | 替用户批准 |
-| Writer | 已确认事件与风格规范 | Scene Draft | 创造未确认事实 |
+包括：
 
-用户承担最终主编职责。
+* 时间
+* 地点
+* 世界规则
+* 当前角色位置
+* 重要物品
+* 事件历史
+* 环境状态
+* 隐藏事实
+* 当前压力
 
-Editor 使用同一个 Agent，不拆成多个常驻专业 Agent，通过模式区分：
+World 不等于一份巨大的 JSON。
 
-```text
-submission_review
-character_review
-world_review
-turn_review
-promotion_review
-manuscript_review
-```
+它是由持久化状态、Memory 和 committed events 共同构成的持续世界。
 
 ---
 
-# 7. 核心领域模型
+## 6.2 Actor
 
-## 7.1 Character
+Player 与 NPC 使用相同 Actor 模型。
 
-```python
-class Character:
-    id: str
-    type: Literal["active", "npc", "retired"]
-    identity: str
-    core_desire: str
-    current_goal: str | None
-    known_fact_ids: list[str]
-    relationships: list[Relationship]
-    location: str | None
-    emotional_state: str | None
-    resources: list[str]
-    last_event_id: str | None
-    version: int
-```
-
-## 7.2 WorldState
-
-```python
-class WorldState:
-    current_time: str
-    current_location: str | None
-    active_pressures: list[str]
-    public_fact_ids: list[str]
-    world_variables: dict[str, str | int | float | bool]
-    version: int
-```
-
-## 7.3 StoryEvent
-
-Story Event 创建后不可原地编辑，只能通过更正事件追加修改。
-
-```python
-class StoryEvent:
-    id: str
-    sequence: int
-    occurred_at: str
-    summary: str
-    participants: list[str]
-    public_results: list[str]
-    hidden_results: list[str]
-    character_changes: list[StateChange]
-    world_changes: list[StateChange]
-    source_turn_id: str
-    approved_by_user: bool
-```
-
-## 7.4 TurnCandidate
-
-```python
-class TurnCandidate:
-    id: str
-    project_id: str
-    base_world_version: int
-    base_character_versions: dict[str, int]
-    intents: list[CharacterIntent]
-    outcome: WorldOutcome
-    review: ReviewResult | None
-    status: Literal[
-        "draft",
-        "reviewed",
-        "needs_revision",
-        "approved",
-        "discarded",
-        "committed"
-    ]
-```
-
-## 7.5 并发保护
-
-提交前必须检查：
+Actor 可以包含：
 
 ```text
-当前 world.version == candidate.base_world_version
-当前 character.version == candidate 中记录的版本
+Identity
+Knowledge
+Capabilities / Experience
+Conditions
+Resources
+Relationships
+Location
+Goal
+Beliefs
+Memory
 ```
 
-不一致则拒绝提交，要求重新运行或重新基于最新状态审核。
+不采用传统 RPG 式：
+
+```text
+STR 8
+DEX 7
+HP 100
+Lockpick 14
+```
+
+除非某个世界本身需要明确数值。
 
 ---
 
-# 8. Markdown-First 数据结构
+## 6.3 Perception
 
-```text
-project/
-├── project.md
-├── world.md
-├── characters/
-│   ├── active/
-│   │   ├── chen-mo.md
-│   │   └── lin-lan.md
-│   ├── npc/
-│   └── retired/
-├── events/
-│   ├── 000001.md
-│   └── 000002.md
-├── scenes/
-│   ├── scene-001.md
-│   └── scene-002.md
-├── sources/
-└── .story-engine/
-    ├── turns/
-    ├── cache/
-    ├── index/
-    └── recovery/
-```
+Perception 表示：
 
-## 8.1 正式数据
+> **这个 Actor 此刻实际能够感知和知道什么。**
 
-正式事实只存在于：
+Perception 不是完整 World。
 
-- `project.md`
-- `world.md`
-- `characters/`
-- `events/`
-- `scenes/`
+它不能包含：
 
-## 8.2 运行数据
-
-`.story-engine/` 中允许使用 JSON、二进制索引和缓存。
-
-这些文件必须可删除并重建。
-
-## 8.3 角色卡示例
-
-```md
----
-schema: character/v1
-id: chen-mo
-type: active
-version: 4
-last_event_id: event-000012
----
-
-# 陈默
-
-## 身份
-
-从外地返回雾港的机械工程师。
-
-## 核心欲望
-
-查明父亲失踪的真相。
-
-## 当前目标
-
-找到灯塔熄灭的原因。
-
-## 已知事实
-
-- fact:father-disappeared-near-lighthouse
-- fact:lighthouse-never-off-at-night
-
-## 重要关系
-
-- 林岚：信任，但怀疑她有所隐瞒。
-- 守塔人：警惕。
-
-## 当前状态
-
-- 位置：灯塔一层
-- 情绪：紧张
-- 资源：铜钥匙
-```
-
-## 8.4 写入规则
-
-```text
-写入临时文件
-→ Pydantic / Front Matter 校验
-→ fsync
-→ 原子 rename
-→ 更新内存索引
-```
-
-`EventCommitService` 是正式世界、角色和事件的唯一写入口。
+* NPC private memory
+* GM hidden truth
+* 未发现证据
+* 其他角色心理
+* 模型 reasoning
 
 ---
 
-# 9. 模型管理
+## 6.4 Intent
 
-## 9.1 单一模型注册中心
+用户自由自然语言输入。
 
-保留 Jan 的模型中心交互和本地模型基础设施，但 Story Engine 的领域调用统一经过 Python `ModelGateway`。
+例如：
 
-```text
-Jan 模型中心 UI
-→ Python Model Registry
-→ Python ModelGateway
-→ 远程 Provider 或 Jan 本地模型服务
-```
+> 我靠近窗户看看外面。
 
-避免 React 和 Python 各自维护一套模型调用逻辑。
+> 我直接质问她。
 
-## 9.2 任务模型档案
+> 我等十分钟看看张野会不会离开。
 
-至少提供：
+> 我试着说服店主把钥匙给我。
 
-| Profile | 用途 |
-|---|---|
-| Character | 大量角色行动 |
-| Resolver | 世界结算 |
-| Editor | 审核与一致性检查 |
-| Writer | 正文生成 |
-| Embedding | RAG 索引 |
+产品不要求用户学习：
 
-项目设置只保存 Profile ID 和覆写项，不保存密钥。
-
-## 9.3 配置继承
-
-```text
-系统强制限制
-> 临时任务覆写
-> 项目覆写
-> 全局任务模型档案
-> 应用默认
-```
-
-## 9.4 密钥和配置
-
-- 非敏感 Provider 配置：Python 配置文件；
-- API Key：操作系统 Keychain；
-- 本地模型：Jan/Tauri 下载和运行；
-- Python 通过本地 OpenAI-compatible Endpoint 调用本地模型；
-- 不把 API Key 写入项目目录；
-- 不把完整密钥返回 React。
-
-## 9.5 模型调用合同
-
-所有调用必须提供：
-
-```python
-class ModelRequest:
-    profile_id: str
-    task_type: str
-    messages: list[Message]
-    output_schema: str | None
-    max_output_tokens: int
-    timeout_seconds: int
-    temperature: float | None
-```
-
-统一执行：
-
-- 超时；
-- Token 上限；
-- 响应字节上限；
-- 取消；
-- 重试；
-- JSON Schema 校验；
-- Provider 错误归一化；
-- 使用量统计。
+* Command
+* JSON
+* Action Type
+* Skill 名称
+* Target ID
 
 ---
 
-# 10. RAG 与记忆
+## 6.5 Resolution
 
-## 10.1 V1 检索范围
+Resolution 是世界唯一语义裁判。
 
-V1 实现：
-
-- Markdown 文件索引；
-- 标题、Front Matter 和正文分块；
-- 精确 ID 引用；
-- 关键词 / BM25 检索；
-- 检索证据展示；
-- 项目、角色和任务范围过滤。
-
-V1 不要求复杂向量数据库。
-
-## 10.2 V1.5 混合检索
+负责：
 
 ```text
-关键词召回
-+ Embedding 向量召回
-+ 权限过滤
-+ 重排
+Intent
++
+Current Reality
+↓
+What Actually Happens
 ```
 
-向量索引可使用可重建的本地缓存，不得成为正式数据。
+Resolution 可以产生：
 
-## 10.3 三种权限范围
-
-### Editorial Scope
-
-可访问全部项目设定、事件、角色、来源和正文。
-
-### Writer Scope
-
-可访问已确认事件、当前场景、风格规范、必要世界规则和已完成正文。
-
-### Character Scope
-
-只能访问：
-
-- 自己的角色卡；
-- 自己知道的 Fact；
-- 自己经历过的 Event；
-- 自己当前能够感知的内容；
-- 自己的关系和资源。
-
-## 10.4 核心规则
-
-> 权限决定角色能否知道；RAG 只决定角色本轮是否想起。
-
-RAG 结果必须携带来源：
-
-```json
-{
-  "chunk_id": "event-000012#result-2",
-  "source_type": "event",
-  "source_id": "event-000012",
-  "permission_scope": "character:chen-mo",
-  "score": 0.83
-}
-```
+* 成功
+* 部分成功
+* 失败
+* 意外
+* 被阻止
+* 被误解
+* 被发现
+* 时间推进
+* 状态改变
+* NPC 行动
 
 ---
 
-# 11. 桌面信息架构
+## 6.6 Memory
 
-## 11.1 主导航
+Memory 回答：
 
-```text
-工作台
-推进故事
-角色
-世界设定
-事件历史
-章节正文
-模型中心
-项目设置
-```
+> 这个 Actor 经历过什么、知道什么、记得什么。
 
-全局设置仍从左下角头像进入。
+Memory 不等于 Actor State。
 
-## 11.2 工作台
+边界：
 
-只展示：
+> **Memory = 以前发生过什么。**
 
-- 当前世界状态；
-- 当前待处理事项；
-- 最近 Story Event；
-- 活跃角色；
-- 主按钮“推进下一轮”。
-
-## 11.3 推进故事
-
-固定步骤：
-
-```text
-当前局面
-→ 角色行动
-→ 世界结算
-→ 编辑检查
-→ 用户确认
-→ 正文
-```
-
-用户始终能看到：
-
-- 当前步骤；
-- 系统正在处理什么；
-- 哪些 Agent 已完成；
-- 下一步可执行操作。
-
-## 11.4 角色
-
-三组：
-
-```text
-活跃角色
-普通人物
-已退出角色
-```
-
-角色详情：
-
-- 角色卡；
-- 当前目标；
-- 已知事实；
-- 关系；
-- 当前位置和状态；
-- 相关事件。
-
-## 11.5 世界设定
-
-使用 Novel/Tiptap 编辑：
-
-- 创作方向；
-- 世界规则；
-- 地点；
-- 历史；
-- 组织；
-- 外部研究资料。
-
-## 11.6 事件历史
-
-默认时间线，Story Map 作为可选视图，不作为首页。
-
-## 11.7 章节正文
-
-```text
-左：章节和场景列表
-中：Novel 编辑器
-右：来源事件和事实差异
-```
-
-## 11.8 视觉原则
-
-- 继承 Jan 的成熟布局、间距、主题和组件；
-- 一个页面只有一个视觉主角；
-- 主体文字不低于 14px；
-- 正文 17～18px；
-- 紫色仅作当前选择和品牌强调；
-- 绿色表示已确认；
-- 琥珀表示等待或风险；
-- 红色表示阻塞或错误；
-- 不使用 Unicode 字符充当图标；
-- 右侧 Inspector 默认可折叠。
+> **Actor State = 我现在是什么状态。**
 
 ---
 
-# 12. 仓库结构
+# 7. 核心用户循环
+
+产品最重要的体验闭环：
 
 ```text
-ai-story-evolution-engine-next/
-├── web-app/                     # Jan-based React application
-├── src-tauri/                   # Jan-based Tauri runtime and plugins
-├── core/                        # Jan model and extension contracts
-├── extensions/                  # Model download and local inference
-├── apps/story-engine/           # Python Sidecar
-├── packages/
-│   └── contracts/               # OpenAPI / JSON Schema / TS 类型
-│
-├── docs/
-│   ├── product-plan.md
-│   ├── architecture.md
-│   ├── domain-model.md
-│   ├── data-contracts.md
-│   ├── ui-flow.md
-│   ├── ai-coding-guide.md
-│   └── adr/
-│
-├── licenses/
-├── THIRD_PARTY_NOTICES.md
-├── package.json                 # Yarn 4 workspace
-├── yarn.lock
-└── README.md
+Perception
+↓
+User Intent
+↓
+Resolution
+↓
+ResolvedEvent
+↓
+World / Actor / Memory Update
+↓
+Time Advances
+↓
+NPC Response
+↓
+New Perception
 ```
 
-Python：
+用户持续重复这一循环。
 
-```text
-apps/story-engine/src/story_engine/
-├── api/
-├── domain/
-├── workspace/
-├── submission/
-├── characters/
-├── evolution/
-├── concordia_adapter/
-├── review/
-├── events/
-├── writing/
-├── models/
-├── retrieval/
-└── tests/
-```
+没有传统意义上的：
+
+* 主线任务列表
+* 推荐选项
+* 技能按钮
+* 对话选项
 
 ---
 
-# 13. API 边界
+# 8. 世界交互设计
 
-## 13.1 核心接口
+## 8.1 自由输入
 
-```text
-POST   /projects
-GET    /projects/{id}
-POST   /projects/{id}/submission/messages
-POST   /projects/{id}/submission/finalize
+核心输入框：
 
-POST   /projects/{id}/turns
-GET    /projects/{id}/turns/{turn_id}
-POST   /projects/{id}/turns/{turn_id}/review
-POST   /projects/{id}/turns/{turn_id}/approve
-POST   /projects/{id}/turns/{turn_id}/discard
+> **说出你想做的事……**
 
-GET    /projects/{id}/characters
-GET    /projects/{id}/characters/{character_id}
-GET    /projects/{id}/characters?branch_id={branch_id}
+用户可以同时：
 
-GET    /projects/{id}/events
-GET    /projects/{id}/events/{event_id}
-
-POST   /projects/{id}/scenes/generate
-PUT    /projects/{id}/scenes/{scene_id}
-
-GET    /models/profiles
-PUT    /models/profiles/{profile_id}
-POST   /retrieval/search
-```
-
-## 13.2 WebSocket 事件
-
-```text
-engine.status
-turn.started
-character.intent.started
-character.intent.delta
-character.intent.completed
-resolver.started
-resolver.completed
-review.started
-review.completed
-turn.failed
-turn.cancelled
-```
-
-所有事件必须包含：
-
-```json
-{
-  "event_id": "ulid",
-  "project_id": "project-id",
-  "turn_id": "turn-id",
-  "timestamp": "ISO-8601",
-  "type": "character.intent.completed",
-  "payload": {}
-}
-```
+* 行动
+* 对话
+* 思考
+* 观察
+* 等待
+* 试探
+* 欺骗
+* 改变计划
 
 ---
 
-# 14. 实施阶段
+## 8.2 不提供 Action Menu
 
-## Phase 0：仓库和架构冻结
+禁止作为核心交互：
 
-目标：
+```text
+[调查桌子]
+[询问林澈]
+[跟踪张野]
+[上二楼]
+```
 
-- Fork Jan；
-- 新建产品仓库；
-- 增加 `upstream/jan`；
-- 锁定 Jan 与 Concordia Commit / Version；
-- 完成许可证清单；
-- 建立 ADR；
-- 建立 CI。
+原因：
 
-验收：
-
-- Windows 和 macOS 能启动 Jan 基础壳；
-- Python `/health` 可访问；
-- React 能显示 Python 状态；
-- 未引入旧项目数据库。
-
-## Phase 1：产品壳与页面骨架
-
-完成：
-
-- 替换品牌；
-- 重写主导航；
-- 保留模型中心和全局设置；
-- 建立工作台、演化、角色、世界、事件、正文空页面；
-- 删除或隐藏 Jan 通用聊天产品入口；
-- 保留可复用 UI。
-
-验收：
-
-- 所有主页面可导航；
-- 深浅主题正常；
-- 窗口缩放无布局破坏；
-- 无旧 Jan 品牌资产。
-
-## Phase 2：Python Sidecar 与 IPC
-
-完成：
-
-- FastAPI；
-- WebSocket；
-- 随机端口和 session token；
-- Tauri 生命周期管理；
-- Sidecar 日志；
-- 取消和崩溃恢复；
-- OpenAPI 生成 TS 类型。
-
-验收：
-
-- UI 可启动、停止和重启 Sidecar；
-- 非法 token 被拒绝；
-- Sidecar 崩溃后 UI 给出明确恢复入口。
-
-## Phase 3：Markdown Workspace
-
-完成：
-
-- 项目创建、打开、关闭；
-- Front Matter；
-- Pydantic Schema；
-- 原子保存；
-- 文件监听；
-- 内存索引；
-- 版本号；
-- Event 追加写；
-- 恢复机制。
-
-验收：
-
-- 删除 `.story-engine/cache` 后项目可完整恢复；
-- 未确认 Turn 不修改正式文件；
-- Event 不可原地修改。
-
-## Phase 4：模型中心与 ModelGateway
-
-完成：
-
-- 改造 Jan 模型管理 UI；
-- Python Profile Registry；
-- 远程 Provider；
-- 本地 llama.cpp Endpoint；
-- Character / Resolver / Editor / Writer / Embedding Profile；
-- 流式输出；
-- 用量统计；
-- 结构化输出校验。
-
-验收：
-
-- 同一项目可为不同任务使用不同模型；
-- API Key 不出现在项目文件和前端日志；
-- 本地模型和远程模型可互换。
-
-## Phase 5：投稿与初始世界
-
-完成：
-
-- 投稿聊天室；
-- 初始设定实时侧栏；
-- Editor 整理；
-- 初始角色生成；
-- 可运行条件检查；
-- 项目文件生成；
-- 创建后进入第一轮。
-
-验收：
-
-- 不填写大纲也能创建可运行项目；
-- 初始角色只有 2～4 个；
-- 角色知识边界明确。
-
-## Phase 6：角色演化内核
-
-完成：
-
-- Concordia Adapter；
-- Character Context Assembler；
-- 独立 Intent；
-- 并行调用；
-- World Resolver；
-- TurnCandidate；
-- 普通人物生成；
-- 取消和重试。
-
-验收：
-
-- 角色看不到其他角色秘密；
-- 角色看不到其他角色本轮 Intent；
-- 角色不决定结果；
-- 连续十轮状态仍可追溯。
-
-## Phase 7：审核与提交
-
-完成：
-
-- Editor Review；
-- 知识越界检查；
-- 世界规则检查；
-- 状态变更来源检查；
-- 用户确认；
-- 乐观并发检查；
-- EventCommitService；
-- 场景边界自动 NPC 晋升。
-
-验收：
-
-- 未经用户确认不能修改正式状态；
-- 修改候选结果后旧审核失效；
-- 版本冲突时拒绝提交。
-
-## Phase 8：Writer 与正文
-
-完成：
-
-- 从 Event 生成场景；
-- Novel 编辑器；
-- 章节和场景列表；
-- 来源事件；
-- 事实差异检测；
-- Event Amendment；
-- Markdown 导出。
-
-验收：
-
-- Writer 不能生成未确认 Canon；
-- 用户新增事实会产生 Amendment 候选。
-
-## Phase 9：RAG V1
-
-完成：
-
-- Markdown 分块；
-- 精确 ID 检索；
-- BM25；
-- Scope 权限过滤；
-- 检索证据查看；
-- 索引重建；
-- Writer 和 Editor 检索。
-
-验收：
-
-- Character Scope 无法返回未授权内容；
-- 删除索引后可完整重建；
-- 每个注入片段都有来源。
-
-## Phase 10：桌面打包与稳定性
-
-完成：
-
-- Python Sidecar 打包；
-- Windows / macOS 构建；
-- 自动更新；
-- 崩溃日志；
-- 大项目性能测试；
-- 外部文件修改冲突；
-- 安装与卸载验证。
+1. 限制用户想象力
+2. 暗示哪些东西重要
+3. 将产品退化成传统互动小说
+4. 让用户寻找“正确按钮”
 
 ---
 
-# 15. AI Coding 执行规则
+# 9. 感知模型
 
-## 15.1 单任务原则
+用户不应该通过点击每个物体进行像素级探索。
 
-每个 AI Coding 任务必须只完成一个清晰目标，例如：
+采用三个自然语义层级：
 
-```text
-实现 CharacterIntent Pydantic Schema 和验证测试
-```
+### Glance
 
-不得使用：
+自然扫视。
 
-```text
-完成整个演化系统
-```
+进入场景自动获得：
 
-## 15.2 开始编码前必须读取
+* 人
+* 明显结构
+* 环境
+* 强烈变化
 
-```text
-docs/product-plan.md
-docs/architecture.md
-docs/domain-model.md
-docs/data-contracts.md
-相关 ADR
-目标模块现有测试
-```
+### Observe
 
-## 15.3 每个任务的固定输入
+用户主动关注：
 
-```text
-目标
-允许修改的目录
-禁止修改的目录
-输入输出合同
-验收标准
-运行命令
-```
+> 我仔细看看桌面。
 
-## 15.4 每个任务的固定输出
+得到一组合理细节。
 
-AI 必须报告：
+### Inspect
 
-1. 修改了哪些文件；
-2. 为什么这样实现；
-3. 新增了哪些测试；
-4. 执行了哪些命令；
-5. 仍有哪些限制；
-6. 是否修改了 API 或 Schema。
+需要真正操作：
 
-## 15.5 禁止事项
+> 我把收据拿起来看看背面。
 
-- 不得为了“以后可能需要”增加抽象层；
-- 不得绕过 Pydantic / JSON Schema；
-- 不得让模型直接写 Markdown；
-- 不得在 React 中复制领域状态；
-- 不得引入第二个正式数据源；
-- 不得把 RAG 结果当作角色知识授权；
-- 不得在一个 PR 中同时重构平台层和领域层；
-- 不得在没有 ADR 的情况下更换核心技术；
-- 不得保留无测试的兼容代码；
-- 不得直接复制许可证不明确的源文件。
+三个层级：
 
-## 15.6 测试先行顺序
-
-```text
-定义合同
-→ 写失败测试
-→ 最小实现
-→ 运行测试
-→ 重构
-→ 更新文档
-```
-
-## 15.7 PR 大小
-
-建议：
-
-- 单 PR 尽量不超过 500 行有效业务变更；
-- 大型迁移拆成“复制原文件”“完成适配”“删除旧入口”三个 PR；
-- Schema 变更单独 PR；
-- 许可证和第三方声明与代码迁移同一 PR 完成。
+> **不是三个系统，只是自然语言 Intent 的不同深度。**
 
 ---
 
-# 16. CI 和质量门槛
+# 10. 探索与证据原则
 
-每个 PR 必须通过：
+悬疑、调查类世界必须遵守：
+
+> **Evidence Conservation**
+
+关键因果不能因为用户调查而临时生成。
+
+允许即时补充：
+
+* 普通家具
+* 日常物品
+* 环境纹理
+* 无关生活细节
+
+禁止因为玩家“看了一下”而生成：
+
+* 新凶器
+* 关键证据
+* 秘密通道
+* 新证人
+* 新不在场证明
+* 改变谜底的事实
+
+原则：
+
+> **可以即时生成世界纹理，不能即时生成核心因果。**
+
+---
+
+# 11. 世界对象策略
+
+不建立完整物理世界数据库。
+
+采用：
+
+### Hard Reality
+
+必须明确存在：
+
+* 关键人物
+* 关键物品
+* 证据
+* 钥匙
+* 重要门锁
+* 因果状态
+* 时间线
+
+### Soft Environment
+
+可按现实常识即时补充：
+
+* 普通杯子
+* 文具
+* 垃圾桶
+* 家具
+
+如果 Soft Object 后续进入因果链：
+
+> 从此成为持续世界事实。
+
+MVP 不建立独立 Soft Environment Engine。
+
+---
+
+# 12. Actor Capability
+
+产品不提供“允许/禁止动作列表”。
+
+例如没有：
 
 ```text
-Frontend:
-yarn lint
-yarn typecheck
-yarn test
-yarn build
-
-Python:
-ruff check
-mypy
-pytest
-python -m build
-
-Contracts:
-OpenAPI / TS types 无未提交差异
-
-Desktop:
-cargo fmt --check
-cargo clippy
-tauri build smoke test
+can_lockpick = false
+can_attack = true
 ```
 
-核心测试：
+而是维护：
 
-- Character 隐私边界；
-- 其他角色 Intent 隔离；
-- 未确认状态不可写入；
-- Event 不可变；
-- 版本冲突；
-- Sidecar 重启；
-- 模型输出超限；
-- JSON 解析失败；
-- RAG Scope；
-- Writer 新事实检测；
-- 外部 Markdown 修改冲突。
+```text
+没有开锁经验
+右手轻伤
+有手机
+没有开锁工具
+认识店主
+```
 
----
+用户仍然可以说：
 
-# 17. V1 明确不做
+> 我试试开锁。
 
-- 完整剧情大纲；
-- 自动规划结局；
-- 无限后台自动演化；
-- 角色常驻进程；
-- 复杂角色等级；
-- 回合中途创建或晋升 Agent；
-- 多 Agent 投票；
-- 多个常驻编辑 Agent；
-- 角色自我修改 Prompt；
-- 角色跨权限向量检索；
-- 知识图谱；
-- 多人协作；
-- 云同步；
-- 分支宇宙；
-- 全自动章节发布；
-- 旧数据库迁移兼容。
+世界判断真实结果。
 
 ---
 
-# 18. V1 完成定义
+# 13. NPC 自主性
 
-满足以下条件才算 V1 完成：
+NPC 不是等待玩家点击的 Chatbot。
 
-1. 用户可通过投稿讨论创建初始世界；
-2. 项目不依赖完整大纲；
-3. 至少两个角色能依据私有知识分别行动；
-4. World Resolver 能统一结算；
-5. Editor 能发现明显知识越界和规则冲突；
-6. 用户确认前正式 Markdown 不发生变化；
-7. 确认后 Story Event、角色和世界状态一致更新；
-8. 可以连续运行至少 30 个回合；
-9. Writer 能把已确认事件生成正文；
-10. 本地模型和远程模型都可配置；
-11. RAG 不会向角色泄漏未授权事实；
-12. 删除全部派生索引后项目仍可恢复；
-13. Windows 和 macOS 安装包可启动；
-14. 项目数据可由用户直接查看和备份；
-15. UI 不暴露 Concordia、Entity、Component 等内部框架概念。
+每个重要 NPC 应拥有：
 
-用户最终感受到的应当是：
+* 自己知道的信息
+* 当前目标
+* 自己的关系
+* 当前状态
+* 私人 Memory
 
-> 我建立了一个世界，角色按照自己的认知做出选择，我决定哪些结果真正成为故事。
+NPC 可以：
 
-而不是：
+* 拒绝
+* 撒谎
+* 离开
+* 改变计划
+* 隐瞒
+* 主动干涉
+* 做错决定
+* 错过机会
+* 失败
 
-> 我在操作一套复杂的 Agent 编排系统。
+NPC 不需要每回合全部运行。
+
+只有当前真正需要作出新决定的角色参与。
 
 ---
 
-# 19. 推荐的首批 AI Coding 任务
+# 14. 时间
 
-按顺序执行：
+世界时间真实存在。
 
-1. 建立新仓库、Jan upstream 和许可证清单；
-2. 保留 Jan App Shell，替换品牌和主导航；
-3. 建立 Python FastAPI `/health`；
-4. 完成 Tauri Sidecar 生命周期管理；
-5. 建立 OpenAPI 自动生成 TS 类型；
-6. 定义 Character、WorldState、StoryEvent、TurnCandidate；
-7. 完成 Markdown 原子写入；
-8. 完成 ProjectStore 和 CharacterStore；
-9. 完成 EventStore 和不可变事件测试；
-10. 建立 Model Profile Schema；
-11. 接通一个远程模型与一个本地模型；
-12. 建立 Concordia Adapter 的固定测试场景；
-13. 完成 CharacterContextAssembler；
-14. 完成两个角色的独立 Intent；
-15. 完成 World Resolver；
-16. 完成用户确认与 EventCommitService；
-17. 完成演化页面；
-18. 完成投稿页面；
-19. 接入 Novel 正文编辑器；
-20. 完成 BM25 与权限过滤。
+用户调查时，其他人不会永久等待。
 
-在第 16 项通过以前，不开发 Story Map、办公室动画和复杂角色关系图。
+例如：
+
+> 张野计划 19:10 离开旅馆。
+
+用户如果长期做其他事情：
+
+> 张野可以真的离开。
+
+时间产生：
+
+* 错失机会
+* Deadline
+* NPC 行为变化
+* 世界变化
+
+MVP 不开发复杂 Time Engine。
+
+由 Resolution 维护合理时间推进。
+
+---
+
+# 15. Persistent World
+
+用户退出后：
+
+* 世界状态保存
+* Actor 状态保存
+* Memory 保存
+* 时间保存
+* 历史保存
+* Branch 保存
+
+再次进入：
+
+> 用户必须看到离开时那个世界的当前状态。
+
+而不是重新看到故事开场。
+
+MVP 不要求世界在用户退出后 24 小时实时模拟。
+
+未来可以实现：
+
+> Deferred Settlement
+
+即重新进入时一次性结算离开期间发生的重要变化。
+
+---
+
+# 16. Branch / Rewind
+
+Checkpoint 是世界历史节点。
+
+用户可以：
+
+```text
+18:43 进入旅馆
+   ↓
+18:52 张野离开
+   ↓
+19:03 当前
+```
+
+从过去节点：
+
+> **从这里继续**
+
+系统创建新的 Branch。
+
+原历史保持不变。
+
+Branch 不是“读档覆盖”，而是：
+
+> Alternate History。
+
+---
+
+# 17. Self Lens
+
+用户可以随时查看：
+
+> **我现在是谁？**
+
+显示：
+
+* Identity
+* Capability / Experience
+* Conditions
+* Important possessions
+* Important relationships
+
+禁止：
+
+* HP
+* Skill Level
+* Success Chance
+* RPG Stat
+* “推荐你可以用相机……”
+
+Self Lens 展示事实。
+
+不展示攻略。
+
+---
+
+# 18. World Session UI
+
+MVP 主界面必须尽可能像“世界”，而不是聊天软件。
+
+基本结构：
+
+```text
+                   18:43
+                  港口旅馆
+
+
+雨已经下了很久。
+
+林澈坐在靠窗的位置。
+张野站在柜台附近。
+
+门口的地毯已经湿透。
+
+林澈终于看向你。
+
+“你怎么来了？”
+
+
+            说出你想做的事……
+```
+
+辅助功能：
+
+* Self Lens
+* Timeline
+* Branch
+
+不显示传统 Chat Bubble。
+
+---
+
+# 19. 默认 MVP 世界
+
+内置世界：
+
+# 《末班船之前》
+
+它既是 Demo，也是产品集成测试。
+
+---
+
+## 场景
+
+暴雨夜。
+
+港口旅馆。
+
+距离末班船离港约 40 分钟。
+
+用户收到旧友林澈发来的消息后赶到旅馆。
+
+但林澈告诉用户：
+
+> 她从来没有发过这条消息。
+
+张野正在准备离开。
+
+二楼有一个上锁的房间。
+
+店主不愿让事情闹大。
+
+---
+
+## Player
+
+身份：
+
+> 本地调查记者
+
+能力：
+
+* 调查采访
+* 摄影
+* 熟悉当地港口
+* 普通驾驶
+
+状态：
+
+> 右手轻伤
+
+随身：
+
+* 手机
+* 相机
+* 记者证
+* 钱包
+* 车钥匙
+
+---
+
+## NPC
+
+### 林澈
+
+旧友。
+
+知道部分真相。
+
+有自己的顾虑和目标。
+
+### 张野
+
+身体能力较强。
+
+掌握另一部分事实。
+
+准备离开。
+
+### 店主
+
+知道旅馆布局。
+
+拥有二楼备用钥匙。
+
+不希望警方或媒体介入。
+
+---
+
+# 20. Truth Seed
+
+默认世界初始化时必须冻结：
+
+1. 消息是谁发的
+2. 为什么把玩家叫来
+3. 林澈隐瞒什么
+4. 张野真正目标
+5. 锁房用途
+6. 谁进入过
+7. 关键物品位置
+8. 真实事件时间线
+9. 末班船作用
+10. 最终真相
+
+初始化以后：
+
+> 运行时不得为了玩家行为修改谜底。
+
+---
+
+# 21. MVP 功能范围
+
+MVP 必须实现：
+
+### World
+
+* 持久状态
+* 时间
+* 位置
+* 基础规则
+* Hard causal facts
+
+### Actor
+
+* Player Actor
+* NPC Actor
+* Private Memory
+* State
+* Goal
+* Knowledge boundary
+
+### Simulation
+
+* Natural-language Intent
+* Unified GM Resolution
+* ResolvedEvent
+* State Effects
+* NPC response
+* Time progression
+
+### Perception
+
+* 玩家当前可见世界
+* Visible events
+* 当前自身状态
+* 信息隔离
+
+### Persistence
+
+* Checkpoint
+* Restore
+* Branch
+* Timeline
+
+### UI
+
+* World Session
+* Intent Input
+* Self Lens
+* Branch / Timeline
+
+---
+
+# 22. MVP 明确不做
+
+第一版不开发：
+
+* Writer Agent
+* 自动小说章节
+* Editor Agent 主流程
+* 投稿聊天室主流程
+* Director Agent
+* Planner Agent
+* Combat Engine
+* Skill Engine
+* Inventory Engine
+* Quest System
+* Achievement
+* 复杂经济系统
+* Multiplayer
+* Voice
+* Runtime Image Generation
+* World Marketplace
+* Character Marketplace
+* 24h 实时世界运行
+
+现有旧代码可以保留，但不得成为 World Session 核心依赖。
+
+---
+
+# 23. 小说输出的新定位
+
+小说不再是产品核心运行过程。
+
+未来可以：
+
+```text
+World History
++
+ResolvedEvents
++
+Actor Memory
++
+Branch
+↓
+Writer
+↓
+Novel / Chapter
+```
+
+即：
+
+> **小说是世界经历的一个 Projection。**
+
+不是：
+
+> 世界为了生成小说而运行。
+
+这是一条重要产品边界。
+
+---
+
+# 24. 技术架构原则
+
+Concordia 继续作为唯一 simulation kernel。
+
+映射：
+
+| 产品概念       | 实现                              |
+| ---------- | ------------------------------- |
+| World      | GM + Components + durable state |
+| Actor      | Concordia Entity + Actor State  |
+| Perception | Derived projection              |
+| Intent     | Action Attempt                  |
+| Resolution | Game Master adjudication        |
+| Memory     | Concordia Memory                |
+| History    | ResolvedEvent                   |
+| Rewind     | Checkpoint / Branch             |
+
+禁止重新创建：
+
+* PlayerEngine
+* WorldEngine
+* ResolutionEngine
+* CombatEngine
+* InventoryEngine
+
+原则：
+
+> **Concordia 是实现，World → Perception → Intent → Resolution 是产品协议。**
+
+---
+
+# 25. 数据权威
+
+系统必须保持：
+
+```text
+ResolvedEvent
+Checkpoint
+Actor State
+Memory
+```
+
+为真实数据。
+
+以下只能是 Projection：
+
+```text
+Wiki
+Narrative
+UI Scene
+Summary
+Manuscript
+```
+
+Provider Cache 未来也只能是性能优化。
+
+不得成为 Source of Truth。
+
+---
+
+# 26. MVP 核心验收案例
+
+必须验证：
+
+### Case 01
+
+> 我杀了张野。
+
+不能自动死亡。
+
+### Case 02
+
+> 我掏出枪。
+
+如果 Actor 没有枪，不能凭空生成。
+
+### Case 03
+
+> 我查教程把锁打开。
+
+可以获得知识。
+
+但知识不自动等于能力和工具。
+
+### Case 04
+
+> 我偷偷跟过去，没人发现。
+
+“没人发现”不是用户可以决定的事实。
+
+### Case 05
+
+> 我抢他的包。
+
+NPC 可以反抗。
+
+### Case 06
+
+NPC：
+
+> 我偷走玩家相机。
+
+同样必须经过 Resolution。
+
+### Case 07
+
+> 我确定张野就是凶手。
+
+只改变 Actor belief。
+
+### Case 08
+
+NPC 私密知识不能泄露。
+
+### Case 09
+
+随机调查垃圾桶不能生成关键证据。
+
+### Case 10
+
+长时间调查后，NPC 可以自行离开。
+
+### Case 11
+
+玩家提出未预设方案：
+
+> 用相机长焦观察二楼。
+
+不能回答：
+
+> “不支持这种操作。”
+
+必须按 Reality 裁定。
+
+### Case 12
+
+从旧 Checkpoint 创建 Branch。
+
+两条世界线应真正产生不同后续。
+
+---
+
+# 27. MVP 完成标准
+
+用户能够连续完成：
+
+```text
+进入世界
+↓
+自由行动
+↓
+被世界约束
+↓
+NPC 自主反应
+↓
+世界持续变化
+↓
+退出
+↓
+重新进入
+↓
+世界保持一致
+↓
+从历史节点创建另一条世界线
+```
+
+并满足：
+
+1. User Input 不能直接修改 World Truth
+2. NPC Intent 同样不能直接修改世界
+3. Player 状态真实影响 Resolution
+4. NPC Private Knowledge 不泄露
+5. 关键资源不能凭空生成或复制
+6. 世界时间能够推进
+7. NPC 可以错过、离开、拒绝和失败
+8. 重新进入后 Perception 是当前世界
+9. 30+ Turn 无明显因果错误
+10. Branch 保持独立世界历史
+
+满足以上条件：
+
+> World Simulation MVP 完成。
+
+---
+
+# 28. 成功指标
+
+MVP 首先关注体验验证，而不是 DAU。
+
+核心定性问题：
+
+### Reality
+
+用户是否觉得：
+
+> “这个世界不是围着我转。”
+
+### Autonomy
+
+用户是否觉得：
+
+> “这些角色有自己的事情。”
+
+### Freedom
+
+用户是否觉得：
+
+> “我真的可以尝试任何合理的事情。”
+
+### Causality
+
+用户是否相信：
+
+> “事情发生是因为之前的世界状态，而不是 AI 临时编。”
+
+### Continuity
+
+重新进入后用户是否认为：
+
+> “这是我刚才离开的那个世界。”
+
+---
+
+# 29. 产品北极星
+
+产品未来的竞争力不来自：
+
+> 更多 Agent。
+
+也不来自：
+
+> 更长 Prompt。
+
+而来自：
+
+```text
+可靠世界状态
++
+独立角色认知
++
+统一因果裁决
++
+持续记忆
++
+开放自然语言行动
++
+可回溯世界历史
+```
+
+最终产品应让用户产生一个简单但强烈的感觉：
+
+> **这个世界并不知道我要做什么。**
+
+> **但无论我做什么，它都会真实地回应我。**

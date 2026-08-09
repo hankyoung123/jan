@@ -1,5 +1,9 @@
 # Model Gateway and Profile Registry Design
 
+> **Historical infrastructure design.** Reusable model-gateway boundaries
+> remain relevant, but old Writer/Editor task profiles do not define current
+> MVP scope. The Living Story World PRD and ADR-0009 take precedence.
+
 > Superseded in part by
 > [ADR-0004](../adr/0004-jan-model-runtime-bridge.md). Jan, rather than Python,
 > is the sole Provider and inference authority.

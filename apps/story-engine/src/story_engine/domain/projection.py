@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, JsonValue, model_validator
 
@@ -109,9 +109,20 @@ class EntityChange(RuntimeModel):
 class ResolutionStateUpdate(RuntimeModel):
     """Minimal GM-authored state change, bound to local store-owned paths."""
 
-    target: EffectTarget
+    target: Literal[
+        EffectTarget.WORLD_PROJECTION,
+        EffectTarget.CHARACTER_PROJECTION,
+    ]
     target_name: str | None = Field(default=None, max_length=256)
-    path: str = Field(min_length=1, max_length=128)
+    path: Literal[
+        "location",
+        "conditions",
+        "resources",
+        "beliefs",
+        "current_goal",
+        "current_time",
+        "current_location",
+    ]
     value: JsonValue
 
     @model_validator(mode="after")

@@ -1,7 +1,12 @@
 # Phase 8 Evidence Audit
 
+> **Historical Writer/manuscript audit.** These capabilities are retained or
+> future projections, not current World Session MVP scope. The Living Story
+> World PRD and ADR-0009 take precedence.
+
 This audit maps the Phase 8 Writer and manuscript requirements in
-`docs/product-plan.md` to current implementation and executable evidence.
+the then-current product plan (now available through Git history) to
+implementation and executable evidence.
 
 ## Result
 

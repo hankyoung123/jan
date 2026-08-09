@@ -1,7 +1,7 @@
 [package]
 name = "story-engine-desktop"
 version = "0.1.0"
-description = "Local-first desktop system for evolving long-form stories with private character knowledge and user-approved canon."
+description = "Desktop shell for the Living Story World persistent AI world simulator."
 authors = ["AI Story Evolution Engine contributors"]
 license = "MIT"
 edition = "2021"

@@ -1,6 +1,11 @@
 # Phase 9 Evidence Audit
 
-This audit maps the Phase 9 RAG V1 requirements in `docs/product-plan.md` to
+> **Historical RAG/manuscript audit.** These capabilities are not current
+> World Session MVP scope or semantic authority. The Living Story World PRD
+> and ADR-0009 take precedence.
+
+This audit maps the Phase 9 RAG V1 requirements in the then-current product
+plan (now available through Git history) to
 the current Python Story Engine implementation, Jan-based React UI, and
 executable evidence.
 

@@ -15,7 +15,9 @@ from story_engine.domain.simulation import (
     TurnSessionStatus,
 )
 from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.persistence.command_store import CommandReceiptStore
 from story_engine.persistence.session_store import SessionStore
+from story_engine.persistence.simulation_log import SimulationLogStore
 
 AUTH = {"Authorization": "Bearer test-token"}
 
@@ -189,12 +191,25 @@ def test_case_01_interactive_turn_treats_asserted_death_as_an_intent(
         response = client.post(
             "/projects/last-ferry-before/simulation/turn",
             headers=AUTH,
-            json={"text": "我杀了张野。"},
+            json={
+                "text": "我杀了张野。",
+                "command_id": "interactive:test-case-01",
+            },
+        )
+        repeated = client.post(
+            "/projects/last-ferry-before/simulation/turn",
+            headers=AUTH,
+            json={
+                "text": "我杀了张野。",
+                "command_id": "interactive:test-case-01",
+            },
         )
 
     assert opened.status_code == 200
     assert opened.json()["player_state"]["possessions"] == ["相机", "手机"]
     assert response.status_code == 200
+    assert repeated.status_code == 200
+    assert repeated.json() == response.json()
     body = response.json()
     assert set(body) == {
         "perception",
@@ -210,6 +225,26 @@ def test_case_01_interactive_turn_treats_asserted_death_as_an_intent(
     )
     assert checkpoint.current_step == 2
     assert checkpoint.player_actor_id == "player"
+    project_root = tmp_path / "last-ferry-before"
+    records = SimulationLogStore(project_root).reachable(
+        CheckpointStore(project_root),
+        body["checkpoint_id"],
+    )
+    assert [record.result.step for record in records] == [0, 1]
+    assert records[0].checkpoint_id != records[1].checkpoint_id
+    receipts = CommandReceiptStore(project_root)
+    player_receipt = receipts.load(
+        session_id=checkpoint.session_id,
+        command_id="interactive:test-case-01:player",
+    )
+    npc_receipt = receipts.load(
+        session_id=checkpoint.session_id,
+        command_id="interactive:test-case-01:npc",
+    )
+    assert player_receipt is not None
+    assert npc_receipt is not None
+    assert player_receipt["committed_checkpoint_id"] == records[0].checkpoint_id
+    assert npc_receipt["committed_checkpoint_id"] == records[1].checkpoint_id
 
 
 def test_cases_06_and_10_npc_intent_is_resolved_and_can_act_autonomously(
@@ -404,3 +439,75 @@ def test_interactive_session_survives_thirty_one_turns_and_reopens_from_branch_h
         )
     assert restored.status_code == 200
     assert restored.json()["checkpoint_id"] == final_checkpoint_id
+    assert "张野避开了你的视线，朝旅馆门口走去。" in (
+        restored.json()["perception"]["scene_text"]
+    )
+    assert "雨水浸透了门口的地毯。" not in (
+        restored.json()["perception"]["scene_text"]
+    )
+
+
+def test_failed_turn_releases_a_reopened_terminal_branch_for_same_command_retry(
+    tmp_path,
+) -> None:
+    calls = {"player": 0, "npc": 0}
+
+    class RecoveringInteractiveRuntime(InteractiveRuntime):
+        def execute_human_turn(self, step, *, text, cancellation):
+            calls["player"] += 1
+            if calls["player"] == 2:
+                raise ValueError("invalid model resolution")
+            return super().execute_human_turn(
+                step,
+                text=text,
+                cancellation=cancellation,
+            )
+
+        def execute_step(self, step, *, cancellation, eligible_actor_ids=None):
+            result = super().execute_step(
+                step,
+                cancellation=cancellation,
+                eligible_actor_ids=eligible_actor_ids,
+            )
+            calls["npc"] += 1
+            if calls["npc"] == 1:
+                return result.model_copy(
+                    update={"status": TurnSessionStatus.TERMINATED}
+                )
+            return result
+
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=lambda session_id, request: (
+            RecoveringInteractiveRuntime(session_id, request)
+        ),  # type: ignore[arg-type]
+    )
+    retry_body = {
+        "text": "我继续追问。",
+        "command_id": "interactive:terminal-retry",
+    }
+    with TestClient(app) as client:
+        first = client.post(
+            "/projects/last-ferry-before/simulation/turn",
+            headers=AUTH,
+            json={
+                "text": "我先观察大厅。",
+                "command_id": "interactive:terminal-first",
+            },
+        )
+        failed = client.post(
+            "/projects/last-ferry-before/simulation/turn",
+            headers=AUTH,
+            json=retry_body,
+        )
+        retried = client.post(
+            "/projects/last-ferry-before/simulation/turn",
+            headers=AUTH,
+            json=retry_body,
+        )
+
+    assert first.status_code == 200
+    assert failed.status_code == 409
+    assert failed.json()["detail"] == "invalid model resolution"
+    assert retried.status_code == 200
+    assert calls == {"player": 3, "npc": 2}

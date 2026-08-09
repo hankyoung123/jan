@@ -1284,6 +1284,8 @@ export interface components {
         };
         /** InteractiveTurnRequest */
         InteractiveTurnRequest: {
+            /** Command Id */
+            command_id?: string;
             /** Text */
             text: string;
         };

@@ -1,5 +1,8 @@
 # Phase 10 Desktop Release Audit
 
+> **Historical release audit.** Packaging evidence remains useful, but old
+> feature-scope assumptions are superseded by the Living Story World PRD.
+
 This audit records the current desktop packaging evidence and the release
 conditions that still require product-owned signing and update infrastructure.
 

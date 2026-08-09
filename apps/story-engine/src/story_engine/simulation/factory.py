@@ -27,6 +27,7 @@ from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemorySco
 from story_engine.domain.models import Character
 from story_engine.domain.projection import ResolutionEnvelope, ResolvedEvent
 from story_engine.domain.simulation import (
+    ActorStateContext,
     PromotionProposal,
     TurnSessionRequest,
     TurnSessionSnapshot,
@@ -282,15 +283,6 @@ class ProjectRuntimeFactory:
                         tags=("promotion_evidence",),
                     )
                 )
-            display_names = {
-                item.id: item.display_name or item.id
-                for item in characters
-            }
-            relationships = "; ".join(
-                f"{display_names.get(relationship.character_id, 'Unknown character')}: "
-                f"{relationship.description}"
-                for relationship in character.relationships
-            )
             actor = factory.build_actor(
                 default_character_recipe(
                     model_profile_id=key,
@@ -299,9 +291,9 @@ class ProjectRuntimeFactory:
                 actor_params={
                     "name": character.id,
                     "display_name": character.display_name or character.id,
-                    "identity": character.identity,
-                    "goal": character.current_goal or character.core_desire,
-                    "relationships": relationships,
+                    "actor_state": ActorStateContext.from_character(
+                        character
+                    ).prompt_text(),
                     "project_root": str(project_root),
                     "branch_id": request.branch_id,
                 },
@@ -381,7 +373,25 @@ class ProjectRuntimeFactory:
         selected_actors = tuple(actor for actor in actors if actor.name in active_ids)
         # Keep the durable cast available to the planner while constructing a
         # bounded scene roster for the first action.
-        active_actors = selected_actors[:MAX_SCENE_ROSTER_SIZE]
+        player_actor_id = (
+            restored.player_actor_id
+            if restored is not None
+            else request.player_actor_id
+        )
+        if player_actor_id is None:
+            active_actors = selected_actors[:MAX_SCENE_ROSTER_SIZE]
+        else:
+            actors_by_id = {actor.name: actor for actor in actors}
+            player_actor = actors_by_id.get(player_actor_id)
+            if player_actor is None:
+                raise ValueError("interactive player must be an active Actor")
+            selected_npcs = tuple(
+                actor for actor in selected_actors if actor.name != player_actor_id
+            )
+            active_actors = (
+                player_actor,
+                *selected_npcs[: MAX_SCENE_ROSTER_SIZE - 1],
+            )
         game_master = factory.build_game_master(
             default_game_master_recipe(
                 model_profile_id=gm_model_key,
@@ -431,11 +441,7 @@ class ProjectRuntimeFactory:
             language_models=tuple(models.values()),
             characters=characters,
             world=restored.world if restored is not None else snapshot.world,
-            player_actor_id=(
-                restored.player_actor_id
-                if restored is not None
-                else request.player_actor_id
-            ),
+            player_actor_id=player_actor_id,
             pending_scene_events=(
                 restored.pending_scene_events if restored is not None else ()
             ),

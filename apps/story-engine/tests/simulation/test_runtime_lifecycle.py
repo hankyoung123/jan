@@ -19,7 +19,12 @@ from story_engine.domain.trace import SimulationStage, StageStatus
 from story_engine.simulation.runtime import StorySimulationRuntime
 
 
-def _character(character_id: str, *, type: str = "active") -> Character:
+def _character(
+    character_id: str,
+    *,
+    type: str = "active",
+    resources: tuple[str, ...] = (),
+) -> Character:
     return Character(
         id=character_id,
         display_name=character_id,
@@ -27,6 +32,7 @@ def _character(character_id: str, *, type: str = "active") -> Character:
         identity=f"Identity of {character_id}",
         core_desire=f"Desire of {character_id}",
         current_goal=f"Goal of {character_id}" if type == "active" else None,
+        resources=resources,
     )
 
 
@@ -37,10 +43,24 @@ def _runtime(
     promotion_reviewer=None,
     promoted_actor_builder=None,
     roster_planner=None,
+    player_actor_id=None,
 ) -> StorySimulationRuntime:
-    actor = SimpleNamespace(name="actor-0")
+    def actor_stub(character_id: str, display_name: str | None = None):
+        state: dict[str, object] = {}
+        return SimpleNamespace(
+            name=character_id,
+            display_name=display_name or character_id,
+            get_state=lambda: dict(state),
+            set_state=lambda value: (state.clear(), state.update(value)),
+            set_actor_state=lambda value: state.__setitem__("actor_state", value),
+        )
+
+    actor_character = next(
+        character for character in characters if character.id == "actor-0"
+    )
+    actor = actor_stub(actor_character.id, actor_character.display_name)
     available_actors = tuple(
-        SimpleNamespace(name=character.id)
+        actor_stub(character.id, character.display_name)
         for character in characters
         if character.type == "active" and character.id != actor.name
     )
@@ -59,6 +79,7 @@ def _runtime(
         available_actors=available_actors,
         roster_planner=roster_planner,
         initial_roster_selected=True,
+        player_actor_id=player_actor_id,
     )
 
 
@@ -95,7 +116,16 @@ def test_active_agent_pool_can_exceed_four_while_scene_roster_stays_bounded() ->
     reviewed: list[str] = []
 
     class NextRosterPlanner:
-        def select_next(self, candidates, *, current_roster, scene_events):
+        def select_next(
+            self,
+            candidates,
+            *,
+            current_roster,
+            scene_events,
+            min_count,
+            max_count,
+        ):
+            assert (min_count, max_count) == (1, 4)
             assert set(candidates) == {
                 "actor-0",
                 "actor-1",
@@ -164,20 +194,33 @@ def test_active_agent_pool_can_exceed_four_while_scene_roster_stays_bounded() ->
 
 def test_human_scene_boundary_completes_promotion_stage() -> None:
     class NextRosterPlanner:
-        def select_next(self, candidates, *, current_roster, scene_events):
-            assert set(candidates) == {"actor-0"}
-            assert current_roster == ("actor-0",)
+        def select_next(
+            self,
+            candidates,
+            *,
+            current_roster,
+            scene_events,
+            min_count,
+            max_count,
+        ):
+            assert set(candidates) == {"actor-1"}
+            assert current_roster == ()
             assert scene_events == (_event("actor-0"),)
-            return ("actor-0",)
+            assert (min_count, max_count) == (0, 3)
+            return ("actor-1",)
 
     resolved = _turn(_event("actor-0"))
     runtime = _runtime(
-        (_character("actor-0"),),
+        (_character("actor-0"), _character("actor-1")),
         roster_planner=NextRosterPlanner(),
+        player_actor_id="actor-0",
     )
-    runtime.player_actor_id = "actor-0"
+    active_actor_names: list[str] = []
+    runtime.actors[0].display_name = "Player A"
     runtime.actors[0].observe = lambda _frame: None
-    runtime.game_master = SimpleNamespace(set_active_actor=lambda _actor_id: None)
+    runtime.game_master = SimpleNamespace(
+        set_active_actor=active_actor_names.append
+    )
     runtime.resolver = SimpleNamespace(
         resolve=lambda *_args, **_kwargs: resolved,
     )
@@ -189,7 +232,8 @@ def test_human_scene_boundary_completes_promotion_stage() -> None:
     )
 
     assert result.boundary == SimulationBoundary.SCENE
-    assert runtime.roster_actor_ids() == ("actor-0",)
+    assert active_actor_names == ["Player A"]
+    assert runtime.roster_actor_ids() == ("actor-0", "actor-1")
     assert [
         (event.stage, event.status) for event in runtime.drain_stage_events()
     ][-2:] == [
@@ -284,8 +328,13 @@ def test_runtime_rejects_recreating_an_existing_character_with_clear_guidance() 
         )
 
 
-def test_case_02_resource_updates_are_atomic_and_cannot_materialize_a_gun() -> None:
-    runtime = _runtime((_character("actor-0"), _character("actor-1")))
+def test_case_02_resource_updates_are_atomic_and_require_paired_transfer() -> None:
+    runtime = _runtime(
+        (
+            _character("actor-0"),
+            _character("actor-1", resources=("二楼备用钥匙",)),
+        )
+    )
     location_update = StateEffect(
         effect_id="effect:move:actor-0",
         operation=EffectOperation.SET,
@@ -303,22 +352,43 @@ def test_case_02_resource_updates_are_atomic_and_cannot_materialize_a_gun() -> N
     assert changed == ("state-updated:actor-0:location",)
     assert moved.location == "旅馆大厅"
 
-    gun_update = StateEffect(
-        effect_id="effect:gun:actor-0",
+    unpaired_key_update = StateEffect(
+        effect_id="effect:key:actor-0",
         operation=EffectOperation.SET,
         target=EffectTarget.CHARACTER_PROJECTION,
         target_id="actor-0",
         path="resources",
-        after=["手枪"],
+        after=["二楼备用钥匙"],
     )
     before = runtime.character_states()
 
-    with pytest.raises(ValueError, match="new resources must transfer"):
+    with pytest.raises(ValueError, match="resource transfer must remove"):
         runtime._apply_character_effects(
-            _turn(_event("actor-0", effects=(gun_update,)))
+            _turn(_event("actor-0", effects=(unpaired_key_update,)))
         )
 
     assert runtime.character_states() == before
+
+    paired_key_removal = StateEffect(
+        effect_id="effect:key:actor-1",
+        operation=EffectOperation.SET,
+        target=EffectTarget.CHARACTER_PROJECTION,
+        target_id="actor-1",
+        path="resources",
+        after=[],
+    )
+    runtime._apply_character_effects(
+        _turn(
+            _event(
+                "actor-0",
+                effects=(paired_key_removal, unpaired_key_update),
+            )
+        )
+    )
+    resources = {
+        character.id: character.resources for character in runtime.character_states()
+    }
+    assert resources == {"actor-0": ("二楼备用钥匙",), "actor-1": ()}
 
 
 def test_case_07_player_belief_changes_do_not_rewrite_world_truth() -> None:

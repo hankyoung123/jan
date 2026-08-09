@@ -1,70 +1,105 @@
-# Data contracts
+# Data Contracts
 
-## Runtime files
+The [Living Story World PRD](product-plan.md) defines semantic authority.
+Serialization is an implementation detail behind validated stores.
 
-Each project stores simulation infrastructure below `.story-engine/runtime`:
+## Authority matrix
 
-```text
-runtime/
-├── branches/<branch-id>.json
-├── checkpoints/checkpoint-<sha256>.json
-└── logs/<branch-id>.jsonl
-```
+| Data | Role | May directly change World Truth? |
+| --- | --- | --- |
+| Validated ResolvedEvent | Committed history | Yes, through validated effects |
+| Checkpoint and Branch head | Recoverable state and lineage | Yes, as the committed result |
+| Actor State and Memory | Recoverable runtime state | Only through Resolution |
+| User/NPC input and Intent | Putative attempt | No |
+| Belief and Perception | Actor-scoped state/projection | No |
+| Wiki, Narrative, UI Scene, Summary, Manuscript | Rebuildable projection | No |
+| Model trace/reasoning and Provider cache | Audit/performance data | No |
 
-Branch manifests contain project and branch IDs, parent/fork metadata, head
-checkpoint, head step, locale, and timestamps. Checkpoint envelopes contain a
-schema version, content-addressed checkpoint ID, and one complete
-`TurnSessionSnapshot`. Log records contain the matching checkpoint/state hash,
-`StepResult`, and `TurnTrace`.
+## Runtime persistence
+
+The current implementation stores simulation infrastructure below
+.story-engine/runtime:
+
+    runtime/
+    ├── branches/<branch-id>.json
+    ├── checkpoints/checkpoint-<sha256>.json
+    └── logs/<branch-id>.jsonl
+
+Branch manifests contain project/branch identity, parent and fork metadata,
+head checkpoint, head step, locale, and timestamps. A checkpoint envelope
+contains a schema version, a content-addressed checkpoint ID, and a complete
+TurnSessionSnapshot. Log records bind StepResult and TurnTrace to the matching
+checkpoint/state hash.
 
 All persisted models reject unknown fields. Datetimes are timezone-aware.
-Checkpoint load recalculates the canonical JSON hash (excluding only
-`state_hash` and `checkpoint_id`) and rejects tampering.
+Checkpoint load recalculates the canonical hash and rejects tampering.
+TurnSessionSnapshot.characters contains the branch-local Actor projection;
+runtime roster fields are scheduling details, not a separate product concept.
 
-`TurnSessionSnapshot.characters` contains the complete branch-local character
-projection. `roster_actor_ids` contains only the current Scene Roster and is
-limited to four Active Agent IDs.
+The current JSON/JSONL encoding is not product-level authority and may be
+replaced without changing the World protocol. No UI or model output may bypass
+the stores by writing these files directly.
 
 ## Commit semantics
 
-Step identity is `(session_id, step)`. Re-appending the identical log record is
+Step identity is (session_id, step). Re-appending an identical record is
 idempotent; conflicting duplicates and non-increasing step sequences are
-rejected. Branch head updates use an expected-head compare-and-swap and reject
-concurrent writers.
+rejected. Branch-head updates use an expected-head compare-and-swap.
 
-## Wiki files
+The safe order is:
 
-`wiki/branches/<branch-id>/` pages and their version snapshots are written as
-one recoverable `AtomicBatch`. They include only history at or before the
-selected checkpoint boundary. Branch-local log records provide step traces,
-while the checkpoint's Game Master memory supplies inherited world events after
-a fork. Removing Wiki pages does not alter branch manifests, checkpoints, or
-logs.
+1. Validate Resolution and state effects.
+2. Write and verify the immutable checkpoint.
+3. Persist the matching ResolvedEvent result and trace.
+4. Atomically advance the branch manifest head.
+
+Input, narrative, belief, perception, or a failed model call cannot advance the
+head. A failed projection update cannot roll back a valid world commit or
+become a prerequisite for restoring it.
+
+## Projection files
+
+Branch Wiki pages and manuscript drafts may remain human-readable Markdown.
+They must name their source checkpoint or event lineage when that distinction
+matters. Removing or rebuilding a projection does not alter branch manifests,
+checkpoints, events, Actor state, or Memory.
+
+Project-authored Markdown can provide initialization seeds. After the world is
+initialized, changing an authoring document does not retroactively change
+committed history and cannot rewrite the frozen Truth Seed.
 
 ## HTTP and TypeScript
 
-FastAPI generates `packages/contracts/openapi.json`; `openapi-typescript`
-generates `packages/contracts/src/generated.ts`. Run `yarn contracts:generate`
-after changing a public model or route. CI must fail when generated contracts
-drift from the application schema.
+FastAPI generates packages/contracts/openapi.json; openapi-typescript generates
+packages/contracts/src/generated.ts. Run yarn contracts:generate after changing
+a public model or route. CI must fail when generated contracts drift.
 
-The production control surface is session-based:
+The interactive world command is:
 
-- `/projects/{project_id}/simulations` and session control subroutes;
-- `/projects/{project_id}/branches` for forks;
-- branch rollback and Wiki rebuild routes.
+    POST /projects/{project_id}/simulation/turn
+    {
+      "text": "我走过去看看桌上的东西",
+      "command_id": "interactive:550e8400-e29b-41d4-a716-446655440000"
+    }
 
-The interactive world surface adds one player command:
+`command_id` is generated by the client and identifies the whole UI turn. The
+runtime derives separate `:player` and `:npc` child commands. Each child has an
+independent durable receipt and checkpoint, so replay does not duplicate an
+already committed player action and an NPC failure restores to the player
+checkpoint.
 
-```text
-POST /projects/{project_id}/simulation/turn
-{ "text": "我走过去看看桌上的东西" }
-```
+The response is restricted to the requesting Actor's perception, visible
+events, own state, checkpoint identity, and world time. It must not serialize a
+complete TurnSessionSnapshot, another Actor's private Memory, GM reasoning,
+hidden facts, undiscovered evidence, or raw Concordia state.
 
-The response is intentionally limited to `perception`, `visible_events`,
-`player_state`, `checkpoint_id`, and `world_time`. It does not serialize a
-complete `TurnSessionSnapshot`, NPC private memory, GM reasoning, secret
-facts, or raw Concordia state. `GET /projects/{project_id}/simulation/session`
-returns the same restricted projection to initialize the session UI.
+GET /projects/{project_id}/simulation/session returns the same restricted
+projection for reopening the World Session. Branch and checkpoint routes
+provide Timeline and “从这里继续” behavior without exposing a parallel
+save-game store. Reopened scene prose is reconstructed from the selected
+checkpoint lineage, latest Scene Boundary, subsequent visible ResolvedEvents,
+and current location/time; it is not copied from the original scene forever.
 
-WebSocket envelopes use `subject_id` and the `simulation.*` event family.
+WebSocket events are delivery hints for committed session changes. HTTP
+snapshots and durable branch state remain authoritative when an event is
+missed.

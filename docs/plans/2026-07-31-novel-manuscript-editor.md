@@ -1,5 +1,9 @@
 # Novel Manuscript Editor Integration
 
+> **Historical authoring plan.** Manuscript editing is not part of the current
+> World Session MVP. This file is retained as implementation evidence only;
+> the Living Story World PRD and ADR-0009 take precedence.
+
 ## Decision
 
 The manuscript workspace uses the published `novel@1.0.2` React editor as its

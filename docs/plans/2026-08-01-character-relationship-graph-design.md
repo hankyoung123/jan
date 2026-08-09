@@ -1,5 +1,9 @@
 # Character Relationship Graph Design
 
+> **Historical optional-view design.** A relationship graph is not current
+> World Session MVP scope. The Living Story World PRD and ADR-0009 take
+> precedence.
+
 ## Goal
 
 Add the deferred complex character relationship graph to the Characters page.

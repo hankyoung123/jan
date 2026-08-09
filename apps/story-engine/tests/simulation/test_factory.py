@@ -1,10 +1,20 @@
 from collections.abc import AsyncIterator, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from profile_factory import agent_profile as _profile
 
 from story_engine.concordia_runtime.memory import concordia_hash_embedder
+from story_engine.domain.action import ActionOutputType, ActionSpec
+from story_engine.domain.projection import (
+    EffectOperation,
+    EffectTarget,
+    EventVisibility,
+    ResolvedEvent,
+    ResolvedTurn,
+    StateEffect,
+)
 from story_engine.domain.simulation import (
     ControlMode,
     ControlPolicy,
@@ -139,6 +149,83 @@ class RecordingTransport:
         if False:
             yield ModelStreamChunk()
         raise AssertionError("factory live mapping tests do not stream")
+
+
+def test_character_goal_update_is_used_by_the_next_concordia_actor_action(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="actor",
+            task_type="actor",
+            model_ref="provider-a/shared-model",
+        )
+    )
+    transport = RecordingTransport()
+    runtime = ProjectRuntimeFactory(
+        tmp_path,
+        ModelGateway(registry, transport),
+    )(
+        "session:actor-state",
+        TurnSessionRequest(
+            project_id="fog-harbor",
+            branch_id="main",
+            premise_text="灯塔突然熄灭。",
+            actor_ids=("chen-mo",),
+            content_locale="zh-CN",
+            control=ControlPolicy(mode=ControlMode.STEP),
+        ),
+    )
+    new_goal = "立刻去码头核对最后一班船的乘客名单"
+    update = StateEffect(
+        effect_id="effect:goal:chen-mo",
+        operation=EffectOperation.SET,
+        target=EffectTarget.CHARACTER_PROJECTION,
+        target_id="chen-mo",
+        path="current_goal",
+        after=new_goal,
+    )
+    event = ResolvedEvent(
+        event_id="event:session:actor-state:0",
+        session_id="session:actor-state",
+        step=0,
+        actor_id="chen-mo",
+        event_text="陈默改变了计划。",
+        visibility=EventVisibility.PARTICIPANTS,
+        participant_ids=("chen-mo",),
+        effects=(update,),
+        content_locale="zh-CN",
+        occurred_at=datetime.now(UTC),
+    )
+    runtime._apply_character_effects(
+        ResolvedTurn(
+            session_id="session:actor-state",
+            branch_id="main",
+            step=0,
+            acting_actor_id="chen-mo",
+            putative_event_text="我改变计划。",
+            raw_resolution_text=event.event_text,
+            events=(event,),
+            effects=(update,),
+            content_locale="zh-CN",
+        )
+    )
+
+    runtime._all_actors_by_name["chen-mo"].act(
+        ActionSpec(
+            spec_id="action:session:actor-state:1",
+            output_type=ActionOutputType.FREE,
+            call_to_action="What do you do next?",
+            content_locale="zh-CN",
+        )
+    )
+
+    prompt = "\n".join(
+        message["content"] for message in transport.calls[-1]["messages"]
+    )
+    assert new_goal in prompt
 
 
 def test_actor_profile_is_reloaded_per_call(

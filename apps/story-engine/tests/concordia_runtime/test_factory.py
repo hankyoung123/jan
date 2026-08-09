@@ -23,7 +23,7 @@ from story_engine.domain.action import (
 from story_engine.domain.memory import MemoryScope
 from story_engine.domain.projection import ResolutionEnvelope
 from story_engine.domain.recipe import PerceptionFrame
-from story_engine.domain.simulation import CharacterRef, ResolverContext
+from story_engine.domain.simulation import ActorStateContext, ResolverContext
 from story_engine.models.contracts import ModelStreamChunk
 from story_engine.models.gateway import ModelGateway, ModelPartSink
 from story_engine.models.registry import ProfileRegistry
@@ -327,11 +327,17 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
             putative_event_text="I ask the witness a question.",
             content_locale="en-US",
             existing_characters=(
-                CharacterRef(
+                ActorStateContext(
                     id="actor-a",
                     display_name="Actor A",
                     type="active",
+                    identity="A careful investigator.",
+                    current_goal="Question the witness.",
                     location="archive",
+                    capabilities=("Interviewing", "Photography"),
+                    conditions=("Injured right hand",),
+                    resources=("Camera", "Press card"),
+                    beliefs=("The witness is withholding evidence.",),
                 ),
             ),
         ),
@@ -355,5 +361,11 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
         message["content"] for message in resolution_call["messages"]
     )
     assert "Existing characters:" in resolution_prompt
-    assert "- Actor A, active character, location: archive" in resolution_prompt
+    assert '"identity":"A careful investigator."' in resolution_prompt
+    assert '"current_goal":"Question the witness."' in resolution_prompt
+    assert '"location":"archive"' in resolution_prompt
+    assert '"capabilities":["Interviewing","Photography"]' in resolution_prompt
+    assert '"conditions":["Injured right hand"]' in resolution_prompt
+    assert '"resources":["Camera","Press card"]' in resolution_prompt
+    assert '"beliefs":["The witness is withholding evidence."]' in resolution_prompt
     assert "Use these exact display names" in resolution_prompt

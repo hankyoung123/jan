@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Story Engine
-Comment=Evolve long-form stories with user-approved canon
+Comment=Enter a persistent AI world that responds to your actions
 Exec=story-engine-desktop
 Icon=com.storyengine.desktop
 Terminal=false

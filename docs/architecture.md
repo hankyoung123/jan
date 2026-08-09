@@ -1,131 +1,169 @@
-# Architecture
+# Living Story World Architecture
 
-AI Story Evolution Engine runs as a local desktop system: Jan owns model
-providers and execution, the Python sidecar owns story simulation and durable
-state, and React provides project, simulation, branch, and manuscript views.
+This document translates the
+[Living Story World PRD v1.0](product-plan.md) into current engineering
+boundaries. The PRD is authoritative when this document, an older ADR, or
+retained implementation disagrees with it.
 
-## Runtime boundary
+## Product protocol
 
-`gdm-concordia==2.4.0` is the only Entity/Component/Engine implementation.
-Story-specific code supplies Prefabs, recipes, locale/pacing components,
-memory codecs, persistence, and HTTP application services.
+The product exposes six concepts:
 
-```mermaid
-flowchart LR
-  UI["React simulation console"] --> API["FastAPI sidecar"]
-  API --> SVC["SimulationApplicationService"]
-  SVC --> ENG["StoryTurnEngine"]
-  ENG --> SEQ["Concordia Sequential"]
-  SEQ --> ACT["Persistent character actors"]
-  SEQ --> GM["Persistent Game Master"]
-  ACT --> MB1["Private associative memories"]
-  GM --> MB2["Shared world memory"]
-  ACT --> GW["ModelGateway"]
-  GM --> GW
-  GW --> JAN["Jan provider/runtime authority"]
-```
+    World -> Perception -> Intent -> Resolution -> ResolvedEvent
+       ^                                                |
+       |------------ Actor state + Memory --------------|
 
-Every step asks the Game Master whether to terminate, produces observations,
-selects the next actor with `NEXT_ACTING`, creates a dynamic
-`NEXT_ACTION_SPEC`, obtains an actor action, and resolves that putative action
-into a world event. Actor text never becomes world truth without Game Master
-resolution.
+- **World** is durable objective reality: time, locations, rules, environment,
+  hidden facts, important objects, pressure, and committed history.
+- **Actor** is the shared player/NPC abstraction. Both submit putative Intent
+  and obey the same Resolution boundary.
+- **Perception** is a restricted projection for one Actor, never a World dump.
+- **Intent** is free natural language and always means an attempt.
+- **Resolution** is the sole semantic adjudication boundary.
+- **Memory** records an Actor's past experience; it is not current Actor state.
 
-## Interactive world sessions
+Only a validated **ResolvedEvent** may commit a world consequence. Input,
+actor output, intent, narrative text, belief, perception, and model reasoning
+cannot directly mutate World Truth.
 
-The World Simulation MVP uses the same `StoryTurnEngine`,
-`StorySimulationRuntime`, Game Master, `ResolvedEvent`, checkpoint, branch, and
-commit path as an autonomous step. A human player is an ordinary active
-Character whose intent source is the natural-language request rather than an
-actor model call. There is no `PlayerEngine`, `WorldEngine`, action-permission
-list, or second save-game state.
+## Runtime ownership
 
-```text
-World State + Actor State -> Perception -> Human/NPC Intent -> Concordia GM
--> ResolvedEvent -> runtime state + memory -> checkpoint -> Perception
-```
+Jan remains the desktop and model-infrastructure foundation. React renders the
+World Session and derived views. Tauri owns desktop lifecycle and the private
+model bridge. The Python sidecar owns story-domain validation, Concordia
+adaptation, Resolution, durable state, branches, and restricted projections.
 
-The runtime treats asserted outcomes as desired outcomes. The GM resolves only
-committed facts, actor knowledge/capabilities/conditions/resources, other
-actors, environment, time, and rules. A resolution may update only explicitly
-store-owned character paths (location, conditions, resources, beliefs, goal)
-or world time/location. A resource update must transfer an already established
-resource; it cannot materialize a weapon, evidence, or capability from actor
-text. The only committed history is `ResolvedEvent`; input, intent, narrative,
-belief, reasoning, and perception are not world truth.
+Unmodified gdm-concordia 2.4.0 is the only Entity/Component/Engine
+implementation. Product code adds prefabs, recipes, context components,
+memory codecs, persistence, API application services, and validation. Do not
+create a PlayerEngine, WorldEngine, ResolutionEngine, CombatEngine,
+InventoryEngine, or parallel simulation loop.
 
-`simulation/perception.py` is a derived, player-facing projection. It reads the
-durable snapshot and visible committed events only. It never reads another
-actor's memory, Game Master state, hidden facts, or model reasoning.
+    React World Session -> FastAPI -> StorySimulationRuntime
+                                  -> Concordia Sequential + Game Master
+                                  -> ModelGateway -> Jan provider/runtime
 
-## Durable state
+ModelGateway is the only story-domain model boundary. Provider credentials and
+protocols remain outside project files and domain objects.
 
-The branch head checkpoint is canonical for a running simulation. A checkpoint
-contains actor/component state, Game Master state, private/shared memory
-snapshots, current step, raw-log offset, locale, status, and a canonical SHA-256
-state hash. It also contains the branch-local Character projection, current
-Actor roster, and unclosed-scene events needed for automatic NPC review.
+## Resolution and effects
 
-The commit order is:
+Human and NPC actions enter the same putative-action path. The Game Master
+receives only authorized context and resolves against current committed facts:
+Actor knowledge, capabilities, conditions, resources, relationships, other
+Actors, environment, time, and world rules.
 
-1. Write and verify the content-addressed checkpoint.
-2. Append the step result and trace to the branch JSONL log.
-3. Compare-and-swap the branch manifest head under the project lock.
+`Character` is the sole current-state owner for every Actor. The lightweight
+`ActorStateContext` deterministically projects that record into Concordia
+immediately before action and Resolution, and is rebuilt from the checkpoint
+after restore. It is context, not a second mutable state store. The Game Master
+receives this projection directly; Wiki and retrieval are not on the
+Resolution path.
 
-A failure before step 3 can leave unreachable data, but never a branch head
-that references a missing checkpoint. Model calls occur outside filesystem
-locks. One live writer is allowed per project branch.
+Structured effects are deliberately narrow. They may update only store-owned
+World or Actor state after validation. A resource effect must transfer or
+consume an established resource; it cannot materialize a weapon, key,
+capability, or decisive clue from actor text. A belief update never changes the
+corresponding World fact.
 
-The branch Wiki under `wiki/branches/<branch>/` is the maintained human view.
-World, character, and timeline Wiki pages are rebuilt from durable history and
-checkpoints without affecting recovery. Project Markdown still provides
-editable seed material and manuscript export.
+Evidence Conservation is a Resolution invariant. Runtime generation may add
+ordinary environmental texture, but it cannot invent a decisive clue,
+witness, secret route, alibi, or causal fact because an Actor inspected
+something. The default world freezes its Truth Seed at initialization.
 
-The default interactive project, `last-ferry-before`, freezes its truth seed at
-initialization. Its seed contains the message source, reasons for the meeting,
-each NPC's private knowledge and goal, the locked room, item location,
-timeline, ferry relationship, and final truth. The Game Master receives the
-complete seed; every Actor receives public facts plus only its own restricted
-facts.
+## Perception and privacy
 
-## Privacy and locale
+Perception is built from the selected checkpoint, the requesting Actor's state
+and memory boundary, and visible committed events. It excludes:
 
-Each character owns a separate memory bank. The Game Master sees world truth
-and all project seed facts; characters receive only public seed facts, their
-own restricted facts, and observations routed to them. Memory snapshots retain
-owner and scope metadata and are hash-verified.
+- another Actor's private memory or internal state;
+- Game Master hidden facts and reasoning;
+- undiscovered evidence;
+- events outside the Actor's visibility;
+- raw prompts, traces, provider details, and complete runtime snapshots.
 
-`content_locale` controls generated prose and prompts. IDs, enums, tags,
-references, paths, and hashes remain locale-independent. UI locale remains a
-front-end concern.
+Glance, Observe, and Inspect are natural-language depths of Intent, not
+separate engines or object-click modes.
 
-## NPC lifecycle
+## Durable authority
 
-The Game Master may introduce a recurring ordinary person as an `npc`. This
-does not allocate an Actor or model. At a scene boundary, the Editor evaluates
-NPCs that participated in confirmed scene events. A positive, evidence-backed
-decision atomically changes `npc` to `active`, creates its private memory and
-Actor, and adds it to the branch-local Active Agent Pool. The decision is logged
-with the step; there is no confirmation API. At each scene boundary, the Game
-Master selects one to four Active Agents for the next Scene Roster. V1 does not
-retire them automatically.
+The authoritative runtime data is:
 
-## Control and recovery
+- validated ResolvedEvents;
+- immutable checkpoints and branch lineage;
+- current World and Actor state captured by the checkpoint;
+- shared and private Memory required to restore the simulation.
 
-The session API supports start, get, step, run, pause, resume, terminate, and
-explicit checkpoint operations. Control policies expose step, scene, chapter,
-and autonomous modes plus hard step, runtime, token, and failure budgets.
-Branch APIs create a branch from any project checkpoint, roll a branch head
-back, and rebuild the Wiki.
+The branch manifest identifies the current head. A commit writes and verifies
+the checkpoint and event/trace record before atomically advancing that head.
+Failed or cancelled model calls cannot advance it. One live state-mutating
+session is allowed per project branch.
 
-WebSocket events report simulation start, step completion, pause, checkpoint,
-termination, failure, and resynchronization. HTTP state remains authoritative
-when an event is missed.
+An interactive UI turn uses two independently idempotent commands: the player
+step commits first, then an eligible NPC step commits if one is scheduled. Each
+successful child command has its own receipt and checkpoint. The API may merge
+their visible events for display, but never persists that merged response as a
+third history record.
 
-## Model access and observability
+Wiki, Narrative, UI Scene, Summary, and Manuscript are projections. They may
+be rebuilt, edited under their own workflow, or fail independently without
+becoming world truth. Project seed material can initialize a world, but only
+Resolution can commit runtime consequences. Provider cache is never authority.
 
-`ModelGateway` is the only provider boundary. Runtime model tasks are `actor`,
-`game_master`, `wiki_maintenance`, `editor`, and `writer`. Every Concordia
-bridge call can record profile,
-provider, model, prompt version/hash, components, memory sources, token counts,
-duration, retries, and structured errors in the step trace.
+The physical serialization format may evolve behind validated stores. Product
+code must not expose file format as a second semantic authority or require a
+projection to restore a branch.
+
+## Time, persistence, and branching
+
+World time is committed state. Resolution advances it by a plausible amount;
+other Actors may act, leave, refuse, miss opportunities, or change plans while
+the player investigates. MVP does not run a real-time 24-hour background
+simulation and does not add a separate Time Engine.
+
+A checkpoint is an immutable history node. Restoring resumes that world state.
+Continuing from an older checkpoint creates a new Branch with independent
+future events; it never overwrites the original history. Reopening a project
+must derive the current Perception from its saved branch head, the most recent
+reachable Scene Boundary, subsequent visible committed events, and current
+location/time. The initial scene prose is only an initialization fallback.
+
+## NPC participation
+
+Important NPCs are Actors with private knowledge, goals, conditions,
+relationships, resources, memory, and location. They submit Intent and cannot
+commit outcomes directly. The runtime may select only the Actors who need to
+decide during a turn; the product does not promise that every NPC receives a
+model call every cycle.
+
+The player is always present in an interactive scene roster. Roster planning
+selects zero to three NPCs; autonomous sessions retain the general one-to-four
+Actor rule.
+
+Lightweight background people may remain environment records until they need
+persistent agency. That optimization must not create a different Resolution
+rule, require an Editor Agent, or impose the old npc-to-active authoring
+lifecycle on the World Session.
+
+## MVP surface
+
+The required UI is a world-like World Session with:
+
+- current time and location;
+- scene/perception prose without chat bubbles;
+- one free-form “说出你想做的事……” input;
+- Self Lens;
+- Timeline and Branch controls.
+
+Writer, Editor, submission chat, chapter generation, manuscript editing,
+story-map views, RAG workspaces, action menus, quest systems, inventories,
+skill engines, combat engines, and 24-hour simulation are outside the MVP core.
+Retained implementations may continue to exist, but the World Session must not
+depend on them.
+
+## Observability
+
+Traces may record model profile, provider/model reference, prompt version and
+hash, authorized context sources, token use, duration, retry, and structured
+errors. Traces are audit data, not world history, and must not expose secrets
+or private reasoning through player-facing APIs.

@@ -1,5 +1,8 @@
 # Story Map Optional View Design
 
+> **Historical optional-view design.** Story Map is not current World Session
+> MVP scope. The Living Story World PRD and ADR-0009 take precedence.
+
 ## Goal
 
 The event history page keeps the timeline as its default view and adds a

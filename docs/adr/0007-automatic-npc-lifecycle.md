@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted
+Superseded for the World Session by ADR-0009
+
+This record describes the earlier authoring runtime's npc-to-active promotion
+workflow. The current product treats the player and important NPCs as Actors
+under one Intent/Resolution rule and does not require Editor promotion for MVP.
+Its branch identity and model-call optimization ideas may be reused only when
+they do not recreate that product-level lifecycle.
 
 ## Context
 
@@ -71,5 +77,7 @@ identity and knowledge boundaries.
 
 ## References
 
-- `docs/product-plan.md`
+- the former AI Story Evolution Engine product plan (available in Git history)
+- the current [Living Story World PRD](../product-plan.md)
+- [ADR-0009](0009-living-story-world-product-boundary.md)
 - `docs/architecture.md`

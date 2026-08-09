@@ -28,10 +28,11 @@ from story_engine.domain.projection import (
     EventVisibility,
     ResolvedEvent,
     ResolvedTurn,
+    StateEffect,
 )
 from story_engine.domain.recipe import PerceptionFrame
 from story_engine.domain.simulation import (
-    CharacterRef,
+    ActorStateContext,
     PromotionDecision,
     ResolverContext,
     StepResult,
@@ -121,6 +122,11 @@ class StorySimulationRuntime:
         self._roster_planned = initial_snapshot is not None or initial_roster_selected
         if len(self._actors_by_name) != len(actors):
             raise ValueError("simulation actor IDs must be unique")
+        if (
+            self.player_actor_id is not None
+            and self.player_actor_id not in self._actors_by_name
+        ):
+            raise ValueError("interactive scene roster must include the player")
 
     def roster_actor_ids(self) -> tuple[str, ...]:
         return tuple(actor.name for actor in self.actors)
@@ -161,18 +167,103 @@ class StorySimulationRuntime:
             putative_event_text=putative_event_text,
             content_locale=self.content_locale,
             existing_characters=tuple(
-                CharacterRef(
-                    id=character.id,
-                    display_name=character.display_name or character.id,
-                    type=character.type,
-                    location=character.location,
-                )
+                ActorStateContext.from_character(character)
                 for character in self.character_states()
             ),
             world_time=world.current_time if world is not None else None,
             world_location=world.current_location if world is not None else None,
             world_rules=world.rules if world is not None else (),
         )
+
+    @staticmethod
+    def _resource_value(effect: StateEffect) -> tuple[str, ...]:
+        if not isinstance(effect.after, list) or not all(
+            isinstance(value, str) and value.strip() for value in effect.after
+        ):
+            raise ValueError("character collection state update must be strings")
+        value = tuple(str(item) for item in effect.after)
+        if len(value) != len(set(value)):
+            raise ValueError("character state update values must be unique")
+        return value
+
+    @classmethod
+    def _validate_resource_conservation(
+        cls,
+        effects: tuple[StateEffect, ...],
+        characters: Mapping[str, Character],
+    ) -> None:
+        initial = {
+            character_id: set(character.resources)
+            for character_id, character in characters.items()
+        }
+        final = {
+            character_id: set(resources)
+            for character_id, resources in initial.items()
+        }
+        updated_characters: set[str] = set()
+        for effect in effects:
+            if (
+                effect.operation != EffectOperation.SET
+                or effect.target != EffectTarget.CHARACTER_PROJECTION
+                or effect.path != "resources"
+            ):
+                continue
+            if effect.target_id is None or effect.target_id not in characters:
+                raise ValueError("character state update targets an unknown character")
+            if effect.target_id in updated_characters:
+                raise ValueError("resolution updates one character's resources twice")
+            updated_characters.add(effect.target_id)
+            final[effect.target_id] = set(cls._resource_value(effect))
+
+        initial_holders: dict[str, set[str]] = {}
+        final_holders: dict[str, set[str]] = {}
+        for character_id, resources in initial.items():
+            for resource in resources:
+                initial_holders.setdefault(resource, set()).add(character_id)
+        for character_id, resources in final.items():
+            for resource in resources:
+                final_holders.setdefault(resource, set()).add(character_id)
+
+        materialized = set(final_holders) - set(initial_holders)
+        if materialized:
+            raise ValueError(
+                f"resources cannot materialize from Resolution: {sorted(materialized)}"
+            )
+        for character_id, resources in final.items():
+            for resource in resources - initial[character_id]:
+                removed_by = initial_holders[resource] - final_holders[resource]
+                if not removed_by:
+                    raise ValueError(
+                        "resource transfer must remove the resource from its "
+                        f"previous holder before adding {resource!r}"
+                    )
+        for resource, holders in final_holders.items():
+            if len(holders) > len(initial_holders.get(resource, ())):
+                raise ValueError(f"resource transfer would duplicate {resource!r}")
+
+    def _sync_actor_states(
+        self,
+        character_ids: set[str],
+        *,
+        characters: Mapping[str, Character] | None = None,
+    ) -> None:
+        source = characters or self._characters_by_id
+        actor_backups: dict[str, dict[str, JsonValue]] = {}
+        try:
+            for character_id in sorted(character_ids):
+                actor = self._all_actors_by_name.get(character_id)
+                if actor is None:
+                    continue
+                actor_backups[character_id] = actor.get_state()
+                actor.set_actor_state(
+                    ActorStateContext.from_character(
+                        source[character_id]
+                    ).prompt_text()
+                )
+        except Exception:
+            for character_id, state in actor_backups.items():
+                self._all_actors_by_name[character_id].set_state(state)
+            raise
 
     def _apply_character_effects(self, resolved: ResolvedTurn) -> tuple[str, ...]:
         candidate_effects = (
@@ -231,10 +322,8 @@ class StorySimulationRuntime:
                     "event contains non-actor observer IDs: "
                     f"{sorted(unknown_observers)}"
                 )
-        initial_resources = {
-            character_id: set(character.resources)
-            for character_id, character in self._characters_by_id.items()
-        }
+        self._validate_resource_conservation(effects, characters)
+        changed_character_ids: set[str] = set()
         world = self._world
         for effect in effects:
             if effect.operation != EffectOperation.SET:
@@ -252,29 +341,7 @@ class StorySimulationRuntime:
                         raise ValueError("character text state update must be a string")
                     update: dict[str, object] = {effect.path: effect.after}
                 elif effect.path in {"conditions", "resources", "beliefs"}:
-                    if not isinstance(effect.after, list) or not all(
-                        isinstance(value, str) and value.strip()
-                        for value in effect.after
-                    ):
-                        raise ValueError(
-                            "character collection state update must be strings"
-                        )
-                    value = tuple(str(item) for item in effect.after)
-                    if len(value) != len(set(value)):
-                        raise ValueError("character state update values must be unique")
-                    if effect.path == "resources":
-                        added = set(value) - set(target_character.resources)
-                        held_by_others = set().union(
-                            *(
-                                resources
-                                for character_id, resources in initial_resources.items()
-                                if character_id != target_character.id
-                            )
-                        )
-                        if not added.issubset(held_by_others):
-                            raise ValueError(
-                                "new resources must transfer from an established actor"
-                            )
+                    value = self._resource_value(effect)
                     update = {effect.path: value}
                 else:
                     raise ValueError("character state update path is not supported")
@@ -286,6 +353,7 @@ class StorySimulationRuntime:
                         }
                     )
                 )
+                changed_character_ids.add(target_character.id)
                 changed.append(f"state-updated:{target_character.id}:{effect.path}")
                 continue
             if effect.target == EffectTarget.WORLD_PROJECTION:
@@ -312,6 +380,7 @@ class StorySimulationRuntime:
                 changed.append(f"world-updated:{effect.path}")
                 continue
             raise ValueError("state update targets unsupported projection")
+        self._sync_actor_states(changed_character_ids, characters=characters)
         self._characters_by_id = characters
         self._world = world
         return tuple(changed)
@@ -452,6 +521,8 @@ class StorySimulationRuntime:
             raise ValueError(
                 f"scene roster cannot exceed {MAX_SCENE_ROSTER_SIZE} active Agents"
             )
+        if self.player_actor_id is not None and self.player_actor_id not in selected:
+            raise ValueError("interactive scene roster cannot exclude the player")
         unknown = set(selected) - set(self._all_actors_by_name)
         if unknown:
             raise ValueError(f"scene roster contains unknown Agents: {sorted(unknown)}")
@@ -468,8 +539,11 @@ class StorySimulationRuntime:
     def _plan_initial_roster(self) -> tuple[str, ...]:
         if self._roster_planner is None or self._roster_planned:
             return ()
-        selected = self._roster_planner.select_initial(
-            self._active_roster_candidates()
+        candidates, _, minimum, maximum, required = self._roster_plan_inputs()
+        selected = required + self._roster_planner.select_initial(
+            candidates,
+            min_count=minimum,
+            max_count=maximum,
         )
         self._replace_roster(selected)
         self._roster_planned = True
@@ -481,14 +555,48 @@ class StorySimulationRuntime:
     ) -> tuple[str, ...]:
         if self._roster_planner is None:
             return ()
-        selected = self._roster_planner.select_next(
-            self._active_roster_candidates(),
-            current_roster=self.roster_actor_ids(),
+        candidates, current, minimum, maximum, required = self._roster_plan_inputs()
+        selected = required + self._roster_planner.select_next(
+            candidates,
+            current_roster=current,
             scene_events=scene_events,
+            min_count=minimum,
+            max_count=maximum,
         )
         self._replace_roster(selected)
         self._roster_planned = True
         return selected
+
+    def _roster_plan_inputs(
+        self,
+    ) -> tuple[
+        dict[str, tuple[str, str]],
+        tuple[str, ...],
+        int,
+        int,
+        tuple[str, ...],
+    ]:
+        candidates = self._active_roster_candidates()
+        current = self.roster_actor_ids()
+        if self.player_actor_id is None:
+            return candidates, current, 1, MAX_SCENE_ROSTER_SIZE, ()
+        if self.player_actor_id not in candidates:
+            raise ValueError("interactive player is not an active Actor")
+        npc_candidates = {
+            actor_id: value
+            for actor_id, value in candidates.items()
+            if actor_id != self.player_actor_id
+        }
+        npc_current = tuple(
+            actor_id for actor_id in current if actor_id != self.player_actor_id
+        )
+        return (
+            npc_candidates,
+            npc_current,
+            0,
+            MAX_SCENE_ROSTER_SIZE - 1,
+            (self.player_actor_id,),
+        )
 
     def _cancelled(self, external: Event) -> bool:
         return self.cancellation.is_set() or external.is_set()
@@ -820,6 +928,7 @@ class StorySimulationRuntime:
                 task_label="角色行动",
                 stage_event_id=stage_event.event_id,
             )
+            self._sync_actor_states({actor.name})
             action = actor.act(action_spec)
             putative_id = f"putative:{self.session_id}:{step}"
             self._publish_stage(
@@ -1004,7 +1113,7 @@ class StorySimulationRuntime:
         action = text.strip()
         if not action:
             raise ValueError("interactive turn text must not be empty")
-        self.game_master.set_active_actor(actor.name)
+        self.game_master.set_active_actor(actor.display_name)
 
         current_stage = SimulationStage.ACTOR_ACTION
         stage_started = datetime.now(UTC)
@@ -1211,17 +1320,18 @@ class StorySimulationRuntime:
             actor.set_state(actor_states[actor.name])
         self.game_master.memory.restore(memory_snapshots[self.game_master.name])
         self.game_master.set_state(game_master_states[self.game_master.name])
+        self._sync_actor_states(set(self._all_actors_by_name))
 
     def restore_snapshot(self, snapshot: TurnSessionSnapshot) -> None:
+        self._characters_by_id = {
+            character.id: character for character in snapshot.characters
+        }
         self.restore_states(
             actor_states=snapshot.actor_states,
             game_master_states=snapshot.game_master_states,
             memory_snapshots=snapshot.memory_snapshots,
         )
         self.set_content_locale(snapshot.content_locale)
-        self._characters_by_id = {
-            character.id: character for character in snapshot.characters
-        }
         self._world = snapshot.world
         self.player_actor_id = snapshot.player_actor_id
         self._pending_scene_events = list(snapshot.pending_scene_events)

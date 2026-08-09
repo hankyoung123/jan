@@ -1,54 +1,43 @@
-# Story Evolution Context
+# Living Story World Context
 
-This context defines the people and agency concepts used by the story simulation.
+本文定义当前产品使用的核心术语。产品最高层约束以
+[Living Story World PRD v1.0](docs/product-plan.md) 为准。
 
-## Character Agency
+## Product protocol
 
-**NPC**:
-A registered story person who does not independently choose simulation actions.
-_Avoid_: Agent NPC, dynamic entity
+**World**：持续存在的客观世界，包括时间、地点、规则、环境、隐藏事实、重要
+物品和已提交历史。World 不等于 UI 文本、Wiki 或一份任意生成的 JSON。
 
-**Active Agent**:
-A registered character who independently chooses actions toward a continuing goal.
-_Avoid_: Active entity, roster member
+**Actor**：能够在世界中感知并提交 Intent 的参与者。Player 与重要 NPC 使用
+相同的 Actor 规则；二者的 Intent 都必须经过 Resolution。
 
-**Active Agent Pool**:
-All Active Agents available on one story branch, independent of current scene participation.
-_Avoid_: Scene roster, active roster
+**Perception**：某个 Actor 此刻依法可感知和知道的派生视图。它不包含其他
+Actor 的私密记忆、GM 隐藏事实、未发现证据或模型 reasoning。
 
-**Scene Roster**:
-The one to four Active Agents selected to participate in the current scene.
-_Avoid_: Active Agent Pool, all active characters
+**Intent**：Actor 想做什么或尝试做什么。自然语言中的结果性表述仍只是
+Attempt，不能直接成为世界事实。
 
-**Acting Agent**:
-The single Scene Roster member selected to act during one simulation step.
-_Avoid_: Participant, scene roster
+**Resolution**：Concordia Game Master 根据当前 Reality 裁定实际发生什么的
+唯一语义边界。
 
-## Manuscript Lineage
+**Memory**：Actor 对过去经历的持久记录。Memory 与 Actor 当前状态分离。
 
-**Target Checkpoint**:
-The immutable story-state version selected as the upper boundary of one manuscript source.
-_Avoid_: Current head, latest state
+## Authority
 
-**Reachable History**:
-The committed turns on the Target Checkpoint's parent chain, excluding abandoned turns that merely share its branch or step numbers.
-_Avoid_: Branch log, step range
+**ResolvedEvent**：通过验证后唯一能够进入 committed history 的世界事件。
+User Input、NPC Output、Intent、Narrative、Belief、Perception 和 reasoning 都
+不能单独修改 World Truth。
 
-**Writer Context**:
-The privacy-limited manuscript context containing reachable events, the Target Checkpoint's Wiki, and only the chosen viewpoint's authorized memories.
-_Avoid_: GM context, omniscient context
+**Checkpoint**：包含可恢复世界、Actor、Memory 和运行状态的不可变历史节点。
 
-**Editor Context**:
-The complete manuscript verification context for the same Target Checkpoint and source range.
-_Avoid_: Writer Context, generation context
+**Branch**：从某个 Checkpoint 派生的独立 Alternate History。分支不会覆盖原
+历史。
 
-## Manuscript Access
+**Projection**：由权威历史派生、可以重建的视图，包括 Wiki、Narrative、
+UI Scene、Summary 和 Manuscript。
 
-**Wiki Visibility**:
-The explicit access label on a Wiki page: `public`, `private:<actor_id>`, or `gm_only`.
-Writer access is limited by viewpoint; Editor access may include all legal Wiki visibility levels.
-_Avoid_: path-based permission, implicit privacy
+## Product boundary
 
-**Automatic Primary Viewpoint**:
-The manuscript option used when no actor is selected. The system chooses the principal acting actor from the source history; it is not an omniscient narration mode.
-_Avoid_: omniscient view,全知视角
+World Session 是 MVP 核心体验。Writer、Editor、投稿、章节正文、RAG 工作台和
+传统多 Agent 创作流程属于遗留或未来能力，不能成为世界回合、恢复、分支或
+感知的核心依赖。

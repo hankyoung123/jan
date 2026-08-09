@@ -22,7 +22,7 @@ from story_engine.domain.projection import (
     StateEffect,
 )
 from story_engine.domain.simulation import (
-    CharacterRef,
+    ActorStateContext,
     GameMasterActor,
     ResolverContext,
 )
@@ -57,9 +57,9 @@ class ConcordiaResolverKernel:
         }
         lines: list[str] = []
         for character in context.existing_characters:
-            location = f", location: {character.location}" if character.location else ""
             lines.append(
-                f"- {character.display_name}, {type_labels[character.type]}{location}"
+                f"- {character.display_name}, {type_labels[character.type]}: "
+                f"{character.prompt_text()}"
             )
         lines.append(
             "Use these exact display names in participant_names or observer_names. "
@@ -79,8 +79,10 @@ class ConcordiaResolverKernel:
         return "Committed world state:\n" + "\n".join(lines)
 
     @staticmethod
-    def _characters_by_name(context: ResolverContext) -> dict[str, CharacterRef]:
-        characters_by_name: dict[str, CharacterRef] = {}
+    def _characters_by_name(
+        context: ResolverContext,
+    ) -> dict[str, ActorStateContext]:
+        characters_by_name: dict[str, ActorStateContext] = {}
         for character in context.existing_characters:
             name_key = character.display_name.strip().casefold()
             if name_key in characters_by_name:
@@ -179,9 +181,11 @@ class ConcordiaResolverKernel:
         try:
             envelope = ResolutionEnvelope.model_validate(payload)
         except ValidationError as error:
-            location = ".".join(str(item) for item in error.errors()[0]["loc"])
+            first_error = error.errors()[0]
+            location = ".".join(str(item) for item in first_error["loc"])
             raise ResolutionEnvelopeError(
-                f"Game Master resolution JSON failed schema validation at {location}"
+                "Game Master resolution JSON failed schema validation at "
+                f"{location}: {first_error['msg']}"
             ) from error
 
         acting_character = next(

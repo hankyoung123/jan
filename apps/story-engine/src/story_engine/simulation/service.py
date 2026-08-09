@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from threading import Event
 
-from story_engine.domain.projection import ProjectionKind, ProjectionTask
+from story_engine.domain.projection import ProjectionKind, ProjectionTask, ResolvedEvent
 from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     CommitResult,
@@ -68,6 +68,12 @@ class SimulationApplicationService:
     def get(self, session_id: str) -> TurnSessionSnapshot:
         return self.engine.get(session_id)
 
+    def current_scene_events(
+        self,
+        snapshot: TurnSessionSnapshot,
+    ) -> tuple[ResolvedEvent, ...]:
+        return self.persistence.current_scene_events(snapshot)
+
     def get_durable(
         self,
         project_id: str,
@@ -121,8 +127,18 @@ class SimulationApplicationService:
             cancellation=cancellation,
         )
 
-    def interactive_turn(self, session_id: str, *, text: str) -> StepResult:
-        return self.commands.interactive_turn(session_id, text=text)
+    def interactive_turn(
+        self,
+        session_id: str,
+        *,
+        text: str,
+        command_id: str | None = None,
+    ) -> StepResult:
+        return self.commands.interactive_turn(
+            session_id,
+            text=text,
+            command_id=command_id,
+        )
 
     def run(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:
         return self.commands.run(session_id, cancellation=cancellation)

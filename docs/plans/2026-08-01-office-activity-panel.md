@@ -1,5 +1,9 @@
 # Office Activity Panel Implementation Plan
 
+> **Historical authoring UI plan.** The office/activity surface is not current
+> World Session MVP scope. The Living Story World PRD and ADR-0009 take
+> precedence.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Add a lightweight office activity panel to the evolution page so active characters, locations, and current actions are visible with a subtle animated state.

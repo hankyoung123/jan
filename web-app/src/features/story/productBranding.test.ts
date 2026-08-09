@@ -98,7 +98,7 @@ describe('Story Engine product branding', () => {
       join(workspaceRoot, 'CONTRIBUTING.md'),
       'utf8'
     )
-    expect(contributingGuide).toContain('# Contributing to Story Engine')
+    expect(contributingGuide).toContain('# Contributing to Living Story World')
     expect(contributingGuide).not.toContain('# Contributing to Jan')
   })
 

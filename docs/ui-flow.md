@@ -1,69 +1,91 @@
-# UI Flow
+# World Session UI Flow
 
-The desktop navigation contains Workbench, Evolve, Characters, World, Events,
-Manuscript, Model Center, and Project Settings. Global settings remain separate
-from project settings.
+The MVP must feel like entering a world, not operating an AI writing tool or a
+chat client.
 
-## Simulation console
+## Primary session
 
-Evolve is a control surface for one branch-local simulation session:
+    Enter or resume world
+          ↓
+    Current Perception
+          ↓
+    Free-form Intent
+          ↓
+    Resolution + ResolvedEvent
+          ↓
+    World / Actor / Memory update
+          ↓
+    Time advances + relevant NPC response
+          ↓
+    New Perception
 
-```text
-Choose branch and actors -> Start session -> Step or run
--> Pause/checkpoint -> Resume, fork, roll back, project, or terminate
-```
+The main surface shows current world time and location, scene prose, visible
+people and changes, and one input labelled “说出你想做的事……”. It does not use
+traditional chat bubbles.
 
-Starting a session sends the selected actor IDs, premise, content locale, and
-control policy to the Python Story Engine. The page then renders the server
-snapshot and never maintains a second browser-owned copy of actor, Game Master,
-memory, step, or branch state.
+Users may naturally act, speak, think, observe, wait, deceive, test, or change
+plans in the same input. Do not require commands, action types, target IDs,
+skill names, JSON, recommended choices, or an action menu.
 
-Step executes exactly one Concordia step and returns to a paused boundary. Run
-and resume use the same engine with scene, chapter, or autonomous control
-policies. Pause takes effect at a safe step boundary. Terminate ends the
-session; checkpoint persists a restorable branch head. Events do not require
-per-event approval.
+## Perception depth
 
-The console can fork from a checkpoint and rebuild disposable Markdown views
-for a branch. Rollback remains a server operation and changes only the selected
-branch head. Deleting `world.md`, `timeline.md`, or `characters.md` does not
-delete simulation state.
+Glance is the automatic scene read, Observe is active attention, and Inspect
+requires actual manipulation. These are natural-language depths of Intent, not
+tabs, modes, or pixel-hunting interactions.
 
-The content-locale control is available only at created or paused boundaries.
-It changes subsequent actor, Game Master, observation, event, and Writer prose;
-historical content and machine identifiers are not translated.
+The rendered scene is always a restricted Perception. It cannot reveal private
+NPC memory, hidden GM truth, undiscovered evidence, internal reasoning, or
+another Actor's state merely because the UI has access to a full API client.
 
-When no project is selected, the page links back to Submission instead of
-assuming a bundled example. The UI shows stable Story Engine errors and does
-not expose Concordia component internals, prompts, credentials, or provider
-SDK details.
+## Self Lens
 
-## Other workspaces
+“我现在是谁？” displays only established facts:
 
-Characters, World, and Events load server-owned project or Wiki data.
-NPC promotion is an automatic Editor decision at a completed scene boundary.
-The decision cites committed event evidence, is stored in the branch history,
-and takes effect for the next scene without a confirmation control. Manuscript
-changes and amendments retain their own review
-and commit semantics; they do not gate the Game Master's world resolution.
+- identity;
+- capabilities and experience;
+- conditions;
+- important possessions;
+- important relationships.
 
-Submission starts from a non-canonical setting draft. Its discussion panel
-sends history and the draft to the Python Editor profile, shows the returned
-creative direction and runnable requirements, and writes project seed files
-only when finalization succeeds.
+It does not display HP, generic skill levels, success probability, RPG stats,
+or strategic recommendations.
 
-The discussion panel reuses Jan's conversation and composer components. Jan
-thread persistence and direct provider inference are not mounted in this flow.
-Tauri owns desktop lifecycle and the model bridge; the Python sidecar owns
-story-domain state and simulation.
+## Timeline and Branch
 
-## Model Center and Workbench
+Timeline lists committed checkpoints using world time and meaningful event
+context. The current node is clear. Selecting an earlier node offers
+“从这里继续”, which creates a new Branch. It must not silently roll back or
+overwrite the original history.
 
-Model Center keeps Jan's catalog, download, Provider, and local-runtime
-workflows. The task-model band configures Actor, Game Master, Wiki Maintenance,
-Editor, and Writer profiles. It
-contains no credential fields and links to Jan Provider settings.
+Reopening a project loads the selected Branch head and derives a fresh current
+Perception. It never returns to the opening scene unless that checkpoint is
+actually selected.
 
-Workbench is a compact operational overview of the active project, current
-branch/session state, recent events, and active characters. HTTP snapshots are
-authoritative; WebSocket events provide ordered live updates and resync hints.
+## Default world
+
+The bundled MVP world is 《末班船之前》. Its Truth Seed is frozen when the
+world is initialized. UI exploration may reveal established evidence and
+generate harmless environmental texture, but cannot create a clue or change
+the mystery solution.
+
+## Navigation boundary
+
+For MVP, World Session is the primary destination. Self Lens, Timeline, Branch,
+and model/provider configuration are supporting surfaces.
+
+Workbench, Evolve controls, Characters, World Wiki, Events, Manuscript,
+Submission, Writer/Editor review, RAG evidence, relationship graphs, and story
+maps may remain visible while migration is unfinished, but they are legacy or
+future surfaces. They must not define the primary user loop or become required
+for World Session Resolution, persistence, perception, restore, or branching.
+
+Model/provider settings reuse Jan infrastructure. They configure execution and
+must not expose credentials, prompts, provider SDK details, or full runtime
+state in the session UI.
+
+## MVP exclusions
+
+Do not add chat bubbles, action menus, quest lists, skill buttons, success
+odds, combat UI, inventory-engine UI, achievements, multiplayer, voice,
+runtime image generation, marketplaces, or a 24-hour background-world control
+surface to the MVP.

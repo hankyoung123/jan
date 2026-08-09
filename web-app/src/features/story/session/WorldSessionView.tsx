@@ -81,7 +81,13 @@ export function WorldSessionView() {
     try {
       const response = await engineRequest<SessionResponse>(
         branchPath(`/projects/${projectId}/simulation/turn`, branchId),
-        { method: 'POST', body: JSON.stringify({ text }) }
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            text,
+            command_id: `interactive:${crypto.randomUUID()}`,
+          }),
+        }
       )
       setSession(response)
       setTimeline((entries) => entries.map((entry) => ({

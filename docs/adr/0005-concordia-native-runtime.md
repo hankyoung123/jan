@@ -1,6 +1,6 @@
 # ADR-0005: Adopt a persistent Concordia-native simulation runtime
 
-- Status: Partially superseded by ADR-0006
+- Status: Accepted for the Concordia runtime core; amended by ADR-0009
 - Date: 2026-08-02
 - Supersedes: the per-step Markdown authority and mandatory approval portions
   of ADR-0002
@@ -9,6 +9,11 @@
 ADR-0006 supersedes this record's JSON authority, partial commit, optional RAG,
 and local-model statements. The persistent Concordia and Game Master decisions
 remain accepted.
+
+ADR-0009 now supplies the product authority boundary: validated ResolvedEvents,
+Checkpoints, Actor State, and Memory are authoritative, while Wiki, Narrative,
+Summary, UI Scene, and Manuscript are projections. Physical serialization is a
+store-level decision.
 
 ## Context
 
@@ -29,7 +34,7 @@ runtime lifecycle.
 ## Decision
 
 Use unmodified `gdm-concordia==2.4.0` as the sole Entity/Component/Engine
-implementation. Story Engine will add only novel-specific recipes, components,
+implementation. Story Engine will add only world-specific recipes, components,
 domain contracts, persistence, and application services around it.
 
 Each active simulation branch has:
@@ -106,9 +111,10 @@ path; the product has not shipped.
 
 ### Neutral
 
-- Atomic writes, project locks, transaction recovery, WebSocket events, Writer,
-  optional Editor audits, RAG, and Markdown export remain useful but change
-  what source they project from.
+- Atomic writes, project locks, transaction recovery, and WebSocket events
+  remain runtime infrastructure. Retained Writer, Editor, RAG, and Markdown
+  export paths are optional projections and legacy/future capabilities under
+  ADR-0009.
 
 ## Alternatives considered
 

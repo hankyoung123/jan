@@ -68,13 +68,17 @@ describe('WorldSessionView', () => {
 
     expect(await screen.findByText('张野仍在柜台附近。')).toBeInTheDocument()
     await waitFor(() => {
-      expect(h.engineRequest).toHaveBeenCalledWith(
-        '/projects/last-ferry-before/simulation/turn',
-        {
-          method: 'POST',
-          body: JSON.stringify({ text: '我走过去看看桌上的东西' }),
-        }
-      )
+      const call = h.engineRequest.mock.calls.find(([path]) => (
+        path === '/projects/last-ferry-before/simulation/turn'
+      ))
+      expect(call).toBeDefined()
+      expect(call?.[1].method).toBe('POST')
+      expect(JSON.parse(call?.[1].body)).toEqual({
+        text: '我走过去看看桌上的东西',
+        command_id: expect.stringMatching(
+          /^interactive:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+        ),
+      })
     })
   })
 
