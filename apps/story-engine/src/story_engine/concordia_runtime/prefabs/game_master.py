@@ -17,6 +17,7 @@ from concordia.language_model import language_model  # type: ignore[import-untyp
 from concordia.typing import prefab as prefab_lib  # type: ignore[import-untyped]
 
 from story_engine.concordia_runtime.components import (
+    EligibleNextActing,
     LocalePolicy,
     PacingContext,
     SchemaNextActionSpec,
@@ -126,7 +127,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         next_action_spec_model = per_component.get("next_action_spec", model)
         resolution_model = per_component.get("resolution", model)
 
-        next_acting = gm_components.next_acting.NextActing(
+        next_acting = EligibleNextActing(
             model=model,
             player_names=player_display_names,
             components=(

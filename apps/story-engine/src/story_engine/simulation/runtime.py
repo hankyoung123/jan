@@ -377,6 +377,59 @@ class StorySimulationRuntime:
             self._plan_next_roster(scene_events)
         return tuple(decisions)
 
+    def _complete_promotion_stage(
+        self,
+        resolved: ResolvedTurn,
+        *,
+        event_id: str,
+        started_at: datetime,
+    ) -> tuple[PromotionDecision, ...]:
+        if resolved.boundary.value == "none":
+            return self._evaluate_promotions(resolved, stage_event_id=None)
+
+        stage_event = self._publish_stage(
+            step=resolved.step,
+            stage=SimulationStage.PROMOTION,
+            status=StageStatus.RUNNING,
+            started_at=started_at,
+            input_record_ids=(event_id,),
+        )
+        self._set_trace_context(
+            step=resolved.step,
+            component_ids=("editor:automatic-promotion",),
+            source_record_ids=tuple(
+                event.event_id for event in self._pending_scene_events
+            )
+            + tuple(event.event_id for event in resolved.events),
+            stage=SimulationStage.PROMOTION,
+            task_label="NPC 晋升判断",
+            stage_event_id=stage_event.event_id,
+        )
+        decisions = self._evaluate_promotions(
+            resolved,
+            stage_event_id=stage_event.event_id,
+        )
+        self._publish_stage(
+            step=resolved.step,
+            stage=SimulationStage.PROMOTION,
+            status=StageStatus.SUCCEEDED,
+            started_at=started_at,
+            summary_text=(
+                "; ".join(
+                    f"{decision.character_id}: "
+                    f"{'promoted' if decision.promote else 'remains npc'}"
+                    for decision in decisions
+                )
+                or "No NPC promotion candidates"
+            ),
+            input_record_ids=(event_id,),
+            output_record_ids=tuple(
+                f"promotion:{self.session_id}:{resolved.step}:{decision.character_id}"
+                for decision in decisions
+            ),
+        )
+        return decisions
+
     def _active_roster_candidates(self) -> dict[str, tuple[str, str]]:
         return {
             character.id: (
@@ -879,56 +932,14 @@ class StorySimulationRuntime:
                 output_record_ids=tuple(routed_ids),
                 visible_to=tuple(sorted(observer_ids)),
             )
-            promotion_decisions: tuple[PromotionDecision, ...]
-            if resolved.boundary.value == "none":
-                promotion_decisions = self._evaluate_promotions(
-                    resolved,
-                    stage_event_id=None,
-                )
-            else:
+            if resolved.boundary.value != "none":
                 current_stage = SimulationStage.PROMOTION
                 stage_started = datetime.now(UTC)
-                stage_event = self._publish_stage(
-                    step=step,
-                    stage=current_stage,
-                    status=StageStatus.RUNNING,
-                    started_at=stage_started,
-                    input_record_ids=(event_id,),
-                )
-                self._set_trace_context(
-                    step=step,
-                    component_ids=("editor:automatic-promotion",),
-                    source_record_ids=tuple(
-                        event.event_id for event in self._pending_scene_events
-                    )
-                    + tuple(event.event_id for event in resolved.events),
-                    stage=current_stage,
-                    task_label="NPC 晋升判断",
-                    stage_event_id=stage_event.event_id,
-                )
-                promotion_decisions = self._evaluate_promotions(
-                    resolved,
-                    stage_event_id=stage_event.event_id,
-                )
-                self._publish_stage(
-                    step=step,
-                    stage=current_stage,
-                    status=StageStatus.SUCCEEDED,
-                    started_at=stage_started,
-                    summary_text=(
-                        "; ".join(
-                            f"{decision.character_id}: "
-                            f"{'promoted' if decision.promote else 'remains npc'}"
-                            for decision in promotion_decisions
-                        )
-                        or "No NPC promotion candidates"
-                    ),
-                    input_record_ids=(event_id,),
-                    output_record_ids=tuple(
-                        f"promotion:{self.session_id}:{step}:{decision.character_id}"
-                        for decision in promotion_decisions
-                    ),
-                )
+            promotion_decisions = self._complete_promotion_stage(
+                resolved,
+                event_id=event_id,
+                started_at=stage_started,
+            )
             return StepResult(
                 session_id=self.session_id,
                 branch_id=self.branch_id,
@@ -1116,9 +1127,13 @@ class StorySimulationRuntime:
                 output_record_ids=tuple(routed_ids),
                 visible_to=tuple(sorted(observer_ids)),
             )
-            promotion_decisions = self._evaluate_promotions(
+            if resolved.boundary.value != "none":
+                current_stage = SimulationStage.PROMOTION
+                stage_started = datetime.now(UTC)
+            promotion_decisions = self._complete_promotion_stage(
                 resolved,
-                stage_event_id=None,
+                event_id=event_id,
+                started_at=stage_started,
             )
             return StepResult(
                 session_id=self.session_id,

@@ -10,6 +10,7 @@ from pydantic import JsonValue
 from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     CommitResult,
+    PendingControl,
     StepResult,
     TurnSessionRequest,
     TurnSessionSnapshot,
@@ -293,19 +294,41 @@ class SimulationPersistenceService:
             raise ValueError("branch has no checkpoint to restore")
 
         source = kernel.load_checkpoint(project_id, branch.head_checkpoint_id)
-        if source.branch_id != branch_id:
+        if source.branch_id != branch_id or source.status in {
+            TurnSessionStatus.TERMINATED,
+            TurnSessionStatus.CANCELLED,
+            TurnSessionStatus.FAILED,
+        }:
             rebound_request = source.request.model_copy(
                 update={"branch_id": branch_id}
             )
+            updates = {
+                "branch_id": branch_id,
+                "request": rebound_request,
+                "checkpoint_id": branch.head_checkpoint_id,
+                "state_hash": "0" * 64,
+            }
+            if source.status in {
+                TurnSessionStatus.TERMINATED,
+                TurnSessionStatus.CANCELLED,
+                TurnSessionStatus.FAILED,
+            }:
+                updates.update(
+                    {
+                        "status": TurnSessionStatus.PAUSED,
+                        "pending_control": PendingControl.NONE,
+                        "termination_reason_text": None,
+                        "restoration_notice_text": None,
+                    }
+                )
             rebound = source.model_copy(
                 update={
                     "session_id": f"session:{uuid.uuid4().hex}",
-                    "branch_id": branch_id,
-                    "request": rebound_request,
-                    "checkpoint_id": branch.head_checkpoint_id,
-                    "state_hash": "0" * 64,
+                    **updates,
                 }
             )
+            if source.branch_id == branch_id:
+                rebound = rebound.model_copy(update={"session_id": source.session_id})
             source = rebound.model_copy(
                 update={"state_hash": calculate_snapshot_state_hash(rebound)}
             )

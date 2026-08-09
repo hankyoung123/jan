@@ -3,7 +3,7 @@ import type {
   EngineEventEnvelope,
   SimulationStage,
 } from '@story-engine/contracts'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { engineRequest, subscribeProjectEvents } from '../engine'
 import {
@@ -41,6 +41,7 @@ export function useSimulationStream({
     initialSimulationViewState
   )
   const [revision, setRevision] = useState(0)
+  const appliedLocationKey = useRef<string | null>(null)
   const applyEvent = useCallback(
     (event: EngineEventEnvelope) => {
       if (sessionId && event.subject_id !== sessionId && event.subject_id !== 'stream') {
@@ -68,10 +69,13 @@ export function useSimulationStream({
   useEffect(() => {
     if (!projectId || !sessionId) {
       setViewState(initialSimulationViewState)
+      appliedLocationKey.current = null
       return
     }
     const activeProjectId = projectId
     const activeSessionId = sessionId
+    const locationKey = `${activeProjectId}:${activeSessionId}:${branchId ?? ''}`
+    const applyInitialLocation = appliedLocationKey.current !== locationKey
     let disposed = false
     let unsubscribe: (() => void) | undefined
 
@@ -107,9 +111,10 @@ export function useSimulationStream({
           }
         }
       }
-      if (initialLocation) {
+      if (applyInitialLocation && initialLocation) {
         restored = selectViewLocation(restored, initialLocation)
       }
+      appliedLocationKey.current = locationKey
       setViewState(restored)
       unsubscribe = await subscribeProjectEvents(
         activeProjectId,

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +15,7 @@ from story_engine.domain.projection import (
     StateEffect,
 )
 from story_engine.domain.simulation import PromotionDecision
+from story_engine.domain.trace import SimulationStage, StageStatus
 from story_engine.simulation.runtime import StorySimulationRuntime
 
 
@@ -133,9 +135,10 @@ def test_active_agent_pool_can_exceed_four_while_scene_roster_stays_bounded() ->
         roster_planner=NextRosterPlanner(),
     )
 
-    decisions = runtime._evaluate_promotions(
+    decisions = runtime._complete_promotion_stage(
         _turn(_event("npc-1")),
-        stage_event_id="stage-event:promotion",
+        event_id="event:session-1:0",
+        started_at=datetime.now(UTC),
     )
 
     npc = next(item for item in runtime.character_states() if item.id == "npc-1")
@@ -151,6 +154,48 @@ def test_active_agent_pool_can_exceed_four_while_scene_roster_stays_bounded() ->
         "npc-1",
     )
     assert runtime.pending_scene_events() == ()
+    assert [
+        (event.stage, event.status) for event in runtime.drain_stage_events()
+    ] == [
+        (SimulationStage.PROMOTION, StageStatus.RUNNING),
+        (SimulationStage.PROMOTION, StageStatus.SUCCEEDED),
+    ]
+
+
+def test_human_scene_boundary_completes_promotion_stage() -> None:
+    class NextRosterPlanner:
+        def select_next(self, candidates, *, current_roster, scene_events):
+            assert set(candidates) == {"actor-0"}
+            assert current_roster == ("actor-0",)
+            assert scene_events == (_event("actor-0"),)
+            return ("actor-0",)
+
+    resolved = _turn(_event("actor-0"))
+    runtime = _runtime(
+        (_character("actor-0"),),
+        roster_planner=NextRosterPlanner(),
+    )
+    runtime.player_actor_id = "actor-0"
+    runtime.actors[0].observe = lambda _frame: None
+    runtime.game_master = SimpleNamespace(set_active_actor=lambda _actor_id: None)
+    runtime.resolver = SimpleNamespace(
+        resolve=lambda *_args, **_kwargs: resolved,
+    )
+
+    result = runtime.execute_human_turn(
+        0,
+        text="I document the room.",
+        cancellation=Event(),
+    )
+
+    assert result.boundary == SimulationBoundary.SCENE
+    assert runtime.roster_actor_ids() == ("actor-0",)
+    assert [
+        (event.stage, event.status) for event in runtime.drain_stage_events()
+    ][-2:] == [
+        (SimulationStage.PROMOTION, StageStatus.RUNNING),
+        (SimulationStage.PROMOTION, StageStatus.SUCCEEDED),
+    ]
 
 
 def test_rejected_editor_decision_leaves_npc_without_an_actor() -> None:

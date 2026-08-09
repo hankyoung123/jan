@@ -15,6 +15,7 @@ from story_engine.domain.simulation import (
     TurnSessionStatus,
 )
 from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.persistence.session_store import SessionStore
 
 AUTH = {"Authorization": "Bearer test-token"}
 
@@ -311,6 +312,52 @@ def test_case_12_interactive_branch_resumes_without_moving_main(
     heads = {branch["branch_id"]: branch["head_checkpoint_id"] for branch in branches}
     assert heads["main"] == main_turn["checkpoint_id"]
     assert heads["alternate"] == alternate_turn.json()["checkpoint_id"]
+
+
+def test_interactive_session_reopens_a_terminated_branch_head(tmp_path) -> None:
+    settings = EngineSettings(session_token="test-token", projects_root=tmp_path)
+    app = create_app(
+        settings,
+        simulation_runtime_factory=lambda session_id, request: InteractiveRuntime(
+            session_id, request
+        ),  # type: ignore[arg-type]
+    )
+    with TestClient(app) as client:
+        opened = client.get(
+            "/projects/last-ferry-before/simulation/session",
+            headers=AUTH,
+        )
+        session_id = SessionStore(tmp_path / "last-ferry-before").list(
+            "last-ferry-before"
+        )[0].session_id
+        terminated = client.post(
+            f"/projects/last-ferry-before/simulations/{session_id}/terminate",
+            headers=AUTH,
+            json={"reason_text": "测试结束"},
+        )
+
+    reopened = create_app(
+        settings,
+        simulation_runtime_factory=lambda session_id, request: InteractiveRuntime(
+            session_id, request
+        ),  # type: ignore[arg-type]
+    )
+    with TestClient(reopened) as client:
+        restored = client.get(
+            "/projects/last-ferry-before/simulation/session",
+            headers=AUTH,
+        )
+        continued = client.post(
+            "/projects/last-ferry-before/simulation/turn",
+            headers=AUTH,
+            json={"text": "继续观察大厅"},
+        )
+
+    assert opened.status_code == 200
+    assert terminated.status_code == 200
+    assert terminated.json()["status"] == "terminated"
+    assert restored.status_code == 200
+    assert continued.status_code == 200
 
 
 def test_interactive_session_survives_thirty_one_turns_and_reopens_from_branch_head(
