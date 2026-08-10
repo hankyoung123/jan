@@ -1,3 +1,4 @@
+import copy
 import re
 import uuid
 from collections.abc import Callable, Mapping, Sequence
@@ -49,6 +50,29 @@ from story_engine.domain.trace import (
     StageStatus,
 )
 from story_engine.wiki.context import WikiContextBuilder
+
+
+def _merge_restored_entity_state(
+    current: Mapping[str, JsonValue],
+    persisted: Mapping[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Restore dynamic state without reviving an obsolete component graph."""
+    merged: dict[str, JsonValue] = copy.deepcopy(dict(current))
+    for key, value in persisted.items():
+        current_value = merged.get(key)
+        if isinstance(current_value, Mapping) and isinstance(value, Mapping):
+            merged[key] = _merge_restored_entity_state(current_value, value)
+        else:
+            merged[key] = copy.deepcopy(value)
+
+    # ConcatActComponent's state only describes how the current prefab's context
+    # components are assembled.  It is code-owned structure, not durable story
+    # state.  Restoring an older component_order can reference components that no
+    # longer exist (identity/goal/relationships) and omit their replacement
+    # (actor_state), causing EntityAgent.act() to fail with KeyError.
+    if "act_component" in current:
+        merged["act_component"] = copy.deepcopy(current["act_component"])
+    return merged
 
 
 class StorySimulationRuntime:
@@ -1472,9 +1496,19 @@ class StorySimulationRuntime:
     ) -> None:
         for actor in self._all_actors_by_name.values():
             actor.memory.restore(memory_snapshots[actor.name])
-            actor.set_state(actor_states[actor.name])
+            actor.set_state(
+                _merge_restored_entity_state(
+                    actor.get_state(),
+                    actor_states[actor.name],
+                )
+            )
         self.game_master.memory.restore(memory_snapshots[self.game_master.name])
-        self.game_master.set_state(game_master_states[self.game_master.name])
+        self.game_master.set_state(
+            _merge_restored_entity_state(
+                self.game_master.get_state(),
+                game_master_states[self.game_master.name],
+            )
+        )
         self._sync_actor_states(set(self._all_actors_by_name))
 
     def restore_snapshot(self, snapshot: TurnSessionSnapshot) -> None:

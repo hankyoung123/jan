@@ -363,6 +363,8 @@ def _interactive_service(
     player_boundary: SimulationBoundary = SimulationBoundary.NONE,
     player_participants: tuple[str, ...] = ("player", "lin-che"),
     remove_roster_at_boundary: bool = False,
+    max_scenes: int = 5,
+    initial_completed_scenes: int = 0,
 ) -> tuple[
     SimulationCommandService,
     str,
@@ -411,6 +413,15 @@ def _interactive_service(
             ),
             game_master_rebuilder=lambda _actors, previous: previous,
         )
+        if initial_completed_scenes:
+            runtime.initial_snapshot = SimpleNamespace(
+                current_step=0,
+                completed_scenes=initial_completed_scenes,
+                raw_log_offset=0,
+                total_model_tokens=0,
+                consecutive_model_failures=0,
+                checkpoint_id=None,
+            )
         runtime_ref["runtime"] = runtime
         return runtime
 
@@ -433,7 +444,7 @@ def _interactive_service(
             control=ControlPolicy(
                 mode=ControlMode.STEP,
                 max_steps=10,
-                max_scenes=5,
+                max_scenes=max_scenes,
             ),
         )
     )
@@ -454,6 +465,27 @@ def test_player_question_calls_the_affected_npc_actor() -> None:
     service.interactive_turn(session_id, text="林澈，那条消息是不是你发的？")
 
     assert actors["lin-che"].act_calls == 1
+
+
+def test_reached_scene_budget_waits_for_required_npc_response() -> None:
+    service, session_id, actors, *_ = _interactive_service(
+        max_scenes=1,
+        initial_completed_scenes=1,
+    )
+
+    result = service.interactive_turn(
+        session_id,
+        text="林澈，那条消息是不是你发的？",
+    )
+
+    assert actors["lin-che"].act_calls == 1
+    assert result.resolved_turn is not None
+    assert result.resolved_turn.events[-1].actor_id == "lin-che"
+    assert result.status.value == "terminated"
+    assert (
+        service.engine.get(session_id).termination_reason_text
+        == "maximum scene budget reached"
+    )
 
 
 def test_player_resolution_forbids_generating_npc_voluntary_dialogue() -> None:

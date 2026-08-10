@@ -329,11 +329,19 @@ class StoryTurnEngine:
                 session.raw_log_offset += 1
                 if result.boundary.value != "none":
                     session.completed_scenes += 1
-                reason = hard_limit_reason(
-                    session.request.control,
-                    completed_steps=session.current_step,
-                    completed_scenes=session.completed_scenes,
-                    elapsed_seconds=0,
+                # A player step can reserve an affected NPC as the second half
+                # of the same interactive turn.  Do not let a hard boundary
+                # terminate the session between those two durable steps; the
+                # NPC step will enforce the limit after completing the handoff.
+                reason = (
+                    None
+                    if result.follow_up_actor_ids
+                    else hard_limit_reason(
+                        session.request.control,
+                        completed_steps=session.current_step,
+                        completed_scenes=session.completed_scenes,
+                        elapsed_seconds=0,
+                    )
                 )
                 if reason is not None:
                     session.status = TurnSessionStatus.TERMINATED
@@ -442,11 +450,15 @@ class StoryTurnEngine:
                 )
             )
             started = session.continuous_started_at or time.monotonic()
-            limit_reason = hard_limit_reason(
-                session.request.control,
-                completed_steps=session.current_step,
-                completed_scenes=session.completed_scenes,
-                elapsed_seconds=time.monotonic() - started,
+            limit_reason = (
+                None
+                if result.follow_up_actor_ids
+                else hard_limit_reason(
+                    session.request.control,
+                    completed_steps=session.current_step,
+                    completed_scenes=session.completed_scenes,
+                    elapsed_seconds=time.monotonic() - started,
+                )
             )
             if limit_reason and session.status == TurnSessionStatus.RUNNING:
                 session.status = TurnSessionStatus.TERMINATED
