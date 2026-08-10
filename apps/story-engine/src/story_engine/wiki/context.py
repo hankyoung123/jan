@@ -1,9 +1,7 @@
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from urllib.parse import quote
 
-from story_engine.domain.memory import MemoryRecord
 from story_engine.domain.wiki import (
     WikiContextBundle,
     WikiContextManifestEntry,
@@ -32,16 +30,14 @@ class WikiContextBuilder:
         branch_id: str,
         *,
         max_context_chars: int = 32_768,
-        recent_memory_limit: int = 8,
         version_id: str | None = None,
         excluded_source_ids: frozenset[str] = frozenset(),
     ) -> None:
-        if max_context_chars <= 0 or not 4 <= recent_memory_limit <= 8:
+        if max_context_chars <= 0:
             raise ValueError("invalid Wiki context bounds")
         self.store = WikiStore(root, branch_id)
         self.branch_id = branch_id
         self.max_context_chars = max_context_chars
-        self.recent_memory_limit = recent_memory_limit
         self.version_id = version_id
         self.excluded_source_ids = excluded_source_ids
 
@@ -235,69 +231,6 @@ class WikiContextBuilder:
                 viewpoint_actor_id=subject_id,
             ),
             self.max_context_chars,
-        )
-
-    def actor(
-        self,
-        subject_id: str,
-        recent_memories: tuple[MemoryRecord, ...],
-    ) -> WikiContextBundle:
-        selected = recent_memories[-self.recent_memory_limit :]
-        participants = tuple(
-            sorted({item for memory in selected for item in memory.actor_ids})
-        )
-        locations = tuple(
-            sorted({item for memory in selected for item in memory.location_ids})
-        )
-        keywords = tuple(memory.text for memory in selected)
-        wiki_header = "Character Wiki:\n"
-        recent_header = "\n\nCurrent scene and recent raw observations:\n"
-        content_budget = max(
-            0,
-            self.max_context_chars - len(wiki_header) - len(recent_header),
-        )
-        wiki = self._render(
-            self._candidates(
-                prefix=f"characters/{subject_id}/",
-                permission=f"private:{subject_id}",
-                participant_ids=participants,
-                location_ids=locations,
-                keywords=keywords,
-                viewpoint_actor_id=subject_id,
-            ),
-            content_budget // 2,
-        )
-        recent_budget = content_budget - len(wiki.content)
-        recent = ""
-        recent_manifest: list[WikiContextManifestEntry] = []
-        item_budget = max(
-            1,
-            (recent_budget - max(0, len(selected) - 1)) // max(1, len(selected)),
-        )
-        for memory in selected:
-            section = f"- {memory.text}"[:item_budget]
-            remaining = recent_budget - len(recent)
-            if remaining <= 0:
-                break
-            included = section[:remaining].rstrip()
-            recent += ("\n" if recent else "") + included
-            recent_manifest.append(
-                WikiContextManifestEntry(
-                    path=(
-                        f"history/observations/{self.branch_id}/"
-                        f"{quote(memory.owner_id, safe='')}/"
-                        f"{quote(memory.record_id, safe='')}.md"
-                    ),
-                    reason="current_observation",
-                    permission=f"private:{subject_id}",
-                    source_ids=(memory.record_id,),
-                    estimated_tokens=self._tokens(included),
-                )
-            )
-        content = f"{wiki_header}{wiki.content}{recent_header}{recent}"
-        return WikiContextBundle(
-            content=content[: self.max_context_chars].rstrip(),
-            manifest=(*wiki.manifest, *recent_manifest),
         )
 
     def writer(

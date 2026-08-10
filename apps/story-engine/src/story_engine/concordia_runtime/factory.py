@@ -87,7 +87,18 @@ class ConcordiaStoryActor:
                 text=perception.observation_text,
                 content_locale=perception.content_locale,
                 created_at=datetime.now().astimezone(),
-                actor_ids=(perception.actor_id,),
+                actor_ids=tuple(
+                    dict.fromkeys(
+                        (
+                            perception.actor_id,
+                            *perception.participant_ids,
+                            *(
+                                entity.entity_id
+                                for entity in perception.visible_entities
+                            ),
+                        )
+                    )
+                ),
                 location_ids=perception.location_ids,
                 source_record_ids=perception.source_record_ids,
                 visible_to=(perception.actor_id,),

@@ -12,7 +12,10 @@ from concordia.language_model import language_model  # type: ignore[import-untyp
 from concordia.typing import prefab as prefab_lib  # type: ignore[import-untyped]
 
 from story_engine.concordia_runtime.components import (
+    CurrentPerceptionContext,
     LocalePolicy,
+    RecentMemoryContext,
+    RelevantMemoryContext,
     WikiKnowledgeContext,
 )
 from story_engine.domain.recipe import AgentRecipe
@@ -51,16 +54,14 @@ class StoryCharacterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
             "observation_to_memory": (
                 agent_components.observation.ObservationToMemory()
             ),
-            "observations": agent_components.observation.LastNObservations(
-                history_length=int(self.params.get("observation_history", "40")),
-                pre_act_label="Recent observations",
-            ),
             "knowledge": WikiKnowledgeContext(
                 project_root=self.params["project_root"],
                 branch_id=self.params["branch_id"],
                 subject_id=name,
-                limit=int(self.params.get("knowledge_limit", "8")),
             ),
+            "recent_memory": RecentMemoryContext(),
+            "relevant_memory": RelevantMemoryContext(subject_id=name),
+            "current_perception": CurrentPerceptionContext(),
             memory_key: agent_components.memory.AssociativeMemory(
                 memory_bank=memory_bank
             ),
@@ -69,8 +70,10 @@ class StoryCharacterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
             "system_instruction",
             "locale",
             "actor_state",
-            "observations",
             "knowledge",
+            "recent_memory",
+            "relevant_memory",
+            "current_perception",
             "observation_to_memory",
             memory_key,
         )

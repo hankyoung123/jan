@@ -1,10 +1,8 @@
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.wiki import WikiPatch, WikiPatchOperation
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.wiki.context import WikiContextBuilder
@@ -147,33 +145,14 @@ def test_one_thousand_scene_updates_keep_context_bounded(tmp_path: Path) -> None
 
 def test_actor_and_writer_contexts_enforce_one_total_limit(tmp_path: Path) -> None:
     root = _root(tmp_path)
-    memories = tuple(
-        MemoryRecord(
-            record_id=f"memory:chen:{step}",
-            record_type=MemoryRecordType.OBSERVATION,
-            scope=MemoryScope.CHARACTER,
-            owner_id="chen-mo",
-            session_id="session:context",
-            branch_id="main",
-            step=step,
-            text=f"memory {step} " + ("x" * 10_000),
-            content_locale="zh-CN",
-            created_at=datetime.now(UTC),
-            visible_to=("chen-mo",),
-        )
-        for step in range(1, 9)
-    )
     builder = WikiContextBuilder(root, "main", max_context_chars=1_024)
 
-    actor = builder.actor("chen-mo", memories)
+    character = builder.character("chen-mo")
     writer = builder.writer("chen-mo")
 
-    assert len(actor.content) <= 1_024
-    assert "Character Wiki:" in actor.content
-    assert "Current scene and recent raw observations:" in actor.content
-    assert "memory 1" in actor.content
-    assert "memory 8" in actor.content
-    assert any(item.reason == "current_observation" for item in actor.manifest)
+    assert len(character.content) <= 1_024
+    assert character.manifest
+    assert "Current scene and recent raw observations:" not in character.content
     assert len(writer.content) <= 1_024
     assert "World Wiki:" in writer.content
     assert "Viewpoint Wiki:" in writer.content

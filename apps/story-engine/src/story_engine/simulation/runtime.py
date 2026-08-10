@@ -1147,6 +1147,24 @@ class StorySimulationRuntime:
                 elif event.visibility == EventVisibility.RESTRICTED:
                     observer_ids.update(event.observer_ids)
             observer_ids.intersection_update(self._actors_by_name)
+            participant_ids = tuple(
+                sorted(
+                    {
+                        participant_id
+                        for event in resolved.events
+                        for participant_id in event.participant_ids
+                    }
+                )
+            )
+            location_ids = tuple(
+                sorted(
+                    {
+                        location_id
+                        for event in resolved.events
+                        for location_id in event.location_ids
+                    }
+                )
+            )
             routed_ids: list[str] = []
             for observer_id in sorted(observer_ids):
                 routed_id = f"event-observation:{self.session_id}:{step}:{observer_id}"
@@ -1159,7 +1177,9 @@ class StorySimulationRuntime:
                         step=step,
                         content_locale=self.content_locale,
                         observation_text=resolved.raw_resolution_text,
+                        participant_ids=participant_ids,
                         source_record_ids=(event_id,),
+                        location_ids=location_ids,
                     )
                 )
                 routed_ids.append(routed_id)
@@ -1367,6 +1387,24 @@ class StorySimulationRuntime:
                 elif event.visibility == EventVisibility.RESTRICTED:
                     observer_ids.update(event.observer_ids)
             observer_ids.intersection_update(self._actors_by_name)
+            participant_ids = tuple(
+                sorted(
+                    {
+                        participant_id
+                        for event in resolved.events
+                        for participant_id in event.participant_ids
+                    }
+                )
+            )
+            location_ids = tuple(
+                sorted(
+                    {
+                        location_id
+                        for event in resolved.events
+                        for location_id in event.location_ids
+                    }
+                )
+            )
             routed_ids: list[str] = []
             for observer_id in sorted(observer_ids):
                 routed_id = f"event-observation:{self.session_id}:{step}:{observer_id}"
@@ -1379,7 +1417,9 @@ class StorySimulationRuntime:
                         step=step,
                         content_locale=self.content_locale,
                         observation_text=resolved.raw_resolution_text,
+                        participant_ids=participant_ids,
                         source_record_ids=(event_id,),
+                        location_ids=location_ids,
                     )
                 )
                 routed_ids.append(routed_id)

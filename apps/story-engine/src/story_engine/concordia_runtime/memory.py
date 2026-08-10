@@ -22,15 +22,32 @@ from story_engine.domain.memory import (
 _MEMORY_PREFIX = "[story-memory]"
 _MEMORY_PATTERN = re.compile(r"\[story-memory\](\{.*?\})\s(.*)$")
 _HASH_VECTOR_DIMENSIONS = 96
+_ENGLISH_WORD = re.compile(r"[a-z0-9]+(?:[-_][a-z0-9]+)*")
+_CHINESE_RUN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]+")
+
+
+def lexical_tokens(text: str) -> frozenset[str]:
+    """Tokenize English words and Chinese character n-grams without a model."""
+
+    normalized = text.casefold()
+    tokens = set(_ENGLISH_WORD.findall(normalized))
+    for run in _CHINESE_RUN.findall(normalized):
+        if len(run) == 1:
+            tokens.add(run)
+            continue
+        for width in (2, 3):
+            tokens.update(
+                run[index : index + width]
+                for index in range(len(run) - width + 1)
+            )
+    return frozenset(tokens)
 
 
 def concordia_hash_embedder(text: str) -> np.ndarray:
     """Return Concordia's private, non-model hash vector for in-memory ranking."""
 
     vector = np.zeros(_HASH_VECTOR_DIMENSIONS, dtype=float)
-    normalized = " ".join(text.casefold().split())
-    tokens = normalized.split() or list(normalized)
-    for token in tokens:
+    for token in lexical_tokens(text):
         digest = hashlib.sha256(token.encode("utf-8")).digest()
         index = int.from_bytes(digest[:4], "big") % _HASH_VECTOR_DIMENSIONS
         vector[index] += 1.0 if digest[4] & 1 else -1.0
@@ -89,6 +106,86 @@ class ConcordiaMemoryCodec:
             )
         except (TypeError, ValueError):
             return None
+
+
+def _eligible(record: MemoryRecord, query: MemoryQuery) -> bool:
+    return (
+        (not query.record_types or record.record_type in query.record_types)
+        and record.importance >= query.min_importance
+        and (query.before_step is None or record.step < query.before_step)
+        and (
+            query.content_locale is None
+            or record.content_locale == query.content_locale
+        )
+    )
+
+
+def _overlap(requested: tuple[str, ...], actual: tuple[str, ...]) -> float:
+    requested_set = set(requested)
+    if not requested_set:
+        return 0.0
+    return len(requested_set & set(actual)) / len(requested_set)
+
+
+def rank_memory_records(
+    records: Iterable[MemoryRecord],
+    query: MemoryQuery,
+) -> tuple[MemoryHit, ...]:
+    """Rank typed memories using structure, lexical overlap, importance, and age."""
+
+    candidates = tuple(record for record in records if _eligible(record, query))
+    if not candidates:
+        return ()
+    query_tokens = lexical_tokens(query.query_text)
+    reference_step = query.before_step or max(record.step for record in candidates) + 1
+    ranked: list[MemoryHit] = []
+    for record in candidates:
+        record_tokens = lexical_tokens(record.text)
+        shared_tokens = query_tokens & record_tokens
+        lexical = (
+            len(shared_tokens)
+            / math.sqrt(max(1, len(query_tokens)) * max(1, len(record_tokens)))
+            if shared_tokens
+            else 0.0
+        )
+        structural_scores = tuple(
+            score
+            for requested, actual in (
+                (query.actor_ids, record.actor_ids),
+                (query.location_ids, record.location_ids),
+                (query.tags, record.tags),
+            )
+            if requested and (score := _overlap(requested, actual)) > 0
+        )
+        structural = (
+            sum(structural_scores) / len(structural_scores)
+            if structural_scores
+            else 0.0
+        )
+        if lexical <= 0 and structural <= 0:
+            continue
+        distance = max(0, reference_step - record.step)
+        recency = math.exp(-distance / 120.0)
+        score = (
+            0.55 * lexical
+            + 0.20 * structural
+            + 0.15 * record.importance
+            + 0.10 * recency
+        )
+        ranked.append(
+            MemoryHit(
+                record=record,
+                score=score,
+                semantic_score=lexical,
+                recency_score=recency,
+                importance_score=record.importance,
+            )
+        )
+    ranked.sort(
+        key=lambda hit: (hit.score, hit.record.step, hit.record.record_id),
+        reverse=True,
+    )
+    return tuple(ranked[: query.limit])
 
 
 class ConcordiaMemoryBank:
@@ -161,87 +258,11 @@ class ConcordiaMemoryBank:
         records = (self._codec.decode(value) for value in values)
         return tuple(record for record in records if record is not None)
 
-    @staticmethod
-    def _matches(record: MemoryRecord, query: MemoryQuery) -> bool:
-        return (
-            (not query.record_types or record.record_type in query.record_types)
-            and (
-                not query.actor_ids
-                or bool(set(record.actor_ids) & set(query.actor_ids))
-            )
-            and (
-                not query.location_ids
-                or bool(set(record.location_ids) & set(query.location_ids))
-            )
-            and (not query.tags or bool(set(record.tags) & set(query.tags)))
-            and record.importance >= query.min_importance
-            and (query.before_step is None or record.step < query.before_step)
-            and (
-                query.content_locale is None
-                or record.content_locale == query.content_locale
-            )
-        )
-
     def retrieve(self, query: MemoryQuery) -> Sequence[MemoryHit]:
-        values = self._bank.retrieve_associative(
-            query.query_text,
-            max(query.limit * 4, query.limit),
+        return rank_memory_records(
+            self._decode_many(self._bank.get_all_memories_as_text()),
+            query,
         )
-        records = [
-            record
-            for record in self._decode_many(values)
-            if self._matches(record, query)
-        ]
-        if not records:
-            return ()
-        query_vector = self._embed(query.query_text)
-        reference_step = query.before_step or max(record.step for record in records) + 1
-
-        def relation_score(record: MemoryRecord) -> float:
-            scores: list[float] = []
-            for requested, actual in (
-                (query.actor_ids, record.actor_ids),
-                (query.location_ids, record.location_ids),
-                (query.tags, record.tags),
-            ):
-                if requested:
-                    scores.append(
-                        len(set(requested) & set(actual)) / len(set(requested))
-                    )
-            return sum(scores) / len(scores) if scores else 0.5
-
-        ranked: list[MemoryHit] = []
-        for record in records:
-            record_vector = self._embed(record.raw_text or self._codec.encode(record))
-            if record_vector.shape != query_vector.shape:
-                raise ValueError(
-                    "memory hash vectors changed dimensions within one bank"
-                )
-            cosine = float(np.dot(query_vector, record_vector))
-            semantic = min(1.0, max(0.0, (cosine + 1.0) / 2.0))
-            distance = max(0, reference_step - record.step)
-            recency = math.exp(-distance / 50.0)
-            relation = relation_score(record)
-            score = (
-                0.55 * semantic
-                + 0.20 * record.importance
-                + 0.15 * recency
-                + 0.10 * relation
-            )
-            ranked.append(
-                MemoryHit(
-                    record=record,
-                    score=score,
-                    semantic_score=semantic,
-                    recency_score=recency,
-                    importance_score=record.importance,
-                )
-            )
-        ranked.sort(
-            key=lambda hit: (hit.score, hit.record.step, hit.record.record_id),
-            reverse=True,
-        )
-        return tuple(ranked[: query.limit])
 
     def retrieve_recent(
         self,

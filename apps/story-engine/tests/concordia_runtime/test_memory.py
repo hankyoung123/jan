@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 
-import numpy as np
 import pytest
 
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
@@ -42,11 +41,11 @@ def test_character_memory_banks_are_isolated() -> None:
 
     a_text = " ".join(
         hit.record.text
-        for hit in actor_a.retrieve(MemoryQuery(query_text="secret", limit=8))
+        for hit in actor_a.retrieve(MemoryQuery(query_text="brass key", limit=8))
     )
     b_text = " ".join(
         hit.record.text
-        for hit in actor_b.retrieve(MemoryQuery(query_text="secret", limit=8))
+        for hit in actor_b.retrieve(MemoryQuery(query_text="map pier", limit=8))
     )
 
     assert "brass key" in a_text
@@ -105,7 +104,6 @@ def test_retrieval_exposes_semantic_recency_and_importance_scores() -> None:
     memory = ConcordiaMemoryBank(
         owner_id="actor-a",
         scope=MemoryScope.CHARACTER,
-        embedder=lambda _: np.asarray([1.0, 0.0]),
     )
     old_important = _record(
         "actor-a",
@@ -119,10 +117,14 @@ def test_retrieval_exposes_semantic_recency_and_importance_scores() -> None:
     ).model_copy(update={"step": 100, "importance": 0.2})
     memory.extend((old_important, recent))
 
-    hits = memory.retrieve(MemoryQuery(query_text="harbor", limit=2, before_step=101))
+    hits = memory.retrieve(
+        MemoryQuery(query_text="lighthouse harbor", limit=2, before_step=101)
+    )
 
     assert {hit.record.record_id for hit in hits} == {"old", "recent"}
-    assert all(hit.semantic_score == 1.0 for hit in hits)
+    assert all(
+        hit.semantic_score is not None and hit.semantic_score > 0 for hit in hits
+    )
     assert hits[0].score > 0
     assert hits[0].recency_score is not None
     assert hits[0].importance_score is not None

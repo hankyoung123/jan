@@ -22,6 +22,7 @@ class PerceptionFrame(RuntimeModel):
     content_locale: LocaleCode
     observation_text: str = Field(min_length=1, max_length=65_536)
     visible_entities: tuple[EntityPerception, ...] = ()
+    participant_ids: tuple[Identifier, ...] = ()
     source_record_ids: tuple[Identifier, ...] = ()
     location_ids: tuple[Identifier, ...] = ()
     generated_by_gm: bool = True
