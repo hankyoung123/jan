@@ -13,6 +13,11 @@ describe('TauriProvidersService remote-only boundary', () => {
   it('returns only configured cloud provider definitions', async () => {
     const providers = await new TauriProvidersService().getProviders()
     expect(providers.some((item) => item.provider === 'openai')).toBe(true)
+    const openCodeGo = providers.find(
+      (item) => item.provider === 'opencode-go'
+    )
+    expect(openCodeGo?.base_url).toBe('https://opencode.ai/zen/go/v1')
+    expect(openCodeGo?.models).toHaveLength(19)
     expect(
       providers.some((item) => ['llamacpp', 'llama.cpp', 'mlx'].includes(item.provider))
     ).toBe(false)

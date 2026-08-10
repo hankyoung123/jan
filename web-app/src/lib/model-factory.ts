@@ -70,13 +70,19 @@ function filteredParameters(
   const drop = getMutualExclusionDrops(
     parameters,
     provider.provider,
-    getProviderApiType(provider)
+    getProviderApiType(provider, modelId)
   )
+  const apiType = getProviderApiType(provider, modelId)
   const result: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(parameters)) {
     if (value === undefined || CLIENT_ONLY_KEYS.has(key) || drop.has(key)) continue
     if (isModelLevelRejected(key, provider.provider, modelId)) continue
-    result[key === 'max_output_tokens' ? 'max_tokens' : key] = value
+    const wireKey = key === 'max_output_tokens'
+      ? apiType === 'openai-responses' || provider.provider === 'openai'
+        ? 'max_output_tokens'
+        : 'max_tokens'
+      : key
+    result[wireKey] = value
   }
   return result
 }
@@ -187,13 +193,13 @@ export class ModelFactory {
     parameters: Record<string, unknown> = {}
   ): Promise<LanguageModel> {
     const providerName = provider.provider.toLowerCase()
-    const apiType = getProviderApiType(provider)
+    const apiType = getProviderApiType(provider, modelId)
 
     if (apiType === 'anthropic' || providerName === 'anthropic') {
       return this.anthropic(modelId, provider, parameters)
     }
-    if (providerName === 'openai') {
-      return this.openAI(modelId, provider, parameters)
+    if (apiType === 'openai-responses' || providerName === 'openai') {
+      return this.openAIResponses(modelId, provider, parameters)
     }
     if (providerName === 'google' || providerName === 'gemini') {
       return this.google(modelId, provider, parameters)
@@ -213,7 +219,7 @@ export class ModelFactory {
     parameters: Record<string, unknown>
   ): LanguageModel {
     const headers = customHeaders(provider)
-    ensureAnthropicHeaders(provider, headers)
+    ensureAnthropicHeaders({ ...provider, api_type: 'anthropic' }, headers)
     const keys = providerRemoteApiKeyChain(provider)
     const client = createAnthropic({
       apiKey: apiKey(provider, keys),
@@ -224,7 +230,7 @@ export class ModelFactory {
     return client(modelId)
   }
 
-  private static openAI(
+  private static openAIResponses(
     modelId: string,
     provider: ProviderObject,
     parameters: Record<string, unknown>

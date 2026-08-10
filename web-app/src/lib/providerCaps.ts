@@ -3,6 +3,7 @@ import {
   type ParamDef,
   type SamplerCap,
 } from '@/lib/predefinedParams'
+import { predefinedProviders } from '@/constants/providers'
 
 /**
  * Per-provider sampler capabilities. Built-in providers ship with locked
@@ -86,6 +87,13 @@ const MINIMAX: ProviderCaps = {
   maybe: new Set(),
 }
 
+// OpenCode Go deliberately mixes three wire APIs across its model catalog.
+// Only the core sampling surface is common to every documented model.
+const OPENCODE_GO: ProviderCaps = {
+  supported: set(),
+  maybe: new Set(),
+}
+
 /**
  * Custom user-added providers default to permissive — the user explicitly
  * pointed at an OpenAI-compatible endpoint of unknown shape, so showing all
@@ -117,6 +125,7 @@ const BUILTIN_CAPS: Record<string, ProviderCaps> = {
   huggingface: HUGGINGFACE,
   nvidia: NVIDIA,
   minimax: MINIMAX,
+  'opencode-go': OPENCODE_GO,
 }
 
 export function resolveProviderCaps(
@@ -129,11 +138,33 @@ export function resolveProviderCaps(
   return BUILTIN_CAPS[id] ?? CUSTOM_PERMISSIVE
 }
 
-/** Wire format the provider speaks. Defaults to 'openai' when unset. */
+/** Explicit per-model wire override, including the predefined catalog fallback. */
+export function getModelApiTypeOverride(
+  provider: Pick<ProviderObject, 'provider' | 'models'> | undefined | null,
+  modelId: string
+): ProviderApiType | undefined {
+  if (!provider) return undefined
+  const configured = provider.models.find((model) => model.id === modelId)
+    ?.api_type
+  if (configured) return configured
+  return predefinedProviders
+    .find((item) => item.provider === provider.provider)
+    ?.models.find((model) => model.id === modelId)?.api_type
+}
+
+/** Wire format for a model. Model override wins; provider default is next. */
 export function getProviderApiType(
-  provider: Pick<ProviderObject, 'provider' | 'api_type'> | undefined | null
+  provider:
+    | Pick<ProviderObject, 'provider' | 'api_type' | 'models'>
+    | undefined
+    | null,
+  modelId?: string
 ): ProviderApiType {
   if (!provider) return 'openai'
+  if (modelId) {
+    const modelApiType = getModelApiTypeOverride(provider, modelId)
+    if (modelApiType) return modelApiType
+  }
   if (provider.api_type) return provider.api_type
   return provider.provider === 'anthropic' ? 'anthropic' : 'openai'
 }

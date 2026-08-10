@@ -37,12 +37,14 @@ type Model = {
   format?: string
   capabilities?: string[]
   settings?: Record<string, ProviderSetting>
+  /** Per-model wire API override for providers that expose mixed protocols. */
+  api_type?: ProviderApiType
 }
 
 /**
  * The provider object structure
  */
-type ProviderApiType = 'openai' | 'anthropic'
+type ProviderApiType = 'openai' | 'openai-responses' | 'anthropic'
 
 type ProviderObject = {
   active: boolean

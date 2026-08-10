@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({ engineRequest: vi.fn() }))
@@ -67,6 +67,12 @@ describe('WorldSessionView', () => {
     expect(await screen.findByText('雨水浸透了门口的地毯。')).toBeInTheDocument()
     expect(screen.getByText('本地调查记者')).toBeInTheDocument()
     expect(screen.getByTestId('agent-console')).toBeInTheDocument()
+    const openAgentConsole = screen.getByRole('button', { name: 'Agent Console' })
+    fireEvent.click(openAgentConsole)
+    const agentConsoleDialog = screen.getByRole('dialog', { name: 'Agent Console' })
+    expect(agentConsoleDialog).toBeInTheDocument()
+    fireEvent.click(within(agentConsoleDialog).getByRole('button', { name: '折叠 Agent Console' }))
+    expect(screen.queryByRole('dialog', { name: 'Agent Console' })).not.toBeInTheDocument()
     expect(screen.queryByText('调查桌子')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('你的意图'), {

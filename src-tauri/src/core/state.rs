@@ -34,6 +34,10 @@ pub struct ProviderConfig {
     /// the provider's native API.
     #[serde(default)]
     pub api_type: Option<String>,
+    /// Per-model wire API overrides for providers exposing mixed protocols.
+    /// Keys are upstream model IDs, without the provider prefix.
+    #[serde(default)]
+    pub model_api_types: HashMap<String, String>,
 }
 
 impl ProviderConfig {
@@ -42,6 +46,13 @@ impl ProviderConfig {
             return self.api_keys.clone();
         }
         self.api_key.clone().into_iter().collect()
+    }
+
+    pub fn api_type_for_model(&self, model: &str) -> Option<&str> {
+        self.model_api_types
+            .get(model)
+            .map(String::as_str)
+            .or(self.api_type.as_deref())
     }
 }
 

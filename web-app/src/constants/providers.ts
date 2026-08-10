@@ -51,7 +51,124 @@ export const openAIProviderSettings = [
     },
   },
 ]
-export const predefinedProviders = [
+const openCodeGoModels: Model[] = [
+  {
+    id: 'grok-4.5',
+    name: 'Grok 4.5',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'gpt-5.6-luna',
+    name: 'GPT 5.6 Luna',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai-responses',
+  },
+  {
+    id: 'glm-5.2',
+    name: 'GLM-5.2',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'glm-5.1',
+    name: 'GLM-5.1',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'kimi-k3',
+    name: 'Kimi K3',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'kimi-k2.7-code',
+    name: 'Kimi K2.7 Code',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'kimi-k2.6',
+    name: 'Kimi K2.6',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'deepseek-v4-pro',
+    name: 'DeepSeek V4 Pro',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'deepseek-v4-flash',
+    name: 'DeepSeek V4 Flash',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'mimo-v2.5',
+    name: 'MiMo-V2.5',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'mimo-v2.5-pro',
+    name: 'MiMo-V2.5-Pro',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+  {
+    id: 'minimax-m3',
+    name: 'MiniMax M3',
+    capabilities: ['completion', 'tools'],
+    api_type: 'anthropic',
+  },
+  {
+    id: 'minimax-m2.7',
+    name: 'MiniMax M2.7',
+    capabilities: ['completion', 'tools'],
+    api_type: 'anthropic',
+  },
+  {
+    id: 'minimax-m2.5',
+    name: 'MiniMax M2.5',
+    capabilities: ['completion', 'tools'],
+    api_type: 'anthropic',
+  },
+  {
+    id: 'qwen3.8-max',
+    name: 'Qwen3.8 Max',
+    capabilities: ['completion', 'tools'],
+    api_type: 'anthropic',
+  },
+  {
+    id: 'qwen3.7-max',
+    name: 'Qwen3.7 Max',
+    capabilities: ['completion', 'tools'],
+    api_type: 'anthropic',
+  },
+  {
+    id: 'qwen3.7-plus',
+    name: 'Qwen3.7 Plus',
+    capabilities: ['completion', 'tools'],
+    api_type: 'anthropic',
+  },
+  {
+    id: 'qwen3.6-plus',
+    name: 'Qwen3.6 Plus',
+    capabilities: ['completion', 'tools'],
+    api_type: 'anthropic',
+  },
+  {
+    id: 'hy3',
+    name: 'Hy3',
+    capabilities: ['completion', 'tools'],
+    api_type: 'openai',
+  },
+]
+
+export const predefinedProviders: ModelProvider[] = [
   {
     active: true,
     api_key: '',
@@ -132,6 +249,30 @@ export const predefinedProviders = [
         value: 'true'
       }
     ]
+  },
+  {
+    active: true,
+    api_key: '',
+    base_url: 'https://opencode.ai/zen/go/v1',
+    explore_models_url: 'https://opencode.ai/docs/go/',
+    provider: 'opencode-go',
+    api_type: 'openai',
+    settings: [
+      {
+        key: 'api-key',
+        title: 'API Key',
+        description:
+          'OpenCode Go uses an API key from your OpenCode Zen workspace. Subscribe to Go and copy the key from the [OpenCode console](https://opencode.ai/).',
+        controller_type: 'input',
+        controller_props: {
+          placeholder: 'Insert OpenCode API Key',
+          value: '',
+          type: 'password',
+          input_actions: ['unobscure', 'copy'],
+        },
+      },
+    ],
+    models: openCodeGoModels,
   },
   {
     active: true,

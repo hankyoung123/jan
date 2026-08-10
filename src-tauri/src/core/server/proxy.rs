@@ -188,6 +188,8 @@ async fn forward_completion(
             format!("cloud model '{model_ref}' is not configured in Jan"),
         );
     };
+    let api_type = provider.api_type_for_model(&upstream_model);
+    let converter = converter_for(api_type);
     body["model"] = Value::String(upstream_model);
 
     let Some(base_url) = provider.base_url.as_deref() else {
@@ -196,7 +198,6 @@ async fn forward_completion(
             format!("provider '{}' has no base URL", provider.provider),
         );
     };
-    let converter = converter_for(provider.api_type.as_deref());
     let path = converter
         .as_ref()
         .map(|item| item.upstream_path(&body))
@@ -426,6 +427,28 @@ mod tests {
     fn rejects_unknown_model_reference() {
         let configs = HashMap::from([("cloud".to_owned(), provider("cloud", &["story-model"]))]);
         assert!(resolve_provider("missing", &configs).is_none());
+    }
+
+    #[test]
+    fn routes_each_model_through_its_configured_wire_api() {
+        let mut config = provider("opencode-go", &["kimi-k3", "gpt-5.6-luna", "minimax-m3"]);
+        config.api_type = Some("openai".to_owned());
+        config.model_api_types = HashMap::from([
+            ("gpt-5.6-luna".to_owned(), "openai-responses".to_owned()),
+            ("minimax-m3".to_owned(), "anthropic".to_owned()),
+        ]);
+
+        assert!(converter_for(config.api_type_for_model("kimi-k3")).is_none());
+
+        let responses = converter_for(config.api_type_for_model("gpt-5.6-luna")).unwrap();
+        assert_eq!(responses.upstream_path(&json!({})), "/responses");
+
+        let messages = converter_for(config.api_type_for_model("minimax-m3")).unwrap();
+        assert_eq!(messages.upstream_path(&json!({})), "/messages");
+        assert_eq!(
+            messages.auth_header("sk-go"),
+            ("x-api-key", "sk-go".to_owned())
+        );
     }
 
     #[test]

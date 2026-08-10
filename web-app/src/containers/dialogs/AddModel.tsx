@@ -16,6 +16,7 @@ import { useState } from 'react'
 import { getProviderTitle } from '@/lib/utils'
 import { useTranslation } from '@/i18n/react-i18next-compat'
 import { getModelCapabilities } from '@/lib/models'
+import { getModelApiTypeOverride } from '@/lib/providerCaps'
 import { toast } from 'sonner'
 
 type DialogAddModelProps = {
@@ -47,12 +48,14 @@ export const DialogAddModel = ({ provider, trigger }: DialogAddModelProps) => {
     }
 
     // Create the new model
-    const newModel = {
+    const apiType = getModelApiTypeOverride(provider, modelId)
+    const newModel: Model = {
       id: modelId,
       model: modelId,
       name: modelId,
       capabilities: getModelCapabilities(provider.provider, modelId),
       version: '1.0',
+      ...(apiType ? { api_type: apiType } : {}),
     }
 
     // Update the provider with the new model

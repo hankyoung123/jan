@@ -23,6 +23,7 @@ type RegisterProviderRequest = {
   custom_headers: ProviderCustomHeader[]
   models: string[]
   api_type?: ProviderApiType
+  model_api_types: Record<string, ProviderApiType>
 }
 
 async function registerRemoteProvider(provider: ModelProvider) {
@@ -37,6 +38,11 @@ async function registerRemoteProvider(provider: ModelProvider) {
     custom_headers: provider.custom_header ?? [],
     models: provider.models.map((model) => model.id),
     api_type: provider.api_type,
+    model_api_types: Object.fromEntries(
+      provider.models.flatMap((model) =>
+        model.api_type ? [[model.id, model.api_type]] : []
+      )
+    ),
   }
   await invoke('register_provider_config', { request })
 }

@@ -27,6 +27,9 @@ pub struct RegisterProviderRequest {
     /// `"google"` / `"anthropic"` to engage a translating converter).
     #[serde(default)]
     pub api_type: Option<String>,
+    /// Per-model wire API overrides for mixed-protocol providers.
+    #[serde(default)]
+    pub model_api_types: HashMap<String, String>,
 }
 
 fn merge_register_api_keys(api_key: Option<String>, api_keys: Vec<String>) -> Vec<String> {
@@ -73,6 +76,7 @@ pub async fn register_provider_config(
             .collect(),
         models: request.models, // Models will be added when they are configured
         api_type: request.api_type,
+        model_api_types: request.model_api_types,
     };
 
     // Persist the key chain to the OS keyring so it survives webview storage
@@ -191,6 +195,7 @@ mod tests {
             custom_headers: vec![],
             models: vec![],
             api_type: None,
+            model_api_types: HashMap::new(),
         }
     }
 

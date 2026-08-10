@@ -1,4 +1,4 @@
-import { CircleAlert, GitBranch, LoaderCircle, UserRound } from 'lucide-react'
+import { Bot, CircleAlert, GitBranch, LoaderCircle, UserRound } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { EngineRequestError, engineRequest } from '../engine'
@@ -61,6 +61,7 @@ export function WorldSessionView() {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([])
   const [retryIntent, setRetryIntent] = useState<PendingIntent | null>(null)
   const [agentConsoleCollapsed, setAgentConsoleCollapsed] = useState(false)
+  const [mobileAgentConsoleOpen, setMobileAgentConsoleOpen] = useState(false)
 
   const refreshStreamSession = useCallback(() => {
     void engineRequest<SessionResponse>(
@@ -203,6 +204,15 @@ export function WorldSessionView() {
             <p className="mt-1 text-sm text-muted-foreground">港口旅馆 · {session.world_time}</p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              aria-expanded={mobileAgentConsoleOpen}
+              className="flex h-9 items-center gap-2 border bg-background px-2 text-xs hover:bg-accent lg:hidden"
+              onClick={() => setMobileAgentConsoleOpen(true)}
+              type="button"
+            >
+              <Bot size={15} />
+              Agent Console
+            </button>
             <label className="flex items-center gap-2 border bg-background px-2 text-xs text-muted-foreground">
               <GitBranch size={14} />
               <select
@@ -262,6 +272,22 @@ export function WorldSessionView() {
           />
         </div>
       </div>
+      {mobileAgentConsoleOpen && (
+        <div
+          aria-label="Agent Console"
+          aria-modal="true"
+          className="fixed inset-0 z-50 overflow-y-auto bg-background p-3 lg:hidden"
+          role="dialog"
+        >
+          <div className="h-[calc(100svh-1.5rem)] min-h-[36rem]">
+            <AgentConsole
+              collapsed={false}
+              onCollapsedChange={() => setMobileAgentConsoleOpen(false)}
+              viewState={viewState}
+            />
+          </div>
+        </div>
+      )}
     </main>
   )
 }

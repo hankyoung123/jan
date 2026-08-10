@@ -239,7 +239,7 @@ export function AgentConsole({ viewState, collapsed, onCollapsedChange }: AgentC
   }
 
   return (
-    <aside className="flex min-h-[36rem] flex-col overflow-hidden border bg-muted/20" data-testid="agent-console">
+    <aside className="flex h-full min-h-[36rem] flex-col overflow-hidden border bg-muted/20" data-testid="agent-console">
       <header className="flex h-11 shrink-0 items-center justify-between border-b bg-background px-3">
         <div className="flex items-center gap-2">
           <Bot size={15} />

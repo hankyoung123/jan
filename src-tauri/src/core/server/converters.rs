@@ -89,8 +89,8 @@ use std::collections::HashMap;
 /// Translates an OpenAI chat/completions request to a provider's native wire
 /// API and its response back. Implementors front a provider whose native API is
 /// not chat/completions (OpenAI `/v1/responses`, Google `generateContent`,
-/// Anthropic `/v1/messages`); the proxy selects one by `ProviderConfig.api_type`
-/// and otherwise forwards verbatim.
+/// Anthropic `/v1/messages`); the proxy selects one by the effective model or
+/// provider API type and otherwise forwards verbatim.
 pub trait UpstreamConverter: Send + Sync {
     /// Path suffix appended to the provider `base_url`. Derived from the request
     /// body because some APIs encode the model and action in the URL (Google:

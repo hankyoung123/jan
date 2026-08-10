@@ -3,17 +3,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const h = vi.hoisted(() => {
   const responses = vi.fn(() => ({ kind: 'openai-responses' }))
   const languageModel = vi.fn(() => ({ kind: 'compatible' }))
+  const anthropicModel = vi.fn(() => ({ kind: 'anthropic' }))
   return {
     responses,
     languageModel,
+    anthropicModel,
     createOpenAI: vi.fn(() => ({ responses })),
     createOpenAICompatible: vi.fn(() => ({ languageModel })),
+    createAnthropic: vi.fn(() => anthropicModel),
   }
 })
 
 vi.mock('@ai-sdk/openai', () => ({ createOpenAI: h.createOpenAI }))
 vi.mock('@ai-sdk/openai-compatible', () => ({ createOpenAICompatible: h.createOpenAICompatible }))
-vi.mock('@ai-sdk/anthropic', () => ({ createAnthropic: vi.fn() }))
+vi.mock('@ai-sdk/anthropic', () => ({ createAnthropic: h.createAnthropic }))
 vi.mock('@ai-sdk/google', () => ({ createGoogleGenerativeAI: vi.fn() }))
 vi.mock('@ai-sdk/mistral', () => ({ createMistral: vi.fn() }))
 vi.mock('@ai-sdk/xai', () => ({ createXai: vi.fn() }))
@@ -55,6 +58,40 @@ describe('ModelFactory cloud-only dispatch', () => {
       expect.objectContaining({
         name: 'custom-cloud',
         baseURL: 'https://api.example/v1',
+      })
+    )
+  })
+
+  it('dispatches OpenCode Go models through their documented wire APIs', async () => {
+    const openCodeGo = provider({
+      provider: 'opencode-go',
+      base_url: 'https://opencode.ai/zen/go/v1',
+      models: [
+        { id: 'kimi-k3', api_type: 'openai' },
+        { id: 'gpt-5.6-luna', api_type: 'openai-responses' },
+        { id: 'minimax-m3', api_type: 'anthropic' },
+      ],
+    })
+
+    await expect(
+      ModelFactory.createModel('kimi-k3', openCodeGo)
+    ).resolves.toEqual({ kind: 'compatible' })
+    await expect(
+      ModelFactory.createModel('gpt-5.6-luna', openCodeGo)
+    ).resolves.toEqual({ kind: 'openai-responses' })
+    await expect(
+      ModelFactory.createModel('minimax-m3', openCodeGo)
+    ).resolves.toEqual({ kind: 'anthropic' })
+
+    expect(h.languageModel).toHaveBeenCalledWith('kimi-k3')
+    expect(h.responses).toHaveBeenCalledWith('gpt-5.6-luna')
+    expect(h.anthropicModel).toHaveBeenCalledWith('minimax-m3')
+    expect(h.createAnthropic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseURL: 'https://opencode.ai/zen/go/v1',
+        headers: expect.objectContaining({
+          'anthropic-version': '2023-06-01',
+        }),
       })
     )
   })
