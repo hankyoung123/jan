@@ -192,10 +192,8 @@ class SimulationCommandService:
             return npc_result
         if npc_result.resolved_turn is None:
             return player_result
-        boundary = (
-            npc_result.boundary
-            if npc_result.boundary.value != "none"
-            else player_result.boundary
+        boundary = npc_result.boundary.merge(
+            player_result.resolved_turn.boundary
         )
         resolved_turn = player_result.resolved_turn.model_copy(
             update={

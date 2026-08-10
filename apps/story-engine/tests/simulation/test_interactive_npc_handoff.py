@@ -1,10 +1,19 @@
 # ruff: noqa: RUF001
 
+import json
+import re
+from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
+from typing import Any
 
+from profile_factory import agent_profile as _profile
+
+from story_engine.concordia_runtime.factory import ConcordiaStoryActor
 from story_engine.concordia_runtime.prefabs.game_master import _resolve_story_event
+from story_engine.concordia_runtime.resolver import ConcordiaResolverKernel
 from story_engine.domain.action import ActionOutputType, ActionSpec
 from story_engine.domain.memory import MemorySnapshot
 from story_engine.domain.models import Character
@@ -22,14 +31,153 @@ from story_engine.domain.simulation import (
     TurnSessionRequest,
 )
 from story_engine.events.stream import EngineEventBus
+from story_engine.models.contracts import ModelStreamChunk
+from story_engine.models.gateway import ModelGateway, ModelPartSink
+from story_engine.models.registry import ProfileRegistry
 from story_engine.simulation.command_service import SimulationCommandService
 from story_engine.simulation.commands import SessionCommandCoordinator
 from story_engine.simulation.engine import StoryTurnEngine
+from story_engine.simulation.factory import ProjectRuntimeFactory
 from story_engine.simulation.persistence import SimulationPersistenceService
 from story_engine.simulation.projection_coordinator import (
     SimulationProjectionCoordinator,
 )
 from story_engine.simulation.runtime import StorySimulationRuntime
+from story_engine.submission.service import (
+    SubmissionService,
+    last_ferry_before_submission,
+)
+
+
+class ConcordiaHandoffTransport:
+    """Deterministic provider boundary for a real Concordia handoff."""
+
+    def __init__(self) -> None:
+        self.calls: list[Mapping[str, Any]] = []
+        self.observation_prompts: list[str] = []
+        self.resolution_count = 0
+
+    @staticmethod
+    def _properties(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        response_format = payload.get("response_format")
+        if not isinstance(response_format, Mapping):
+            return {}
+        json_schema = response_format.get("json_schema")
+        if not isinstance(json_schema, Mapping):
+            return {}
+        schema = json_schema.get("schema")
+        if not isinstance(schema, Mapping):
+            return {}
+        properties = schema.get("properties")
+        return properties if isinstance(properties, Mapping) else {}
+
+    @staticmethod
+    def _choice(
+        prompt: str,
+        properties: Mapping[str, Any],
+        semantic: str,
+    ) -> str:
+        choice = properties.get("choice")
+        candidates = choice.get("enum", ()) if isinstance(choice, Mapping) else ()
+        for candidate in candidates:
+            value = str(candidate)
+            if value == semantic or re.search(
+                rf"\({re.escape(value)}\)\s+{re.escape(semantic)}(?:\n|$)",
+                prompt,
+            ):
+                return value
+        raise AssertionError(f"no choice maps to {semantic!r}: {prompt}")
+
+    def _content(self, payload: Mapping[str, Any], prompt: str) -> str:
+        properties = self._properties(payload)
+        if "event_text" in properties:
+            self.resolution_count += 1
+            is_player = self.resolution_count == 1
+            return json.dumps(
+                {
+                    "event_text": (
+                        "林澈听到了玩家的问题。"
+                        if is_player
+                        else "林澈选择保持沉默，大厅里的气氛变得紧张。"
+                    ),
+                    "boundary": "chapter" if is_player else "scene",
+                    "visibility": "participants",
+                    "observer_names": [],
+                    "participant_names": ["你", "林澈"],
+                    "entity_changes": [],
+                    "state_updates": [],
+                },
+                ensure_ascii=False,
+            )
+        if "output_type" in properties:
+            return json.dumps(
+                {
+                    "call_to_action": "决定是否回答玩家的问题。",
+                    "output_type": "free",
+                    "options": [],
+                    "tag": "dialogue",
+                },
+                ensure_ascii=False,
+            )
+        if "actor_names" in properties:
+            actor_names = properties["actor_names"]
+            items = (
+                actor_names.get("items", {})
+                if isinstance(actor_names, Mapping)
+                else {}
+            )
+            candidates = items.get("enum", ()) if isinstance(items, Mapping) else ()
+            return json.dumps({"actor_names": list(candidates)}, ensure_ascii=False)
+        if "choice" in properties:
+            semantic = "林澈" if "Whose turn is next" in prompt else "No"
+            return json.dumps(
+                {"choice": self._choice(prompt, properties, semantic)},
+                ensure_ascii=False,
+            )
+        if payload.get("model") == "test-provider/actor":
+            return "我选择保持沉默。"
+        self.observation_prompts.append(prompt)
+        return "林澈听见问题后仍站在玩家面前。"
+
+    async def complete(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+        first_content_timeout_seconds: float | None = None,
+        part_sink: ModelPartSink | None = None,
+    ) -> Mapping[str, Any]:
+        del timeout_seconds, first_content_timeout_seconds
+        self.calls.append(dict(payload))
+        messages = payload["messages"]
+        prompt = "\n".join(str(message["content"]) for message in messages)
+        content = self._content(payload, prompt)
+        if part_sink is not None:
+            part_sink("text", content)
+        return {
+            "choices": [
+                {
+                    "message": {"content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+                "total_tokens": 2,
+            },
+        }
+
+    async def stream(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> AsyncIterator[ModelStreamChunk]:
+        del payload, timeout_seconds
+        if False:
+            yield ModelStreamChunk()
+        raise AssertionError("NPC handoff integration does not stream")
 
 
 class RecordingActor:
@@ -71,6 +219,7 @@ class RecordingGameMaster:
     def __init__(self, log: list[str]) -> None:
         self.log = log
         self.selected_candidates: list[tuple[str, ...]] = []
+        self.observed_actor_ids: list[str] = []
         self._state: dict[str, object] = {}
 
     def set_active_actor(self, _display_name: str) -> None:
@@ -84,6 +233,7 @@ class RecordingGameMaster:
         actor: RecordingActor,
         **kwargs: object,
     ) -> PerceptionFrame:
+        self.observed_actor_ids.append(actor.name)
         return PerceptionFrame(
             frame_id=f"observation:{actor.name}",
             session_id=str(kwargs["session_id"]),
@@ -356,5 +506,88 @@ def test_unrelated_current_scene_npc_is_not_called() -> None:
     service.interactive_turn(session_id, text="林澈，那条消息是不是你发的？")
 
     assert game_master.selected_candidates == [("lin-che",)]
+    assert game_master.observed_actor_ids == ["lin-che"]
     assert actors["lin-che"].act_calls == 1
     assert actors["bystander"].act_calls == 0
+
+
+def test_real_concordia_gateway_hands_player_intent_to_eligible_npc(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(last_ferry_before_submission())
+    registry = ProfileRegistry(tmp_path / "models.json")
+    registry.upsert_profile(
+        _profile(
+            id="actor",
+            task_type="actor",
+            model_ref="test-provider/actor",
+        )
+    )
+    registry.upsert_profile(
+        _profile(
+            id="game_master",
+            task_type="game_master",
+            model_ref="test-provider/game-master",
+        )
+    )
+    transport = ConcordiaHandoffTransport()
+    gateway = ModelGateway(registry, transport)
+    runtime_factory = ProjectRuntimeFactory(
+        tmp_path,
+        gateway,
+    )
+    runtime_ref: dict[str, StorySimulationRuntime] = {}
+
+    def capture_runtime(
+        session_id: str,
+        request: TurnSessionRequest,
+    ) -> StorySimulationRuntime:
+        runtime = runtime_factory(session_id, request)
+        runtime_ref["runtime"] = runtime
+        return runtime
+
+    engine = StoryTurnEngine(capture_runtime)
+    event_bus = EngineEventBus()
+    service = SimulationCommandService(
+        engine,
+        SimulationPersistenceService(engine, event_bus),
+        SimulationProjectionCoordinator(event_bus),
+        SessionCommandCoordinator(),
+    )
+    snapshot = engine.create_session(
+        TurnSessionRequest(
+            project_id="last-ferry-before",
+            branch_id="main",
+            premise_text="玩家当面询问林澈消息的来源。",
+            actor_ids=("player", "lin-che", "zhang-ye"),
+            player_actor_id="player",
+            content_locale="zh-CN",
+            control=ControlPolicy(mode=ControlMode.STEP, max_steps=4),
+        )
+    )
+
+    result = service.interactive_turn(
+        snapshot.session_id,
+        text="林澈，那条消息是不是你发的？",
+    )
+
+    runtime = runtime_ref["runtime"]
+    npc_actor = next(actor for actor in runtime.actors if actor.name == "lin-che")
+    assert isinstance(npc_actor, ConcordiaStoryActor)
+    assert isinstance(runtime.resolver, ConcordiaResolverKernel)
+    assert gateway.usage.totals().requests == len(transport.calls)
+    assert transport.resolution_count == 2
+    assert len(transport.observation_prompts) == 1
+    assert "faced by 林澈" in transport.observation_prompts[0]
+    assert "faced by 你" not in transport.observation_prompts[0]
+    assert "faced by 张野" not in transport.observation_prompts[0]
+    actor_outputs = [
+        call
+        for call in transport.calls
+        if call.get("model") == "test-provider/actor"
+    ]
+    assert len(actor_outputs) == 1
+    assert result.resolved_turn is not None
+    assert result.resolved_turn.events[1].actor_id == "lin-che"
+    assert result.resolved_turn.putative_event_text == "林澈，那条消息是不是你发的？"
+    assert result.boundary == SimulationBoundary.CHAPTER

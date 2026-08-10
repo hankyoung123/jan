@@ -894,9 +894,26 @@ class StorySimulationRuntime:
                 stage_event_id=stage_event.event_id,
             )
             selected_roster = self._plan_initial_roster()
+            eligible_actors = self.actors
+            if eligible_actor_ids is not None:
+                eligible_ids = set(eligible_actor_ids)
+                unknown_eligible_ids = eligible_ids - set(self._actors_by_name)
+                if unknown_eligible_ids:
+                    raise ValueError(
+                        "eligible actors are not in the current roster: "
+                        f"{sorted(unknown_eligible_ids)}"
+                    )
+                eligible_actors = tuple(
+                    actor for actor in self.actors if actor.name in eligible_ids
+                )
+                if not eligible_actors:
+                    raise ValueError("automatic step requires an eligible actor")
+            observation_actors = (
+                eligible_actors if eligible_actor_ids is not None else self.actors
+            )
             observation_ids: list[str] = []
             observation_summaries: list[str] = []
-            for actor in self.actors:
+            for actor in observation_actors:
                 self._check_cancelled(cancellation)
                 record_id = f"observation:{self.session_id}:{step}:{actor.name}"
                 self._set_trace_context(
@@ -941,7 +958,7 @@ class StorySimulationRuntime:
                     + ("\n".join(observation_summaries) or "No new observations")
                 ),
                 output_record_ids=tuple(observation_ids),
-                visible_to=tuple(actor.name for actor in self.actors),
+                visible_to=tuple(actor.name for actor in observation_actors),
             )
 
             self._check_cancelled(cancellation)
@@ -962,20 +979,6 @@ class StorySimulationRuntime:
                 task_label="行动角色选择",
                 stage_event_id=stage_event.event_id,
             )
-            eligible_actors = self.actors
-            if eligible_actor_ids is not None:
-                eligible_ids = set(eligible_actor_ids)
-                unknown_eligible_ids = eligible_ids - set(self._actors_by_name)
-                if unknown_eligible_ids:
-                    raise ValueError(
-                        "eligible actors are not in the current roster: "
-                        f"{sorted(unknown_eligible_ids)}"
-                    )
-                eligible_actors = tuple(
-                    actor for actor in self.actors if actor.name in eligible_ids
-                )
-                if not eligible_actors:
-                    raise ValueError("automatic step requires an eligible actor")
             actor_id = self.game_master.select_next_actor(
                 eligible_actors,
                 session_id=self.session_id,
@@ -1096,12 +1099,10 @@ class StorySimulationRuntime:
                 ),
                 cancellation=self.cancellation,
             )
-            if (
-                resolved.boundary == SimulationBoundary.NONE
-                and deferred_boundary != SimulationBoundary.NONE
-            ):
+            merged_boundary = resolved.boundary.merge(deferred_boundary)
+            if merged_boundary != resolved.boundary:
                 resolved = resolved.model_copy(
-                    update={"boundary": deferred_boundary}
+                    update={"boundary": merged_boundary}
                 )
             event_id = f"event:{self.session_id}:{step}"
             character_effect_ids = self._apply_character_effects(resolved)

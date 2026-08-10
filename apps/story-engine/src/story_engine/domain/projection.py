@@ -49,6 +49,14 @@ class SimulationBoundary(StrEnum):
     SCENE = "scene"
     CHAPTER = "chapter"
 
+    def merge(self, other: "SimulationBoundary") -> "SimulationBoundary":
+        """Keep the stronger boundary: NONE < SCENE < CHAPTER."""
+        if self == SimulationBoundary.CHAPTER or other == SimulationBoundary.CHAPTER:
+            return SimulationBoundary.CHAPTER
+        if self == SimulationBoundary.SCENE or other == SimulationBoundary.SCENE:
+            return SimulationBoundary.SCENE
+        return SimulationBoundary.NONE
+
 
 class ProjectionKind(StrEnum):
     WIKI = "wiki"
