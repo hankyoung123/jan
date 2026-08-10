@@ -216,17 +216,24 @@ class RecordingActor:
 class RecordingGameMaster:
     name = "gm"
 
-    def __init__(self, log: list[str]) -> None:
+    def __init__(
+        self,
+        log: list[str],
+        *,
+        terminate_after_resolution: bool = False,
+    ) -> None:
         self.log = log
         self.selected_candidates: list[tuple[str, ...]] = []
         self.observed_actor_ids: list[str] = []
+        self.terminate_after_resolution = terminate_after_resolution
         self._state: dict[str, object] = {}
 
     def set_active_actor(self, _display_name: str) -> None:
         return None
 
     def should_terminate(self, **_kwargs: object) -> tuple[bool, None]:
-        return False, None
+        self.log.append("terminate")
+        return self.terminate_after_resolution, None
 
     def make_observation(
         self,
@@ -365,6 +372,7 @@ def _interactive_service(
     remove_roster_at_boundary: bool = False,
     max_scenes: int = 5,
     initial_completed_scenes: int = 0,
+    terminate_after_resolution: bool = False,
 ) -> tuple[
     SimulationCommandService,
     str,
@@ -380,7 +388,10 @@ def _interactive_service(
         "lin-che": RecordingActor("lin-che", "林澈", "我选择保持沉默。", log),
         "bystander": RecordingActor("bystander", "旁观者", "我离开大厅。", log),
     }
-    game_master = RecordingGameMaster(log)
+    game_master = RecordingGameMaster(
+        log,
+        terminate_after_resolution=terminate_after_resolution,
+    )
     resolver = RecordingResolver(
         log,
         player_boundary=player_boundary,
@@ -465,6 +476,38 @@ def test_player_question_calls_the_affected_npc_actor() -> None:
     service.interactive_turn(session_id, text="林澈，那条消息是不是你发的？")
 
     assert actors["lin-che"].act_calls == 1
+
+
+def test_reserved_npc_acts_before_true_termination_decision() -> None:
+    service, session_id, actors, _gm, _resolver, _runtime, log = (
+        _interactive_service(terminate_after_resolution=True)
+    )
+
+    service.interactive_turn(session_id, text="林澈，那条消息是不是你发的？")
+
+    assert actors["lin-che"].act_calls == 1
+    assert log.index("act:lin-che") < log.index("terminate")
+
+
+def test_reserved_npc_resolution_is_committed_before_session_terminates() -> None:
+    service, session_id, _actors, _gm, resolver, _runtime, log = (
+        _interactive_service(terminate_after_resolution=True)
+    )
+
+    result = service.interactive_turn(
+        session_id,
+        text="林澈，那条消息是不是你发的？",
+    )
+
+    snapshot = service.engine.get(session_id)
+    assert log.index("resolve:lin-che") < log.index("terminate")
+    assert [context.acting_actor_id for context in resolver.contexts] == [
+        "player",
+        "lin-che",
+    ]
+    assert result.status.value == "terminated"
+    assert snapshot.current_step == 2
+    assert snapshot.raw_log_offset == 2
 
 
 def test_reached_scene_budget_waits_for_required_npc_response() -> None:

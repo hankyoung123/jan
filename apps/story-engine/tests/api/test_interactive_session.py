@@ -174,6 +174,50 @@ class InteractiveRuntime:
         return ()
 
 
+class CountingInteractiveRuntime(InteractiveRuntime):
+    def __init__(
+        self,
+        session_id: str,
+        request: TurnSessionRequest,
+        calls: dict[str, int],
+    ) -> None:
+        super().__init__(session_id, request)
+        self.calls = calls
+
+    def execute_step(
+        self,
+        step: int,
+        *,
+        cancellation: Event,
+        eligible_actor_ids: tuple[str, ...] | None = None,
+    ) -> StepResult:
+        self.calls["npc"] += 1
+        return super().execute_step(
+            step,
+            cancellation=cancellation,
+            eligible_actor_ids=eligible_actor_ids,
+        )
+
+
+def _commit_player_step_without_npc(app) -> StepResult:
+    with TestClient(app) as client:
+        opened = client.get(
+            "/projects/last-ferry-before/simulation/session",
+            headers=AUTH,
+        )
+        assert opened.status_code == 200
+        session_id = opened.json()["session_id"]
+        service = app.state.simulation_service
+        starting = service.get(session_id)
+        return service.commands._interactive_step(
+            session_id,
+            command_id="interactive:crash-window:player",
+            operation="interactive_player_step:crash-window",
+            expected_state_hash=starting.state_hash,
+            human_intent="我继续追问张野。",
+        )
+
+
 def test_case_01_interactive_turn_treats_asserted_death_as_an_intent(
     tmp_path,
 ) -> None:
@@ -244,12 +288,99 @@ def test_case_01_interactive_turn_treats_asserted_death_as_an_intent(
     )
     npc_receipt = receipts.load(
         session_id=checkpoint.session_id,
-        command_id="interactive:test-case-01:npc",
+        command_id=f"interactive-npc:{records[0].checkpoint_id}",
     )
     assert player_receipt is not None
     assert npc_receipt is not None
     assert player_receipt["committed_checkpoint_id"] == records[0].checkpoint_id
     assert npc_receipt["committed_checkpoint_id"] == records[1].checkpoint_id
+
+
+def test_restart_resumes_player_handoff_from_committed_head(tmp_path) -> None:
+    settings = EngineSettings(session_token="test-token", projects_root=tmp_path)
+    calls = {"npc": 0}
+    first_app = create_app(
+        settings,
+        simulation_runtime_factory=lambda session_id, request: (
+            CountingInteractiveRuntime(session_id, request, calls)
+        ),  # type: ignore[arg-type]
+    )
+
+    player_result = _commit_player_step_without_npc(first_app)
+
+    assert player_result.checkpoint_id is not None
+    assert player_result.follow_up_actor_ids == ("zhang-ye",)
+    assert calls["npc"] == 0
+
+    reopened_app = create_app(
+        settings,
+        simulation_runtime_factory=lambda session_id, request: (
+            CountingInteractiveRuntime(session_id, request, calls)
+        ),  # type: ignore[arg-type]
+    )
+    with TestClient(reopened_app) as client:
+        restored = client.get(
+            "/projects/last-ferry-before/simulation/session",
+            headers=AUTH,
+        )
+
+    assert restored.status_code == 200
+    assert calls["npc"] == 1
+    project_root = tmp_path / "last-ferry-before"
+    records = SimulationLogStore(project_root).reachable(
+        CheckpointStore(project_root),
+        restored.json()["checkpoint_id"],
+    )
+    assert [record.result.acting_actor_id for record in records] == [
+        "player",
+        "zhang-ye",
+    ]
+
+
+def test_recovery_retry_does_not_duplicate_committed_npc_handoff(tmp_path) -> None:
+    settings = EngineSettings(session_token="test-token", projects_root=tmp_path)
+    calls = {"npc": 0}
+    first_app = create_app(
+        settings,
+        simulation_runtime_factory=lambda session_id, request: (
+            CountingInteractiveRuntime(session_id, request, calls)
+        ),  # type: ignore[arg-type]
+    )
+    player_result = _commit_player_step_without_npc(first_app)
+    assert player_result.checkpoint_id is not None
+
+    reopened_app = create_app(
+        settings,
+        simulation_runtime_factory=lambda session_id, request: (
+            CountingInteractiveRuntime(session_id, request, calls)
+        ),  # type: ignore[arg-type]
+    )
+    with TestClient(reopened_app) as client:
+        first_restore = client.get(
+            "/projects/last-ferry-before/simulation/session",
+            headers=AUTH,
+        )
+        repeated_restore = client.get(
+            "/projects/last-ferry-before/simulation/session",
+            headers=AUTH,
+        )
+
+    assert first_restore.status_code == 200
+    assert repeated_restore.status_code == 200
+    assert repeated_restore.json() == first_restore.json()
+    assert calls["npc"] == 1
+    project_root = tmp_path / "last-ferry-before"
+    records = SimulationLogStore(project_root).reachable(
+        CheckpointStore(project_root),
+        repeated_restore.json()["checkpoint_id"],
+    )
+    assert len(records) == 2
+    receipt = CommandReceiptStore(project_root).load(
+        session_id=first_restore.json()["session_id"],
+        command_id=f"interactive-npc:{player_result.checkpoint_id}",
+    )
+    assert receipt is not None
+    assert receipt["committed_checkpoint_id"] == records[-1].checkpoint_id
 
 
 def test_cases_06_and_10_npc_intent_is_resolved_and_can_act_autonomously(

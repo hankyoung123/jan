@@ -140,6 +140,13 @@ class SimulationApplicationService:
             command_id=command_id,
         )
 
+    def resume_pending_interactive_handoff(
+        self,
+        snapshot: TurnSessionSnapshot,
+    ) -> TurnSessionSnapshot:
+        self.commands.resume_pending_interactive_handoff(snapshot)
+        return self.engine.get(snapshot.session_id)
+
     def run(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:
         return self.commands.run(session_id, cancellation=cancellation)
 

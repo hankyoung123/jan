@@ -244,6 +244,23 @@ class SimulationCommandService:
                 return str(receipt["expected_state_hash"])
         return snapshot.state_hash
 
+    @staticmethod
+    def _npc_handoff_command_id(player_checkpoint_id: str) -> str:
+        return f"interactive-npc:{player_checkpoint_id}"
+
+    @staticmethod
+    def _reserved_npc_actor_ids(
+        snapshot: TurnSessionSnapshot,
+        player_result: StepResult,
+    ) -> tuple[str, ...]:
+        roster_actor_ids = set(snapshot.roster_actor_ids)
+        return tuple(
+            actor_id
+            for actor_id in player_result.follow_up_actor_ids
+            if actor_id in roster_actor_ids
+            and actor_id != snapshot.player_actor_id
+        )
+
     def _interactive_step(
         self,
         session_id: str,
@@ -289,6 +306,66 @@ class SimulationCommandService:
         )
         if self.persistence.configured:
             self.persistence.persist(restored)
+
+    def _execute_reserved_npc_handoff(
+        self,
+        snapshot: TurnSessionSnapshot,
+        player_result: StepResult,
+        *,
+        command_id: str,
+    ) -> StepResult | None:
+        npc_actor_ids = self._reserved_npc_actor_ids(snapshot, player_result)
+        if not npc_actor_ids or snapshot.status in {
+            TurnSessionStatus.TERMINATED,
+            TurnSessionStatus.CANCELLED,
+            TurnSessionStatus.FAILED,
+        }:
+            return None
+        try:
+            return self._interactive_step(
+                snapshot.session_id,
+                command_id=command_id,
+                operation="interactive_npc_step",
+                expected_state_hash=snapshot.state_hash,
+                eligible_actor_ids=npc_actor_ids,
+                deferred_boundary=(
+                    player_result.resolved_turn.boundary
+                    if player_result.resolved_turn is not None
+                    else SimulationBoundary.NONE
+                ),
+            )
+        except Exception:
+            self._recover_interactive_step(snapshot.session_id, snapshot)
+            raise
+
+    def resume_pending_interactive_handoff(
+        self,
+        snapshot: TurnSessionSnapshot,
+    ) -> StepResult | None:
+        """Complete a player handoff left at the durable branch head."""
+        if (
+            not self.persistence.configured
+            or snapshot.checkpoint_id is None
+            or snapshot.player_actor_id is None
+        ):
+            return None
+        kernel = self.persistence.kernel(snapshot.project_id)
+        records = kernel.logs.reachable(kernel.checkpoints, snapshot.checkpoint_id)
+        if not records:
+            return None
+        head_record = records[-1]
+        player_result = head_record.result
+        if (
+            head_record.checkpoint_id != snapshot.checkpoint_id
+            or player_result.acting_actor_id != snapshot.player_actor_id
+            or not player_result.follow_up_actor_ids
+        ):
+            return None
+        return self._execute_reserved_npc_handoff(
+            snapshot,
+            player_result,
+            command_id=self._npc_handoff_command_id(snapshot.checkpoint_id),
+        )
 
     def interactive_turn(
         self,
@@ -341,36 +418,18 @@ class SimulationCommandService:
                 starting.project_id,
                 player_result.checkpoint_id,
             )
-        roster_actor_ids = set(snapshot.roster_actor_ids)
-        npc_actor_ids = tuple(
-            actor_id
-            for actor_id in player_result.follow_up_actor_ids
-            if actor_id in roster_actor_ids
-            and actor_id != snapshot.player_actor_id
+        npc_command_id = (
+            self._npc_handoff_command_id(player_result.checkpoint_id)
+            if player_result.checkpoint_id is not None
+            else f"{command_id}:npc"
         )
-        if not npc_actor_ids or snapshot.status in {
-            TurnSessionStatus.TERMINATED,
-            TurnSessionStatus.CANCELLED,
-            TurnSessionStatus.FAILED,
-        }:
+        npc_result = self._execute_reserved_npc_handoff(
+            snapshot,
+            player_result,
+            command_id=npc_command_id,
+        )
+        if npc_result is None:
             return player_result
-        npc_command_id = f"{command_id}:npc"
-        try:
-            npc_result = self._interactive_step(
-                session_id,
-                command_id=npc_command_id,
-                operation="interactive_npc_step",
-                expected_state_hash=snapshot.state_hash,
-                eligible_actor_ids=npc_actor_ids,
-                deferred_boundary=(
-                    player_result.resolved_turn.boundary
-                    if player_result.resolved_turn is not None
-                    else SimulationBoundary.NONE
-                ),
-            )
-        except Exception:
-            self._recover_interactive_step(session_id, snapshot)
-            raise
         return self._combine_interactive_turn_results(player_result, npc_result)
 
     def run(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:

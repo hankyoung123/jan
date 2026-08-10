@@ -50,6 +50,7 @@ class SimulationPersistenceService:
         self.engine = engine
         self.event_bus = event_bus
         self._commit_kernel_factory = commit_kernel_factory
+        self._last_started_step: dict[str, int] = {}
 
     @property
     def configured(self) -> bool:
@@ -113,10 +114,10 @@ class SimulationPersistenceService:
         )
 
     def publish_stage(self, event: SimulationStageEvent) -> None:
-        if (
-            event.stage == SimulationStage.TERMINATION
-            and event.status == StageStatus.RUNNING
-        ):
+        if event.status == StageStatus.RUNNING and self._last_started_step.get(
+            event.session_id
+        ) != event.step:
+            self._last_started_step[event.session_id] = event.step
             self.event_bus.publish(
                 project_id=event.project_id,
                 subject_id=event.session_id,

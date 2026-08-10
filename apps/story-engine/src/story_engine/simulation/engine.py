@@ -321,10 +321,14 @@ class StoryTurnEngine:
                         session.session_id,
                     )
                 raise SimulationCancelledError()
-            if result.status == TurnSessionStatus.TERMINATED:
-                session.status = TurnSessionStatus.TERMINATED
-                session.termination_reason_text = "Game Master ended the session"
-            else:
+            completed_before_termination = (
+                result.status == TurnSessionStatus.TERMINATED
+                and result.resolved_turn is not None
+            )
+            if (
+                result.status != TurnSessionStatus.TERMINATED
+                or completed_before_termination
+            ):
                 session.current_step += 1
                 session.raw_log_offset += 1
                 if result.boundary.value != "none":
@@ -336,6 +340,7 @@ class StoryTurnEngine:
                 reason = (
                     None
                     if result.follow_up_actor_ids
+                    or result.status == TurnSessionStatus.TERMINATED
                     else hard_limit_reason(
                         session.request.control,
                         completed_steps=session.current_step,
@@ -346,6 +351,9 @@ class StoryTurnEngine:
                 if reason is not None:
                     session.status = TurnSessionStatus.TERMINATED
                     session.termination_reason_text = reason
+            if result.status == TurnSessionStatus.TERMINATED:
+                session.status = TurnSessionStatus.TERMINATED
+                session.termination_reason_text = "Game Master ended the session"
             if session.status == TurnSessionStatus.TERMINATED:
                 self._executions.release(
                     session.request.project_id,

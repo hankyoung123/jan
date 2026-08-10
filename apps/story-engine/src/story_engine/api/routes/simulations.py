@@ -163,7 +163,8 @@ def create_simulations_router(
                     status_code=409,
                     detail="Project has no configured human actor",
                 )
-            return service.restore_branch(project_id, branch_id=branch_id)
+            restored = service.restore_branch(project_id, branch_id=branch_id)
+            return service.resume_pending_interactive_handoff(restored)
 
         if branch_id != "main":
             raise HTTPException(status_code=404, detail="Branch not found")
@@ -257,7 +258,11 @@ def create_simulations_router(
         branch_id: str = "main",
     ) -> InteractiveTurnResponse:
         try:
-            session = interactive_session(project_id, branch_id)
+            session = await asyncio.to_thread(
+                interactive_session,
+                project_id,
+                branch_id,
+            )
             result = await asyncio.to_thread(
                 service.interactive_turn,
                 session.session_id,
@@ -291,11 +296,17 @@ def create_simulations_router(
         branch_id: str = "main",
     ) -> InteractiveTurnResponse:
         try:
-            snapshot = interactive_session(project_id, branch_id)
+            snapshot = await asyncio.to_thread(
+                interactive_session,
+                project_id,
+                branch_id,
+            )
             return PerceptionBuilder().initial(
                 snapshot,
                 scene_events=service.current_scene_events(snapshot),
             )
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
         except (
             BranchAlreadyActiveError,
             InvalidSessionTransitionError,

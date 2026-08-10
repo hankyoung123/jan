@@ -1,4 +1,3 @@
-import copy
 import re
 import uuid
 from collections.abc import Callable, Mapping, Sequence
@@ -50,29 +49,6 @@ from story_engine.domain.trace import (
     StageStatus,
 )
 from story_engine.wiki.context import WikiContextBuilder
-
-
-def _merge_restored_entity_state(
-    current: Mapping[str, JsonValue],
-    persisted: Mapping[str, JsonValue],
-) -> dict[str, JsonValue]:
-    """Restore dynamic state without reviving an obsolete component graph."""
-    merged: dict[str, JsonValue] = copy.deepcopy(dict(current))
-    for key, value in persisted.items():
-        current_value = merged.get(key)
-        if isinstance(current_value, Mapping) and isinstance(value, Mapping):
-            merged[key] = _merge_restored_entity_state(current_value, value)
-        else:
-            merged[key] = copy.deepcopy(value)
-
-    # ConcatActComponent's state only describes how the current prefab's context
-    # components are assembled.  It is code-owned structure, not durable story
-    # state.  Restoring an older component_order can reference components that no
-    # longer exist (identity/goal/relationships) and omit their replacement
-    # (actor_state), causing EntityAgent.act() to fail with KeyError.
-    if "act_component" in current:
-        merged["act_component"] = copy.deepcopy(current["act_component"])
-    return merged
 
 
 class StorySimulationRuntime:
@@ -847,6 +823,37 @@ class StorySimulationRuntime:
             self._observer.publish(event)
         return event
 
+    def _evaluate_termination(self, *, step: int, started_at: datetime) -> bool:
+        stage_event = self._publish_stage(
+            step=step,
+            stage=SimulationStage.TERMINATION,
+            status=StageStatus.RUNNING,
+            started_at=started_at,
+        )
+        self._set_trace_context(
+            step=step,
+            component_ids=("game-master:termination",),
+            stage=SimulationStage.TERMINATION,
+            task_label="终止判断",
+            stage_event_id=stage_event.event_id,
+        )
+        should_terminate, _ = self.game_master.should_terminate(
+            session_id=self.session_id,
+            step=step,
+        )
+        self._publish_stage(
+            step=step,
+            stage=SimulationStage.TERMINATION,
+            status=StageStatus.SUCCEEDED,
+            started_at=started_at,
+            summary_text=(
+                "Game Master ended the session"
+                if should_terminate
+                else "Simulation continues"
+            ),
+        )
+        return should_terminate
+
     def execute_step(
         self,
         step: int,
@@ -857,33 +864,12 @@ class StorySimulationRuntime:
     ) -> StepResult:
         current_stage = SimulationStage.TERMINATION
         stage_started = datetime.now(UTC)
-        stage_event = self._publish_stage(
-            step=step,
-            stage=current_stage,
-            status=StageStatus.RUNNING,
-            started_at=stage_started,
-        )
         try:
             self._check_cancelled(cancellation)
-            self._set_trace_context(
+            if eligible_actor_ids is None and self._evaluate_termination(
                 step=step,
-                component_ids=("game-master:termination",),
-                stage=current_stage,
-                task_label="终止判断",
-                stage_event_id=stage_event.event_id,
-            )
-            should_terminate, _ = self.game_master.should_terminate(
-                session_id=self.session_id,
-                step=step,
-            )
-            if should_terminate:
-                self._publish_stage(
-                    step=step,
-                    stage=current_stage,
-                    status=StageStatus.SUCCEEDED,
-                    started_at=stage_started,
-                    summary_text="Game Master ended the session",
-                )
+                started_at=stage_started,
+            ):
                 return StepResult(
                     session_id=self.session_id,
                     branch_id=self.branch_id,
@@ -894,13 +880,6 @@ class StorySimulationRuntime:
                     resolved_turn=None,
                     status=TurnSessionStatus.TERMINATED,
                 )
-            self._publish_stage(
-                step=step,
-                stage=current_stage,
-                status=StageStatus.SUCCEEDED,
-                started_at=stage_started,
-                summary_text="Simulation continues",
-            )
 
             current_stage = SimulationStage.OBSERVATION
             stage_started = datetime.now(UTC)
@@ -1205,6 +1184,16 @@ class StorySimulationRuntime:
                 event_id=event_id,
                 started_at=stage_started,
             )
+            step_status = TurnSessionStatus.RUNNING
+            if eligible_actor_ids is not None:
+                self._check_cancelled(cancellation)
+                current_stage = SimulationStage.TERMINATION
+                stage_started = datetime.now(UTC)
+                if self._evaluate_termination(
+                    step=step,
+                    started_at=stage_started,
+                ):
+                    step_status = TurnSessionStatus.TERMINATED
             return StepResult(
                 session_id=self.session_id,
                 branch_id=self.branch_id,
@@ -1213,7 +1202,7 @@ class StorySimulationRuntime:
                 action_spec=action_spec,
                 action_text=action,
                 resolved_turn=resolved,
-                status=TurnSessionStatus.RUNNING,
+                status=step_status,
                 boundary=resolved.boundary,
             )
         except Exception as error:
@@ -1496,19 +1485,9 @@ class StorySimulationRuntime:
     ) -> None:
         for actor in self._all_actors_by_name.values():
             actor.memory.restore(memory_snapshots[actor.name])
-            actor.set_state(
-                _merge_restored_entity_state(
-                    actor.get_state(),
-                    actor_states[actor.name],
-                )
-            )
+            actor.set_state(dict(actor_states[actor.name]))
         self.game_master.memory.restore(memory_snapshots[self.game_master.name])
-        self.game_master.set_state(
-            _merge_restored_entity_state(
-                self.game_master.get_state(),
-                game_master_states[self.game_master.name],
-            )
-        )
+        self.game_master.set_state(dict(game_master_states[self.game_master.name]))
         self._sync_actor_states(set(self._all_actors_by_name))
 
     def restore_snapshot(self, snapshot: TurnSessionSnapshot) -> None:

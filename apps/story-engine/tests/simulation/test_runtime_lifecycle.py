@@ -15,42 +15,7 @@ from story_engine.domain.projection import (
     StateEffect,
 )
 from story_engine.domain.trace import SimulationStage, StageStatus
-from story_engine.simulation.runtime import (
-    StorySimulationRuntime,
-    _merge_restored_entity_state,
-)
-
-
-def test_old_entity_state_uses_current_component_graph_on_restore() -> None:
-    current = {
-        "act_component": {
-            "component_order": ["actor_state", "locale"],
-            "prefix_entity_name": False,
-        },
-        "context_components": {
-            "actor_state": {"state": "Current actor state"},
-            "locale": {"content_locale": "en-US"},
-        },
-    }
-    persisted = {
-        "act_component": {
-            "component_order": ["identity", "goal", "locale"],
-            "prefix_entity_name": True,
-        },
-        "context_components": {
-            "locale": {"content_locale": "zh-CN"},
-        },
-    }
-
-    restored = _merge_restored_entity_state(current, persisted)
-
-    assert restored["act_component"] == current["act_component"]
-    assert restored["context_components"]["actor_state"] == {
-        "state": "Current actor state"
-    }
-    assert restored["context_components"]["locale"] == {
-        "content_locale": "zh-CN"
-    }
+from story_engine.simulation.runtime import StorySimulationRuntime
 
 
 def _character(
