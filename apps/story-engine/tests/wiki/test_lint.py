@@ -141,7 +141,7 @@ def test_lint_rejects_private_and_mismatched_sources(tmp_path: Path) -> None:
     assert "source-subject-mismatch" in codes
 
 
-def test_lint_reports_wrong_branch_and_source_after_wiki_step(
+def test_lint_rejects_unreachable_physical_history_sources(
     tmp_path: Path,
 ) -> None:
     root = _root(tmp_path)
@@ -176,9 +176,12 @@ def test_lint_reports_wrong_branch_and_source_after_wiki_step(
 
     result = WikiLinter(root, "main").run()
 
-    codes = {issue.code for issue in result.issues}
-    assert "source-wrong-branch" in codes
-    assert "source-after-wiki-step" in codes
+    source_issues = tuple(
+        issue
+        for issue in result.issues
+        if issue.path in {"world/alt.md", "world/late.md"}
+    )
+    assert {issue.code for issue in source_issues} == {"source-not-found"}
 
 
 def test_lint_checks_wiki_head_consistency(tmp_path: Path) -> None:

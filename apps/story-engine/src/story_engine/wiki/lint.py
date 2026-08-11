@@ -1,6 +1,5 @@
 import re
 from pathlib import Path, PurePosixPath
-from urllib.parse import quote
 
 from story_engine.domain.wiki import (
     WikiLintIssue,
@@ -9,12 +8,9 @@ from story_engine.domain.wiki import (
     WikiPage,
 )
 from story_engine.persistence.branch_store import BranchStore
-from story_engine.persistence.simulation_log import (
-    SimulationLogRecord,
-    SimulationLogStore,
-)
+from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.persistence.simulation_log import SimulationLogStore
 from story_engine.wiki.store import WikiStore
-from story_engine.workspace.documents import load_json_envelope
 from story_engine.workspace.project_store import ProjectStore
 
 _LINK = re.compile(r"\[[^\]]+\]\(([^)]+\.md)(?:#[^)]*)?\)")
@@ -213,70 +209,52 @@ class WikiLinter:
                 0,
                 "profile" if subject is not None else "project",
             )
-        instruction_path = (
-            self.store.branch_root
-            / "director-instructions"
-            / f"{quote(source_id, safe='')}.md"
+        try:
+            branch = BranchStore(self.root).load(self.branch_id)
+        except FileNotFoundError:
+            return None
+        if branch.head_checkpoint_id is None:
+            return None
+        checkpoints = CheckpointStore(self.root)
+        memories = self._logs.reachable_memory_records(
+            checkpoints,
+            branch.head_checkpoint_id,
+            branch_id=self.branch_id,
         )
-        if instruction_path.is_file():
-            return self.branch_id, None, None, "director"
-        encoded = f"{quote(source_id, safe='')}.md"
-        observation_root = self._logs.observation_directory
-        if observation_root.exists():
-            for path in observation_root.rglob(encoded):
-                parts = path.relative_to(observation_root).parts
-                if len(parts) < 3:
-                    continue
-                try:
-                    payload = load_json_envelope(
-                        path,
-                        schema="story-engine/raw-observation/v1",
-                    )
-                except (OSError, ValueError):
-                    continue
-                step = payload.get("step")
-                return (
-                    parts[0],
-                    parts[1],
-                    step if isinstance(step, int) else None,
-                    "observation",
+        memory = next(
+            (record for record in memories if record.record_id == source_id),
+            None,
+        )
+        if memory is not None:
+            if "director_instruction" in memory.tags:
+                return self.branch_id, None, memory.step, "director"
+            return self.branch_id, memory.owner_id, memory.step, "observation"
+        records = self._logs.reachable(
+            checkpoints,
+            branch.head_checkpoint_id,
+            branch_id=self.branch_id,
+        )
+        for record in records:
+            trace = record.trace
+            action_source = f"action:{record.result.session_id}:{record.result.step}"
+            candidates = {
+                trace.trace_id,
+                trace.putative_event_record_id,
+                *trace.resolved_event_record_ids,
+            }
+            if record.result.action_text:
+                candidates.add(action_source)
+            if record.result.resolved_turn is not None:
+                candidates.update(
+                    event.event_id for event in record.result.resolved_turn.events
                 )
-        for branch_dir in self._logs.directory.glob("*"):
-            if not branch_dir.is_dir():
-                continue
-            branch = branch_dir.name
-            for path in branch_dir.glob("*.md"):
-                try:
-                    payload = load_json_envelope(
-                        path,
-                        schema="story-engine/raw-turn/v1",
-                    )
-                    record = SimulationLogRecord.model_validate(payload)
-                except (OSError, ValueError):
-                    continue
-                trace = record.trace
-                action_source = (
-                    f"action:{record.result.session_id}:{record.result.step}"
+            if source_id in candidates:
+                subject = (
+                    record.result.acting_actor_id
+                    if source_id == action_source
+                    else None
                 )
-                candidates = {
-                    trace.trace_id,
-                    trace.putative_event_record_id,
-                    *trace.resolved_event_record_ids,
-                }
-                if record.result.action_text:
-                    candidates.add(action_source)
-                if record.result.resolved_turn is not None:
-                    candidates.update(
-                        event.event_id
-                        for event in record.result.resolved_turn.events
-                    )
-                if source_id in candidates:
-                    subject = (
-                        record.result.acting_actor_id
-                        if source_id == action_source
-                        else None
-                    )
-                    return branch, subject, record.result.step, "raw"
+                return self.branch_id, subject, record.result.step, "raw"
         return None
 
     def _check_head(

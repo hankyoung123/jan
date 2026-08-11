@@ -13,6 +13,15 @@ from story_engine.domain.memory import (
 )
 
 
+class CountingMemoryCodec(ConcordiaMemoryCodec):
+    def __init__(self) -> None:
+        self.decode_count = 0
+
+    def decode(self, value: str) -> MemoryRecord | None:
+        self.decode_count += 1
+        return super().decode(value)
+
+
 def _record(owner_id: str, text: str, *, record_id: str) -> MemoryRecord:
     return MemoryRecord(
         record_id=record_id,
@@ -99,6 +108,37 @@ def test_game_master_memory_allows_repeated_world_events() -> None:
     memory.add(event)
 
     assert len(memory.records()) == 2
+
+
+def test_pending_records_decode_only_the_uncommitted_tail() -> None:
+    codec = CountingMemoryCodec()
+    memory = ConcordiaMemoryBank(
+        owner_id="actor-a",
+        scope=MemoryScope.CHARACTER,
+        codec=codec,
+    )
+    memory.extend(
+        _record(
+            "actor-a",
+            f"Committed memory {index}.",
+            record_id=f"committed:{index}",
+        )
+        for index in range(200)
+    )
+    memory.mark_committed()
+    codec.decode_count = 0
+    memory.extend(
+        (
+            _record("actor-a", "New memory one.", record_id="pending:1"),
+            _record("actor-a", "New memory two.", record_id="pending:2"),
+        )
+    )
+
+    pending = memory.pending_records()
+
+    assert codec.decode_count == 2
+    assert [record.record_id for record in pending] == ["pending:1", "pending:2"]
+    assert all(record.raw_text is None for record in pending)
 
 
 def test_retrieval_exposes_lexical_recency_and_importance_scores() -> None:

@@ -21,7 +21,9 @@ from story_engine.domain.simulation import (
 )
 from story_engine.domain.trace import ModelCallStatus, TurnTrace
 from story_engine.domain.wiki import WikiPatch, WikiPatchOperation
+from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.persistence.simulation_log import SimulationLogRecord
+from story_engine.simulation.session import calculate_snapshot_state_hash
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.wiki.boundary import WikiBoundaryProcessor
 from story_engine.wiki.store import WikiRevisionConflictError, WikiStore
@@ -88,6 +90,20 @@ def _record(step: int) -> SimulationLogRecord:
             status=ModelCallStatus.SUCCEEDED,
         ),
         memory_delta=(),
+    )
+
+
+def _record_with_memory(
+    step: int,
+    memory: MemoryRecord,
+) -> SimulationLogRecord:
+    record = _record(step)
+    return SimulationLogRecord.create(
+        record_kind="turn",
+        parent_log_id=record.parent_log_id,
+        result=record.result,
+        trace=record.trace,
+        memory_delta=(memory,),
     )
 
 
@@ -306,7 +322,6 @@ class ProjectSourceConsolidator:
 
 def test_boundary_keeps_project_source_available_to_character_wiki(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     observation = MemoryRecord(
@@ -323,17 +338,6 @@ def test_boundary_keeps_project_source_available_to_character_wiki(
         visible_to=("chen-mo",),
     )
 
-    def read_observations(self, branch_id: str, *, subject_id: str | None = None):
-        del self
-        assert branch_id == "main"
-        if subject_id not in {None, "chen-mo"}:
-            return ()
-        return (observation,)
-
-    monkeypatch.setattr(
-        "story_engine.wiki.boundary.SimulationLogStore.read_observations",
-        read_observations,
-    )
     processor = WikiBoundaryProcessor(
         tmp_path / "fog-harbor",
         consolidator=ProjectSourceConsolidator(),
@@ -344,7 +348,7 @@ def test_boundary_keeps_project_source_available_to_character_wiki(
             _snapshot(tmp_path),
             boundary=SimulationBoundary.SCENE,
             end_step=1,
-            records=(_record(1),),
+            records=(_record_with_memory(1, observation),),
         )
     )
 
@@ -385,7 +389,6 @@ class CrossBoundaryConsolidator:
 
 def test_boundary_does_not_degrade_or_swallow_knowledge_violation(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     observation = MemoryRecord(
@@ -402,10 +405,6 @@ def test_boundary_does_not_degrade_or_swallow_knowledge_violation(
         visible_to=("chen-mo",),
     )
 
-    monkeypatch.setattr(
-        "story_engine.wiki.boundary.SimulationLogStore.read_observations",
-        lambda self, branch_id, *, subject_id=None: (observation,),
-    )
     processor = WikiBoundaryProcessor(
         tmp_path / "fog-harbor",
         consolidator=CrossBoundaryConsolidator(),
@@ -417,6 +416,148 @@ def test_boundary_does_not_degrade_or_swallow_knowledge_violation(
                 _snapshot(tmp_path),
                 boundary=SimulationBoundary.SCENE,
                 end_step=1,
-                records=(_record(1),),
+                records=(_record_with_memory(1, observation),),
             )
         )
+
+
+class CapturingSourceConsolidator:
+    def __init__(self) -> None:
+        self.sources: dict[str, set[str]] = {}
+
+    async def consolidate(
+        self,
+        *,
+        project_id: str,
+        session_id: str | None,
+        step: int,
+        branch_id: str,
+        subject_id: str | None,
+        pages: tuple,
+        sources: tuple,
+        content_locale: str,
+    ) -> tuple[WikiPatch, ...]:
+        del project_id, session_id, step, branch_id, pages, content_locale
+        self.sources.setdefault(subject_id or "world", set()).update(
+            source.source_id for source in sources
+        )
+        return ()
+
+
+def test_rollback_excludes_abandoned_observation_and_future_instruction_from_wiki(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    root = tmp_path / "fog-harbor"
+    kernel = SimulationCommitKernel(root)
+
+    def snapshot(step: int, history_head_id: str | None = None):
+        provisional = _snapshot(tmp_path).model_copy(
+            update={
+                "current_step": step,
+                "raw_log_offset": step,
+                "checkpoint_id": None,
+                "history_head_id": history_head_id,
+                "state_hash": "0" * 64,
+            }
+        )
+        return provisional.model_copy(
+            update={"state_hash": calculate_snapshot_state_hash(provisional)}
+        )
+
+    def memory(
+        record_id: str,
+        *,
+        step: int,
+        text: str,
+        owner_id: str,
+        scope: MemoryScope,
+        record_type: MemoryRecordType,
+        tags: tuple[str, ...],
+    ) -> MemoryRecord:
+        return MemoryRecord(
+            record_id=record_id,
+            record_type=record_type,
+            scope=scope,
+            owner_id=owner_id,
+            session_id="session:1",
+            branch_id="main",
+            step=step,
+            text=text,
+            content_locale="zh-CN",
+            created_at=datetime.now(UTC),
+            visible_to=((owner_id,) if scope == MemoryScope.CHARACTER else ()),
+            tags=tags,
+        )
+
+    initial_instruction = memory(
+        "instruction:initial",
+        step=0,
+        text="Keep the lighthouse uncertain.",
+        owner_id="gm",
+        scope=MemoryScope.GAME_MASTER,
+        record_type=MemoryRecordType.SYSTEM,
+        tags=("director_instruction",),
+    )
+    initial = kernel.save_checkpoint(
+        snapshot(0),
+        reason="Genesis",
+        genesis_memory_delta=(initial_instruction,),
+    )
+    reachable_observation = memory(
+        "observation:reachable",
+        step=0,
+        text="The reachable mechanism clicks.",
+        owner_id="chen-mo",
+        scope=MemoryScope.CHARACTER,
+        record_type=MemoryRecordType.OBSERVATION,
+        tags=("observation",),
+    )
+    first_record = _record(0)
+    checkpoint_one = kernel.append_step(
+        first_record.result,
+        snapshot(1, initial.history_head_id),
+        first_record.trace,
+        memory_delta=(reachable_observation,),
+    )
+    abandoned_observation = memory(
+        "observation:abandoned",
+        step=1,
+        text="This observation belongs to the abandoned timeline.",
+        owner_id="chen-mo",
+        scope=MemoryScope.CHARACTER,
+        record_type=MemoryRecordType.OBSERVATION,
+        tags=("observation",),
+    )
+    future_instruction = memory(
+        "instruction:future",
+        step=1,
+        text="Reveal the future mechanism.",
+        owner_id="gm",
+        scope=MemoryScope.GAME_MASTER,
+        record_type=MemoryRecordType.SYSTEM,
+        tags=("director_instruction",),
+    )
+    second_record = _record(1)
+    kernel.append_step(
+        second_record.result,
+        snapshot(2, checkpoint_one.history_head_id),
+        second_record.trace,
+        memory_delta=(abandoned_observation, future_instruction),
+    )
+    kernel.rollback_branch(
+        "fog-harbor",
+        "main",
+        checkpoint_id=checkpoint_one.checkpoint_id,
+    )
+    restored = kernel.load_checkpoint("fog-harbor", checkpoint_one.checkpoint_id)
+    consolidator = CapturingSourceConsolidator()
+
+    asyncio.run(
+        WikiBoundaryProcessor(root, consolidator=consolidator).rebuild(restored)
+    )
+
+    assert "observation:reachable" in consolidator.sources["chen-mo"]
+    assert "observation:abandoned" not in consolidator.sources["chen-mo"]
+    assert "instruction:initial" in consolidator.sources["world"]
+    assert "instruction:future" not in consolidator.sources["world"]

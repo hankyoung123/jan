@@ -22,6 +22,7 @@ from story_engine.domain.trace import (
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.persistence.session_store import SessionStore
+from story_engine.persistence.simulation_log import SimulationLogStore
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 
 AUTH = {"Authorization": "Bearer test-token"}
@@ -798,9 +799,11 @@ def test_failed_stage_is_durable_and_identifies_the_failure_location(
         ).json()
 
         assert failed.status_code == 409
-        assert trace[0]["trace"]["status"] == "failed"
-        assert trace[0]["trace"]["stages"][0]["stage_type"] == "resolution"
-        assert trace[0]["trace"]["stages"][0]["error_code"] == "resolver_error"
+        assert trace == []
+        (debug_record,) = SimulationLogStore(tmp_path / "fog-harbor").read("main")
+        assert debug_record.trace.status.value == "failed"
+        assert debug_record.trace.stages[0].stage_type == "resolution"
+        assert debug_record.trace.stages[0].error_code == "resolver_error"
 
         restored = client.post(
             "/projects/fog-harbor/simulations/restore",
@@ -1002,6 +1005,11 @@ def test_simulation_api_checkpoint_branch_rollback(
             "content_locale": "zh-CN",
         },
     )
+    abandoned = _advance(client, session_id)
+    trace_before_rollback = client.get(
+        "/projects/fog-harbor/branches/main/simulation-trace",
+        headers=AUTH,
+    )
     rolled_back = client.post(
         "/projects/fog-harbor/branches/main/rollback",
         headers=AUTH,
@@ -1015,10 +1023,16 @@ def test_simulation_api_checkpoint_branch_rollback(
         "/projects/fog-harbor/branches/compare?left=main&right=alternate",
         headers=AUTH,
     )
+    trace_after_rollback = client.get(
+        "/projects/fog-harbor/branches/main/simulation-trace",
+        headers=AUTH,
+    )
 
     assert checkpointed.status_code == 200
     assert forked.status_code == 201
     assert forked.json()["parent_branch_id"] == "main"
+    assert abandoned.status_code == 200
+    assert len(trace_before_rollback.json()) == 1
     assert rolled_back.status_code == 200
     assert rolled_back.json()["head_checkpoint_id"] == checkpoint_id
     assert {branch["branch_id"] for branch in branches.json()} == {
@@ -1027,6 +1041,10 @@ def test_simulation_api_checkpoint_branch_rollback(
     }
     assert compared.status_code == 200
     assert compared.json()["left"]["branch_id"] == "main"
+    assert compared.json()["only_left_events"] == []
+    assert compared.json()["only_right_events"] == []
+    assert trace_after_rollback.json() == []
+    assert len(SimulationLogStore(tmp_path / "fog-harbor").read("main")) == 1
 
 
 def test_simulation_api_switches_locale_at_step_boundary(tmp_path: Path) -> None:

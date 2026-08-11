@@ -298,7 +298,11 @@ class ConcordiaMemoryBank:
         return self._decode_many(self._bank.get_all_memories_as_text())
 
     def pending_records(self) -> tuple[MemoryRecord, ...]:
-        return self.records()[self._committed_count :]
+        values = self._bank.get_all_memories_as_text()[self._committed_count :]
+        return tuple(
+            record.model_copy(update={"raw_text": None})
+            for record in self._decode_many(values)
+        )
 
     def mark_committed(self) -> None:
         self._committed_count = len(self._bank)

@@ -247,12 +247,6 @@ class SimulationCommitKernel:
             )
         manifest = SessionManifest.from_snapshot(persisted)
         session_path, session_content = self.sessions.prepare(manifest)
-        observations = (
-            self.logs.prepare_observations(memory_delta, step=result.step)
-            if trace.status == ModelCallStatus.SUCCEEDED
-            else ()
-        )
-
         batch = AtomicBatch(self.root)
         written: list[Path] = []
         if checkpoint_path is not None and checkpoint_content is not None:
@@ -268,13 +262,6 @@ class SimulationCommitKernel:
                 written.append(checkpoint_path)
         batch.add(self._relative(log_path), log_content, overwrite=False)
         written.append(log_path)
-        for observation_path, observation_content in observations:
-            batch.add(
-                self._relative(observation_path),
-                observation_content,
-                overwrite=True,
-            )
-            written.append(observation_path)
         batch.add(self._relative(session_path), session_content)
         written.append(session_path)
         if receipt_path is not None and receipt_content is not None:

@@ -18,8 +18,17 @@ from story_engine.domain.action import ActionOutputType, ActionSpec
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.models import Character, WorldState
 from story_engine.domain.recipe import PerceptionFrame
+from story_engine.domain.simulation import (
+    ControlMode,
+    ControlPolicy,
+    TurnSessionRequest,
+    TurnSessionStatus,
+)
+from story_engine.domain.trace import ModelCallStatus, TurnTrace
 from story_engine.domain.wiki import WikiPatch, WikiPatchOperation
+from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.simulation.runtime import StorySimulationRuntime
+from story_engine.simulation.session import SimulationSession
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.wiki.store import WikiStore
 
@@ -274,45 +283,118 @@ def test_three_hundred_turn_prompt_stays_bounded_with_old_recall_and_wiki(
     assert len(prompt_300) <= len(prompt_100) + 1_000
     assert len(memory.records()) == 300
 
+    restored_actor, restored_model, restored_memory = _build_actor(
+        tmp_path,
+        "chen-mo",
+        responses=("恢复后继续调查。",),
+        project_root=project_root,
+    )
+    restored_memory.replay(memory.records())
+    assert len(restored_memory.records()) == 300
+    _observe(
+        restored_actor,
+        301,
+        "张野回到锁房，黄铜钥匙再次成为焦点。",
+        participants=("zhang-ye",),
+        locations=("locked-room",),
+    )
+    _act(restored_actor, 301)
+    restored_prompt = restored_model.prompts[-1]
+    restored_relevant = _section(
+        restored_prompt,
+        "Relevant Recall:\n",
+        "Current Perception:",
+    )
+    assert "张野把黄铜钥匙藏进抽屉" in restored_relevant
+    assert len(restored_prompt) < 60_000
+
 
 def test_real_runtime_routes_metadata_and_recalls_it_for_an_npc(
     tmp_path: Path,
 ) -> None:
-    turn_count = 15
+    turn_count = 20
     actor, actor_model, memory = _build_actor(
         tmp_path,
         "actor-a",
         responses=tuple(f"Action {step}" for step in range(turn_count)),
-        goal="Find the brass key",
+        goal="Follow the repeating signal",
         location="locked-room",
     )
-    gm_text = tuple(
-        value
-        for step in range(turn_count)
-        for value in (
-            (
-                "The brass key and portrait demand attention."
-                if step == turn_count - 1
-                else f"Routine corridor observation {step}."
-            ),
-            '{"call_to_action":"Investigate the room.",'
-            '"output_type":"free","options":[],"tag":"investigate"}',
-            (
-                '{"event_text":"The brass key is hidden behind the portrait.",'
-                '"boundary":"none","visibility":"participants",'
-                '"participant_names":["actor-a"]}'
-                if step == 0
-                else (
-                    '{"event_text":"Routine corridor result '
-                    f'{step}.","boundary":"none",'
-                    '"visibility":"participants",'
-                    '"participant_names":["actor-a"]}'
-                )
-            ),
+    target_text = "Signal alpha repeats near the door TARGET-MEMORY."
+    distractor_text = "Signal alpha repeats near the door DISTRACTOR-MEMORY."
+    gm_text: list[str] = []
+    for step in range(turn_count):
+        gm_text.append(
+            "Signal alpha repeats near the door."
+            if step == turn_count - 1
+            else f"Routine observation {step}."
         )
-    )
+        gm_text.append(
+            json.dumps(
+                {
+                    "call_to_action": "Follow the signal.",
+                    "output_type": "free",
+                    "options": [],
+                    "tag": "investigate" if step in {0, turn_count - 1} else "wait",
+                }
+            )
+        )
+        resolution: dict[str, object] = {
+            "event_text": f"Routine result {step}.",
+            "boundary": "none",
+            "visibility": "participants",
+            "participant_names": ["actor-a"],
+        }
+        if step == 0:
+            resolution.update(
+                {
+                    "event_text": target_text,
+                    "participant_names": ["actor-a", "actor-b"],
+                }
+            )
+        elif step == 1:
+            resolution.update(
+                {
+                    "event_text": distractor_text,
+                    "state_updates": [
+                        {
+                            "target": "character_projection",
+                            "target_name": "actor-a",
+                            "path": "location",
+                            "value": "corridor",
+                        },
+                        {
+                            "target": "world_projection",
+                            "target_name": None,
+                            "path": "current_location",
+                            "value": "hall",
+                        },
+                    ],
+                }
+            )
+        elif step == turn_count - 2:
+            resolution.update(
+                {
+                    "participant_names": ["actor-a", "actor-b"],
+                    "state_updates": [
+                        {
+                            "target": "character_projection",
+                            "target_name": "actor-a",
+                            "path": "location",
+                            "value": "locked-room",
+                        },
+                        {
+                            "target": "world_projection",
+                            "target_name": None,
+                            "path": "current_location",
+                            "value": "archive",
+                        },
+                    ],
+                }
+            )
+        gm_text.append(json.dumps(resolution))
     gm_model = ReplayLanguageModel(
-        text_responses=gm_text,
+        text_responses=tuple(gm_text),
         choice_responses=tuple(
             choice for _ in range(turn_count) for choice in ("No", "actor-a")
         ),
@@ -348,8 +430,17 @@ def test_real_runtime_routes_metadata_and_recalls_it_for_an_npc(
                 type="active",
                 identity="An NPC investigator.",
                 core_desire="Find the truth.",
-                current_goal="Find the brass key.",
+                current_goal="Follow the repeating signal.",
                 location="locked-room",
+            ),
+            Character(
+                id="actor-b",
+                display_name="actor-b",
+                type="active",
+                identity="A remote participant.",
+                core_desire="Understand the signal.",
+                current_goal="Listen from the archive.",
+                location="archive",
             ),
         ),
         world=WorldState(
@@ -359,24 +450,117 @@ def test_real_runtime_routes_metadata_and_recalls_it_for_an_npc(
         initial_roster_selected=True,
     )
 
-    for step in range(turn_count):
-        runtime.execute_step(step, cancellation=Event())
+    request = TurnSessionRequest(
+        project_id="project-1",
+        branch_id="main",
+        premise_text="Follow a repeating signal.",
+        actor_ids=("actor-a",),
+        content_locale="en-US",
+        control=ControlPolicy(mode=ControlMode.STEP, max_steps=turn_count + 1),
+    )
+    session = SimulationSession(
+        session_id="session:runtime-recall",
+        request=request,
+        runtime=runtime,
+    )
+    kernel = SimulationCommitKernel(tmp_path / "durable-project")
+    head = kernel.save_checkpoint(
+        session.snapshot(),
+        reason="Genesis",
+        genesis_memory_delta=runtime.pending_memory_records(),
+    )
+    runtime.mark_memory_committed()
+    session.checkpoint_id = head.checkpoint_id
+    session.history_head_id = head.history_head_id
+    checkpoint_after_ten = head.checkpoint_id
 
-    routed = next(
+    for step in range(turn_count):
+        result = runtime.execute_step(step, cancellation=Event())
+        session.current_step = step + 1
+        session.raw_log_offset = step + 1
+        session.status = TurnSessionStatus.PAUSED
+        occurred_at = datetime.now(UTC)
+        head = kernel.append_step(
+            result,
+            session.snapshot(),
+            TurnTrace(
+                trace_id=f"trace:runtime-recall:{step}",
+                session_id=session.session_id,
+                branch_id="main",
+                step=step,
+                content_locale="en-US",
+                stages=(),
+                model_calls=(),
+                acting_actor_id=result.acting_actor_id,
+                started_at=occurred_at,
+                completed_at=occurred_at,
+                status=ModelCallStatus.SUCCEEDED,
+            ),
+            memory_delta=runtime.pending_memory_records(),
+        )
+        runtime.mark_memory_committed()
+        session.checkpoint_id = head.checkpoint_id
+        session.history_head_id = head.history_head_id
+        if step == 9:
+            checkpoint_after_ten = head.checkpoint_id
+
+    target = next(
         record
         for record in memory.records()
         if record.record_id == "event-observation:session:runtime-recall:0:actor-a"
+    )
+    distractor = next(
+        record
+        for record in memory.records()
+        if record.record_id == "event-observation:session:runtime-recall:1:actor-a"
     )
     relevant = _section(
         actor_model.prompts[-1],
         "Relevant Recall:\n",
         "Current Perception:",
     )
-    assert routed.actor_ids == ("actor-a",)
-    assert len(routed.location_ids) == 2
-    assert all(location.startswith("location:") for location in routed.location_ids)
-    assert "investigate" in routed.tags
-    assert "The brass key is hidden behind the portrait" in relevant
+    assert target.actor_ids == ("actor-a", "actor-b")
+    assert distractor.actor_ids == ("actor-a",)
+    assert len(target.location_ids) == 2
+    assert target.location_ids != distractor.location_ids
+    assert "investigate" in target.tags
+    assert "wait" in distractor.tags
+    assert target_text in relevant
+    assert distractor_text in relevant
+    assert relevant.index(target_text) < relevant.index(distractor_text)
+    assert len(actor_model.prompts[-1]) < 60_000
+
+    durable_memory = kernel.logs.reachable_memory_records(
+        kernel.checkpoints,
+        head.checkpoint_id,
+    )
+    durable_actor_ids = tuple(
+        record.record_id for record in durable_memory if record.owner_id == "actor-a"
+    )
+    assert durable_actor_ids == tuple(record.record_id for record in memory.records())
+    assert all(record.raw_text is None for record in durable_memory)
+
+    runtime.replay_memory_records(durable_memory)
+    assert tuple(record.record_id for record in memory.records()) == durable_actor_ids
+
+    kernel.rollback_branch(
+        "project-1",
+        "main",
+        checkpoint_id=checkpoint_after_ten,
+    )
+    rolled_back_memory = kernel.logs.reachable_memory_records(
+        kernel.checkpoints,
+        checkpoint_after_ten,
+    )
+    assert len(kernel.logs.read("main")) == turn_count
+    assert len(
+        kernel.logs.reachable(kernel.checkpoints, checkpoint_after_ten)
+    ) == 10
+    assert not any(
+        record.record_id
+        == "event-observation:session:runtime-recall:15:actor-a"
+        for record in rolled_back_memory
+    )
 
 
 def test_sixty_thousand_character_perception_respects_the_total_budget(

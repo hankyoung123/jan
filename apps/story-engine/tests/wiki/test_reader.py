@@ -13,7 +13,6 @@ def test_character_sources_include_public_project_seed(
     sources = reader.character_sources(
         "chen-mo",
         records=(),
-        snapshot=None,  # type: ignore[arg-type]
     )
 
     ids = {source.source_id: source for source in sources}

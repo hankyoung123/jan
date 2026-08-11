@@ -409,16 +409,17 @@ def test_failed_step_trace_does_not_persist_uncommitted_observations(
         checkpoint=False,
     )
 
-    assert kernel.logs.read_observations("main") == ()
+    assert kernel.logs.read("main")[0].memory_delta == ()
+    assert not (tmp_path / "history/observations").exists()
 
 
-def test_successful_retry_replaces_legacy_observation_from_failed_attempt(
+def test_successful_retry_persists_observation_once_in_reachable_memory(
     tmp_path: Path,
 ) -> None:
     kernel = SimulationCommitKernel(tmp_path)
     initial = kernel.save_checkpoint(_snapshot(step=0), reason="created")
     failed_result = _result(0).model_copy(update={"status": TurnSessionStatus.FAILED})
-    failed_snapshot, failed_observation = _snapshot_with_observation(
+    failed_snapshot, _failed_observation = _snapshot_with_observation(
         current_step=0,
         observation_step=0,
         text="legacy failed observation",
@@ -431,19 +432,15 @@ def test_successful_retry_replaces_legacy_observation_from_failed_attempt(
         _trace(0, status=ModelCallStatus.FAILED),
         checkpoint=False,
     )
-    ((legacy_path, legacy_content),) = kernel.logs.prepare_observations(
-        (failed_observation,),
-        step=0,
-    )
-    legacy_path.parent.mkdir(parents=True, exist_ok=True)
-    legacy_path.write_text(legacy_content, encoding="utf-8")
-
     retry_snapshot, retry_observation = _snapshot_with_observation(
         current_step=1,
         observation_step=0,
         text="committed retry observation",
         status=TurnSessionStatus.PAUSED,
         history_head_id=initial.history_head_id,
+    )
+    retry_observation = retry_observation.model_copy(
+        update={"raw_text": "CONCORDIA_TRANSPORT_ONLY"}
     )
     committed = kernel.append_step(
         _result(0),
@@ -453,9 +450,24 @@ def test_successful_retry_replaces_legacy_observation_from_failed_attempt(
     )
 
     assert committed is not None
-    assert [item.text for item in kernel.logs.read_observations("main")] == [
+    assert [
+        item.text
+        for item in kernel.logs.reachable_memory_records(
+            kernel.checkpoints,
+            committed.checkpoint_id,
+        )
+    ] == [
         "committed retry observation"
     ]
+    assert not (tmp_path / "history/observations").exists()
+    committed_record = kernel.logs.reachable(
+        kernel.checkpoints,
+        committed.checkpoint_id,
+    )[0]
+    assert committed_record.memory_delta[0].raw_text is None
+    assert "CONCORDIA_TRANSPORT_ONLY" not in kernel.logs.path_for_record(
+        committed_record
+    ).read_text(encoding="utf-8")
     assert committed.checkpoint_id in kernel.checkpoints.lineage(
         committed.checkpoint_id
     )

@@ -375,7 +375,7 @@ def create_simulations_router(
         branch_id: str,
         after_step: int = -1,
     ) -> tuple[SimulationLogRecord, ...]:
-        records = kernel_for(project_id).logs.read(branch_id)
+        records = branch_records(settings.projects_root / project_id, branch_id)
         return tuple(record for record in records if record.result.step > after_step)
 
     @router.get(
@@ -682,8 +682,24 @@ def create_simulations_router(
                 or right_branch.project_id != project_id
             ):
                 raise FileNotFoundError
-            left_records = kernel.logs.read(left)
-            right_records = kernel.logs.read(right)
+            left_records = (
+                kernel.logs.reachable(
+                    kernel.checkpoints,
+                    left_branch.head_checkpoint_id,
+                    branch_id=left,
+                )
+                if left_branch.head_checkpoint_id is not None
+                else ()
+            )
+            right_records = (
+                kernel.logs.reachable(
+                    kernel.checkpoints,
+                    right_branch.head_checkpoint_id,
+                    branch_id=right,
+                )
+                if right_branch.head_checkpoint_id is not None
+                else ()
+            )
 
             def event_texts(
                 records: tuple[SimulationLogRecord, ...],

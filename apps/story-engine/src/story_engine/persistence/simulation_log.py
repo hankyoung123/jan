@@ -3,11 +3,10 @@ import json
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Self
-from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
+from story_engine.domain.memory import MemoryRecord
 from story_engine.domain.simulation import StepResult
 from story_engine.domain.trace import TurnTrace
 from story_engine.workspace.atomic import atomic_write_text
@@ -95,12 +94,15 @@ class SimulationLogRecord(BaseModel):
         memory_delta: tuple[MemoryRecord, ...],
         checkpoint_id: str | None = None,
     ) -> "SimulationLogRecord":
+        durable_delta = tuple(
+            record.model_copy(update={"raw_text": None}) for record in memory_delta
+        )
         log_id = cls.calculate_log_id(
             record_kind=record_kind,
             parent_log_id=parent_log_id,
             result=result,
             trace=trace,
-            memory_delta=memory_delta,
+            memory_delta=durable_delta,
         )
         persisted_result = result.model_copy(update={"checkpoint_id": checkpoint_id})
         return cls(
@@ -110,7 +112,7 @@ class SimulationLogRecord(BaseModel):
             checkpoint_id=checkpoint_id,
             result=persisted_result,
             trace=trace,
-            memory_delta=memory_delta,
+            memory_delta=durable_delta,
         )
 
     def with_checkpoint(self, checkpoint_id: str) -> "SimulationLogRecord":
@@ -154,7 +156,6 @@ class SimulationLogStore:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.directory = root / "history/turns"
-        self.observation_directory = root / "history/observations"
 
     def path_for(self, branch_id: str) -> Path:
         if not _BRANCH_ID.fullmatch(branch_id):
@@ -234,6 +235,8 @@ class SimulationLogStore:
         return tuple(records)
 
     def read(self, branch_id: str) -> tuple[SimulationLogRecord, ...]:
+        """Read physical turn files for diagnostics, including abandoned history."""
+
         return tuple(
             record
             for record in self.read_history(branch_id)
@@ -319,6 +322,8 @@ class SimulationLogStore:
         *,
         branch_id: str | None = None,
     ) -> tuple[SimulationLogRecord, ...]:
+        """Read semantic turns reachable from one checkpoint history head."""
+
         snapshot = checkpoints.load(checkpoint_id)
         if snapshot.history_head_id is None:
             raise ValueError("checkpoint has no simulation history head")
@@ -350,78 +355,10 @@ class SimulationLogStore:
             for memory in record.memory_delta
         )
 
-    def prepare_observations(
-        self,
-        records: tuple[MemoryRecord, ...],
-        *,
-        step: int,
-    ) -> tuple[tuple[Path, str], ...]:
-        prepared: list[tuple[Path, str]] = []
-        for record in records:
-            if (
-                record.step == step
-                and record.scope == MemoryScope.CHARACTER
-                and record.record_type == MemoryRecordType.OBSERVATION
-            ):
-                prepared.append(self._prepare_observation(record))
-        prepared.sort(key=lambda item: item[0].as_posix())
-        return tuple(prepared)
-
-    def _prepare_observation(self, record: MemoryRecord) -> tuple[Path, str]:
-        filename = f"{quote(record.record_id, safe='')}.md"
-        path = (
-            self.observation_directory
-            / record.branch_id
-            / quote(record.owner_id, safe="")
-            / filename
-        )
-        content = dump_json_envelope(
-            schema="story-engine/raw-observation/v1",
-            title=f"Observation {record.record_id}",
-            metadata={
-                "source_id": record.record_id,
-                "branch_id": record.branch_id,
-                "subject_id": record.owner_id,
-                "step": record.step,
-                "permission": "private",
-            },
-            body=f"# Observation\n\n{record.text}",
-            payload=record.model_dump(mode="json"),
-        )
-        return path, content
-
-    def read_observations(
-        self,
-        branch_id: str,
-        *,
-        subject_id: str | None = None,
-    ) -> tuple[MemoryRecord, ...]:
-        directory = self.observation_directory / branch_id
-        if subject_id is not None:
-            directory /= quote(subject_id, safe="")
-        if not directory.exists():
-            return ()
-        records = tuple(
-            MemoryRecord.model_validate(
-                load_json_envelope(path, schema="story-engine/raw-observation/v1")
-            )
-            for path in directory.rglob("*.md")
-        )
-        return tuple(
-            sorted(
-                records,
-                key=lambda item: (item.step, item.created_at, item.record_id),
-            )
-        )
-
     def find_source(self, branch_id: str, source_id: str) -> Path:
-        encoded = f"{quote(source_id, safe='')}.md"
-        observations = tuple(
-            (self.observation_directory / branch_id).rglob(encoded)
-        )
-        if len(observations) == 1:
-            return observations[0]
-        for record in self.read(branch_id):
+        for record in self.read_history(branch_id):
+            if any(memory.record_id == source_id for memory in record.memory_delta):
+                return self.path_for_record(record)
             source_ids = {
                 record.trace.trace_id,
                 record.trace.putative_event_record_id,

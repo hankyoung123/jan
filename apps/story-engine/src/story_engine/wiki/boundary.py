@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from pathlib import Path
 
-from story_engine.domain.memory import MemoryRecordType, MemoryScope
+from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.projection import SimulationBoundary
 from story_engine.domain.simulation import TurnSessionSnapshot
 from story_engine.domain.wiki import (
@@ -32,7 +32,11 @@ def branch_records(root: Path, branch_id: str) -> tuple[SimulationLogRecord, ...
         return ()
     # Checkpoint lineage is the authority for reachable history. Scanning branch
     # logs by step range would reintroduce abandoned turns after a rollback.
-    return logs.reachable(checkpoints, branch.head_checkpoint_id)
+    return logs.reachable(
+        checkpoints,
+        branch.head_checkpoint_id,
+        branch_id=branch_id,
+    )
 
 
 def _scene_records(
@@ -70,6 +74,7 @@ class WikiBoundaryProcessor:
         boundary: SimulationBoundary,
         end_step: int,
         records: tuple[SimulationLogRecord, ...] | None = None,
+        memory_records: tuple[MemoryRecord, ...] | None = None,
     ) -> tuple[Path, ...]:
         if boundary == SimulationBoundary.NONE:
             return ()
@@ -83,7 +88,24 @@ class WikiBoundaryProcessor:
         if not scene_records:
             return ()
         first_step = scene_records[0].result.step
-        memories = SimulationLogStore(self.root).read_observations(snapshot.branch_id)
+        memories = (
+            memory_records
+            if memory_records is not None
+            else tuple(
+                memory for record in all_records for memory in record.memory_delta
+            )
+        )
+        if records is None and memory_records is None:
+            memories = SimulationLogStore(self.root).reachable_memory_records(
+                CheckpointStore(self.root),
+                checkpoint_id,
+                branch_id=snapshot.branch_id,
+            )
+        scene_memory_ids = {
+            memory.record_id
+            for record in scene_records
+            for memory in record.memory_delta
+        }
         knowledge_subject_ids = {
             character.id
             for character in snapshot.characters
@@ -97,6 +119,7 @@ class WikiBoundaryProcessor:
                     if memory.scope == MemoryScope.CHARACTER
                     and memory.record_type == MemoryRecordType.OBSERVATION
                     and memory.owner_id in knowledge_subject_ids
+                    and memory.record_id in scene_memory_ids
                     and first_step <= memory.step <= end_step
                 }
             )
@@ -115,7 +138,7 @@ class WikiBoundaryProcessor:
                 source
                 for source in source_reader.world_sources(
                     records=scene_records,
-                    snapshot=snapshot,
+                    memories=memories,
                 )
                 if source.step >= first_step
                 or source.kind
@@ -154,7 +177,7 @@ class WikiBoundaryProcessor:
                     for source in source_reader.character_sources(
                         subject_id,
                         records=scene_records,
-                        snapshot=snapshot,
+                        memories=memories,
                     )
                     if source.step >= first_step
                     or source.kind
@@ -238,6 +261,13 @@ class WikiBoundaryProcessor:
         records: Iterable[SimulationLogRecord] | None = None,
     ) -> tuple[Path, ...]:
         selected = tuple(records or branch_records(self.root, snapshot.branch_id))
+        if snapshot.checkpoint_id is None:
+            raise ValueError("Wiki rebuild requires a durable checkpoint")
+        memories = SimulationLogStore(self.root).reachable_memory_records(
+            CheckpointStore(self.root),
+            snapshot.checkpoint_id,
+            branch_id=snapshot.branch_id,
+        )
         written: list[Path] = []
         for record in selected:
             if record.result.step >= snapshot.current_step:
@@ -250,6 +280,7 @@ class WikiBoundaryProcessor:
                     boundary=record.result.boundary,
                     end_step=record.result.step,
                     records=selected,
+                    memory_records=memories,
                 )
             )
         if snapshot.checkpoint_id is not None:

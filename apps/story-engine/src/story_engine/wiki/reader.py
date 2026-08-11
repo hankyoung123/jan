@@ -1,15 +1,10 @@
 import json
 from pathlib import Path
 
-from story_engine.domain.memory import MemoryRecordType
+from story_engine.domain.memory import MemoryRecord, MemoryRecordType
 from story_engine.domain.projection import EventVisibility
-from story_engine.domain.simulation import TurnSessionSnapshot
 from story_engine.domain.wiki import WikiSource, WikiSourceKind
-from story_engine.persistence.simulation_log import (
-    SimulationLogRecord,
-    SimulationLogStore,
-)
-from story_engine.wiki.store import WikiStore
+from story_engine.persistence.simulation_log import SimulationLogRecord
 from story_engine.workspace.project_store import ProjectStore
 
 
@@ -19,7 +14,6 @@ class WikiSourceReader:
     def __init__(self, root: Path, branch_id: str) -> None:
         self.root = root
         self.branch_id = branch_id
-        self.logs = SimulationLogStore(root)
 
     def project_sources(self) -> tuple[WikiSource, ...]:
         snapshot = ProjectStore(self.root).load()
@@ -75,7 +69,7 @@ class WikiSourceReader:
         self,
         *,
         records: tuple[SimulationLogRecord, ...],
-        snapshot: TurnSessionSnapshot,
+        memories: tuple[MemoryRecord, ...] = (),
     ) -> tuple[WikiSource, ...]:
         sources = [
             source
@@ -97,13 +91,14 @@ class WikiSourceReader:
             )
         sources.extend(
             WikiSource(
-                source_id=instruction.instruction_id,
+                source_id=memory.record_id,
                 kind=WikiSourceKind.DIRECTOR_INSTRUCTION,
                 branch_id=self.branch_id,
-                step=snapshot.current_step,
-                content=instruction.text,
+                step=memory.step,
+                content=memory.text,
             )
-            for instruction in WikiStore(self.root, self.branch_id).list_instructions()
+            for memory in memories
+            if "director_instruction" in memory.tags
         )
         return tuple({source.source_id: source for source in sources}.values())
 
@@ -112,9 +107,8 @@ class WikiSourceReader:
         subject_id: str,
         *,
         records: tuple[SimulationLogRecord, ...],
-        snapshot: TurnSessionSnapshot,
+        memories: tuple[MemoryRecord, ...] = (),
     ) -> tuple[WikiSource, ...]:
-        del snapshot
         sources = [
             source
             for source in self.project_sources()
@@ -155,10 +149,8 @@ class WikiSourceReader:
                 step=memory.step,
                 content=memory.text,
             )
-            for memory in self.logs.read_observations(
-                self.branch_id,
-                subject_id=subject_id,
-            )
+            for memory in memories
+            if memory.owner_id == subject_id
             if memory.record_type
             in {MemoryRecordType.PREMISE, MemoryRecordType.OBSERVATION}
         )
