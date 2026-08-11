@@ -105,7 +105,7 @@ class ConcordiaStoryActor:
                 location_ids=perception.location_ids,
                 source_record_ids=perception.source_record_ids,
                 visible_to=(perception.actor_id,),
-                tags=("observation",),
+                tags=tuple(dict.fromkeys(("observation", *perception.tags))),
             )
             observation = self._memory.codec.encode(record)
         self._entity.observe(observation)

@@ -356,7 +356,7 @@ class SimulationCommandService:
         head_record = records[-1]
         player_result = head_record.result
         if (
-            head_record.checkpoint_id != snapshot.checkpoint_id
+            head_record.log_id != snapshot.history_head_id
             or player_result.acting_actor_id != snapshot.player_actor_id
             or not player_result.follow_up_actor_ids
         ):

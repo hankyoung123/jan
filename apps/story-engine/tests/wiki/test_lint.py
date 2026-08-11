@@ -56,9 +56,9 @@ def _snapshot(tmp_path: Path) -> TurnSessionSnapshot:
 
 def _record(step: int, *, branch_id: str, session_id: str) -> SimulationLogRecord:
     now = datetime.now(UTC)
-    return SimulationLogRecord(
-        checkpoint_id=None,
-        state_hash="0" * 64,
+    return SimulationLogRecord.create(
+        record_kind="turn",
+        parent_log_id="log-" + "0" * 64,
         result=StepResult(
             session_id=session_id,
             branch_id=branch_id,
@@ -83,6 +83,7 @@ def _record(step: int, *, branch_id: str, session_id: str) -> SimulationLogRecor
             completed_at=now,
             status=ModelCallStatus.SUCCEEDED,
         ),
+        memory_delta=(),
     )
 
 

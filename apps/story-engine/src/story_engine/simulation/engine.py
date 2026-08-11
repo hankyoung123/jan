@@ -93,6 +93,11 @@ class StoryTurnEngine:
                 if initial_snapshot is not None
                 else 0
             ),
+            history_head_id=(
+                getattr(initial_snapshot, "history_head_id", None)
+                if initial_snapshot is not None
+                else None
+            ),
             checkpoint_id=(
                 initial_snapshot.checkpoint_id if initial_snapshot is not None else None
             ),
@@ -115,10 +120,12 @@ class StoryTurnEngine:
         self,
         session_id: str,
         checkpoint_id: str,
+        history_head_id: str,
     ) -> TurnSessionSnapshot:
         session = self._get(session_id)
         with session.lock:
             session.checkpoint_id = checkpoint_id
+            session.history_head_id = history_head_id
             return session.snapshot()
 
     def set_restoration_notice(
@@ -252,6 +259,14 @@ class StoryTurnEngine:
         if cancellation.is_set() or session.status == TurnSessionStatus.CANCELLED:
             session.runtime.cancellation.set()
         try:
+            prepare_step_memory = getattr(
+                session.runtime, "prepare_step_memory", None
+            )
+            if prepare_step_memory is not None and session.checkpoint_id is not None:
+                prepare_step_memory(
+                    checkpoint_id=session.checkpoint_id,
+                    step=session.current_step,
+                )
             if human_intent is None:
                 if (
                     eligible_actor_ids is None
@@ -415,6 +430,7 @@ class StoryTurnEngine:
             session.total_model_tokens = checkpoint.total_model_tokens
             session.consecutive_model_failures = checkpoint.consecutive_model_failures
             session.checkpoint_id = checkpoint.checkpoint_id
+            session.history_head_id = checkpoint.history_head_id
             session.pending_control = PendingControl.NONE
             session.continuous_started_at = None
             if reactivate:
@@ -617,6 +633,7 @@ class StoryTurnEngine:
                 raw_log_offset=snapshot.raw_log_offset,
                 total_model_tokens=snapshot.total_model_tokens,
                 consecutive_model_failures=snapshot.consecutive_model_failures,
+                history_head_id=snapshot.history_head_id,
                 checkpoint_id=snapshot.checkpoint_id,
                 termination_reason_text=None,
                 restoration_notice_text=snapshot.restoration_notice_text,

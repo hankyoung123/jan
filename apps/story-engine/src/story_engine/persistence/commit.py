@@ -20,6 +20,7 @@ from story_engine.persistence.simulation_log import (
     SimulationLogRecord,
     SimulationLogStore,
 )
+from story_engine.simulation.session import calculate_snapshot_state_hash
 from story_engine.wiki.store import WikiStore
 from story_engine.workspace.transaction import AtomicBatch
 
@@ -35,11 +36,68 @@ class SimulationCommitKernel:
         self.sessions = SessionStore(root)
         self.receipts = CommandReceiptStore(root)
 
+    @staticmethod
+    def _history_head(snapshot: TurnSessionSnapshot) -> str:
+        if snapshot.history_head_id is None:
+            raise ValueError("checkpoint has no simulation history head")
+        return snapshot.history_head_id
+
+    @staticmethod
+    def _with_history_head(
+        snapshot: TurnSessionSnapshot,
+        history_head_id: str,
+    ) -> TurnSessionSnapshot:
+        provisional = snapshot.model_copy(
+            update={
+                "history_head_id": history_head_id,
+                "state_hash": "0" * 64,
+            }
+        )
+        return provisional.model_copy(
+            update={"state_hash": calculate_snapshot_state_hash(provisional)}
+        )
+
+    @staticmethod
+    def _genesis_record(
+        snapshot: TurnSessionSnapshot,
+        memory_delta: tuple[MemoryRecord, ...],
+    ) -> SimulationLogRecord:
+        result = StepResult(
+            session_id=snapshot.session_id,
+            branch_id=snapshot.branch_id,
+            step=0,
+            acting_actor_id=None,
+            action_spec=None,
+            action_text=None,
+            resolved_turn=None,
+            status=snapshot.status,
+        )
+        trace = TurnTrace(
+            trace_id=f"trace:genesis:{snapshot.session_id}",
+            session_id=snapshot.session_id,
+            branch_id=snapshot.branch_id,
+            step=0,
+            content_locale=snapshot.content_locale,
+            stages=(),
+            model_calls=(),
+            started_at=snapshot.started_at,
+            completed_at=snapshot.started_at,
+            status=ModelCallStatus.SUCCEEDED,
+        )
+        return SimulationLogRecord.create(
+            record_kind="genesis",
+            parent_log_id=None,
+            result=result,
+            trace=trace,
+            memory_delta=memory_delta,
+        )
+
     def save_checkpoint(
         self,
         snapshot: TurnSessionSnapshot,
         *,
         reason: str,
+        genesis_memory_delta: tuple[MemoryRecord, ...] = (),
     ) -> CommitResult:
         del reason
         branch = self.branches.ensure(
@@ -59,26 +117,47 @@ class SimulationCommitKernel:
                 return CommitResult(
                     branch=branch,
                     checkpoint_id=branch.head_checkpoint_id,
+                    history_head_id=self._history_head(current),
                     session_id=snapshot.session_id,
                     step=current.current_step,
                     state_hash=current.state_hash,
                     written_paths=(),
                 )
+        genesis_record: SimulationLogRecord | None = None
+        persisted_snapshot = snapshot
+        if snapshot.history_head_id is None:
+            if branch.head_checkpoint_id is not None:
+                raise ValueError("checkpoint is missing its simulation history head")
+            genesis_record = self._genesis_record(snapshot, genesis_memory_delta)
+            persisted_snapshot = self._with_history_head(
+                snapshot, genesis_record.log_id
+            )
+        elif genesis_memory_delta:
+            raise ValueError("Genesis memory can only be committed once")
+
         checkpoint_id, checkpoint_path, checkpoint_content = self.checkpoints.prepare(
-            snapshot,
+            persisted_snapshot,
             parent_checkpoint_id=branch.head_checkpoint_id,
         )
+        if genesis_record is not None:
+            genesis_record = genesis_record.with_checkpoint(checkpoint_id)
         updated, branch_path, branch_content = self.branches.prepare_advance(
             snapshot.branch_id,
             checkpoint_id=checkpoint_id,
             step=snapshot.current_step,
             expected_head_checkpoint_id=branch.head_checkpoint_id,
         )
-        persisted = snapshot.model_copy(update={"checkpoint_id": checkpoint_id})
+        persisted = persisted_snapshot.model_copy(
+            update={"checkpoint_id": checkpoint_id}
+        )
         manifest = SessionManifest.from_snapshot(persisted)
         session_path, session_content = self.sessions.prepare(manifest)
         batch = AtomicBatch(self.root)
         written: list[Path] = []
+        if genesis_record is not None:
+            genesis_path, genesis_content = self.logs.prepare(genesis_record)
+            batch.add(self._relative(genesis_path), genesis_content, overwrite=False)
+            written.append(genesis_path)
         if checkpoint_path.exists():
             if checkpoint_path.read_text(encoding="utf-8") != checkpoint_content:
                 raise ValueError("checkpoint content hash collision")
@@ -102,9 +181,10 @@ class SimulationCommitKernel:
         return CommitResult(
             branch=updated,
             checkpoint_id=checkpoint_id,
+            history_head_id=self._history_head(persisted),
             session_id=snapshot.session_id,
             step=snapshot.current_step,
-            state_hash=snapshot.state_hash,
+            state_hash=persisted.state_hash,
             written_paths=tuple(str(path) for path in written),
         )
 
@@ -123,26 +203,30 @@ class SimulationCommitKernel:
             project_id=snapshot.project_id,
             content_locale=snapshot.content_locale,
         )
+        if snapshot.history_head_id is None:
+            raise ValueError("turn snapshot has no simulation history head")
+        record = SimulationLogRecord.create(
+            record_kind="turn",
+            parent_log_id=snapshot.history_head_id,
+            result=result,
+            trace=trace,
+            memory_delta=memory_delta,
+        )
+        persisted_snapshot = snapshot
         checkpoint_id: str | None = None
         checkpoint_path: Path | None = None
         checkpoint_content: str | None = None
         if checkpoint:
+            persisted_snapshot = self._with_history_head(snapshot, record.log_id)
             checkpoint_id, checkpoint_path, checkpoint_content = (
                 self.checkpoints.prepare(
-                    snapshot,
+                    persisted_snapshot,
                     parent_checkpoint_id=branch.head_checkpoint_id,
                 )
             )
-        record = SimulationLogRecord(
-            parent_checkpoint_id=branch.head_checkpoint_id,
-            checkpoint_id=checkpoint_id,
-            state_hash=snapshot.state_hash,
-            result=result.model_copy(update={"checkpoint_id": checkpoint_id}),
-            trace=trace,
-            memory_delta=memory_delta,
-        )
+            record = record.with_checkpoint(checkpoint_id)
         log_path, log_content = self.logs.prepare(record)
-        persisted = snapshot.model_copy(
+        persisted = persisted_snapshot.model_copy(
             update={"checkpoint_id": checkpoint_id or snapshot.checkpoint_id}
         )
         receipt_path: Path | None = None
@@ -224,9 +308,10 @@ class SimulationCommitKernel:
         return CommitResult(
             branch=updated,
             checkpoint_id=checkpoint_id,
+            history_head_id=self._history_head(persisted),
             session_id=snapshot.session_id,
             step=snapshot.current_step,
-            state_hash=snapshot.state_hash,
+            state_hash=persisted.state_hash,
             written_paths=tuple(str(path) for path in written),
         )
 

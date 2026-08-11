@@ -40,6 +40,7 @@ def _snapshot(
     branch_id: str = "main",
     status: TurnSessionStatus = TurnSessionStatus.PAUSED,
     marker: str | None = None,
+    history_head_id: str | None = None,
 ) -> TurnSessionSnapshot:
     now = datetime.now(UTC)
     provisional = TurnSessionSnapshot(
@@ -60,6 +61,7 @@ def _snapshot(
         actor_states={"actor-a": {"step": step, "marker": marker}},
         game_master_states={"gm": {"step": step}},
         raw_log_offset=step,
+        history_head_id=history_head_id,
         started_at=now,
         updated_at=now,
         state_hash="0" * 64,
@@ -114,8 +116,13 @@ def _snapshot_with_observation(
     observation_step: int,
     text: str,
     status: TurnSessionStatus,
+    history_head_id: str,
 ) -> tuple[TurnSessionSnapshot, MemoryRecord]:
-    snapshot = _snapshot(step=current_step, status=status)
+    snapshot = _snapshot(
+        step=current_step,
+        status=status,
+        history_head_id=history_head_id,
+    )
     record = MemoryRecord(
         record_id=f"observation:session:1:{observation_step}:actor-a",
         record_type=MemoryRecordType.OBSERVATION,
@@ -202,7 +209,11 @@ def test_checkpoint_round_trip_verifies_state_hash(tmp_path: Path) -> None:
 def test_commit_writes_checkpoint_log_then_advances_branch(tmp_path: Path) -> None:
     kernel = SimulationCommitKernel(tmp_path)
     initial = kernel.save_checkpoint(_snapshot(step=0), reason="session created")
-    committed = kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
+    committed = kernel.append_step(
+        _result(0),
+        _snapshot(step=1, history_head_id=initial.history_head_id),
+        _trace(0),
+    )
 
     branch = kernel.branches.load("main")
     records = kernel.logs.read("main")
@@ -217,7 +228,7 @@ def test_commit_writes_checkpoint_log_then_advances_branch(tmp_path: Path) -> No
 
 def test_step_commit_includes_its_command_receipt(tmp_path: Path) -> None:
     kernel = SimulationCommitKernel(tmp_path)
-    kernel.save_checkpoint(_snapshot(step=0), reason="session created")
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="session created")
     receipt = CommandReceiptCommit(
         command_id="command:atomic-step",
         operation="step",
@@ -227,7 +238,7 @@ def test_step_commit_includes_its_command_receipt(tmp_path: Path) -> None:
 
     committed = kernel.append_step(
         _result(0),
-        _snapshot(step=1),
+        _snapshot(step=1, history_head_id=initial.history_head_id),
         _trace(0),
         command_receipt=receipt,
     )
@@ -247,7 +258,7 @@ def test_failed_step_transaction_rolls_back_its_command_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     kernel = SimulationCommitKernel(tmp_path)
-    kernel.save_checkpoint(_snapshot(step=0), reason="session created")
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="session created")
     receipt = CommandReceiptCommit(
         command_id="command:rollback-step",
         operation="step",
@@ -271,15 +282,18 @@ def test_failed_step_transaction_rolls_back_its_command_receipt(
     with pytest.raises(OSError, match="receipt write failure"):
         kernel.append_step(
             _result(0),
-            _snapshot(step=1),
+            _snapshot(step=1, history_head_id=initial.history_head_id),
             _trace(0),
             command_receipt=receipt,
         )
 
-    assert CommandReceiptStore(tmp_path).load(
-        session_id="session:1",
-        command_id="command:rollback-step",
-    ) is None
+    assert (
+        CommandReceiptStore(tmp_path).load(
+            session_id="session:1",
+            command_id="command:rollback-step",
+        )
+        is None
+    )
     assert kernel.logs.read("main") == ()
 
 
@@ -303,7 +317,7 @@ def test_failed_nth_file_write_rolls_back_the_complete_step(
         real_replace(source, destination)
 
     monkeypatch.setattr(transaction, "_replace", fail_third_write)
-    next_snapshot = _snapshot(step=1)
+    next_snapshot = _snapshot(step=1, history_head_id=initial.history_head_id)
     next_checkpoint_id = kernel.checkpoints.prepare(
         next_snapshot,
         parent_checkpoint_id=initial.checkpoint_id,
@@ -324,8 +338,12 @@ def test_failed_nth_file_write_rolls_back_the_complete_step(
 
 def test_step_authority_uses_only_markdown_files(tmp_path: Path) -> None:
     kernel = SimulationCommitKernel(tmp_path)
-    kernel.save_checkpoint(_snapshot(step=0), reason="created")
-    kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    kernel.append_step(
+        _result(0),
+        _snapshot(step=1, history_head_id=initial.history_head_id),
+        _trace(0),
+    )
 
     prohibited = tuple(
         path
@@ -342,18 +360,22 @@ def test_failed_step_trace_can_be_followed_by_successful_checkpoint_retry(
     tmp_path: Path,
 ) -> None:
     kernel = SimulationCommitKernel(tmp_path)
-    kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="created")
     failed_result = _result(0).model_copy(update={"status": TurnSessionStatus.FAILED})
     kernel.append_step(
         failed_result,
-        _snapshot(step=0, status=TurnSessionStatus.FAILED),
+        _snapshot(
+            step=0,
+            status=TurnSessionStatus.FAILED,
+            history_head_id=initial.history_head_id,
+        ),
         _trace(0, status=ModelCallStatus.FAILED),
         checkpoint=False,
     )
 
     committed = kernel.append_step(
         _result(0),
-        _snapshot(step=1),
+        _snapshot(step=1, history_head_id=initial.history_head_id),
         _trace(0, attempt=1),
     )
 
@@ -370,13 +392,14 @@ def test_failed_step_trace_does_not_persist_uncommitted_observations(
     tmp_path: Path,
 ) -> None:
     kernel = SimulationCommitKernel(tmp_path)
-    kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="created")
     failed_result = _result(0).model_copy(update={"status": TurnSessionStatus.FAILED})
     failed_snapshot, _failed_observation = _snapshot_with_observation(
         current_step=0,
         observation_step=0,
         text="uncommitted observation",
         status=TurnSessionStatus.FAILED,
+        history_head_id=initial.history_head_id,
     )
 
     kernel.append_step(
@@ -393,13 +416,14 @@ def test_successful_retry_replaces_legacy_observation_from_failed_attempt(
     tmp_path: Path,
 ) -> None:
     kernel = SimulationCommitKernel(tmp_path)
-    kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="created")
     failed_result = _result(0).model_copy(update={"status": TurnSessionStatus.FAILED})
     failed_snapshot, failed_observation = _snapshot_with_observation(
         current_step=0,
         observation_step=0,
         text="legacy failed observation",
         status=TurnSessionStatus.FAILED,
+        history_head_id=initial.history_head_id,
     )
     kernel.append_step(
         failed_result,
@@ -419,6 +443,7 @@ def test_successful_retry_replaces_legacy_observation_from_failed_attempt(
         observation_step=0,
         text="committed retry observation",
         status=TurnSessionStatus.PAUSED,
+        history_head_id=initial.history_head_id,
     )
     committed = kernel.append_step(
         _result(0),
@@ -439,7 +464,11 @@ def test_successful_retry_replaces_legacy_observation_from_failed_attempt(
 def test_branch_fork_and_rollback_keep_independent_heads(tmp_path: Path) -> None:
     kernel = SimulationCommitKernel(tmp_path)
     first = kernel.save_checkpoint(_snapshot(step=0), reason="created")
-    second = kernel.append_step(_result(0), _snapshot(step=1), _trace(0))
+    second = kernel.append_step(
+        _result(0),
+        _snapshot(step=1, history_head_id=first.history_head_id),
+        _trace(0),
+    )
     fork = kernel.create_branch(
         "fog-harbor",
         source_checkpoint_id=first.checkpoint_id,
@@ -468,7 +497,11 @@ def test_reachable_history_excludes_abandoned_turn_after_rollback(
     initial = kernel.save_checkpoint(_snapshot(step=0), reason="created")
     abandoned = kernel.append_step(
         _resolved_result(0, "abandoned event"),
-        _snapshot(step=1, marker="abandoned"),
+        _snapshot(
+            step=1,
+            marker="abandoned",
+            history_head_id=initial.history_head_id,
+        ),
         _trace(0),
     )
     kernel.rollback_branch(
@@ -478,7 +511,11 @@ def test_reachable_history_excludes_abandoned_turn_after_rollback(
     )
     replacement = kernel.append_step(
         _resolved_result(0, "replacement event"),
-        _snapshot(step=1, marker="replacement"),
+        _snapshot(
+            step=1,
+            marker="replacement",
+            history_head_id=initial.history_head_id,
+        ),
         _trace(0, attempt=1),
     )
 
@@ -495,28 +532,25 @@ def test_reachable_history_excludes_abandoned_turn_after_rollback(
 
 def test_memory_delta_replays_one_hundred_steps_after_restart(tmp_path: Path) -> None:
     kernel = SimulationCommitKernel(tmp_path)
-    kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="created")
     expected: list[MemoryRecord] = []
-    head = None
+    head = initial
     for step in range(100):
         memory = _memory_record(step)
         expected.append(memory)
         head = kernel.append_step(
             _result(step),
-            _snapshot(step=step + 1),
+            _snapshot(step=step + 1, history_head_id=head.history_head_id),
             _trace(step),
             memory_delta=(memory,),
         )
 
-    assert head is not None
     restored = ConcordiaMemoryBank(
         owner_id="actor-a",
         scope=MemoryScope.CHARACTER,
     )
     restored.replay(
-        kernel.logs.reachable_memory_records(
-            kernel.checkpoints, head.checkpoint_id
-        )
+        kernel.logs.reachable_memory_records(kernel.checkpoints, head.checkpoint_id)
     )
 
     assert [record.record_id for record in restored.records()] == [
@@ -531,16 +565,18 @@ def test_memory_delta_branch_shares_prefix_and_isolates_post_fork_history(
     tmp_path: Path,
 ) -> None:
     kernel = SimulationCommitKernel(tmp_path)
-    kernel.save_checkpoint(_snapshot(step=0), reason="created")
-    fork_point = None
+    initial = kernel.save_checkpoint(_snapshot(step=0), reason="created")
+    fork_point = initial
     for step in range(50):
         fork_point = kernel.append_step(
             _result(step),
-            _snapshot(step=step + 1),
+            _snapshot(
+                step=step + 1,
+                history_head_id=fork_point.history_head_id,
+            ),
             _trace(step),
             memory_delta=(_memory_record(step),),
         )
-    assert fork_point is not None
     kernel.create_branch(
         "fog-harbor",
         source_checkpoint_id=fork_point.checkpoint_id,
@@ -554,7 +590,10 @@ def test_memory_delta_branch_shares_prefix_and_isolates_post_fork_history(
     for step in range(50, 55):
         main_head = kernel.append_step(
             _result(step),
-            _snapshot(step=step + 1),
+            _snapshot(
+                step=step + 1,
+                history_head_id=main_head.history_head_id,
+            ),
             _trace(step),
             memory_delta=(_memory_record(step),),
         )
@@ -566,13 +605,15 @@ def test_memory_delta_branch_shares_prefix_and_isolates_post_fork_history(
         )
         alternate_head = kernel.append_step(
             _result(step, branch_id="alternate"),
-            _snapshot(step=step + 1, branch_id="alternate"),
+            _snapshot(
+                step=step + 1,
+                branch_id="alternate",
+                history_head_id=alternate_head.history_head_id,
+            ),
             alternate_trace,
             memory_delta=(_memory_record(step, branch_id="alternate"),),
         )
 
-    assert main_head is not None
-    assert alternate_head is not None
     main_ids = {
         record.record_id
         for record in kernel.logs.reachable_memory_records(
@@ -595,19 +636,115 @@ def test_memory_delta_branch_shares_prefix_and_isolates_post_fork_history(
     assert not {f"memory:main:{step}" for step in range(50, 55)} & alternate_ids
 
 
+def test_genesis_restore_excludes_future_instruction_and_knowledge(
+    tmp_path: Path,
+) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    premise = _memory_record(0).model_copy(
+        update={
+            "record_id": "genesis:premise",
+            "record_type": MemoryRecordType.PREMISE,
+            "text": "The archive begins locked.",
+            "tags": ("project_seed",),
+        }
+    )
+    initial_instruction = _memory_record(0).model_copy(
+        update={
+            "record_id": "instruction:initial",
+            "record_type": MemoryRecordType.SYSTEM,
+            "text": "Keep the archive mysterious.",
+            "tags": ("director_instruction",),
+        }
+    )
+    checkpoint_20 = kernel.save_checkpoint(
+        _snapshot(step=20),
+        reason="Genesis",
+        genesis_memory_delta=(premise, initial_instruction),
+    )
+    future_instruction = _memory_record(80).model_copy(
+        update={
+            "record_id": "instruction:future",
+            "record_type": MemoryRecordType.SYSTEM,
+            "text": "Reveal the archive key.",
+            "tags": ("director_instruction",),
+        }
+    )
+    future_knowledge = _memory_record(80).model_copy(
+        update={
+            "record_id": "knowledge:future",
+            "text": "The key is behind the portrait.",
+        }
+    )
+    checkpoint_80 = kernel.append_step(
+        _result(80),
+        _snapshot(step=81, history_head_id=checkpoint_20.history_head_id),
+        _trace(80),
+        memory_delta=(future_instruction, future_knowledge),
+    )
+
+    at_20 = kernel.logs.reachable_memory_records(
+        kernel.checkpoints, checkpoint_20.checkpoint_id
+    )
+    at_80 = kernel.logs.reachable_memory_records(
+        kernel.checkpoints, checkpoint_80.checkpoint_id
+    )
+
+    assert {record.record_id for record in at_20} == {
+        "genesis:premise",
+        "instruction:initial",
+    }
+    assert {record.record_id for record in at_80} == {
+        "genesis:premise",
+        "instruction:initial",
+        "instruction:future",
+        "knowledge:future",
+    }
+
+
+def test_restore_fails_when_a_reachable_parent_log_is_missing(tmp_path: Path) -> None:
+    kernel = SimulationCommitKernel(tmp_path)
+    genesis = kernel.save_checkpoint(
+        _snapshot(step=0),
+        reason="Genesis",
+        genesis_memory_delta=(_memory_record(0),),
+    )
+    head = kernel.append_step(
+        _result(0),
+        _snapshot(step=1, history_head_id=genesis.history_head_id),
+        _trace(0),
+        memory_delta=(_memory_record(1),),
+    )
+    genesis_record = kernel.logs.chain(
+        head.history_head_id,
+        branch_id="main",
+    )[0]
+    kernel.logs.path_for_record(genesis_record).unlink()
+
+    with pytest.raises(ValueError, match=r"simulation history log .* is missing"):
+        kernel.logs.reachable_memory_records(
+            kernel.checkpoints,
+            head.checkpoint_id,
+        )
+
+
 def test_checkpoint_and_memory_delta_storage_growth_is_linear() -> None:
     checkpoint_store = CheckpointStore(Path("/unused"))
 
     def projected_bytes(turn_count: int) -> int:
         total = 0
         for step in range(turn_count):
-            snapshot = _snapshot(step=step + 1)
+            parent_log_id = "log-" + "0" * 64
+            snapshot = _snapshot(
+                step=step + 1,
+                history_head_id=parent_log_id,
+            )
             _checkpoint_id, _path, checkpoint_content = checkpoint_store.prepare(
                 snapshot,
                 parent_checkpoint_id=None,
             )
-            record = SimulationLogRecord(
-                state_hash=snapshot.state_hash,
+            record = SimulationLogRecord.create(
+                record_kind="turn",
+                parent_log_id=parent_log_id,
                 result=_result(step),
                 trace=_trace(step),
                 memory_delta=(_memory_record(step),),

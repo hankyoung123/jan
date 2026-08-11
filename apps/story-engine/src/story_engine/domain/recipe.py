@@ -25,6 +25,7 @@ class PerceptionFrame(RuntimeModel):
     participant_ids: tuple[Identifier, ...] = ()
     source_record_ids: tuple[Identifier, ...] = ()
     location_ids: tuple[Identifier, ...] = ()
+    tags: tuple[Identifier, ...] = ()
     generated_by_gm: bool = True
 
 

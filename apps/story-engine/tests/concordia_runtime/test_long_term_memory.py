@@ -3,18 +3,23 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 
+from story_engine.concordia_runtime.components.knowledge import CharacterContextBudget
 from story_engine.concordia_runtime.factory import (
     ConcordiaActorFactory,
     ConcordiaStoryActor,
     default_character_recipe,
+    default_game_master_recipe,
 )
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
 from story_engine.concordia_runtime.replay import ReplayLanguageModel
 from story_engine.domain.action import ActionOutputType, ActionSpec
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
+from story_engine.domain.models import Character, WorldState
 from story_engine.domain.recipe import PerceptionFrame
 from story_engine.domain.wiki import WikiPatch, WikiPatchOperation
+from story_engine.simulation.runtime import StorySimulationRuntime
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.wiki.store import WikiStore
 
@@ -268,3 +273,125 @@ def test_three_hundred_turn_prompt_stays_bounded_with_old_recall_and_wiki(
         assert len(prompt) < 60_000
     assert len(prompt_300) <= len(prompt_100) + 1_000
     assert len(memory.records()) == 300
+
+
+def test_real_runtime_routes_metadata_and_recalls_it_for_an_npc(
+    tmp_path: Path,
+) -> None:
+    turn_count = 15
+    actor, actor_model, memory = _build_actor(
+        tmp_path,
+        "actor-a",
+        responses=tuple(f"Action {step}" for step in range(turn_count)),
+        goal="Find the brass key",
+        location="locked-room",
+    )
+    gm_text = tuple(
+        value
+        for step in range(turn_count)
+        for value in (
+            (
+                "The brass key and portrait demand attention."
+                if step == turn_count - 1
+                else f"Routine corridor observation {step}."
+            ),
+            '{"call_to_action":"Investigate the room.",'
+            '"output_type":"free","options":[],"tag":"investigate"}',
+            (
+                '{"event_text":"The brass key is hidden behind the portrait.",'
+                '"boundary":"none","visibility":"participants",'
+                '"participant_names":["actor-a"]}'
+                if step == 0
+                else (
+                    '{"event_text":"Routine corridor result '
+                    f'{step}.","boundary":"none",'
+                    '"visibility":"participants",'
+                    '"participant_names":["actor-a"]}'
+                )
+            ),
+        )
+    )
+    gm_model = ReplayLanguageModel(
+        text_responses=gm_text,
+        choice_responses=tuple(
+            choice for _ in range(turn_count) for choice in ("No", "actor-a")
+        ),
+    )
+    gm = ConcordiaActorFactory({"gm": gm_model}).build_game_master(
+        default_game_master_recipe(
+            model_profile_id="gm",
+            content_locale="en-US",
+        ),
+        gm_params={
+            "name": "gm",
+            "scene_goal": "Find the archive key.",
+            "project_root": str(tmp_path),
+            "branch_id": "main",
+        },
+        actors=(actor,),
+        shared_memory=ConcordiaMemoryBank(
+            owner_id="gm",
+            scope=MemoryScope.GAME_MASTER,
+        ),
+    )
+    runtime = StorySimulationRuntime(
+        project_id="project-1",
+        session_id="session:runtime-recall",
+        branch_id="main",
+        content_locale="en-US",
+        actors=(actor,),
+        game_master=gm,
+        characters=(
+            Character(
+                id="actor-a",
+                display_name="actor-a",
+                type="active",
+                identity="An NPC investigator.",
+                core_desire="Find the truth.",
+                current_goal="Find the brass key.",
+                location="locked-room",
+            ),
+        ),
+        world=WorldState(
+            current_time="21:00",
+            current_location="archive",
+        ),
+        initial_roster_selected=True,
+    )
+
+    for step in range(turn_count):
+        runtime.execute_step(step, cancellation=Event())
+
+    routed = next(
+        record
+        for record in memory.records()
+        if record.record_id == "event-observation:session:runtime-recall:0:actor-a"
+    )
+    relevant = _section(
+        actor_model.prompts[-1],
+        "Relevant Recall:\n",
+        "Current Perception:",
+    )
+    assert routed.actor_ids == ("actor-a",)
+    assert len(routed.location_ids) == 2
+    assert all(location.startswith("location:") for location in routed.location_ids)
+    assert "investigate" in routed.tags
+    assert "The brass key is hidden behind the portrait" in relevant
+
+
+def test_sixty_thousand_character_perception_respects_the_total_budget(
+    tmp_path: Path,
+) -> None:
+    actor, model, _memory = _build_actor(tmp_path, "actor-a")
+    perception = "CURRENT_START:" + ("x" * 59_970) + ":CURRENT_END"
+    _observe(actor, 1, perception)
+    _act(actor, 1)
+    prompt = model.prompts[-1]
+    context = prompt[prompt.index("Wiki:") : prompt.index("\n\n\nExercise:")]
+
+    budget = CharacterContextBudget()
+    current = context.split("Current Perception:\n", 1)[1]
+    assert len(context) <= budget.total_chars
+    assert current.startswith("CURRENT_START:")
+    assert current.count("x") == budget.perception_chars - len("CURRENT_START:")
+    assert "CURRENT_END" not in current

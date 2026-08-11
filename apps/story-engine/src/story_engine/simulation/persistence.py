@@ -154,10 +154,15 @@ class SimulationPersistenceService:
                 committed = self.kernel(snapshot.project_id).save_checkpoint(
                     snapshot,
                     reason="session created",
+                    genesis_memory_delta=self.engine.pending_memory_records(
+                        snapshot.session_id
+                    ),
                 )
+                self.engine.mark_memory_committed(snapshot.session_id)
                 snapshot = self.engine.attach_checkpoint(
                     snapshot.session_id,
                     committed.checkpoint_id,
+                    committed.history_head_id,
                 )
                 self.publish(snapshot, "simulation.checkpointed")
             except Exception as error:
@@ -552,6 +557,7 @@ class SimulationPersistenceService:
                 snapshot = self.engine.attach_checkpoint(
                     snapshot.session_id,
                     committed.checkpoint_id,
+                    committed.history_head_id,
                 )
                 result = result.model_copy(
                     update={"checkpoint_id": committed.checkpoint_id}
@@ -653,7 +659,11 @@ class SimulationPersistenceService:
             snapshot,
             reason=reason,
         )
-        snapshot = self.engine.attach_checkpoint(session_id, committed.checkpoint_id)
+        snapshot = self.engine.attach_checkpoint(
+            session_id,
+            committed.checkpoint_id,
+            committed.history_head_id,
+        )
         self.publish(
             snapshot,
             "simulation.checkpointed",
@@ -680,6 +690,7 @@ class SimulationPersistenceService:
             snapshot = self.engine.attach_checkpoint(
                 session_id,
                 committed.checkpoint_id,
+                committed.history_head_id,
             )
             self.publish(snapshot, "simulation.checkpointed")
         return snapshot

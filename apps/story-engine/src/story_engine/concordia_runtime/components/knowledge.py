@@ -35,6 +35,18 @@ class CharacterContextBudget:
     wiki_chars: int = 12_000
     recent_chars: int = 8_000
     relevant_chars: int = 6_000
+    perception_chars: int = 4_000
+
+    def __post_init__(self) -> None:
+        if self.total_chars <= 0:
+            raise ValueError("character context total budget must be positive")
+        if min(
+            self.wiki_chars,
+            self.recent_chars,
+            self.relevant_chars,
+            self.perception_chars,
+        ) < 0:
+            raise ValueError("character context allocations cannot be negative")
 
 
 def _records(
@@ -191,13 +203,15 @@ class CharacterContext(entity_component.ContextComponent):  # type: ignore[misc]
             "\nRelevant Recall:\n",
             "\nCurrent Perception:\n",
         )
-        current_text = current.text if current is not None else ""
         remaining = max(
             0,
-            self._budget.total_chars
-            - sum(len(heading) for heading in headings)
-            - len(current_text),
+            self._budget.total_chars - sum(len(heading) for heading in headings),
         )
+        perception_budget = min(self._budget.perception_chars, remaining)
+        current_text = (
+            current.text[:perception_budget] if current is not None else ""
+        )
+        remaining -= len(current_text)
 
         relevant_budget = min(self._budget.relevant_chars, remaining)
         relevant = _render_records(

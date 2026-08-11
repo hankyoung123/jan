@@ -42,6 +42,7 @@ class SimulationSession:
     raw_log_offset: int = 0
     total_model_tokens: int = 0
     consecutive_model_failures: int = 0
+    history_head_id: str | None = None
     checkpoint_id: str | None = None
     termination_reason_text: str | None = None
     restoration_notice_text: str | None = None
@@ -85,6 +86,7 @@ class SimulationSession:
             raw_log_offset=self.raw_log_offset,
             total_model_tokens=self.total_model_tokens,
             consecutive_model_failures=self.consecutive_model_failures,
+            history_head_id=self.history_head_id,
             checkpoint_id=self.checkpoint_id,
             started_at=self.started_at,
             updated_at=self.updated_at,

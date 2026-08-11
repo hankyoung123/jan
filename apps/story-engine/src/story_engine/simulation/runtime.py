@@ -1,3 +1,4 @@
+import hashlib
 import re
 import uuid
 from collections.abc import Callable, Mapping, Sequence
@@ -23,7 +24,7 @@ from story_engine.concordia_runtime.roster import (
 )
 from story_engine.domain.action import ActionOutputType, ActionSpec
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType
-from story_engine.domain.models import Character, Fact, WorldState
+from story_engine.domain.models import Character, Fact, FactVisibility, WorldState
 from story_engine.domain.projection import (
     EffectOperation,
     EffectTarget,
@@ -118,10 +119,6 @@ class StorySimulationRuntime:
         self._roster_planned = initial_snapshot is not None or initial_roster_selected
         if len(self._actors_by_name) != len(actors):
             raise ValueError("simulation actor IDs must be unique")
-        self._initial_memory_records = {
-            owner_id: bank.records() for owner_id, bank in self._memory_banks().items()
-        }
-        self.mark_memory_committed()
         if (
             self.player_actor_id is not None
             and self.player_actor_id not in self._actors_by_name
@@ -130,6 +127,40 @@ class StorySimulationRuntime:
 
     def roster_actor_ids(self) -> tuple[str, ...]:
         return tuple(actor.name for actor in self.actors)
+
+    @staticmethod
+    def _location_memory_id(value: str) -> str:
+        normalized = value.strip().casefold()
+        digest = hashlib.sha256(normalized.encode()).hexdigest()[:24]
+        return f"location:{digest}"
+
+    def _memory_location_ids(
+        self,
+        actor_id: str,
+        event_location_ids: tuple[str, ...] = (),
+    ) -> tuple[str, ...]:
+        locations = list(event_location_ids)
+        character = self._characters_by_id.get(actor_id)
+        if character is not None and character.location:
+            locations.append(self._location_memory_id(character.location))
+        if self._world is not None and self._world.current_location:
+            locations.append(self._location_memory_id(self._world.current_location))
+        return tuple(dict.fromkeys(locations))
+
+    def _memory_participant_ids(self, actor_id: str) -> tuple[str, ...]:
+        participants: list[str] = []
+        for event in self._pending_scene_events[-4:]:
+            visible = (
+                event.visibility == EventVisibility.PUBLIC
+                or actor_id == event.actor_id
+                or actor_id in event.participant_ids
+                or actor_id in event.observer_ids
+            )
+            if visible:
+                participants.extend(event.participant_ids)
+                if event.actor_id is not None:
+                    participants.append(event.actor_id)
+        return tuple(dict.fromkeys(participants))
 
     def character_states(self) -> tuple[Character, ...]:
         return tuple(
@@ -949,6 +980,8 @@ class StorySimulationRuntime:
                             step=step,
                             content_locale=self.content_locale,
                             observation_text=observation,
+                            participant_ids=self._memory_participant_ids(actor.name),
+                            location_ids=self._memory_location_ids(actor.name),
                         )
                     )
             self._publish_stage(
@@ -1183,7 +1216,10 @@ class StorySimulationRuntime:
                         observation_text=resolved.raw_resolution_text,
                         participant_ids=participant_ids,
                         source_record_ids=(event_id,),
-                        location_ids=location_ids,
+                        location_ids=self._memory_location_ids(
+                            observer_id, location_ids
+                        ),
+                        tags=((action_spec.tag,) if action_spec.tag else ()),
                     )
                 )
                 routed_ids.append(routed_id)
@@ -1423,7 +1459,9 @@ class StorySimulationRuntime:
                         observation_text=resolved.raw_resolution_text,
                         participant_ids=participant_ids,
                         source_record_ids=(event_id,),
-                        location_ids=location_ids,
+                        location_ids=self._memory_location_ids(
+                            observer_id, location_ids
+                        ),
                     )
                 )
                 routed_ids.append(routed_id)
@@ -1503,12 +1541,6 @@ class StorySimulationRuntime:
             memories[game_master_memory.owner_id] = game_master_memory
         return memories
 
-    def set_initial_memory_baseline(self) -> None:
-        self._initial_memory_records = {
-            owner_id: bank.records() for owner_id, bank in self._memory_banks().items()
-        }
-        self.mark_memory_committed()
-
     def pending_memory_records(self) -> tuple[MemoryRecord, ...]:
         return tuple(
             record
@@ -1520,14 +1552,89 @@ class StorySimulationRuntime:
         for bank in self._memory_banks().values():
             bank.mark_committed()
 
+    def prepare_step_memory(self, *, checkpoint_id: str, step: int) -> None:
+        """Materialize newly applicable instructions before the next turn."""
+
+        if self._project_root is None:
+            return
+        from story_engine.persistence.checkpoint_store import CheckpointStore
+        from story_engine.wiki.store import WikiStore
+
+        reachable_checkpoints = set(
+            CheckpointStore(self._project_root).lineage(checkpoint_id)
+        )
+        existing_ids = {
+            record.record_id for record in self.game_master.memory.records()
+        }
+        for instruction in WikiStore(
+            self._project_root, self.branch_id
+        ).list_instructions():
+            if (
+                instruction.instruction_id in existing_ids
+                or instruction.applies_from_checkpoint_id not in reachable_checkpoints
+            ):
+                continue
+            self.game_master.memory.add(
+                MemoryRecord(
+                    record_id=instruction.instruction_id,
+                    record_type=MemoryRecordType.SYSTEM,
+                    scope=self.game_master.memory.scope,
+                    owner_id=self.game_master.name,
+                    session_id=self.session_id,
+                    branch_id=self.branch_id,
+                    step=step,
+                    text=instruction.text,
+                    content_locale=self.content_locale,
+                    created_at=instruction.created_at,
+                    source_record_ids=(instruction.applies_from_checkpoint_id,),
+                    tags=("director_instruction",),
+                    importance=1,
+                )
+            )
+            existing_ids.add(instruction.instruction_id)
+
     def replay_memory_records(self, records: Sequence[MemoryRecord]) -> None:
         banks = self._memory_banks()
         for bank in banks.values():
-            bank.replace(self._initial_memory_records.get(bank.owner_id, ()))
+            bank.replace(())
         for record in records:
             target_bank = banks.get(record.owner_id)
-            if target_bank is not None:
-                target_bank.add(record)
+            if target_bank is None:
+                raise ValueError(
+                    f"memory history owner {record.owner_id!r} is unavailable"
+                )
+            target_bank.add(record)
+        canonical_facts: list[Fact] = []
+        for record in records:
+            if (
+                record.owner_id != self.game_master.name
+                or "canonical_fact" not in record.tags
+            ):
+                continue
+            visibility = next(
+                (tag for tag in record.tags if tag in {"public", "private", "secret"}),
+                None,
+            )
+            prefix = "seed:"
+            suffix = ":gm"
+            if (
+                visibility is None
+                or not record.record_id.startswith(prefix)
+                or not record.record_id.endswith(suffix)
+                or not record.source_record_ids
+            ):
+                raise ValueError("canonical fact memory history is invalid")
+            canonical_facts.append(
+                Fact(
+                    id=record.record_id[len(prefix) : -len(suffix)],
+                    statement=record.text,
+                    visibility=cast(FactVisibility, visibility),
+                    known_by=record.actor_ids,
+                    source_event_id=record.source_record_ids[0],
+                    introduced_at=record.created_at,
+                )
+            )
+        self._canonical_facts = tuple(canonical_facts)
         self.mark_memory_committed()
 
     def drain_model_traces(self) -> tuple[ModelCallTrace, ...]:
@@ -1574,7 +1681,9 @@ class StorySimulationRuntime:
             from story_engine.persistence.simulation_log import SimulationLogStore
 
             records = SimulationLogStore(self._project_root).reachable_memory_records(
-                CheckpointStore(self._project_root), snapshot.checkpoint_id
+                CheckpointStore(self._project_root),
+                snapshot.checkpoint_id,
+                branch_id=self.branch_id,
             )
             self.replay_memory_records(records)
         self.set_content_locale(snapshot.content_locale)

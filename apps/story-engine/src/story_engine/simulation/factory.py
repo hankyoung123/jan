@@ -91,6 +91,7 @@ class ProjectRuntimeFactory:
             except FileNotFoundError:
                 pass
         snapshot = ProjectStore(self._projects_root / request.project_id).load()
+        durable_restore = restored is not None and restored.checkpoint_id is not None
         characters = (
             restored.characters if restored is not None else snapshot.characters
         )
@@ -229,7 +230,7 @@ class ProjectRuntimeFactory:
                 embedder=self._embedder,
             )
             visible_fact_ids = public_fact_ids | set(character.known_fact_ids)
-            for fact_id in sorted(visible_fact_ids):
+            for fact_id in sorted(visible_fact_ids) if not durable_restore else ():
                 fact = facts_by_id.get(fact_id)
                 if fact is None:
                     continue
@@ -246,8 +247,9 @@ class ProjectRuntimeFactory:
                         content_locale=request.content_locale,
                         created_at=fact.introduced_at,
                         actor_ids=(character.id,),
+                        source_record_ids=(fact.source_event_id,),
                         visible_to=(character.id,),
-                        tags=("project_seed",),
+                        tags=("project_seed", "canonical_fact", fact.visibility),
                     )
                 )
             actor = factory.build_actor(
@@ -278,57 +280,59 @@ class ProjectRuntimeFactory:
             scope=MemoryScope.GAME_MASTER,
             embedder=self._embedder,
         )
-        gm_memory.add(
-            MemoryRecord(
-                record_id=f"seed:{session_id}:premise",
-                record_type=MemoryRecordType.PREMISE,
-                scope=MemoryScope.GAME_MASTER,
-                owner_id=gm_id,
-                session_id=session_id,
-                branch_id=request.branch_id,
-                step=0,
-                text=request.premise_text,
-                content_locale=request.content_locale,
-                created_at=datetime.now(UTC),
-                tags=("project_seed", "session_premise"),
-            )
-        )
-        gm_memory.add(
-            MemoryRecord(
-                record_id=f"seed:{session_id}:world",
-                record_type=MemoryRecordType.PREMISE,
-                scope=MemoryScope.GAME_MASTER,
-                owner_id=gm_id,
-                session_id=session_id,
-                branch_id=request.branch_id,
-                step=0,
-                text=json.dumps(
-                    snapshot.world.model_dump(mode="json"),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                ),
-                content_locale=request.content_locale,
-                created_at=datetime.now(UTC),
-                tags=("project_seed", "world_state"),
-            )
-        )
-        for fact in snapshot.facts:
+        if not durable_restore:
             gm_memory.add(
                 MemoryRecord(
-                    record_id=f"seed:{fact.id}:gm",
+                    record_id=f"seed:{session_id}:premise",
                     record_type=MemoryRecordType.PREMISE,
                     scope=MemoryScope.GAME_MASTER,
                     owner_id=gm_id,
                     session_id=session_id,
                     branch_id=request.branch_id,
                     step=0,
-                    text=fact.statement,
+                    text=request.premise_text,
                     content_locale=request.content_locale,
-                    created_at=fact.introduced_at,
-                    actor_ids=fact.known_by,
-                    tags=("project_seed", fact.visibility),
+                    created_at=datetime.now(UTC),
+                    tags=("project_seed", "session_premise"),
                 )
             )
+            gm_memory.add(
+                MemoryRecord(
+                    record_id=f"seed:{session_id}:world",
+                    record_type=MemoryRecordType.PREMISE,
+                    scope=MemoryScope.GAME_MASTER,
+                    owner_id=gm_id,
+                    session_id=session_id,
+                    branch_id=request.branch_id,
+                    step=0,
+                    text=json.dumps(
+                        snapshot.world.model_dump(mode="json"),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    content_locale=request.content_locale,
+                    created_at=datetime.now(UTC),
+                    tags=("project_seed", "world_state"),
+                )
+            )
+            for fact in snapshot.facts:
+                gm_memory.add(
+                    MemoryRecord(
+                        record_id=f"seed:{fact.id}:gm",
+                        record_type=MemoryRecordType.PREMISE,
+                        scope=MemoryScope.GAME_MASTER,
+                        owner_id=gm_id,
+                        session_id=session_id,
+                        branch_id=request.branch_id,
+                        step=0,
+                        text=fact.statement,
+                        content_locale=request.content_locale,
+                        created_at=fact.introduced_at,
+                        actor_ids=fact.known_by,
+                        source_record_ids=(fact.source_event_id,),
+                        tags=("project_seed", "canonical_fact", fact.visibility),
+                    )
+                )
         if restored is not None and restored.roster_actor_ids:
             active_ids = set(restored.roster_actor_ids)
         elif request.actor_ids:
@@ -407,7 +411,7 @@ class ProjectRuntimeFactory:
             model_traces=model_traces,
             language_models=tuple(models.values()),
             characters=characters,
-            canonical_facts=snapshot.facts,
+            canonical_facts=(snapshot.facts if not durable_restore else ()),
             world=restored.world if restored is not None else snapshot.world,
             project_root=project_root,
             player_actor_id=player_actor_id,
@@ -430,40 +434,37 @@ class ProjectRuntimeFactory:
             )
             runtime.set_content_locale(request.content_locale)
             runtime.initial_snapshot = restored
-        existing_memory_ids = {
-            record.record_id
-            for record in runtime.game_master.memory.scan(lambda _record: True)
-        }
-        from story_engine.wiki.store import WikiStore
+            if durable_restore:
+                assert restored.checkpoint_id is not None
+                runtime.replay_memory_records(
+                    SimulationLogStore(project_root).reachable_memory_records(
+                        CheckpointStore(project_root),
+                        restored.checkpoint_id,
+                        branch_id=request.branch_id,
+                    )
+                )
+        if not durable_restore:
+            from story_engine.wiki.store import WikiStore
 
-        for instruction in WikiStore(
-            project_root,
-            request.branch_id,
-        ).list_instructions():
-            if instruction.instruction_id in existing_memory_ids:
-                continue
-            runtime.game_master.memory.add(
-                MemoryRecord(
-                    record_id=instruction.instruction_id,
-                    record_type=MemoryRecordType.SYSTEM,
-                    scope=MemoryScope.GAME_MASTER,
-                    owner_id=runtime.game_master.name,
-                    session_id=session_id,
-                    branch_id=request.branch_id,
-                    step=restored.current_step if restored is not None else 0,
-                    text=instruction.text,
-                    content_locale=request.content_locale,
-                    created_at=instruction.created_at,
-                    source_record_ids=(instruction.applies_from_checkpoint_id,),
-                    tags=("director_instruction",),
-                    importance=1,
+            for instruction in WikiStore(
+                project_root,
+                request.branch_id,
+            ).list_instructions():
+                runtime.game_master.memory.add(
+                    MemoryRecord(
+                        record_id=instruction.instruction_id,
+                        record_type=MemoryRecordType.SYSTEM,
+                        scope=MemoryScope.GAME_MASTER,
+                        owner_id=runtime.game_master.name,
+                        session_id=session_id,
+                        branch_id=request.branch_id,
+                        step=0,
+                        text=instruction.text,
+                        content_locale=request.content_locale,
+                        created_at=instruction.created_at,
+                        source_record_ids=(instruction.applies_from_checkpoint_id,),
+                        tags=("director_instruction",),
+                        importance=1,
+                    )
                 )
-            )
-        runtime.set_initial_memory_baseline()
-        if restored is not None and restored.checkpoint_id is not None:
-            runtime.replay_memory_records(
-                SimulationLogStore(project_root).reachable_memory_records(
-                    CheckpointStore(project_root), restored.checkpoint_id
-                )
-            )
         return runtime

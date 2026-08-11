@@ -334,6 +334,10 @@ class TurnSessionSnapshot(RuntimeModel):
     raw_log_offset: int = Field(ge=0)
     total_model_tokens: int = Field(default=0, ge=0)
     consecutive_model_failures: int = Field(default=0, ge=0)
+    history_head_id: str | None = Field(
+        default=None,
+        pattern=r"^log-[0-9a-f]{64}$",
+    )
     checkpoint_id: Identifier | None = None
     started_at: datetime
     updated_at: datetime
@@ -394,6 +398,7 @@ class BranchManifest(RuntimeModel):
 class CommitResult(RuntimeModel):
     branch: BranchManifest
     checkpoint_id: Identifier
+    history_head_id: str = Field(pattern=r"^log-[0-9a-f]{64}$")
     session_id: Identifier
     step: int = Field(ge=0)
     state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")

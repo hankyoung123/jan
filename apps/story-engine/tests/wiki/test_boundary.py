@@ -60,9 +60,9 @@ def _snapshot(tmp_path: Path) -> TurnSessionSnapshot:
 
 def _record(step: int) -> SimulationLogRecord:
     now = datetime.now(UTC)
-    return SimulationLogRecord(
-        checkpoint_id=None,
-        state_hash="0" * 64,
+    return SimulationLogRecord.create(
+        record_kind="turn",
+        parent_log_id="log-" + "0" * 64,
         result=StepResult(
             session_id="session:1",
             branch_id="main",
@@ -87,6 +87,7 @@ def _record(step: int) -> SimulationLogRecord:
             completed_at=now,
             status=ModelCallStatus.SUCCEEDED,
         ),
+        memory_delta=(),
     )
 
 
@@ -115,8 +116,12 @@ def _record_with_event(step: int) -> SimulationLogRecord:
         boundary=SimulationBoundary.SCENE,
         content_locale="en-US",
     )
-    return record.model_copy(
-        update={"result": record.result.model_copy(update={"resolved_turn": resolved})}
+    return SimulationLogRecord.create(
+        record_kind="turn",
+        parent_log_id=record.parent_log_id,
+        result=record.result.model_copy(update={"resolved_turn": resolved}),
+        trace=record.trace,
+        memory_delta=record.memory_delta,
     )
 
 

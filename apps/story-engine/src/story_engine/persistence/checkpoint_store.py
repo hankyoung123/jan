@@ -12,7 +12,7 @@ from story_engine.workspace.documents import dump_json_envelope, load_json_envel
 class CheckpointEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: int = Field(default=2, ge=2)
+    schema_version: int = Field(default=3, ge=3)
     checkpoint_id: str = Field(pattern=r"^checkpoint-[0-9a-f]{64}$")
     parent_checkpoint_id: str | None = Field(
         default=None,
