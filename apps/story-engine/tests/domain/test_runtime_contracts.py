@@ -12,7 +12,6 @@ from story_engine.domain.memory import (
     MemoryRecord,
     MemoryRecordType,
     MemoryScope,
-    MemorySnapshot,
 )
 from story_engine.domain.projection import EventVisibility, ResolvedEvent
 from story_engine.domain.recipe import AgentRecipe, ComponentRecipe
@@ -90,7 +89,7 @@ def test_restricted_event_requires_observers_and_timezone() -> None:
         )
 
 
-def test_memory_record_and_snapshot_validate_recovery_fields() -> None:
+def test_memory_record_validates_recovery_fields() -> None:
     record = MemoryRecord(
         record_id="memory:actor-a:1",
         record_type=MemoryRecordType.OBSERVATION,
@@ -104,21 +103,8 @@ def test_memory_record_and_snapshot_validate_recovery_fields() -> None:
         created_at=datetime.now(UTC),
         visible_to=("actor-a",),
     )
-    snapshot = MemorySnapshot(
-        owner_id=record.owner_id,
-        scope=record.scope,
-        state={"records": [record.model_dump(mode="json")]},
-        record_count=1,
-        state_hash="a" * 64,
-    )
-
-    assert snapshot.owner_id == "actor-a"
-    assert snapshot.record_count == 1
-
-    invalid_payload = snapshot.model_dump(mode="json")
-    invalid_payload["state_hash"] = "not-a-hash"
-    with pytest.raises(ValidationError, match="string_pattern_mismatch"):
-        MemorySnapshot.model_validate(invalid_payload)
+    assert record.owner_id == "actor-a"
+    assert record.visible_to == ("actor-a",)
 
 
 def test_agent_recipe_rejects_duplicate_component_identity_or_order() -> None:
@@ -168,7 +154,6 @@ def test_session_contract_captures_control_and_checkpoint_state() -> None:
         current_step=0,
         actor_states={"chen-mo": {}},
         game_master_states={"gm": {}},
-        memory_snapshots={},
         raw_log_offset=0,
         started_at=now,
         updated_at=now,

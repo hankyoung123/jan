@@ -1,3 +1,5 @@
+import json
+
 from story_engine.concordia_runtime.factory import (
     ConcordiaActorFactory,
     default_character_recipe,
@@ -6,6 +8,7 @@ from story_engine.concordia_runtime.factory import (
 from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
 from story_engine.concordia_runtime.replay import ReplayLanguageModel
 from story_engine.domain.memory import MemoryScope
+from story_engine.domain.models import Character
 from story_engine.domain.simulation import TurnSessionRequest
 from story_engine.simulation.engine import RuntimeFactory
 from story_engine.simulation.runtime import StorySimulationRuntime
@@ -30,11 +33,18 @@ def replay_runtime_factory() -> RuntimeFactory:
                     f"Observation {step}",
                     '{"call_to_action":"Act now.","output_type":"free",'
                     '"options":[],"tag":"action"}',
-                    f"Resolved event {step}",
+                    json.dumps(
+                        {
+                            "event_text": f"Resolved event {step}",
+                            "boundary": "none",
+                            "visibility": "public",
+                            "participant_names": ["Actor A"],
+                        }
+                    ),
                 )
             ),
             choice_responses=tuple(
-                value for _ in range(steps) for value in ("No", "actor-a", "none")
+                value for _ in range(steps) for value in ("No", "actor-a")
             ),
         )
         factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
@@ -43,7 +53,12 @@ def replay_runtime_factory() -> RuntimeFactory:
                 model_profile_id="actor",
                 content_locale=request.content_locale,
             ),
-            actor_params={"name": "actor-a", "identity": "Investigator"},
+            actor_params={
+                "name": "actor-a",
+                "identity": "Investigator",
+                "project_root": ".",
+                "branch_id": request.branch_id,
+            },
             memory=ConcordiaMemoryBank(
                 owner_id="actor-a",
                 scope=MemoryScope.CHARACTER,
@@ -54,7 +69,12 @@ def replay_runtime_factory() -> RuntimeFactory:
                 model_profile_id="gm",
                 content_locale=request.content_locale,
             ),
-            gm_params={"name": "gm", "scene_goal": request.premise_text},
+            gm_params={
+                "name": "gm",
+                "scene_goal": request.premise_text,
+                "project_root": ".",
+                "branch_id": request.branch_id,
+            },
             actors=(actor,),
             shared_memory=ConcordiaMemoryBank(
                 owner_id="gm",
@@ -68,6 +88,16 @@ def replay_runtime_factory() -> RuntimeFactory:
             content_locale=request.content_locale,
             actors=(actor,),
             game_master=game_master,
+            characters=(
+                Character(
+                    id="actor-a",
+                    display_name="Actor A",
+                    type="active",
+                    identity="Investigator",
+                    core_desire="Solve the case",
+                    current_goal="Inspect the archive",
+                ),
+            ),
         )
 
     return build

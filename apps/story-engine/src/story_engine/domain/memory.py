@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, Self
 
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, model_validator
 
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 
@@ -65,17 +65,9 @@ class MemoryQuery(RuntimeModel):
 class MemoryHit(RuntimeModel):
     record: MemoryRecord
     score: float
-    semantic_score: float | None = None
+    lexical_score: float | None = None
     recency_score: float | None = None
     importance_score: float | None = None
-
-
-class MemorySnapshot(RuntimeModel):
-    owner_id: Identifier
-    scope: MemoryScope
-    state: dict[str, JsonValue]
-    record_count: int = Field(ge=0)
-    state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class MemoryBank(Protocol):
@@ -101,11 +93,6 @@ class MemoryBank(Protocol):
     ) -> Sequence[MemoryRecord]: ...
 
     def flush(self) -> None: ...
-
-    def snapshot(self) -> MemorySnapshot: ...
-
-    def restore(self, snapshot: MemorySnapshot) -> None: ...
-
 
 class MemoryCodec(Protocol):
     def encode(self, record: MemoryRecord) -> str: ...

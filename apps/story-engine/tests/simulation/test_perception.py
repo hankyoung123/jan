@@ -61,7 +61,6 @@ def _snapshot() -> TurnSessionSnapshot:
         current_step=1,
         actor_states={},
         game_master_states={},
-        memory_snapshots={},
         raw_log_offset=1,
         checkpoint_id="checkpoint:world",
         started_at=datetime(2026, 8, 8, tzinfo=UTC),

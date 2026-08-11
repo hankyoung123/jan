@@ -4,6 +4,7 @@ from collections.abc import Callable
 from threading import Event, RLock
 
 from story_engine.concordia_runtime.resolver import SimulationCancelledError
+from story_engine.domain.memory import MemoryRecord
 from story_engine.domain.projection import SimulationBoundary
 from story_engine.domain.simulation import (
     PendingControl,
@@ -394,7 +395,6 @@ class StoryTurnEngine:
                     session.runtime.restore_states(
                         actor_states=checkpoint.actor_states,
                         game_master_states=checkpoint.game_master_states,
-                        memory_snapshots=checkpoint.memory_snapshots,
                     )
                     session.runtime.set_content_locale(checkpoint.content_locale)
                 if reactivate:
@@ -604,7 +604,6 @@ class StoryTurnEngine:
                 runtime.restore_states(
                     actor_states=snapshot.actor_states,
                     game_master_states=snapshot.game_master_states,
-                    memory_snapshots=snapshot.memory_snapshots,
                 )
                 runtime.set_content_locale(snapshot.content_locale)
             runtime.cancellation.clear()
@@ -634,6 +633,17 @@ class StoryTurnEngine:
         with self._lock:
             self._sessions[snapshot.session_id] = session
         return session.snapshot()
+
+    def pending_memory_records(self, session_id: str) -> tuple[MemoryRecord, ...]:
+        runtime = self._get(session_id).runtime
+        pending = getattr(runtime, "pending_memory_records", None)
+        return pending() if pending is not None else ()
+
+    def mark_memory_committed(self, session_id: str) -> None:
+        runtime = self._get(session_id).runtime
+        mark = getattr(runtime, "mark_memory_committed", None)
+        if mark is not None:
+            mark()
 
     def cancel_all(self) -> None:
         with self._lock:

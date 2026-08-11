@@ -184,8 +184,7 @@ def test_replay_runtime_runs_one_hundred_steps_without_state_drift() -> None:
     assert snapshot.current_step == 100
     assert snapshot.raw_log_offset == 100
     assert [result.step for result in completed] == list(range(100))
-    assert snapshot.memory_snapshots["actor-a"].record_count == 200
-    assert snapshot.memory_snapshots["gm"].record_count == 200
+    assert len(engine.pending_memory_records(created.session_id)) == 400
 
 
 def test_step_mode_pauses_and_resume_runs_exactly_one_more_step() -> None:
@@ -349,9 +348,6 @@ def test_cancel_discards_a_result_that_returns_after_engine_cancel() -> None:
 
         def game_master_states(self):
             return {"gm": {}}
-
-        def memory_snapshots(self):
-            return {}
 
         def drain_stage_events(self):
             return ()

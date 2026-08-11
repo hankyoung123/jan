@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
 
-import pytest
-
-from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
+from story_engine.concordia_runtime.memory import (
+    ConcordiaMemoryBank,
+    ConcordiaMemoryCodec,
+    rank_memory_records,
+)
 from story_engine.domain.memory import (
     MemoryQuery,
     MemoryRecord,
@@ -54,26 +56,25 @@ def test_character_memory_banks_are_isolated() -> None:
     assert "brass key" not in b_text
 
 
-def test_memory_snapshot_restores_exact_hash_and_rejects_tampering() -> None:
-    original = ConcordiaMemoryBank(
-        owner_id="actor-a",
-        scope=MemoryScope.CHARACTER,
-    )
-    original.add(_record("actor-a", "The bell rang once.", record_id="a:1"))
-    snapshot = original.snapshot()
+def test_multiline_memory_round_trips_through_codec_and_replay_exactly() -> None:
+    text = "First line.\nSecond line with {json-like} text.\n第三行保持原样。"
+    record = _record("actor-a", text, record_id="a:multiline")
+    codec = ConcordiaMemoryCodec()
+
+    decoded = codec.decode(codec.encode(record))
     restored = ConcordiaMemoryBank(
         owner_id="actor-a",
         scope=MemoryScope.CHARACTER,
     )
+    restored.replay((record,))
 
-    restored.restore(snapshot)
-
-    assert restored.snapshot().state_hash == snapshot.state_hash
-    assert restored.retrieve_recent(limit=1)[0].text == "The bell rang once."
-
-    tampered = snapshot.model_copy(update={"state": {"memory_bank": "broken"}})
-    with pytest.raises(ValueError, match="hash mismatch"):
-        restored.restore(tampered)
+    assert decoded is not None
+    assert decoded.text == text
+    assert restored.records()[0].text == record.text
+    assert restored.records()[0].model_dump(exclude={"raw_text"}) == record.model_dump(
+        exclude={"raw_text"}
+    )
+    assert restored.pending_records() == ()
 
 
 def test_game_master_memory_allows_repeated_world_events() -> None:
@@ -97,10 +98,10 @@ def test_game_master_memory_allows_repeated_world_events() -> None:
     memory.add(event)
     memory.add(event)
 
-    assert memory.snapshot().record_count == 2
+    assert len(memory.records()) == 2
 
 
-def test_retrieval_exposes_semantic_recency_and_importance_scores() -> None:
+def test_retrieval_exposes_lexical_recency_and_importance_scores() -> None:
     memory = ConcordiaMemoryBank(
         owner_id="actor-a",
         scope=MemoryScope.CHARACTER,
@@ -123,11 +124,40 @@ def test_retrieval_exposes_semantic_recency_and_importance_scores() -> None:
 
     assert {hit.record.record_id for hit in hits} == {"old", "recent"}
     assert all(
-        hit.semantic_score is not None and hit.semantic_score > 0 for hit in hits
+        hit.lexical_score is not None and hit.lexical_score > 0 for hit in hits
     )
     assert hits[0].score > 0
     assert hits[0].recency_score is not None
     assert hits[0].importance_score is not None
+
+
+def test_structural_rank_counts_every_requested_dimension() -> None:
+    actor_only = _record(
+        "actor-a", "The brass key was moved.", record_id="actor-only"
+    ).model_copy(update={"actor_ids": ("actor-b",), "step": 5})
+    fully_structured = actor_only.model_copy(
+        update={
+            "record_id": "actor-location-tag",
+            "location_ids": ("locked-room",),
+            "tags": ("investigate",),
+        }
+    )
+    hits = rank_memory_records(
+        (actor_only, fully_structured),
+        MemoryQuery(
+            query_text="brass key",
+            actor_ids=("actor-b",),
+            location_ids=("locked-room",),
+            tags=("investigate",),
+            before_step=6,
+        ),
+    )
+
+    assert [hit.record.record_id for hit in hits] == [
+        "actor-location-tag",
+        "actor-only",
+    ]
+    assert abs((hits[0].score - hits[1].score) - (0.2 * 2 / 3)) < 1e-9
 
 
 def test_raw_memory_record_types_do_not_include_derived_summaries() -> None:

@@ -78,17 +78,13 @@ class StubRuntime:
     def game_master_states(self):
         return {"story-game-master": {}}
 
-    def memory_snapshots(self):
-        return {}
-
     def restore_states(
         self,
         *,
         actor_states,
         game_master_states,
-        memory_snapshots,
     ) -> None:
-        del actor_states, game_master_states, memory_snapshots
+        del actor_states, game_master_states
 
     def set_content_locale(self, content_locale: str) -> None:
         self.content_locale = content_locale

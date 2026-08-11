@@ -1,7 +1,6 @@
 from collections import Counter
 from pathlib import Path
 
-from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.projection import EventVisibility, ResolvedEvent
 from story_engine.domain.simulation import BranchManifest, TurnSessionSnapshot
@@ -236,14 +235,13 @@ class CandidateSourceBuilder:
         viewpoint_actor_id: str | None,
         referenced_memory_ids: frozenset[str] = frozenset(),
     ) -> tuple[str, ...]:
-        records: list[MemoryRecord] = []
-        for memory_snapshot in snapshot.memory_snapshots.values():
-            bank = ConcordiaMemoryBank(
-                owner_id=memory_snapshot.owner_id,
-                scope=memory_snapshot.scope,
+        if snapshot.checkpoint_id is None:
+            raise ValueError("manuscript checkpoint has no durable history position")
+        records = list(
+            self.logs.reachable_memory_records(
+                self.checkpoints, snapshot.checkpoint_id
             )
-            bank.restore(memory_snapshot)
-            records.extend(bank.scan(lambda _record: True))
+        )
         selected = [
             record
             for record in records
@@ -384,7 +382,6 @@ class CandidateSourceBuilder:
         )
         if resolved_viewpoint_actor_id is not None and (
             resolved_viewpoint_actor_id not in snapshot.roster_actor_ids
-            or resolved_viewpoint_actor_id not in snapshot.memory_snapshots
         ):
             raise ValueError("viewpoint actor is unavailable at this checkpoint")
         return ManuscriptSourceManifest(
@@ -531,19 +528,15 @@ class ManuscriptContextBuilder:
             raise ValueError("manuscript source events changed")
         return selected
 
-    @staticmethod
     def _decode_snapshot_memories(
+        self,
         snapshot: TurnSessionSnapshot,
     ) -> tuple[MemoryRecord, ...]:
-        records: list[MemoryRecord] = []
-        for memory_snapshot in snapshot.memory_snapshots.values():
-            bank = ConcordiaMemoryBank(
-                owner_id=memory_snapshot.owner_id,
-                scope=memory_snapshot.scope,
-            )
-            bank.restore(memory_snapshot)
-            records.extend(bank.scan(lambda _record: True))
-        return tuple(records)
+        if snapshot.checkpoint_id is None:
+            raise ValueError("manuscript checkpoint has no durable history position")
+        return self.logs.reachable_memory_records(
+            self.checkpoints, snapshot.checkpoint_id
+        )
 
     def _facts_memories(
         self,

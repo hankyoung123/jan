@@ -51,9 +51,6 @@ class SnapshotRuntime:
     def game_master_states(self):
         return {"story-game-master": {}}
 
-    def memory_snapshots(self):
-        return {}
-
     def restore_states(self, **_kwargs):
         return None
 

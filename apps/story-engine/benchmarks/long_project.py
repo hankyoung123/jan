@@ -9,6 +9,7 @@ from story_engine.domain.simulation import (
     ControlMode,
     ControlPolicy,
     TurnSessionRequest,
+    TurnSessionStatus,
 )
 from story_engine.simulation.engine import StoryTurnEngine
 
@@ -26,18 +27,24 @@ def main() -> None:
         )
     )
     started = time.perf_counter()
-    snapshot = engine.run(created.session_id, cancellation=Event())
+    snapshot = created
+    while snapshot.status != TurnSessionStatus.TERMINATED:
+        engine.advance_one_step(created.session_id, cancellation=Event())
+        snapshot = engine.get(created.session_id)
     elapsed = time.perf_counter() - started
+    pending = engine.pending_memory_records(created.session_id)
     print(
         json.dumps(
             {
                 "steps": snapshot.current_step,
                 "seconds": round(elapsed, 4),
                 "steps_per_second": round(snapshot.current_step / elapsed, 2),
-                "actor_memory_records": snapshot.memory_snapshots[
-                    "actor-a"
-                ].record_count,
-                "gm_memory_records": snapshot.memory_snapshots["gm"].record_count,
+                "actor_memory_records": sum(
+                    record.owner_id == "actor-a" for record in pending
+                ),
+                "gm_memory_records": sum(
+                    record.owner_id == "gm" for record in pending
+                ),
                 "state_hash": snapshot.state_hash,
             },
             indent=2,

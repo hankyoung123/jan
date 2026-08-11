@@ -35,6 +35,7 @@ from story_engine.domain.trace import ModelCallTrace
 from story_engine.models.gateway import ModelGateway
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.persistence.simulation_log import SimulationLogStore
 from story_engine.simulation.runtime import StorySimulationRuntime
 from story_engine.workspace.project_store import ProjectStore
 
@@ -426,7 +427,6 @@ class ProjectRuntimeFactory:
             runtime.restore_states(
                 actor_states=restored.actor_states,
                 game_master_states=restored.game_master_states,
-                memory_snapshots=restored.memory_snapshots,
             )
             runtime.set_content_locale(request.content_locale)
             runtime.initial_snapshot = restored
@@ -457,6 +457,13 @@ class ProjectRuntimeFactory:
                     source_record_ids=(instruction.applies_from_checkpoint_id,),
                     tags=("director_instruction",),
                     importance=1,
+                )
+            )
+        runtime.set_initial_memory_baseline()
+        if restored is not None and restored.checkpoint_id is not None:
+            runtime.replay_memory_records(
+                SimulationLogStore(project_root).reachable_memory_records(
+                    CheckpointStore(project_root), restored.checkpoint_id
                 )
             )
         return runtime

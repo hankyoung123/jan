@@ -207,7 +207,7 @@ def test_private_memory_never_enters_other_actor_or_player_recall(
         _observe(actor, 80, "现在需要回想港口账本密码。", locations=("harbor",))
         _act(actor, 80)
 
-    assert lin_memory.snapshot().record_count == 1
+    assert len(lin_memory.records()) == 1
     assert "PRIVATE_LIN_MEMORY_TOKEN" not in zhang_model.prompts[-1]
     assert "PRIVATE_LIN_MEMORY_TOKEN" not in player_model.prompts[-1]
 
@@ -267,4 +267,4 @@ def test_three_hundred_turn_prompt_stays_bounded_with_old_recall_and_wiki(
         assert "PRIVATE_LIN_MEMORY_TOKEN" not in prompt
         assert len(prompt) < 60_000
     assert len(prompt_300) <= len(prompt_100) + 1_000
-    assert memory.snapshot().record_count == 300
+    assert len(memory.records()) == 300

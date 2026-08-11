@@ -491,7 +491,9 @@ class SimulationPersistenceService:
         trace = self.trace_for(result, snapshot)
         snapshot = self.engine.get(result.session_id)
         result = result.model_copy(update={"status": snapshot.status})
+        memory_delta = self.engine.pending_memory_records(result.session_id)
         if self._commit_kernel_factory is None:
+            self.engine.mark_memory_committed(result.session_id)
             return result, snapshot, None
         commit_started = datetime.now(UTC)
         self.publish_stage(
@@ -541,9 +543,11 @@ class SimulationPersistenceService:
                 result,
                 snapshot,
                 trace,
+                memory_delta=memory_delta,
                 checkpoint=True,
                 command_receipt=command_receipt,
             )
+            self.engine.mark_memory_committed(result.session_id)
             if committed is not None:
                 snapshot = self.engine.attach_checkpoint(
                     snapshot.session_id,

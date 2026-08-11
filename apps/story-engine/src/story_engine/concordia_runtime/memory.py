@@ -3,7 +3,6 @@ import json
 import math
 import re
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any, cast
 
 import numpy as np
 from concordia.associative_memory import (  # type: ignore[import-untyped]
@@ -16,11 +15,9 @@ from story_engine.domain.memory import (
     MemoryRecord,
     MemoryRecordType,
     MemoryScope,
-    MemorySnapshot,
 )
 
 _MEMORY_PREFIX = "[story-memory]"
-_MEMORY_PATTERN = re.compile(r"\[story-memory\](\{.*?\})\s(.*)$")
 _HASH_VECTOR_DIMENSIONS = 96
 _ENGLISH_WORD = re.compile(r"[a-z0-9]+(?:[-_][a-z0-9]+)*")
 _CHINESE_RUN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]+")
@@ -75,6 +72,7 @@ class ConcordiaMemoryCodec:
             "source_record_ids": list(record.source_record_ids),
             "step": record.step,
             "tags": list(record.tags),
+            "text_encoding": "json-string-fragment",
             "visible_to": list(record.visible_to),
         }
         encoded = json.dumps(
@@ -89,22 +87,31 @@ class ConcordiaMemoryCodec:
             type_prefix = f"[putative_event]{actor_prefix} "
         elif record.record_type == MemoryRecordType.WORLD_EVENT:
             type_prefix = "[event] "
-        return f"{type_prefix}{_MEMORY_PREFIX}{encoded} {record.text}"
+        encoded_text = json.dumps(record.text, ensure_ascii=False)[1:-1]
+        return f"{type_prefix}{_MEMORY_PREFIX}{encoded} {encoded_text}"
 
     def decode(self, value: str) -> MemoryRecord | None:
-        match = _MEMORY_PATTERN.search(value)
-        if match is None:
+        marker = value.find(_MEMORY_PREFIX)
+        if marker < 0:
             return None
+        payload = value[marker + len(_MEMORY_PREFIX) :]
         try:
-            metadata = json.loads(match.group(1))
+            metadata, end = json.JSONDecoder().raw_decode(payload)
             if not isinstance(metadata, dict):
                 return None
+            remainder = payload[end:]
+            if not remainder.startswith(" "):
+                return None
+            text_encoding = metadata.pop("text_encoding", None)
+            text = remainder[1:]
+            if text_encoding == "json-string-fragment":
+                text = json.loads(f'"{text}"')
             return MemoryRecord(
                 **metadata,
-                text=match.group(2),
+                text=text,
                 raw_text=value,
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, json.JSONDecodeError):
             return None
 
 
@@ -149,13 +156,13 @@ def rank_memory_records(
             else 0.0
         )
         structural_scores = tuple(
-            score
+            _overlap(requested, actual)
             for requested, actual in (
                 (query.actor_ids, record.actor_ids),
                 (query.location_ids, record.location_ids),
                 (query.tags, record.tags),
             )
-            if requested and (score := _overlap(requested, actual)) > 0
+            if requested
         )
         structural = (
             sum(structural_scores) / len(structural_scores)
@@ -176,7 +183,7 @@ def rank_memory_records(
             MemoryHit(
                 record=record,
                 score=score,
-                semantic_score=lexical,
+                lexical_score=lexical,
                 recency_score=recency,
                 importance_score=record.importance,
             )
@@ -204,26 +211,23 @@ class ConcordiaMemoryBank:
         self._scope = scope
         self._codec = codec or ConcordiaMemoryCodec()
         self._embedder = embedder
-        self._vector_cache: dict[str, np.ndarray] = {}
+        self._allow_duplicates = (
+            scope == MemoryScope.GAME_MASTER
+            if allow_duplicates is None
+            else allow_duplicates
+        )
         self._bank = basic_associative_memory.AssociativeMemoryBank(
             sentence_embedder=self._embed,
-            allow_duplicates=(
-                scope == MemoryScope.GAME_MASTER
-                if allow_duplicates is None
-                else allow_duplicates
-            ),
+            allow_duplicates=self._allow_duplicates,
         )
+        self._committed_count = 0
 
     def _embed(self, text: str) -> np.ndarray:
-        cached = self._vector_cache.get(text)
-        if cached is not None:
-            return cached
         vector = np.asarray(self._embedder(text), dtype=float)
         if vector.ndim != 1 or vector.size == 0 or not np.isfinite(vector).all():
             raise ValueError("memory embedder must return one finite vector")
         norm = float(np.linalg.norm(vector))
         normalized = vector if math.isclose(norm, 0.0) else vector / norm
-        self._vector_cache[text] = normalized
         return normalized
 
     @property
@@ -290,38 +294,27 @@ class ConcordiaMemoryBank:
             if predicate(record)
         )
 
+    def records(self) -> tuple[MemoryRecord, ...]:
+        return self._decode_many(self._bank.get_all_memories_as_text())
+
+    def pending_records(self) -> tuple[MemoryRecord, ...]:
+        return self.records()[self._committed_count :]
+
+    def mark_committed(self) -> None:
+        self._committed_count = len(self._bank)
+
+    def replay(self, records: Iterable[MemoryRecord]) -> None:
+        self.extend(records)
+        self.mark_committed()
+
+    def replace(self, records: Iterable[MemoryRecord]) -> None:
+        empty = basic_associative_memory.AssociativeMemoryBank(
+            sentence_embedder=self._embed,
+            allow_duplicates=self._allow_duplicates,
+        )
+        self._bank.set_state(empty.get_state())
+        self.extend(records)
+        self.mark_committed()
+
     def flush(self) -> None:
         self._bank.get_data_frame()
-
-    def snapshot(self) -> MemorySnapshot:
-        state = cast(dict[str, Any], self._bank.get_state())
-        serialized = json.dumps(
-            state,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        return MemorySnapshot(
-            owner_id=self._owner_id,
-            scope=self._scope,
-            state=state,
-            record_count=len(self._bank),
-            state_hash=hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
-        )
-
-    def restore(self, snapshot: MemorySnapshot) -> None:
-        if snapshot.owner_id != self._owner_id or snapshot.scope != self._scope:
-            raise ValueError("memory snapshot owner or scope does not match bank")
-        serialized = json.dumps(
-            snapshot.state,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-        if digest != snapshot.state_hash:
-            raise ValueError("memory snapshot hash mismatch")
-        self._bank.set_state(cast(dict[str, Any], snapshot.state))
-        self._vector_cache.clear()
-        if len(self._bank) != snapshot.record_count:
-            raise ValueError("memory snapshot record count mismatch")

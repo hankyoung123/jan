@@ -81,7 +81,8 @@ def test_actor_persists_for_ten_steps_and_restores_equivalent_state() -> None:
         actor.observe(_frame(step))
         assert actor.act(_action_spec(step)) == f"action {step}"
     entity_checkpoint = actor.get_state()
-    memory_checkpoint = memory.snapshot()
+    assert "__memory__" not in entity_checkpoint["context_components"]
+    memory_checkpoint = memory.records()
     model_checkpoint = model.get_state()
 
     original_tail = []
@@ -95,7 +96,7 @@ def test_actor_persists_for_ten_steps_and_restores_equivalent_state() -> None:
         owner_id="actor-a",
         scope=MemoryScope.CHARACTER,
     )
-    restored_memory.restore(memory_checkpoint)
+    restored_memory.replay(memory_checkpoint)
     restored_factory = ConcordiaActorFactory({"actor": restored_model})
     restored_actor = restored_factory.build_actor(
         recipe,
@@ -116,7 +117,7 @@ def test_actor_persists_for_ten_steps_and_restores_equivalent_state() -> None:
     assert restored_tail == original_tail
     assert restored_actor is not actor
     assert restored_actor.get_phase().value == "ready"
-    assert restored_memory.snapshot().record_count == 10
+    assert len(restored_memory.records()) == 10
 
 
 def test_game_master_selects_actor_and_generates_dynamic_action_spec() -> None:

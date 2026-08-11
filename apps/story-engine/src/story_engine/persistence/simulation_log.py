@@ -5,9 +5,8 @@ from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from story_engine.concordia_runtime.memory import ConcordiaMemoryBank
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
-from story_engine.domain.simulation import StepResult, TurnSessionSnapshot
+from story_engine.domain.simulation import StepResult
 from story_engine.domain.trace import TurnTrace
 from story_engine.workspace.atomic import atomic_write_text
 from story_engine.workspace.documents import dump_json_envelope, load_json_envelope
@@ -22,7 +21,7 @@ _BRANCH_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,127}$")
 class SimulationLogRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: int = Field(default=2, ge=2)
+    schema_version: int = Field(default=3, ge=3)
     parent_checkpoint_id: str | None = Field(
         default=None,
         pattern=r"^checkpoint-[0-9a-f]{64}$",
@@ -34,6 +33,7 @@ class SimulationLogRecord(BaseModel):
     state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     result: StepResult
     trace: TurnTrace
+    memory_delta: tuple[MemoryRecord, ...] = ()
 
 
 class SimulationLogStore:
@@ -146,25 +146,29 @@ class SimulationLogStore:
             by_checkpoint[item] for item in lineage if item in by_checkpoint
         )
 
+    def reachable_memory_records(
+        self,
+        checkpoints: "CheckpointStore",
+        checkpoint_id: str,
+    ) -> tuple[MemoryRecord, ...]:
+        return tuple(
+            memory
+            for record in self.reachable(checkpoints, checkpoint_id)
+            for memory in record.memory_delta
+        )
+
     def prepare_observations(
         self,
-        snapshot: TurnSessionSnapshot,
+        records: tuple[MemoryRecord, ...],
         *,
         step: int,
     ) -> tuple[tuple[Path, str], ...]:
         prepared: list[tuple[Path, str]] = []
-        for memory_snapshot in snapshot.memory_snapshots.values():
-            bank = ConcordiaMemoryBank(
-                owner_id=memory_snapshot.owner_id,
-                scope=memory_snapshot.scope,
-            )
-            bank.restore(memory_snapshot)
-            for record in bank.scan(
-                lambda item: (
-                    item.step == step
-                    and item.scope == MemoryScope.CHARACTER
-                    and item.record_type == MemoryRecordType.OBSERVATION
-                )
+        for record in records:
+            if (
+                record.step == step
+                and record.scope == MemoryScope.CHARACTER
+                and record.record_type == MemoryRecordType.OBSERVATION
             ):
                 prepared.append(self._prepare_observation(record))
         prepared.sort(key=lambda item: item[0].as_posix())

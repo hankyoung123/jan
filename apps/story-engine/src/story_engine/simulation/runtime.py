@@ -22,7 +22,7 @@ from story_engine.concordia_runtime.roster import (
     ConcordiaRosterPlanner,
 )
 from story_engine.domain.action import ActionOutputType, ActionSpec
-from story_engine.domain.memory import MemoryRecordType, MemorySnapshot
+from story_engine.domain.memory import MemoryRecord, MemoryRecordType
 from story_engine.domain.models import Character, Fact, WorldState
 from story_engine.domain.projection import (
     EffectOperation,
@@ -118,6 +118,10 @@ class StorySimulationRuntime:
         self._roster_planned = initial_snapshot is not None or initial_roster_selected
         if len(self._actors_by_name) != len(actors):
             raise ValueError("simulation actor IDs must be unique")
+        self._initial_memory_records = {
+            owner_id: bank.records() for owner_id, bank in self._memory_banks().items()
+        }
+        self.mark_memory_committed()
         if (
             self.player_actor_id is not None
             and self.player_actor_id not in self._actors_by_name
@@ -1488,13 +1492,43 @@ class StorySimulationRuntime:
     def game_master_states(self) -> dict[str, dict[str, JsonValue]]:
         return {self.game_master.name: self.game_master.get_state()}
 
-    def memory_snapshots(self) -> dict[str, MemorySnapshot]:
-        memories: dict[str, ConcordiaMemoryBank] = {
-            actor.memory.owner_id: actor.memory
-            for actor in self._all_actors_by_name.values()
+    def _memory_banks(self) -> dict[str, ConcordiaMemoryBank]:
+        memories: dict[str, ConcordiaMemoryBank] = {}
+        for actor in self._all_actors_by_name.values():
+            memory = getattr(actor, "memory", None)
+            if isinstance(memory, ConcordiaMemoryBank):
+                memories[memory.owner_id] = memory
+        game_master_memory = getattr(self.game_master, "memory", None)
+        if isinstance(game_master_memory, ConcordiaMemoryBank):
+            memories[game_master_memory.owner_id] = game_master_memory
+        return memories
+
+    def set_initial_memory_baseline(self) -> None:
+        self._initial_memory_records = {
+            owner_id: bank.records() for owner_id, bank in self._memory_banks().items()
         }
-        memories[self.game_master.memory.owner_id] = self.game_master.memory
-        return {owner: memory.snapshot() for owner, memory in memories.items()}
+        self.mark_memory_committed()
+
+    def pending_memory_records(self) -> tuple[MemoryRecord, ...]:
+        return tuple(
+            record
+            for bank in self._memory_banks().values()
+            for record in bank.pending_records()
+        )
+
+    def mark_memory_committed(self) -> None:
+        for bank in self._memory_banks().values():
+            bank.mark_committed()
+
+    def replay_memory_records(self, records: Sequence[MemoryRecord]) -> None:
+        banks = self._memory_banks()
+        for bank in banks.values():
+            bank.replace(self._initial_memory_records.get(bank.owner_id, ()))
+        for record in records:
+            target_bank = banks.get(record.owner_id)
+            if target_bank is not None:
+                target_bank.add(record)
+        self.mark_memory_committed()
 
     def drain_model_traces(self) -> tuple[ModelCallTrace, ...]:
         traces = tuple(self._model_traces)
@@ -1521,12 +1555,9 @@ class StorySimulationRuntime:
         *,
         actor_states: Mapping[str, Mapping[str, JsonValue]],
         game_master_states: Mapping[str, Mapping[str, JsonValue]],
-        memory_snapshots: Mapping[str, MemorySnapshot],
     ) -> None:
         for actor in self._all_actors_by_name.values():
-            actor.memory.restore(memory_snapshots[actor.name])
             actor.set_state(dict(actor_states[actor.name]))
-        self.game_master.memory.restore(memory_snapshots[self.game_master.name])
         self.game_master.set_state(dict(game_master_states[self.game_master.name]))
         self._sync_actor_states(set(self._all_actors_by_name))
 
@@ -1537,8 +1568,15 @@ class StorySimulationRuntime:
         self.restore_states(
             actor_states=snapshot.actor_states,
             game_master_states=snapshot.game_master_states,
-            memory_snapshots=snapshot.memory_snapshots,
         )
+        if snapshot.checkpoint_id is not None and self._project_root is not None:
+            from story_engine.persistence.checkpoint_store import CheckpointStore
+            from story_engine.persistence.simulation_log import SimulationLogStore
+
+            records = SimulationLogStore(self._project_root).reachable_memory_records(
+                CheckpointStore(self._project_root), snapshot.checkpoint_id
+            )
+            self.replay_memory_records(records)
         self.set_content_locale(snapshot.content_locale)
         self._world = snapshot.world
         self.player_actor_id = snapshot.player_actor_id

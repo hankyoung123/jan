@@ -458,7 +458,7 @@ def test_cancelled_resolution_does_not_write_memory() -> None:
     else:
         raise AssertionError("cancelled resolution must fail")
 
-    assert gm_memory.snapshot().record_count == 0
+    assert gm_memory.records() == ()
 
 
 def test_invalid_resolution_envelope_fails_without_writing_memory() -> None:

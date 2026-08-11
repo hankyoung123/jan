@@ -50,7 +50,6 @@ def _snapshot(tmp_path: Path) -> TurnSessionSnapshot:
         current_step=1,
         actor_states={"chen-mo": {}},
         game_master_states={"gm": {}},
-        memory_snapshots={},
         raw_log_offset=1,
         checkpoint_id="checkpoint:test",
         started_at=now,

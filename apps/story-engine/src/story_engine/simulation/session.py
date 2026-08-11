@@ -57,7 +57,6 @@ class SimulationSession:
     def snapshot(self) -> TurnSessionSnapshot:
         actor_states = self.runtime.actor_states()
         game_master_states = self.runtime.game_master_states()
-        memory_snapshots = self.runtime.memory_snapshots()
         roster_ids = getattr(self.runtime, "roster_actor_ids", None)
         character_states = getattr(self.runtime, "character_states", None)
         world_state = getattr(self.runtime, "world_state", None)
@@ -83,7 +82,6 @@ class SimulationSession:
             completed_scenes=self.completed_scenes,
             actor_states=actor_states,
             game_master_states=game_master_states,
-            memory_snapshots=memory_snapshots,
             raw_log_offset=self.raw_log_offset,
             total_model_tokens=self.total_model_tokens,
             consecutive_model_failures=self.consecutive_model_failures,

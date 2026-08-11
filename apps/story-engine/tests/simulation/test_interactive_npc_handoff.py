@@ -15,7 +15,6 @@ from story_engine.concordia_runtime.factory import ConcordiaStoryActor
 from story_engine.concordia_runtime.prefabs.game_master import _resolve_story_event
 from story_engine.concordia_runtime.resolver import ConcordiaResolverKernel
 from story_engine.domain.action import ActionOutputType, ActionSpec
-from story_engine.domain.memory import MemorySnapshot
 from story_engine.domain.models import Character
 from story_engine.domain.projection import (
     EventVisibility,
@@ -350,8 +349,7 @@ class RemovingRosterPlanner:
 
 
 class RecordingRuntime(StorySimulationRuntime):
-    def memory_snapshots(self) -> dict[str, MemorySnapshot]:
-        return {}
+    pass
 
 
 def _character(actor_id: str, display_name: str) -> Character:

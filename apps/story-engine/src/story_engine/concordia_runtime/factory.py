@@ -5,6 +5,9 @@ from typing import Any, cast
 
 from concordia.agents import entity_agent_with_logging  # type: ignore[import-untyped]
 from concordia.components import (  # type: ignore[import-untyped]
+    agent as agent_components,
+)
+from concordia.components import (
     game_master as gm_components,
 )
 from concordia.language_model import language_model  # type: ignore[import-untyped]
@@ -111,10 +114,25 @@ class ConcordiaStoryActor:
         return ActorPhase(self._entity.get_phase().name.lower())
 
     def get_state(self) -> dict[str, JsonValue]:
-        return cast(dict[str, JsonValue], copy.deepcopy(self._entity.get_state()))
+        state = cast(dict[str, JsonValue], copy.deepcopy(self._entity.get_state()))
+        components = state.get("context_components")
+        if isinstance(components, dict):
+            components.pop(agent_components.memory.DEFAULT_MEMORY_COMPONENT_KEY, None)
+        return state
 
     def set_state(self, state: Mapping[str, JsonValue]) -> None:
-        self._entity.set_state(cast(dict[str, Any], state))
+        merged = copy.deepcopy(dict(state))
+        current = self._entity.get_state()
+        current_components = current.get("context_components")
+        components = merged.get("context_components")
+        memory_key = agent_components.memory.DEFAULT_MEMORY_COMPONENT_KEY
+        if not isinstance(current_components, dict) or not isinstance(components, dict):
+            raise ValueError("actor state has no context components")
+        memory_state = current_components.get(memory_key)
+        if not isinstance(memory_state, dict):
+            raise ValueError("actor has no associative memory component")
+        components[memory_key] = copy.deepcopy(memory_state)
+        self._entity.set_state(cast(dict[str, Any], merged))
 
     def set_content_locale(self, content_locale: str) -> None:
         state = self.get_state()
@@ -345,17 +363,18 @@ class ConcordiaActorFactory:
                 params=dict(actor_params),
                 recipe=recipe,
             ).build(self._model_for(recipe), memory.raw_bank)
-            if initial_state is not None:
-                entity.set_state(cast(dict[str, Any], initial_state))
         except Exception:
             self._names.remove(name)
             raise
-        return ConcordiaStoryActor(
+        actor = ConcordiaStoryActor(
             entity,
             role=EntityRole.CHARACTER,
             memory=memory,
             display_name=actor_params.get("display_name"),
         )
+        if initial_state is not None:
+            actor.set_state(initial_state)
+        return actor
 
     def build_game_master(
         self,

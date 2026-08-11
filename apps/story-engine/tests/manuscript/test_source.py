@@ -307,7 +307,6 @@ def test_automatic_manifest_resolves_the_principal_acting_actor(
         "_snapshot_for",
         lambda _checkpoint_id: SimpleNamespace(
             roster_actor_ids=("actor-a",),
-            memory_snapshots={"actor-a": object()},
         ),
     )
     monkeypatch.setattr(builder, "_records", lambda *_args: (record,))
@@ -435,8 +434,13 @@ def test_same_manifest_rebuilds_identical_facts(
         "load",
         lambda _checkpoint_id: SimpleNamespace(
             content_locale="en-US",
-            memory_snapshots={},
+            checkpoint_id="checkpoint-1",
         ),
+    )
+    monkeypatch.setattr(
+        builder.logs,
+        "reachable_memory_records",
+        lambda *_args: (),
     )
     monkeypatch.setattr(builder, "_wiki_branch", lambda *_args: "main")
     monkeypatch.setattr(

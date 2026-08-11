@@ -146,9 +146,6 @@ class InteractiveRuntime:
     def game_master_states(self):
         return {}
 
-    def memory_snapshots(self):
-        return {}
-
     def roster_actor_ids(self):
         return ("player", "zhang-ye")
 
@@ -161,8 +158,8 @@ class InteractiveRuntime:
     def pending_scene_events(self):
         return ()
 
-    def restore_states(self, *, actor_states, game_master_states, memory_snapshots):
-        del actor_states, game_master_states, memory_snapshots
+    def restore_states(self, *, actor_states, game_master_states):
+        del actor_states, game_master_states
 
     def set_content_locale(self, content_locale: str) -> None:
         self.content_locale = content_locale

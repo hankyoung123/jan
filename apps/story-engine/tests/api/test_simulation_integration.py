@@ -1163,7 +1163,7 @@ def test_session_manifest_restores_on_get_and_keeps_terminal_history(
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     session_id: str
     checkpoint_id: str
-    expected_memories: dict[str, object]
+    expected_actor_states: dict[str, object]
     with TestClient(
         create_app(_settings(tmp_path), model_transport=ReplayGatewayTransport())
     ) as client:
@@ -1180,9 +1180,11 @@ def test_session_manifest_restores_on_get_and_keeps_terminal_history(
         session_id = started["session_id"]
         stepped = _advance(client, session_id).json()
         checkpoint_id = stepped["checkpoint_id"]
-        expected_memories = client.get(
+        expected_snapshot = client.get(
             f"/projects/fog-harbor/simulations/{session_id}", headers=AUTH
-        ).json()["memory_snapshots"]
+        ).json()
+        expected_actor_states = expected_snapshot["actor_states"]
+        assert "memory_snapshots" not in expected_snapshot
 
     with TestClient(
         create_app(_settings(tmp_path), model_transport=ReplayGatewayTransport())
@@ -1197,21 +1199,8 @@ def test_session_manifest_restores_on_get_and_keeps_terminal_history(
         assert restored.json()["status"] == "paused"
         assert restored.json()["current_step"] == 1
         assert restored.json()["checkpoint_id"] == checkpoint_id
-        restored_memories = restored.json()["memory_snapshots"]
-        assert restored_memories.keys() == expected_memories.keys()
-        assert {
-            owner: (
-                memory["record_count"],
-                json.loads(memory["state"]["memory_bank"])["text"],
-            )
-            for owner, memory in restored_memories.items()
-        } == {
-            owner: (
-                memory["record_count"],
-                json.loads(memory["state"]["memory_bank"])["text"],
-            )
-            for owner, memory in expected_memories.items()
-        }
+        assert restored.json()["actor_states"] == expected_actor_states
+        assert "memory_snapshots" not in restored.json()
         assert restored.json()["restoration_notice_text"]
 
         terminal = client.post(
@@ -1317,7 +1306,7 @@ def test_new_npc_remains_a_non_agent_before_the_scene_boundary(
         assert guard["type"] == "npc"
         assert guard["current_goal"] is None
         assert "harbor-guard" not in snapshot["roster_actor_ids"]
-        assert "harbor-guard" not in snapshot["memory_snapshots"]
+        assert "harbor-guard" not in snapshot["actor_states"]
         assert snapshot["pending_scene_events"]
         assert stepped["promotion_decisions"] == []
 
@@ -1466,7 +1455,7 @@ def test_dynamic_npc_remains_npc_at_scene_boundary_and_after_restore(
         assert guard["type"] == "npc"
         assert guard["current_goal"] is None
         assert "harbor-guard" not in snapshot["roster_actor_ids"]
-        assert "harbor-guard" not in snapshot["memory_snapshots"]
+        assert "harbor-guard" not in snapshot["actor_states"]
         assert created["promotion_decisions"] == []
         assert all(
             not page.path.startswith("characters/harbor-guard/")

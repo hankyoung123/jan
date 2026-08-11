@@ -9,7 +9,7 @@ from pydantic import Field, JsonValue, model_validator
 
 from story_engine.domain.action import ActionSpec, EntityRole
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
-from story_engine.domain.memory import MemoryBank, MemorySnapshot
+from story_engine.domain.memory import MemoryBank
 from story_engine.domain.models import Character, CharacterType, Fact, WorldState
 from story_engine.domain.projection import (
     ResolvedEvent,
@@ -331,7 +331,6 @@ class TurnSessionSnapshot(RuntimeModel):
     current_action_spec: ActionSpec | None = None
     actor_states: dict[Identifier, dict[str, JsonValue]]
     game_master_states: dict[Identifier, dict[str, JsonValue]]
-    memory_snapshots: dict[Identifier, MemorySnapshot]
     raw_log_offset: int = Field(ge=0)
     total_model_tokens: int = Field(default=0, ge=0)
     consecutive_model_failures: int = Field(default=0, ge=0)

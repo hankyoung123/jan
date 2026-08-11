@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from story_engine.domain.memory import MemoryRecord
 from story_engine.domain.session_manifest import SessionManifest
 from story_engine.domain.simulation import (
     BranchManifest,
@@ -113,6 +114,7 @@ class SimulationCommitKernel:
         snapshot: TurnSessionSnapshot,
         trace: TurnTrace,
         *,
+        memory_delta: tuple[MemoryRecord, ...] = (),
         checkpoint: bool = True,
         command_receipt: CommandReceiptCommit | None = None,
     ) -> CommitResult | None:
@@ -137,6 +139,7 @@ class SimulationCommitKernel:
             state_hash=snapshot.state_hash,
             result=result.model_copy(update={"checkpoint_id": checkpoint_id}),
             trace=trace,
+            memory_delta=memory_delta,
         )
         log_path, log_content = self.logs.prepare(record)
         persisted = snapshot.model_copy(
@@ -161,7 +164,7 @@ class SimulationCommitKernel:
         manifest = SessionManifest.from_snapshot(persisted)
         session_path, session_content = self.sessions.prepare(manifest)
         observations = (
-            self.logs.prepare_observations(snapshot, step=result.step)
+            self.logs.prepare_observations(memory_delta, step=result.step)
             if trace.status == ModelCallStatus.SUCCEEDED
             else ()
         )
