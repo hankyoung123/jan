@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 import shutil
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
@@ -491,6 +492,47 @@ class WikiStore:
             pages.append(_parse(relative, path.read_text(encoding="utf-8")))
         return tuple(pages)
 
+    def restore_version(
+        self,
+        version_id: str,
+        *,
+        precondition: Callable[[], None] | None = None,
+    ) -> tuple[Path, ...]:
+        """Atomically materialize an immutable Wiki version as the working tree."""
+
+        version_root = self.version_root(version_id)
+        version_index = version_root / "index.md"
+        if not version_index.is_file():
+            raise FileNotFoundError(version_root)
+        restored = {page.path: page for page in self.list_version_pages(version_id)}
+        current = {page.path: page for page in self.list_pages()}
+        batch = AtomicBatch(self.root)
+        for relative in sorted(set(current) - set(restored)):
+            batch.delete(self._relative_to_project(self.page_path(relative)))
+        for relative, page in restored.items():
+            batch.add(
+                self._relative_to_project(self.page_path(relative)),
+                _render(page),
+                overwrite=relative in current,
+            )
+        batch.add(
+            self._relative_to_project(self.branch_root / "index.md"),
+            version_index.read_text(encoding="utf-8"),
+        )
+        log_path = self.branch_root / "log.md"
+        existing_log = (
+            log_path.read_text(encoding="utf-8")
+            if log_path.exists()
+            else "# Wiki Maintenance Log\n"
+        )
+        batch.add(
+            self._relative_to_project(log_path),
+            existing_log.rstrip() + f"\n- restored Wiki version `{version_id}`\n",
+            overwrite=log_path.exists(),
+        )
+        batch.commit(precondition=precondition)
+        return tuple(self.page_path(path) for path in sorted(restored))
+
     def view(self) -> WikiBranchView:
         index = _parse(
             "world/index.md",
@@ -654,6 +696,7 @@ class WikiStore:
         *,
         checkpoint_id: str,
         step: int,
+        precondition: Callable[[], None] | None = None,
     ) -> tuple[Path, ...]:
         if not patches:
             return ()
@@ -745,7 +788,7 @@ class WikiStore:
             ),
             overwrite=(version_root / "index.md").exists(),
         )
-        batch.commit()
+        batch.commit(precondition=precondition)
         return tuple(self.page_path(path) for path in changed)
 
     @staticmethod
@@ -818,10 +861,12 @@ class WikiStore:
         stale: bool,
         degraded: bool = False,
         degradation_reason: str | None = None,
+        precondition: Callable[[], None] | None = None,
     ) -> None:
         pages = list(self.list_pages())
-        atomic_write_text(
-            self.branch_root / "index.md",
+        batch = AtomicBatch(self.root)
+        batch.add(
+            self._relative_to_project(self.branch_root / "index.md"),
             self._render_index(
                 pages,
                 checkpoint_id=checkpoint_id,
@@ -831,6 +876,7 @@ class WikiStore:
                 degradation_reason=degradation_reason,
             ),
         )
+        batch.commit(precondition=precondition)
 
     def mark_stale(self, checkpoint_id: str, step: int) -> None:
         self.set_head(checkpoint_id, step, stale=True)
@@ -892,17 +938,33 @@ class WikiStore:
                 overwrite=False,
             )
         pages = list(self.list_pages())
+        projected_step = min(
+            checkpoint_step,
+            max((page.updated_at_step for page in pages), default=0),
+        )
+        index_content = self._render_index(
+            pages,
+            checkpoint_id=checkpoint_id,
+            step=projected_step,
+            stale=False,
+        )
         atomic_write_text(
             self.branch_root / "index.md",
-            self._render_index(
-                pages,
-                checkpoint_id=checkpoint_id,
-                step=min(
-                    checkpoint_step,
-                    max((page.updated_at_step for page in pages), default=0),
-                ),
-                stale=False,
-            ),
+            index_content,
+            overwrite=False,
+        )
+        version_root = (
+            self.wiki_root / ".versions" / self.branch_id / checkpoint_id
+        )
+        for page in pages:
+            atomic_write_text(
+                version_root / page.path,
+                _render(page),
+                overwrite=False,
+            )
+        atomic_write_text(
+            version_root / "index.md",
+            index_content,
             overwrite=False,
         )
 

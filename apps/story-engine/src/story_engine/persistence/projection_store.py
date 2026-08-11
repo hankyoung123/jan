@@ -131,7 +131,11 @@ class ProjectionTaskStore:
                 "completed_at": (
                     now
                     if status
-                    in {ProjectionTaskStatus.SUCCEEDED, ProjectionTaskStatus.FAILED}
+                    in {
+                        ProjectionTaskStatus.SUCCEEDED,
+                        ProjectionTaskStatus.FAILED,
+                        ProjectionTaskStatus.SKIPPED,
+                    }
                     else None
                 ),
             }

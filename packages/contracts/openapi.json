@@ -699,6 +699,11 @@
             "title": "Checkpoint Id",
             "type": "string"
           },
+          "history_head_id": {
+            "pattern": "^log-[0-9a-f]{64}$",
+            "title": "History Head Id",
+            "type": "string"
+          },
           "session_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Session Id",
@@ -725,6 +730,7 @@
         "required": [
           "branch",
           "checkpoint_id",
+          "history_head_id",
           "session_id",
           "step",
           "state_hash",
@@ -1671,6 +1677,157 @@
         "title": "ManuscriptSourceManifest",
         "type": "object"
       },
+      "MemoryRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Actor Ids",
+            "type": "array"
+          },
+          "branch_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 1.0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "content_locale": {
+            "maxLength": 16,
+            "minLength": 2,
+            "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
+            "title": "Content Locale",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "importance": {
+            "default": 0.5,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Importance",
+            "type": "number"
+          },
+          "location_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Location Ids",
+            "type": "array"
+          },
+          "owner_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "raw_text": {
+            "anyOf": [
+              {
+                "maxLength": 131072,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Text"
+          },
+          "record_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Record Id",
+            "type": "string"
+          },
+          "record_type": {
+            "$ref": "#/components/schemas/MemoryRecordType"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "session_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_record_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Source Record Ids",
+            "type": "array"
+          },
+          "step": {
+            "minimum": 0.0,
+            "title": "Step",
+            "type": "integer"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "text": {
+            "maxLength": 131072,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "visible_to": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Visible To",
+            "type": "array"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type",
+          "scope",
+          "owner_id",
+          "session_id",
+          "branch_id",
+          "step",
+          "text",
+          "content_locale",
+          "created_at"
+        ],
+        "title": "MemoryRecord",
+        "type": "object"
+      },
+      "MemoryRecordType": {
+        "enum": [
+          "premise",
+          "observation",
+          "putative_event",
+          "world_event",
+          "plan",
+          "system"
+        ],
+        "title": "MemoryRecordType",
+        "type": "string"
+      },
       "MemoryScope": {
         "enum": [
           "game_master",
@@ -1679,45 +1836,6 @@
         ],
         "title": "MemoryScope",
         "type": "string"
-      },
-      "MemorySnapshot": {
-        "additionalProperties": false,
-        "properties": {
-          "owner_id": {
-            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-            "title": "Owner Id",
-            "type": "string"
-          },
-          "record_count": {
-            "minimum": 0.0,
-            "title": "Record Count",
-            "type": "integer"
-          },
-          "scope": {
-            "$ref": "#/components/schemas/MemoryScope"
-          },
-          "state": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
-            },
-            "title": "State",
-            "type": "object"
-          },
-          "state_hash": {
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "State Hash",
-            "type": "string"
-          }
-        },
-        "required": [
-          "owner_id",
-          "scope",
-          "state",
-          "record_count",
-          "state_hash"
-        ],
-        "title": "MemorySnapshot",
-        "type": "object"
       },
       "Message": {
         "additionalProperties": false,
@@ -2814,7 +2932,8 @@
           "pending",
           "running",
           "succeeded",
-          "failed"
+          "failed",
+          "skipped"
         ],
         "title": "ProjectionTaskStatus",
         "type": "string"
@@ -3607,6 +3726,7 @@
       },
       "SimulationLogRecord": {
         "additionalProperties": false,
+        "description": "One immutable node in the durable cognitive-history chain.",
         "properties": {
           "checkpoint_id": {
             "anyOf": [
@@ -3620,38 +3740,55 @@
             ],
             "title": "Checkpoint Id"
           },
-          "parent_checkpoint_id": {
+          "log_id": {
+            "pattern": "^log-[0-9a-f]{64}$",
+            "title": "Log Id",
+            "type": "string"
+          },
+          "memory_delta": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MemoryRecord"
+            },
+            "title": "Memory Delta",
+            "type": "array"
+          },
+          "parent_log_id": {
             "anyOf": [
               {
-                "pattern": "^checkpoint-[0-9a-f]{64}$",
+                "pattern": "^log-[0-9a-f]{64}$",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Parent Checkpoint Id"
+            "title": "Parent Log Id"
+          },
+          "record_kind": {
+            "default": "turn",
+            "enum": [
+              "genesis",
+              "turn"
+            ],
+            "title": "Record Kind",
+            "type": "string"
           },
           "result": {
             "$ref": "#/components/schemas/StepResult"
           },
           "schema_version": {
-            "default": 2,
-            "minimum": 2.0,
+            "default": 4,
+            "minimum": 4.0,
             "title": "Schema Version",
             "type": "integer"
-          },
-          "state_hash": {
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "State Hash",
-            "type": "string"
           },
           "trace": {
             "$ref": "#/components/schemas/TurnTrace"
           }
         },
         "required": [
-          "state_hash",
+          "log_id",
           "result",
           "trace"
         ],
@@ -5093,14 +5230,17 @@
             "title": "Game Master States",
             "type": "object"
           },
-          "memory_snapshots": {
-            "patternProperties": {
-              "^[a-z0-9][a-z0-9._:-]{0,127}$": {
-                "$ref": "#/components/schemas/MemorySnapshot"
+          "history_head_id": {
+            "anyOf": [
+              {
+                "pattern": "^log-[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
               }
-            },
-            "title": "Memory Snapshots",
-            "type": "object"
+            ],
+            "title": "History Head Id"
           },
           "pending_control": {
             "$ref": "#/components/schemas/PendingControl",
@@ -5221,7 +5361,6 @@
           "current_step",
           "actor_states",
           "game_master_states",
-          "memory_snapshots",
           "raw_log_offset",
           "started_at",
           "updated_at",

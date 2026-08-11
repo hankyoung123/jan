@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
@@ -384,7 +385,12 @@ class ManuscriptService:
             writer_result=writer_result,
         )
 
-    async def generate(self, request: ManuscriptGenerationRequest) -> SceneDraft:
+    async def generate(
+        self,
+        request: ManuscriptGenerationRequest,
+        *,
+        before_apply: Callable[[], None] | None = None,
+    ) -> SceneDraft:
         wiki = WikiStore(self.root, self.branch_id).view()
         if wiki.stale:
             detail = wiki.degradation_reason or "Wiki requires rebuilding"
@@ -413,6 +419,8 @@ class ManuscriptService:
             source=source,
             context_manifest=context_manifest,
         )
+        if before_apply is not None:
+            before_apply()
         self.drafts.save(draft, overwrite=False)
         review = await self.agent.review(context, title=output.title, body=output.body)
         grounded = review.review.passed and not review.unsupported_facts
@@ -422,6 +430,8 @@ class ManuscriptService:
                 "status": "reviewed" if grounded else "needs_revision",
             }
         )
+        if before_apply is not None:
+            before_apply()
         self.drafts.save(reviewed)
         return reviewed
 

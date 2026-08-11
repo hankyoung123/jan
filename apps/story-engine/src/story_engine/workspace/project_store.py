@@ -75,6 +75,15 @@ class ProjectStore:
     def __init__(self, root: Path) -> None:
         self.root = root
 
+    def _assert_seed_mutable(self) -> None:
+        from story_engine.persistence.branch_store import BranchStore
+
+        if any(
+            branch.head_checkpoint_id is not None
+            for branch in BranchStore(self.root).list()
+        ):
+            raise RuntimeError("Project Seed is immutable after simulation starts")
+
     def create(self, seed: ProjectSeed) -> ProjectSnapshot:
         if (self.root / "project.md").exists():
             raise FileExistsError(self.root)
@@ -130,6 +139,7 @@ class ProjectStore:
 
     def save_world(self, world: WorldState, *, overwrite: bool = True) -> Path:
         with ProjectLock(self.root):
+            self._assert_seed_mutable()
             path = self.root / "world.md"
             facts = FactStore(self.root).list_facts()
             atomic_write_text(path, render_world(world, facts), overwrite=overwrite)
@@ -142,6 +152,7 @@ class ProjectStore:
         overwrite: bool = True,
     ) -> Path:
         with ProjectLock(self.root):
+            self._assert_seed_mutable()
             path = self.character_path(character)
             facts = FactStore(self.root).list_facts()
             atomic_write_text(

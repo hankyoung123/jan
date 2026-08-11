@@ -15,6 +15,10 @@ class BranchConflictError(RuntimeError):
     """Raised when a branch head changed since the caller read it."""
 
 
+class CheckpointNotReachableError(BranchConflictError):
+    """Raised when a derived view targets abandoned branch history."""
+
+
 class BranchStore:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -123,6 +127,22 @@ class BranchStore:
     ) -> None:
         if self.load(branch_id).head_checkpoint_id != expected_head_checkpoint_id:
             raise BranchConflictError("branch head changed concurrently")
+
+    def checkpoint_is_reachable(self, branch_id: str, checkpoint_id: str) -> bool:
+        head_checkpoint_id = self.load(branch_id).head_checkpoint_id
+        if head_checkpoint_id is None:
+            return False
+        return checkpoint_id in self.checkpoints.lineage(head_checkpoint_id)
+
+    def assert_checkpoint_reachable(
+        self,
+        branch_id: str,
+        checkpoint_id: str,
+    ) -> None:
+        if not self.checkpoint_is_reachable(branch_id, checkpoint_id):
+            raise CheckpointNotReachableError(
+                "projection checkpoint is no longer reachable from branch head"
+            )
 
     def prepare_advance(
         self,

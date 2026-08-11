@@ -348,6 +348,7 @@ class StorySimulationRuntime:
             content = WikiContextBuilder(
                 self._project_root,
                 self.branch_id,
+                require_current_head=True,
             ).world(
                 participant_ids=participant_ids,
                 location_ids=(

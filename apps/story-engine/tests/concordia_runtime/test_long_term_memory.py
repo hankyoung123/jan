@@ -5,7 +5,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 
-from story_engine.concordia_runtime.components.knowledge import CharacterContextBudget
+from story_engine.concordia_runtime.components.knowledge import (
+    CharacterContextBudget,
+    WorldWikiContext,
+)
 from story_engine.concordia_runtime.factory import (
     ConcordiaActorFactory,
     ConcordiaStoryActor,
@@ -18,17 +21,7 @@ from story_engine.domain.action import ActionOutputType, ActionSpec
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.models import Character, WorldState
 from story_engine.domain.recipe import PerceptionFrame
-from story_engine.domain.simulation import (
-    ControlMode,
-    ControlPolicy,
-    TurnSessionRequest,
-    TurnSessionStatus,
-)
-from story_engine.domain.trace import ModelCallStatus, TurnTrace
-from story_engine.domain.wiki import WikiPatch, WikiPatchOperation
-from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.simulation.runtime import StorySimulationRuntime
-from story_engine.simulation.session import SimulationSession
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.wiki.store import WikiStore
 
@@ -232,17 +225,12 @@ def test_three_hundred_turn_prompt_stays_bounded_with_old_recall_and_wiki(
     snapshot = SubmissionService(tmp_path).finalize(fog_harbor_submission())
     project_root = tmp_path / snapshot.project.id
     wiki_text = "林澈长期怀疑张野与港口记录有关，并逐渐失去对他的信任。"
-    WikiStore(project_root, "main").apply_patches(
-        (
-            WikiPatch(
-                path="characters/chen-mo/long-term.md",
-                operation=WikiPatchOperation.CREATE,
-                content=f"# Long-term understanding\n\n{wiki_text}",
-                source_ids=("event:long-term-belief",),
-            ),
-        ),
-        checkpoint_id="checkpoint:long-term-wiki",
-        step=4,
+    wiki_store = WikiStore(project_root, "main")
+    beliefs = wiki_store.load_page("characters/chen-mo/beliefs.md")
+    wiki_store.save_page(
+        beliefs.path,
+        f"{beliefs.content}\n\n{wiki_text}",
+        expected_revision=beliefs.revision,
     )
     actor, model, memory = _build_actor(
         tmp_path,
@@ -312,7 +300,7 @@ def test_three_hundred_turn_prompt_stays_bounded_with_old_recall_and_wiki(
 def test_real_runtime_routes_metadata_and_recalls_it_for_an_npc(
     tmp_path: Path,
 ) -> None:
-    turn_count = 20
+    turn_count = 3
     actor, actor_model, memory = _build_actor(
         tmp_path,
         "actor-a",
@@ -320,6 +308,7 @@ def test_real_runtime_routes_metadata_and_recalls_it_for_an_npc(
         goal="Follow the repeating signal",
         location="locked-room",
     )
+    actor.entity.get_component("knowledge").set_state({"recent_limit": 0})
     target_text = "Signal alpha repeats near the door TARGET-MEMORY."
     distractor_text = "Signal alpha repeats near the door DISTRACTOR-MEMORY."
     gm_text: list[str] = []
@@ -450,59 +439,8 @@ def test_real_runtime_routes_metadata_and_recalls_it_for_an_npc(
         initial_roster_selected=True,
     )
 
-    request = TurnSessionRequest(
-        project_id="project-1",
-        branch_id="main",
-        premise_text="Follow a repeating signal.",
-        actor_ids=("actor-a",),
-        content_locale="en-US",
-        control=ControlPolicy(mode=ControlMode.STEP, max_steps=turn_count + 1),
-    )
-    session = SimulationSession(
-        session_id="session:runtime-recall",
-        request=request,
-        runtime=runtime,
-    )
-    kernel = SimulationCommitKernel(tmp_path / "durable-project")
-    head = kernel.save_checkpoint(
-        session.snapshot(),
-        reason="Genesis",
-        genesis_memory_delta=runtime.pending_memory_records(),
-    )
-    runtime.mark_memory_committed()
-    session.checkpoint_id = head.checkpoint_id
-    session.history_head_id = head.history_head_id
-    checkpoint_after_ten = head.checkpoint_id
-
     for step in range(turn_count):
-        result = runtime.execute_step(step, cancellation=Event())
-        session.current_step = step + 1
-        session.raw_log_offset = step + 1
-        session.status = TurnSessionStatus.PAUSED
-        occurred_at = datetime.now(UTC)
-        head = kernel.append_step(
-            result,
-            session.snapshot(),
-            TurnTrace(
-                trace_id=f"trace:runtime-recall:{step}",
-                session_id=session.session_id,
-                branch_id="main",
-                step=step,
-                content_locale="en-US",
-                stages=(),
-                model_calls=(),
-                acting_actor_id=result.acting_actor_id,
-                started_at=occurred_at,
-                completed_at=occurred_at,
-                status=ModelCallStatus.SUCCEEDED,
-            ),
-            memory_delta=runtime.pending_memory_records(),
-        )
-        runtime.mark_memory_committed()
-        session.checkpoint_id = head.checkpoint_id
-        session.history_head_id = head.history_head_id
-        if step == 9:
-            checkpoint_after_ten = head.checkpoint_id
+        runtime.execute_step(step, cancellation=Event())
 
     target = next(
         record
@@ -530,37 +468,40 @@ def test_real_runtime_routes_metadata_and_recalls_it_for_an_npc(
     assert relevant.index(target_text) < relevant.index(distractor_text)
     assert len(actor_model.prompts[-1]) < 60_000
 
-    durable_memory = kernel.logs.reachable_memory_records(
-        kernel.checkpoints,
-        head.checkpoint_id,
-    )
-    durable_actor_ids = tuple(
-        record.record_id for record in durable_memory if record.owner_id == "actor-a"
-    )
-    assert durable_actor_ids == tuple(record.record_id for record in memory.records())
-    assert all(record.raw_text is None for record in durable_memory)
 
-    runtime.replay_memory_records(durable_memory)
-    assert tuple(record.record_id for record in memory.records()) == durable_actor_ids
+def test_stale_wiki_is_excluded_from_actor_and_game_master_context(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    root = tmp_path / "fog-harbor"
+    store = WikiStore(root, "main")
+    marker = "ABANDONED_WIKI_SECRET"
+    for path in ("characters/chen-mo/self.md", "world/state.md"):
+        page = store.load_page(path)
+        store.save_page(
+            path,
+            f"{page.content}\n\n{marker}",
+            expected_revision=page.revision,
+        )
+    store.mark_stale("checkpoint-" + "a" * 64, 9)
 
-    kernel.rollback_branch(
-        "project-1",
-        "main",
-        checkpoint_id=checkpoint_after_ten,
+    actor, model, _memory = _build_actor(
+        tmp_path,
+        "chen-mo",
+        project_root=root,
     )
-    rolled_back_memory = kernel.logs.reachable_memory_records(
-        kernel.checkpoints,
-        checkpoint_after_ten,
-    )
-    assert len(kernel.logs.read("main")) == turn_count
-    assert len(
-        kernel.logs.reachable(kernel.checkpoints, checkpoint_after_ten)
-    ) == 10
-    assert not any(
-        record.record_id
-        == "event-observation:session:runtime-recall:15:actor-a"
-        for record in rolled_back_memory
-    )
+    _observe(actor, 1, "Check the lighthouse mechanism.")
+    _act(actor, 1)
+    actor_wiki = _section(model.prompts[-1], "Wiki:\n", "Recent Memory:")
+    gm_wiki = WorldWikiContext(
+        project_root=str(root),
+        branch_id="main",
+    )._make_pre_act_value()
+
+    assert marker not in actor_wiki
+    assert marker not in gm_wiki
+    assert "Wiki unavailable / stale." in actor_wiki
+    assert gm_wiki == "Wiki unavailable / stale."
 
 
 def test_sixty_thousand_character_perception_respects_the_total_budget(

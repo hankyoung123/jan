@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
@@ -19,6 +20,7 @@ from story_engine.domain.simulation import (
     TurnSessionStatus,
 )
 from story_engine.persistence.checkpoint_store import CheckpointStore
+from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.persistence.projection_store import ProjectionTaskStore
 from story_engine.simulation.projections import ProjectionTaskService
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
@@ -215,3 +217,71 @@ def test_projection_rebuild_ignores_a_completed_workers_stale_queue_marker(
 
     assert replay[0].status == ProjectionTaskStatus.PENDING
     assert store.load(task.task_id).status == ProjectionTaskStatus.PENDING
+
+
+def test_projection_skips_checkpoint_abandoned_before_execution(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    app = create_app(
+        EngineSettings(session_token="projection-token", projects_root=tmp_path),
+        simulation_runtime_factory=SnapshotRuntime,  # type: ignore[arg-type]
+    )
+    with TestClient(app) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 2},
+            },
+        ).json()
+        stepped = client.post(
+            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
+            headers=AUTH,
+            json={
+                "command_id": f"command:{uuid.uuid4().hex}",
+                "expected_state_hash": started["state_hash"],
+            },
+        ).json()
+
+    root = tmp_path / "fog-harbor"
+    SimulationCommitKernel(root).rollback_branch(
+        "fog-harbor",
+        "main",
+        checkpoint_id=started["checkpoint_id"],
+    )
+    abandoned = CheckpointStore(root).load(stepped["checkpoint_id"])
+    task = ProjectionTask(
+        task_id="projection:wiki:abandoned-checkpoint",
+        project_id=abandoned.project_id,
+        session_id=abandoned.session_id,
+        branch_id=abandoned.branch_id,
+        checkpoint_id=stepped["checkpoint_id"],
+        step=abandoned.current_step,
+        boundary=SimulationBoundary.SCENE,
+        kind=ProjectionKind.WIKI,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    store = ProjectionTaskStore(root)
+    store.create(task)
+    processor = BlockingWikiProcessor()
+    service = ProjectionTaskService(
+        root,
+        wiki_processor=processor,  # type: ignore[arg-type]
+        manuscript_agent=object(),  # type: ignore[arg-type]
+    )
+
+    skipped = _wait_for_status(
+        store,
+        task.task_id,
+        ProjectionTaskStatus.SKIPPED,
+    )
+    service.shutdown()
+
+    assert skipped.attempt_count == 0
+    assert "no longer reachable" in (skipped.error_text or "")
+    assert not processor.entered.is_set()

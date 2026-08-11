@@ -68,6 +68,7 @@ class ProjectionTaskStatus(StrEnum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class ProjectionTask(RuntimeModel):

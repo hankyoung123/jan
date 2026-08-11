@@ -193,12 +193,19 @@ def test_boundary_retries_once_on_revision_conflict(
         *,
         checkpoint_id: str,
         step: int,
+        precondition=None,
     ):
         nonlocal attempts
         attempts += 1
         if attempts == 1:
             raise WikiRevisionConflictError("world/state.md", 0)
-        return original(self, patches, checkpoint_id=checkpoint_id, step=step)
+        return original(
+            self,
+            patches,
+            checkpoint_id=checkpoint_id,
+            step=step,
+            precondition=precondition,
+        )
 
     monkeypatch.setattr(WikiStore, "apply_patches", conflicting_apply)
     consolidator = RetryingConsolidator()
@@ -208,7 +215,7 @@ def test_boundary_retries_once_on_revision_conflict(
     )
 
     written = asyncio.run(
-        processor.process(
+        processor._process_with_sources(
             _snapshot(tmp_path),
             boundary=SimulationBoundary.SCENE,
             end_step=1,
@@ -280,7 +287,7 @@ def test_boundary_does_not_carry_page_sources_into_later_scene(
     )
 
     written = asyncio.run(
-        processor.process(
+        processor._process_with_sources(
             _snapshot(tmp_path),
             boundary=SimulationBoundary.SCENE,
             end_step=1,
@@ -344,7 +351,7 @@ def test_boundary_keeps_project_source_available_to_character_wiki(
     )
 
     written = asyncio.run(
-        processor.process(
+        processor._process_with_sources(
             _snapshot(tmp_path),
             boundary=SimulationBoundary.SCENE,
             end_step=1,
@@ -412,7 +419,7 @@ def test_boundary_does_not_degrade_or_swallow_knowledge_violation(
 
     with pytest.raises(ValueError, match="crosses its knowledge boundary"):
         asyncio.run(
-            processor.process(
+            processor._process_with_sources(
                 _snapshot(tmp_path),
                 boundary=SimulationBoundary.SCENE,
                 end_step=1,
@@ -444,7 +451,7 @@ class CapturingSourceConsolidator:
         return ()
 
 
-def test_rollback_excludes_abandoned_observation_and_future_instruction_from_wiki(
+def test_rollback_restores_reachable_wiki_and_removes_abandoned_content(
     tmp_path: Path,
 ) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
@@ -520,6 +527,22 @@ def test_rollback_excludes_abandoned_observation_and_future_instruction_from_wik
         first_record.trace,
         memory_delta=(reachable_observation,),
     )
+    store = WikiStore(root, "main")
+    reachable_page = store.load_page("world/state.md")
+    store.apply_patches(
+        (
+            WikiPatch(
+                path="world/state.md",
+                operation=WikiPatchOperation.APPEND_HISTORY,
+                content="## Reachable\n\nThe reachable mechanism clicks.",
+                source_ids=("observation:reachable",),
+                expected_revision=reachable_page.revision,
+                expected_content_hash=reachable_page.content_hash,
+            ),
+        ),
+        checkpoint_id=checkpoint_one.checkpoint_id,
+        step=0,
+    )
     abandoned_observation = memory(
         "observation:abandoned",
         step=1,
@@ -539,11 +562,32 @@ def test_rollback_excludes_abandoned_observation_and_future_instruction_from_wik
         tags=("director_instruction",),
     )
     second_record = _record(1)
-    kernel.append_step(
+    checkpoint_two = kernel.append_step(
         second_record.result,
         snapshot(2, checkpoint_one.history_head_id),
         second_record.trace,
         memory_delta=(abandoned_observation, future_instruction),
+    )
+    abandoned_page = store.load_page("world/state.md")
+    store.apply_patches(
+        (
+            WikiPatch(
+                path="world/state.md",
+                operation=WikiPatchOperation.APPEND_HISTORY,
+                content="## Abandoned\n\nABANDONED_TIMELINE_CONTENT",
+                source_ids=("observation:abandoned",),
+                expected_revision=abandoned_page.revision,
+                expected_content_hash=abandoned_page.content_hash,
+            ),
+            WikiPatch(
+                path="world/abandoned.md",
+                operation=WikiPatchOperation.CREATE,
+                content="# Abandoned\n\nABANDONED_ONLY_PAGE",
+                source_ids=("observation:abandoned",),
+            ),
+        ),
+        checkpoint_id=checkpoint_two.checkpoint_id,
+        step=1,
     )
     kernel.rollback_branch(
         "fog-harbor",
@@ -551,13 +595,15 @@ def test_rollback_excludes_abandoned_observation_and_future_instruction_from_wik
         checkpoint_id=checkpoint_one.checkpoint_id,
     )
     restored = kernel.load_checkpoint("fog-harbor", checkpoint_one.checkpoint_id)
-    consolidator = CapturingSourceConsolidator()
-
     asyncio.run(
-        WikiBoundaryProcessor(root, consolidator=consolidator).rebuild(restored)
+        WikiBoundaryProcessor(
+            root,
+            consolidator=CapturingSourceConsolidator(),
+        ).rebuild(restored)
     )
 
-    assert "observation:reachable" in consolidator.sources["chen-mo"]
-    assert "observation:abandoned" not in consolidator.sources["chen-mo"]
-    assert "instruction:initial" in consolidator.sources["world"]
-    assert "instruction:future" not in consolidator.sources["world"]
+    content = store.load_page("world/state.md").content
+    assert "reachable mechanism clicks" in content
+    assert "ABANDONED_TIMELINE_CONTENT" not in content
+    assert not store.page_path("world/abandoned.md").exists()
+    assert store.view().checkpoint_id == checkpoint_one.checkpoint_id

@@ -820,10 +820,7 @@ def create_simulations_router(
             await WikiBoundaryProcessor(
                 settings.projects_root / project_id,
                 consolidator=GatewayWikiConsolidator(gateway),
-            ).rebuild(
-                branch_snapshot,
-                branch_records(settings.projects_root / project_id, branch_id),
-            )
+            ).rebuild(branch_snapshot)
             return branch
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Branch not found") from error

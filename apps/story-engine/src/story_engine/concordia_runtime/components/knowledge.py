@@ -21,7 +21,7 @@ from story_engine.domain.memory import (
     MemoryRecord,
     MemoryRecordType,
 )
-from story_engine.wiki.context import WikiContextBuilder
+from story_engine.wiki.context import WikiContextBuilder, WikiContextUnavailableError
 
 RECENT_MEMORY_LIMIT = 12
 RELEVANT_MEMORY_LIMIT = 6
@@ -225,19 +225,26 @@ class CharacterContext(entity_component.ContextComponent):  # type: ignore[misc]
         remaining -= len(recent_text)
 
         wiki_budget = min(self._budget.wiki_chars, remaining)
-        wiki = (
-            WikiContextBuilder(
-                Path(self._project_root),
-                self._branch_id,
-                max_context_chars=wiki_budget,
-            ).character(
-                self._subject_id,
-                participant_ids=participants,
-                location_ids=location_ids,
-            ).content
-            if wiki_budget > 0
-            else ""
-        )
+        wiki = ""
+        if wiki_budget > 0:
+            try:
+                wiki = WikiContextBuilder(
+                    Path(self._project_root),
+                    self._branch_id,
+                    max_context_chars=wiki_budget,
+                    require_current_head=True,
+                ).character(
+                    self._subject_id,
+                    participant_ids=participants,
+                    location_ids=location_ids,
+                ).content
+            except (
+                FileNotFoundError,
+                OSError,
+                ValueError,
+                WikiContextUnavailableError,
+            ):
+                wiki = "Wiki unavailable / stale."[:wiki_budget]
         return (
             f"{headings[0]}{wiki}"
             f"{headings[1]}{recent_text}"
@@ -273,9 +280,14 @@ class WorldWikiContext(action_spec_ignored.ActionSpecIgnored):  # type: ignore[m
         self._branch_id = branch_id
 
     def _make_pre_act_value(self) -> str:
-        return WikiContextBuilder(
-            Path(self._project_root), self._branch_id
-        ).world().content
+        try:
+            return WikiContextBuilder(
+                Path(self._project_root),
+                self._branch_id,
+                require_current_head=True,
+            ).world().content
+        except (FileNotFoundError, OSError, ValueError, WikiContextUnavailableError):
+            return "Wiki unavailable / stale."
 
     def get_state(self) -> entity_component.ComponentState:
         return {}

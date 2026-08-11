@@ -16,7 +16,7 @@ from story_engine.domain.wiki import (
 from story_engine.models.gateway import ModelGateway
 from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
-from story_engine.wiki.boundary import WikiBoundaryProcessor, branch_records
+from story_engine.wiki.boundary import WikiBoundaryProcessor
 from story_engine.wiki.consolidator import GatewayWikiConsolidator
 from story_engine.wiki.lint import WikiLinter
 from story_engine.wiki.store import WikiRevisionConflictError, WikiStore
@@ -134,7 +134,7 @@ def create_wiki_router(settings: EngineSettings, gateway: ModelGateway) -> APIRo
             await WikiBoundaryProcessor(
                 root,
                 consolidator=GatewayWikiConsolidator(gateway),
-            ).rebuild(branch_snapshot, branch_records(root, branch_id))
+            ).rebuild(branch_snapshot)
             return store.view()
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Branch not found") from error

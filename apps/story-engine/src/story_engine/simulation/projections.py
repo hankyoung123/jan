@@ -23,6 +23,10 @@ from story_engine.manuscript.models import (
     WriterSourceSelection,
 )
 from story_engine.manuscript.service import ManuscriptAgent, ManuscriptService
+from story_engine.persistence.branch_store import (
+    BranchStore,
+    CheckpointNotReachableError,
+)
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.persistence.projection_store import ProjectionTaskStore
 from story_engine.persistence.simulation_log import SimulationLogStore
@@ -44,6 +48,7 @@ class ProjectionTaskService:
         self.root = root
         self.store = ProjectionTaskStore(root)
         self.checkpoints = CheckpointStore(root)
+        self.branches = BranchStore(root)
         self.logs = SimulationLogStore(root)
         self.wiki_processor = wiki_processor
         self.manuscript_agent = manuscript_agent
@@ -332,6 +337,19 @@ class ProjectionTaskService:
                 continue
 
     def _execute(self, task_id: str) -> None:
+        pending = self.store.load(task_id)
+        try:
+            self.branches.assert_checkpoint_reachable(
+                pending.branch_id,
+                pending.checkpoint_id,
+            )
+        except CheckpointNotReachableError as error:
+            self.store.transition(
+                task_id,
+                status=ProjectionTaskStatus.SKIPPED,
+                error_text=str(error),
+            )
+            return
         task = self.store.transition(
             task_id,
             status=ProjectionTaskStatus.RUNNING,
@@ -349,6 +367,21 @@ class ProjectionTaskService:
                 self._project_wiki(task, snapshot)
             else:
                 self._project_manuscript(task, snapshot)
+            self.branches.assert_checkpoint_reachable(
+                task.branch_id,
+                task.checkpoint_id,
+            )
+        except CheckpointNotReachableError as error:
+            try:
+                current = self.store.load(task_id)
+                if current.status == ProjectionTaskStatus.RUNNING:
+                    self.store.transition(
+                        task_id,
+                        status=ProjectionTaskStatus.SKIPPED,
+                        error_text=str(error),
+                    )
+            except (FileNotFoundError, OSError, ValueError):
+                pass
         except Exception as error:
             try:
                 current = self.store.load(task_id)
@@ -381,6 +414,8 @@ class ProjectionTaskService:
                     end_step=task.step,
                 )
             )
+        except CheckpointNotReachableError:
+            raise
         except WikiProtocolError as error:
             detail = str(error)
             WikiStore(self.root, task.branch_id).mark_degraded(
@@ -412,6 +447,10 @@ class ProjectionTaskService:
                     source=WriterSourceSelection(),
                     chapter_id=f"chapter-{max(1, snapshot.completed_scenes):03d}",
                     viewpoint_actor_id=None,
-                )
+                ),
+                before_apply=lambda: self.branches.assert_checkpoint_reachable(
+                    task.branch_id,
+                    task.checkpoint_id,
+                ),
             )
         )

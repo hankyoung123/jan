@@ -1093,6 +1093,8 @@ export interface components {
             branch: components["schemas"]["BranchManifest"];
             /** Checkpoint Id */
             checkpoint_id: string;
+            /** History Head Id */
+            history_head_id: string;
             /** Session Id */
             session_id: string;
             /** State Hash */
@@ -1454,25 +1456,77 @@ export interface components {
             /** Wiki Version Id */
             wiki_version_id: string;
         };
+        /** MemoryRecord */
+        MemoryRecord: {
+            /**
+             * Actor Ids
+             * @default []
+             */
+            actor_ids: string[];
+            /** Branch Id */
+            branch_id: string;
+            /**
+             * Confidence
+             * @default 1
+             */
+            confidence: number;
+            /** Content Locale */
+            content_locale: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Importance
+             * @default 0.5
+             */
+            importance: number;
+            /**
+             * Location Ids
+             * @default []
+             */
+            location_ids: string[];
+            /** Owner Id */
+            owner_id: string;
+            /** Raw Text */
+            raw_text?: string | null;
+            /** Record Id */
+            record_id: string;
+            record_type: components["schemas"]["MemoryRecordType"];
+            scope: components["schemas"]["MemoryScope"];
+            /** Session Id */
+            session_id: string;
+            /**
+             * Source Record Ids
+             * @default []
+             */
+            source_record_ids: string[];
+            /** Step */
+            step: number;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /** Text */
+            text: string;
+            /**
+             * Visible To
+             * @default []
+             */
+            visible_to: string[];
+        };
+        /**
+         * MemoryRecordType
+         * @enum {string}
+         */
+        MemoryRecordType: "premise" | "observation" | "putative_event" | "world_event" | "plan" | "system";
         /**
          * MemoryScope
          * @enum {string}
          */
         MemoryScope: "game_master" | "character" | "shared";
-        /** MemorySnapshot */
-        MemorySnapshot: {
-            /** Owner Id */
-            owner_id: string;
-            /** Record Count */
-            record_count: number;
-            scope: components["schemas"]["MemoryScope"];
-            /** State */
-            state: {
-                [key: string]: components["schemas"]["JsonValue"];
-            };
-            /** State Hash */
-            state_hash: string;
-        };
         /** Message */
         Message: {
             /** Content */
@@ -1836,7 +1890,7 @@ export interface components {
          * ProjectionTaskStatus
          * @enum {string}
          */
-        ProjectionTaskStatus: "pending" | "running" | "succeeded" | "failed";
+        ProjectionTaskStatus: "pending" | "running" | "succeeded" | "failed" | "skipped";
         /**
          * PromotionDecision
          * @description Durable promotion result after local candidate binding.
@@ -2137,20 +2191,34 @@ export interface components {
             /** Content Locale */
             content_locale: string;
         };
-        /** SimulationLogRecord */
+        /**
+         * SimulationLogRecord
+         * @description One immutable node in the durable cognitive-history chain.
+         */
         SimulationLogRecord: {
             /** Checkpoint Id */
             checkpoint_id?: string | null;
-            /** Parent Checkpoint Id */
-            parent_checkpoint_id?: string | null;
+            /** Log Id */
+            log_id: string;
+            /**
+             * Memory Delta
+             * @default []
+             */
+            memory_delta: components["schemas"]["MemoryRecord"][];
+            /** Parent Log Id */
+            parent_log_id?: string | null;
+            /**
+             * Record Kind
+             * @default turn
+             * @enum {string}
+             */
+            record_kind: "genesis" | "turn";
             result: components["schemas"]["StepResult"];
             /**
              * Schema Version
-             * @default 2
+             * @default 4
              */
             schema_version: number;
-            /** State Hash */
-            state_hash: string;
             trace: components["schemas"]["TurnTrace"];
         };
         /** SimulationRestoreRequest */
@@ -2711,10 +2779,8 @@ export interface components {
                     [key: string]: components["schemas"]["JsonValue"];
                 };
             };
-            /** Memory Snapshots */
-            memory_snapshots: {
-                [key: string]: components["schemas"]["MemorySnapshot"];
-            };
+            /** History Head Id */
+            history_head_id?: string | null;
             /** @default none */
             pending_control: components["schemas"]["PendingControl"];
             /**

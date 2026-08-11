@@ -13,6 +13,10 @@ _LINK = re.compile(r"\[[^\]]+\]\(([^)]+\.md)(?:#[^)]*)?\)")
 _WORD = re.compile(r"[\w\-]+", re.UNICODE)
 
 
+class WikiContextUnavailableError(ValueError):
+    """Raised when the working Wiki is not the current branch projection."""
+
+
 @dataclass(frozen=True, slots=True)
 class _Candidate:
     page: WikiPage
@@ -32,14 +36,42 @@ class WikiContextBuilder:
         max_context_chars: int = 32_768,
         version_id: str | None = None,
         excluded_source_ids: frozenset[str] = frozenset(),
+        require_current_head: bool = False,
     ) -> None:
         if max_context_chars <= 0:
             raise ValueError("invalid Wiki context bounds")
         self.store = WikiStore(root, branch_id)
+        self.root = root
         self.branch_id = branch_id
         self.max_context_chars = max_context_chars
         self.version_id = version_id
         self.excluded_source_ids = excluded_source_ids
+        self.require_current_head = require_current_head
+        if version_id is not None and require_current_head:
+            raise ValueError("historical Wiki context cannot require the current head")
+
+    def _assert_current_head(self) -> None:
+        if not self.require_current_head:
+            return
+        from story_engine.persistence.branch_store import BranchStore
+
+        view = self.store.view()
+        try:
+            branch = BranchStore(self.root).load(self.branch_id)
+        except FileNotFoundError as error:
+            if not view.stale and not view.degraded and view.checkpoint_id is None:
+                return
+            raise WikiContextUnavailableError(
+                "working Wiki has no current branch authority"
+            ) from error
+        if (
+            view.stale
+            or view.degraded
+            or view.checkpoint_id != branch.head_checkpoint_id
+        ):
+            raise WikiContextUnavailableError(
+                "working Wiki is stale, degraded, or does not match branch head"
+            )
 
     def _pages(
         self,
@@ -47,6 +79,7 @@ class WikiContextBuilder:
         viewpoint_actor_id: str | None = None,
         include_private: bool = False,
     ) -> tuple[WikiPage, ...]:
+        self._assert_current_head()
         pages = (
             self.store.list_pages()
             if self.version_id is None

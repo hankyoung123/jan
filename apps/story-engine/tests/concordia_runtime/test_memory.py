@@ -129,7 +129,9 @@ def test_pending_records_decode_only_the_uncommitted_tail() -> None:
     codec.decode_count = 0
     memory.extend(
         (
-            _record("actor-a", "New memory one.", record_id="pending:1"),
+            _record(
+                "actor-a", "New memory one.", record_id="pending:1"
+            ).model_copy(update={"raw_text": "raw transport text"}),
             _record("actor-a", "New memory two.", record_id="pending:2"),
         )
     )
@@ -138,7 +140,8 @@ def test_pending_records_decode_only_the_uncommitted_tail() -> None:
 
     assert codec.decode_count == 2
     assert [record.record_id for record in pending] == ["pending:1", "pending:2"]
-    assert all(record.raw_text is None for record in pending)
+    assert pending[0].raw_text is not None
+    assert pending[0].raw_text.endswith(" New memory one.")
 
 
 def test_retrieval_exposes_lexical_recency_and_importance_scores() -> None:

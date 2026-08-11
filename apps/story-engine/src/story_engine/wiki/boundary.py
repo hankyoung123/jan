@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable
 from pathlib import Path
 
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
@@ -73,9 +73,48 @@ class WikiBoundaryProcessor:
         *,
         boundary: SimulationBoundary,
         end_step: int,
-        records: tuple[SimulationLogRecord, ...] | None = None,
-        memory_records: tuple[MemoryRecord, ...] | None = None,
     ) -> tuple[Path, ...]:
+        if snapshot.checkpoint_id is None:
+            raise ValueError("Wiki maintenance requires a durable checkpoint")
+        checkpoint_id = snapshot.checkpoint_id
+        branches = BranchStore(self.root)
+        checkpoints = CheckpointStore(self.root)
+        branches.assert_checkpoint_reachable(snapshot.branch_id, checkpoint_id)
+        logs = SimulationLogStore(self.root)
+        records = logs.reachable(
+            checkpoints,
+            checkpoint_id,
+            branch_id=snapshot.branch_id,
+        )
+        memories = logs.reachable_memory_records(
+            checkpoints,
+            checkpoint_id,
+            branch_id=snapshot.branch_id,
+        )
+        return await self._process_with_sources(
+            snapshot,
+            boundary=boundary,
+            end_step=end_step,
+            records=records,
+            memory_records=memories,
+            precondition=lambda: branches.assert_checkpoint_reachable(
+                snapshot.branch_id,
+                checkpoint_id,
+            ),
+        )
+
+    async def _process_with_sources(
+        self,
+        snapshot: TurnSessionSnapshot,
+        *,
+        boundary: SimulationBoundary,
+        end_step: int,
+        records: tuple[SimulationLogRecord, ...],
+        memory_records: tuple[MemoryRecord, ...] = (),
+        precondition: Callable[[], None] | None = None,
+    ) -> tuple[Path, ...]:
+        """Test seam; production callers must use checkpoint-authoritative process."""
+
         if boundary == SimulationBoundary.NONE:
             return ()
         if snapshot.checkpoint_id is None:
@@ -83,24 +122,13 @@ class WikiBoundaryProcessor:
         checkpoint_id = snapshot.checkpoint_id
         store = WikiStore(self.root, snapshot.branch_id)
         source_reader = WikiSourceReader(self.root, snapshot.branch_id)
-        all_records = records or branch_records(self.root, snapshot.branch_id)
-        scene_records = _scene_records(all_records, end_step)
+        scene_records = _scene_records(records, end_step)
         if not scene_records:
             return ()
         first_step = scene_records[0].result.step
-        memories = (
-            memory_records
-            if memory_records is not None
-            else tuple(
-                memory for record in all_records for memory in record.memory_delta
-            )
+        memories = memory_records or tuple(
+            memory for record in records for memory in record.memory_delta
         )
-        if records is None and memory_records is None:
-            memories = SimulationLogStore(self.root).reachable_memory_records(
-                CheckpointStore(self.root),
-                checkpoint_id,
-                branch_id=snapshot.branch_id,
-            )
         scene_memory_ids = {
             memory.record_id
             for record in scene_records
@@ -216,9 +244,15 @@ class WikiBoundaryProcessor:
                 enriched,
                 checkpoint_id=checkpoint_id,
                 step=end_step,
+                precondition=precondition,
             )
             if not all_patches:
-                store.set_head(checkpoint_id, end_step, stale=False)
+                store.set_head(
+                    checkpoint_id,
+                    end_step,
+                    stale=False,
+                    precondition=precondition,
+                )
             return written
 
         try:
@@ -258,35 +292,81 @@ class WikiBoundaryProcessor:
     async def rebuild(
         self,
         snapshot: TurnSessionSnapshot,
-        records: Iterable[SimulationLogRecord] | None = None,
     ) -> tuple[Path, ...]:
-        selected = tuple(records or branch_records(self.root, snapshot.branch_id))
         if snapshot.checkpoint_id is None:
             raise ValueError("Wiki rebuild requires a durable checkpoint")
-        memories = SimulationLogStore(self.root).reachable_memory_records(
-            CheckpointStore(self.root),
-            snapshot.checkpoint_id,
+        target_checkpoint_id = snapshot.checkpoint_id
+        branches = BranchStore(self.root)
+        checkpoints = CheckpointStore(self.root)
+        logs = SimulationLogStore(self.root)
+
+        def assert_current_target() -> None:
+            branches.assert_head(snapshot.branch_id, target_checkpoint_id)
+
+        assert_current_target()
+        lineage = checkpoints.lineage(target_checkpoint_id)
+        store = WikiStore(self.root, snapshot.branch_id)
+        baseline_version = next(
+            (
+                checkpoint_id
+                for checkpoint_id in reversed(lineage)
+                if store.version_exists(checkpoint_id)
+            ),
+            "seed",
+        )
+        store.restore_version(baseline_version, precondition=assert_current_target)
+        selected = logs.reachable(
+            checkpoints,
+            target_checkpoint_id,
             branch_id=snapshot.branch_id,
+        )
+        baseline_index = (
+            lineage.index(baseline_version) if baseline_version != "seed" else -1
         )
         written: list[Path] = []
         for record in selected:
             if record.result.step >= snapshot.current_step:
                 break
+            if record.checkpoint_id is None:
+                continue
+            if lineage.index(record.checkpoint_id) <= baseline_index:
+                continue
             if record.result.boundary == SimulationBoundary.NONE:
                 continue
+            boundary_snapshot = checkpoints.load(record.checkpoint_id)
+            if boundary_snapshot.branch_id != snapshot.branch_id:
+                boundary_snapshot = boundary_snapshot.model_copy(
+                    update={
+                        "branch_id": snapshot.branch_id,
+                        "request": boundary_snapshot.request.model_copy(
+                            update={"branch_id": snapshot.branch_id}
+                        ),
+                    }
+                )
+            boundary_records = logs.reachable(
+                checkpoints,
+                record.checkpoint_id,
+                branch_id=snapshot.branch_id,
+            )
+            memories = logs.reachable_memory_records(
+                checkpoints,
+                record.checkpoint_id,
+                branch_id=snapshot.branch_id,
+            )
             written.extend(
-                await self.process(
-                    snapshot,
+                await self._process_with_sources(
+                    boundary_snapshot,
                     boundary=record.result.boundary,
                     end_step=record.result.step,
-                    records=selected,
+                    records=boundary_records,
                     memory_records=memories,
+                    precondition=assert_current_target,
                 )
             )
-        if snapshot.checkpoint_id is not None:
-            WikiStore(self.root, snapshot.branch_id).set_head(
-                snapshot.checkpoint_id,
-                snapshot.current_step,
-                stale=False,
-            )
+        store.set_head(
+            target_checkpoint_id,
+            snapshot.current_step,
+            stale=False,
+            precondition=assert_current_target,
+        )
         return tuple(written)
