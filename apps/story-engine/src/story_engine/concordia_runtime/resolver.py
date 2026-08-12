@@ -57,14 +57,18 @@ class ConcordiaResolverKernel:
         }
         lines: list[str] = []
         for character in context.existing_characters:
+            if character.id == context.acting_actor_id:
+                state = character.prompt_text()
+            else:
+                state = json.dumps(
+                    {"location": character.location},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
             lines.append(
                 f"- {character.display_name}, {type_labels[character.type]}: "
-                f"{character.prompt_text()}"
+                f"{state}"
             )
-        lines.append(
-            "Use these exact display names in participant_names or observer_names. "
-            "Do not include an existing character in entity_changes."
-        )
         return "\n".join(lines)
 
     @staticmethod
@@ -89,11 +93,6 @@ class ConcordiaResolverKernel:
 
     @classmethod
     def _resolution_context_prompt(cls, context: ResolverContext) -> str:
-        acting_actor = next(
-            character
-            for character in context.existing_characters
-            if character.id == context.acting_actor_id
-        )
         truth = "\n".join(
             f"- [{fact.id}] ({fact.visibility}) {fact.statement}"
             for fact in context.relevant_canonical_facts
@@ -101,49 +100,22 @@ class ConcordiaResolverKernel:
         known = "\n".join(
             f"- [{fact.id}] {fact.statement}" for fact in context.actor_known_facts
         ) or "- None confirmed."
-        observed = "\n".join(
-            f"- {event}" for event in context.actor_observed_events
-        ) or "- None recorded."
         recent = "\n".join(
-            f"- {event}" for event in context.recent_resolved_events
+            f"- {event}" for event in context.recent_scene_events
         ) or "- None recorded."
-        beliefs = "\n".join(
-            f"- {belief}" for belief in acting_actor.beliefs
-        ) or "- None recorded."
-        wiki = context.wiki_context.strip() or "Wiki unavailable or empty."
         return "\n\n".join(
             (
                 cls._world_state_prompt(context),
                 (
-                    "Relevant Canonical Truth (GM-only authority):\n"
-                    f"{truth}\n"
-                    "These facts are immutable constraints. Never contradict, "
-                    "replace, or reveal them merely because the GM can see them."
+                    "Relevant Canonical Truth (GM-only; not Actor knowledge):\n"
+                    f"{truth}"
                 ),
                 (
-                    f"Acting Actor State ({acting_actor.display_name}):\n"
-                    f"{acting_actor.prompt_text()}"
+                    "Acting Actor Known Information:\n"
+                    f"{known}"
                 ),
-                (
-                    "Actor Knowledge (confirmed facts and observed events only):\n"
-                    f"Known facts:\n{known}\nObserved events:\n{observed}"
-                ),
-                (
-                    "Actor Beliefs (may be false and are not World Truth):\n"
-                    f"{beliefs}"
-                ),
-                f"Recent ResolvedEvents (GM history):\n{recent}",
-                f"Current Intent (putative, not fact):\n{context.putative_event_text}",
-                (
-                    "Wiki Context (semantic aid only; may be stale or missing):\n"
-                    f"{wiki}\nCanonical Truth and committed state always win."
-                ),
-                (
-                    "Knowledge boundary: World knows is not Actor knows; Actor "
-                    "knows is not Actor believes. Do not convert GM-only truth "
-                    "into an observation, dialogue, or player knowledge without "
-                    "a resolved in-world discovery."
-                ),
+                f"Recent Current-Scene Events:\n{recent}",
+                f"Current Intent:\n{context.putative_event_text}",
             )
         )
 
@@ -417,18 +389,7 @@ class ConcordiaResolverKernel:
             ActionSpec(
                 spec_id=f"resolve:{context.session_id}:{context.step}",
                 output_type=ActionOutputType.RESOLVE,
-                call_to_action=(
-                    "Treat the actor text as a putative intent, never a fact or "
-                    "guaranteed outcome. Resolve without contradicting Relevant "
-                    "Canonical Truth, and only from committed world facts, "
-                    "actor state, available resources, environmental conditions, "
-                    "other actors, time, and world rules. Wiki is non-authoritative. "
-                    "Keep GM-only truth outside Actor Knowledge until an event "
-                    "actually reveals it. Voluntary NPC behavior must originate "
-                    "from that NPC Actor. Do not supply dialogue, decisions, lies, "
-                    "refusals, cooperation, escape, or new plans for any NPC other "
-                    "than voluntary behavior already stated by the acting Actor."
-                ),
+                call_to_action="Resolve this intent.",
                 tag="resolve",
                 content_locale=context.content_locale,
             )

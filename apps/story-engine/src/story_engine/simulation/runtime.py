@@ -49,7 +49,6 @@ from story_engine.domain.trace import (
     SimulationStageEvent,
     StageStatus,
 )
-from story_engine.wiki.context import WikiContextBuilder
 
 
 class StorySimulationRuntime:
@@ -191,9 +190,8 @@ class StorySimulationRuntime:
     ) -> ResolverContext:
         world = self._world
         available_actor_facts = self._actor_known_facts(acting_actor_id)
-        recent_events = self._recent_resolved_event_texts()
-        relevant_facts, participant_ids = self._relevant_canonical_facts(
-            acting_actor_id=acting_actor_id,
+        recent_events = self._recent_scene_event_texts()
+        relevant_facts = self._relevant_canonical_facts(
             putative_event_text=putative_event_text,
             recent_events=recent_events,
             actor_known_facts=available_actor_facts,
@@ -228,15 +226,7 @@ class StorySimulationRuntime:
             ),
             relevant_canonical_facts=relevant_facts,
             actor_known_facts=actor_known_facts,
-            actor_observed_events=self._actor_observed_event_texts(
-                acting_actor_id
-            ),
-            recent_resolved_events=recent_events,
-            wiki_context=self._resolution_wiki_context(
-                participant_ids=participant_ids,
-                putative_event_text=putative_event_text,
-                recent_events=recent_events,
-            ),
+            recent_scene_events=recent_events,
         )
 
     @staticmethod
@@ -258,112 +248,125 @@ class StorySimulationRuntime:
             if fact.visibility == "public" or fact.id in known_ids
         )
 
-    def _actor_observed_event_texts(self, actor_id: str) -> tuple[str, ...]:
-        actor = self._all_actors_by_name.get(actor_id)
-        memory = getattr(actor, "memory", None)
-        if memory is None:
-            return ()
-        records = memory.retrieve_recent(
-            limit=16,
-            record_types=(MemoryRecordType.OBSERVATION,),
+    def _visible_scene_events(self, actor_id: str) -> tuple[ResolvedEvent, ...]:
+        visible = tuple(
+            event
+            for event in self._pending_scene_events
+            if event.visibility == EventVisibility.PUBLIC
+            or actor_id == event.actor_id
+            or actor_id in event.participant_ids
+            or actor_id in event.observer_ids
         )
-        return tuple(
-            record.text
-            for record in records
-            if any(
-                source_id.startswith("event:")
-                for source_id in record.source_record_ids
-            )
-        )[-8:]
+        return visible[-4:]
 
-    def _recent_resolved_event_texts(self) -> tuple[str, ...]:
-        memory = getattr(self.game_master, "memory", None)
-        if memory is None:
-            return tuple(event.event_text for event in self._pending_scene_events[-8:])
-        records = memory.retrieve_recent(
-            limit=8,
-            record_types=(MemoryRecordType.WORLD_EVENT,),
+    def _recent_scene_event_texts(self) -> tuple[str, ...]:
+        return tuple(event.event_text for event in self._pending_scene_events[-4:])
+
+    def _perception_known_facts(
+        self,
+        actor_id: str,
+        recent_events: tuple[ResolvedEvent, ...],
+    ) -> tuple[Fact, ...]:
+        actor = self._characters_by_id[actor_id]
+        world = self._world
+        context_text = "\n".join(
+            (
+                actor.display_name or actor.id,
+                actor.location or "",
+                world.current_location if world and world.current_location else "",
+                world.scene_text if world is not None else "",
+                *(event.event_text for event in recent_events),
+            )
         )
-        return tuple(record.text for record in records)
+        context_terms = self._search_terms(context_text)
+        scored: list[tuple[int, int, Fact]] = []
+        for index, fact in enumerate(self._actor_known_facts(actor_id)):
+            overlap = len(context_terms & self._search_terms(fact.statement))
+            if overlap:
+                scored.append((overlap, -index, fact))
+        scored.sort(reverse=True, key=lambda item: (item[0], item[1]))
+        return tuple(item[2] for item in scored[:8])
+
+    def _perception_context_prompt(self, actor_id: str) -> str:
+        actor = self._characters_by_id[actor_id]
+        world = self._world
+        recent_events = self._visible_scene_events(actor_id)
+        known_facts = self._perception_known_facts(actor_id, recent_events)
+        world_lines = [
+            f"- Current time: {world.current_time if world else 'unknown'}",
+            "- Current location: "
+            + (
+                world.current_location
+                if world and world.current_location
+                else "unknown"
+            ),
+            f"- Current scene: {world.scene_text if world else ''}",
+        ]
+        if world is not None and world.rules:
+            world_lines.append("- Rules:")
+            world_lines.extend(f"  - {rule}" for rule in world.rules)
+        if world is not None and world.active_pressures:
+            world_lines.append("- Active pressures:")
+            world_lines.extend(f"  - {pressure}" for pressure in world.active_pressures)
+        if world is not None and world.world_variables:
+            world_lines.append("- Variables:")
+            world_lines.extend(
+                f"  - {key}: {value}"
+                for key, value in sorted(world.world_variables.items())
+            )
+        known_text = "\n".join(
+            f"- {fact.statement}" for fact in known_facts
+        ) or "- None directly relevant."
+        recent_text = "\n".join(
+            f"- {event.event_text}" for event in recent_events
+        ) or "- None."
+        return "\n\n".join(
+            (
+                "Current World State:\n" + "\n".join(world_lines),
+                (
+                    f"Actor Viewpoint and State ({actor.display_name or actor.id}):\n"
+                    f"{ActorStateContext.from_character(actor).prompt_text()}"
+                ),
+                f"Actor Known Information:\n{known_text}",
+                f"Recent Directly Relevant Events:\n{recent_text}",
+            )
+        )
 
     def _relevant_canonical_facts(
         self,
         *,
-        acting_actor_id: str,
         putative_event_text: str,
         recent_events: tuple[str, ...],
         actor_known_facts: tuple[Fact, ...],
-    ) -> tuple[tuple[Fact, ...], tuple[str, ...]]:
-        actor = self._characters_by_id[acting_actor_id]
+    ) -> tuple[Fact, ...]:
         context_text = "\n".join(
             (
                 putative_event_text,
-                actor.location or "",
-                (self._world.current_location or "")
-                if self._world is not None
-                else "",
                 *recent_events[-4:],
             )
         ).casefold()
-        participant_ids = {acting_actor_id}
-        for character in self._characters_by_id.values():
-            names = (character.id, character.display_name or character.id)
-            if any(name.casefold() in context_text for name in names):
-                participant_ids.add(character.id)
-            if actor.location and character.location == actor.location:
-                participant_ids.add(character.id)
-        for event in self._pending_scene_events[-4:]:
-            participant_ids.update(event.participant_ids)
-
         context_terms = self._search_terms(context_text)
+        character_identity_terms: set[str] = set()
+        for character in self._characters_by_id.values():
+            character_identity_terms.update(self._search_terms(character.id))
+            character_identity_terms.update(
+                self._search_terms(character.display_name or character.id)
+            )
+        context_terms.difference_update(character_identity_terms)
         actor_known_ids = {fact.id for fact in actor_known_facts}
         scored: list[tuple[int, int, Fact]] = []
         for index, fact in enumerate(self._canonical_facts):
             fact_terms = self._search_terms(fact.statement)
             overlap = len(context_terms & fact_terms)
+            if not overlap:
+                continue
             score = overlap * 20
             if fact.id in actor_known_ids:
                 score += 5
-            if set(fact.known_by) & participant_ids:
-                score += 40
-            if fact.id.casefold().endswith(":final"):
-                score += 10
-            if score > 0:
-                scored.append((score, -index, fact))
+            scored.append((score, -index, fact))
         scored.sort(reverse=True, key=lambda item: (item[0], item[1]))
         selected = tuple(item[2] for item in scored[:8])
-        return selected, tuple(sorted(participant_ids))
-
-    def _resolution_wiki_context(
-        self,
-        *,
-        participant_ids: tuple[str, ...],
-        putative_event_text: str,
-        recent_events: tuple[str, ...],
-    ) -> str:
-        if self._project_root is None:
-            return "Wiki unavailable for this runtime."
-        world = self._world
-        try:
-            content = WikiContextBuilder(
-                self._project_root,
-                self.branch_id,
-                require_current_head=True,
-            ).world(
-                participant_ids=participant_ids,
-                location_ids=(
-                    (world.current_location,)
-                    if world and world.current_location
-                    else ()
-                ),
-                entity_ids=participant_ids,
-                keywords=(putative_event_text, *recent_events[-4:]),
-            ).content
-            return content or (
-                "Wiki unavailable or empty; use Canonical Truth and state."
-            )
-        except (FileNotFoundError, OSError, ValueError):
-            return "Wiki unavailable or invalid; use Canonical Truth and state."
+        return selected
 
     @staticmethod
     def _resource_value(effect: StateEffect) -> tuple[str, ...]:
@@ -968,6 +971,7 @@ class StorySimulationRuntime:
                     session_id=self.session_id,
                     step=step,
                     content_locale=self.content_locale,
+                    context_text=self._perception_context_prompt(actor.name),
                 ).observation_text
                 if observation.strip():
                     observation_ids.append(record_id)

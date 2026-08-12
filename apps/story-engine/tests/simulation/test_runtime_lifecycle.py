@@ -49,6 +49,7 @@ def _runtime(
     project_root=None,
     roster_planner=None,
     player_actor_id=None,
+    pending_scene_events: tuple[ResolvedEvent, ...] = (),
 ) -> StorySimulationRuntime:
     def actor_stub(character_id: str, display_name: str | None = None):
         state: dict[str, object] = {}
@@ -85,6 +86,7 @@ def _runtime(
         roster_planner=roster_planner,
         initial_roster_selected=True,
         player_actor_id=player_actor_id,
+        pending_scene_events=pending_scene_events,
     )
 
 
@@ -175,9 +177,7 @@ def test_gm_resolution_context_selects_relevant_secret_truth() -> None:
     )
 
 
-def test_missing_wiki_does_not_remove_canonical_truth_from_resolution(
-    tmp_path,
-) -> None:
+def test_resolution_context_does_not_depend_on_wiki(tmp_path) -> None:
     key_truth = _fact(
         "truth:key-owner",
         "二楼钥匙始终由店主保管。",
@@ -195,7 +195,97 @@ def test_missing_wiki_does_not_remove_canonical_truth_from_resolution(
     )
 
     assert context.relevant_canonical_facts == (key_truth,)
-    assert "Wiki unavailable" in context.wiki_context
+    assert not hasattr(context, "wiki_context")
+
+
+def test_vague_intent_does_not_receive_another_actors_hidden_truth() -> None:
+    hidden_record = _fact(
+        "truth:final",
+        "张野调换了港口交接记录。",
+        known_by=("actor-1",),
+    )
+    runtime = _runtime(
+        (
+            _character("actor-0", location="旅馆大厅"),
+            _character(
+                "actor-1",
+                known_fact_ids=(hidden_record.id,),
+                location="旅馆大厅",
+            ).model_copy(update={"display_name": "张野"}),
+        ),
+        canonical_facts=(hidden_record,),
+        world=WorldState(current_time="18:43", current_location="港口旅馆"),
+    )
+
+    context = runtime._resolver_context(
+        step=1,
+        acting_actor_id="actor-0",
+        putative_event_text="我问张野真相, 他承认了。",
+    )
+
+    assert context.relevant_canonical_facts == ()
+    assert context.actor_known_facts == ()
+
+
+def test_perception_context_is_bounded_to_actor_viewpoint_and_current_scene() -> None:
+    known = _fact(
+        "fact:wet-coat",
+        "张野的外套已经被雨淋湿。",
+        visibility="public",
+    )
+    hidden = _fact(
+        "truth:killer",
+        "张野就是凶手。",
+        known_by=("actor-1",),
+    )
+    events = tuple(
+        ResolvedEvent(
+            event_id=f"event:session-1:{index}",
+            session_id="session-1",
+            step=index,
+            actor_id="actor-0",
+            event_text=f"VISIBLE_SCENE_EVENT_{index}",
+            visibility=EventVisibility.PARTICIPANTS,
+            participant_ids=("actor-0",),
+            content_locale="zh-CN",
+            occurred_at=datetime(2026, 8, 4, 18, index, tzinfo=UTC),
+        )
+        for index in range(5)
+    )
+    hidden_event = ResolvedEvent(
+        event_id="event:session-1:hidden",
+        session_id="session-1",
+        step=5,
+        actor_id="actor-1",
+        event_text="HIDDEN_SCENE_EVENT",
+        visibility=EventVisibility.GM_ONLY,
+        content_locale="zh-CN",
+        occurred_at=datetime(2026, 8, 4, 18, 5, tzinfo=UTC),
+    )
+    runtime = _runtime(
+        (
+            _character("actor-0", location="旅馆大厅"),
+            _character("actor-1", location="旅馆大厅"),
+        ),
+        canonical_facts=(known, hidden),
+        world=WorldState(
+            current_time="18:43",
+            current_location="港口旅馆",
+            scene_text="张野站在漏雨的窗边。",
+        ),
+        pending_scene_events=(*events, hidden_event),
+    )
+
+    prompt = runtime._perception_context_prompt("actor-0")
+
+    assert "Current World State" in prompt
+    assert "张野站在漏雨的窗边" in prompt
+    assert '"location":"旅馆大厅"' in prompt
+    assert known.statement in prompt
+    assert hidden.statement not in prompt
+    assert "VISIBLE_SCENE_EVENT_0" not in prompt
+    assert all(f"VISIBLE_SCENE_EVENT_{index}" in prompt for index in range(1, 5))
+    assert "HIDDEN_SCENE_EVENT" not in prompt
 
 
 def test_scene_boundary_keeps_ordinary_npc_out_of_active_agent_roster() -> None:

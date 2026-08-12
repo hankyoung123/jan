@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 from story_engine.api.app import create_app
 from story_engine.config import EngineSettings
 from story_engine.domain.models import Character, WorldState
-from story_engine.domain.projection import EventVisibility, ResolvedEvent, ResolvedTurn
+from story_engine.domain.projection import (
+    EventVisibility,
+    ResolvedEvent,
+    ResolvedTurn,
+    SimulationBoundary,
+)
 from story_engine.domain.simulation import (
     StepResult,
     TurnSessionRequest,
@@ -196,6 +201,30 @@ class CountingInteractiveRuntime(InteractiveRuntime):
         )
 
 
+class SceneBoundaryInteractiveRuntime(InteractiveRuntime):
+    def execute_step(
+        self,
+        step: int,
+        *,
+        cancellation: Event,
+        eligible_actor_ids: tuple[str, ...] | None = None,
+    ) -> StepResult:
+        result = super().execute_step(
+            step,
+            cancellation=cancellation,
+            eligible_actor_ids=eligible_actor_ids,
+        )
+        assert result.resolved_turn is not None
+        return result.model_copy(
+            update={
+                "boundary": SimulationBoundary.SCENE,
+                "resolved_turn": result.resolved_turn.model_copy(
+                    update={"boundary": SimulationBoundary.SCENE}
+                ),
+            }
+        )
+
+
 def _commit_player_step_without_npc(app) -> StepResult:
     with TestClient(app) as client:
         opened = client.get(
@@ -378,6 +407,31 @@ def test_recovery_retry_does_not_duplicate_committed_npc_handoff(tmp_path) -> No
     )
     assert receipt is not None
     assert receipt["committed_checkpoint_id"] == records[-1].checkpoint_id
+
+
+def test_next_player_turn_continues_after_npc_scene_boundary(tmp_path) -> None:
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=lambda session_id, request: (
+            SceneBoundaryInteractiveRuntime(session_id, request)
+        ),  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/projects/last-ferry-before/simulation/turn",
+            headers=AUTH,
+            json={"text": "我观察张野。", "command_id": "interactive:first"},
+        )
+        second = client.post(
+            "/projects/last-ferry-before/simulation/turn",
+            headers=AUTH,
+            json={"text": "我继续追问。", "command_id": "interactive:second"},
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["checkpoint_id"] != first.json()["checkpoint_id"]
 
 
 def test_cases_06_and_10_npc_intent_is_resolved_and_can_act_autonomously(

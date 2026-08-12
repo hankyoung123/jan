@@ -67,6 +67,7 @@ class GameMasterActor(StoryActor, Protocol):
         session_id: str,
         step: int,
         content_locale: str,
+        context_text: str,
     ) -> PerceptionFrame: ...
 
     def select_next_actor(
@@ -162,11 +163,7 @@ class ActorStateContext(RuntimeModel):
 
 
 class ResolverContext(RuntimeModel):
-    """One authoritative, bounded input to Game Master resolution.
-
-    Canonical facts and actor knowledge are explicit so the Wiki remains a
-    semantic aid rather than an accidental source of world truth.
-    """
+    """One authoritative, bounded input to Game Master resolution."""
 
     session_id: Identifier
     branch_id: Identifier
@@ -182,9 +179,7 @@ class ResolverContext(RuntimeModel):
     world_variables: dict[str, JsonValue] = Field(default_factory=dict)
     relevant_canonical_facts: tuple[Fact, ...] = ()
     actor_known_facts: tuple[Fact, ...] = ()
-    actor_observed_events: tuple[str, ...] = ()
-    recent_resolved_events: tuple[str, ...] = ()
-    wiki_context: str = Field(default="", max_length=32_768)
+    recent_scene_events: tuple[str, ...] = Field(default=(), max_length=4)
 
     @model_validator(mode="after")
     def existing_character_ids_are_valid(self) -> "ResolverContext":

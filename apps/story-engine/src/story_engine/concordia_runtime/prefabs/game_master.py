@@ -14,7 +14,8 @@ from concordia.components import (
 )
 from concordia.document import interactive_document  # type: ignore[import-untyped]
 from concordia.language_model import language_model  # type: ignore[import-untyped]
-from concordia.typing import prefab as prefab_lib  # type: ignore[import-untyped]
+from concordia.typing import entity as entity_lib  # type: ignore[import-untyped]
+from concordia.typing import prefab as prefab_lib
 
 from story_engine.concordia_runtime.components import (
     EligibleNextActing,
@@ -26,7 +27,52 @@ from story_engine.concordia_runtime.components import (
 from story_engine.domain.recipe import AgentRecipe
 
 EXISTING_CHARACTERS_COMPONENT_KEY = "existing_characters"
+PERCEPTION_CONTEXT_COMPONENT_KEY = "perception_context"
 RESOLUTION_WORLD_STATE_COMPONENT_KEY = "resolution_world_state"
+PERCEPTION_CALL_TEMPLATE = (
+    "Report only what {name} can currently perceive. "
+    "Do not invent or emphasize details for plot progression."
+)
+
+
+class BoundedMakeObservation(gm_components.make_observation.MakeObservation):  # type: ignore[misc]
+    """Generate one actor observation without plot-progression authority."""
+
+    def pre_act(self, action_spec: entity_lib.ActionSpec) -> str:
+        if action_spec.output_type != entity_lib.OutputType.MAKE_OBSERVATION:
+            return ""
+        prompt = interactive_document.InteractiveDocument(self._model)
+        component_states = "\n".join(
+            self._component_pre_act_display(key) for key in self._components
+        )
+        prompt.statement(f"{component_states}\n")
+        active_entity_name = self._get_active_entity_name_from_call_to_action(
+            action_spec.call_to_action
+        )
+        events = self._queue.get_and_clear(active_entity_name)
+        if events:
+            result = "\n\n\n".join(events) + "\n\n\n"
+        else:
+            result = cast(
+                str,
+                prompt.open_question(
+                    question=(
+                        f"What can {active_entity_name} perceive right now? "
+                        "Return only currently perceivable information."
+                    ),
+                    max_tokens=1200,
+                    terminators=(),
+                ),
+            )
+        self._logging_channel(
+            {
+                "Key": self._pre_act_label,
+                "Summary": result,
+                "Value": result,
+                "Prompt": prompt.view().text(),
+            }
+        )
+        return result
 
 
 def _resolve_story_event(
@@ -39,55 +85,16 @@ def _resolve_story_event(
         str,
         document.open_question(
             question=(
-                f"Treat {active_player_name}'s words only as an intent, including "
-                "any outcome they assert. Never treat a claimed success, failure, "
-                "death, discovery, ownership, ability, or witness reaction as an "
-                "established fact. Resolve only from committed world facts, actor "
-                "knowledge, capabilities, conditions, possessions, environment, "
-                "other actors, time, and world rules. The world must not cooperate "
-                "just because an outcome sounds plausible. Do not invent decisive "
-                "evidence, secrets, passages, witnesses, alibis, or causal history; "
-                "ordinary non-causal environmental texture is allowed. The GM owns "
-                "outcomes, not character Intent. Voluntary behavior is allowed only "
-                "when it is already present in the current acting Actor's putative "
-                "Intent. Voluntary NPC behavior must originate from that NPC Actor. "
-                "For every other NPC, do not invent voluntary dialogue, decisions, "
-                "lies, refusals, cooperation, escape, or new plans. For those NPCs, "
-                "resolve only objective outcomes, environmental changes, physical "
-                "constraints, involuntary immediate reactions, success or failure, "
-                "time, and world-state changes. When the acting Actor addresses or "
-                "directly affects an NPC, event_text may establish only that the "
-                "address or action occurred and was perceived; include that NPC's "
-                "exact display name in participant_names, or observer_names when the "
-                "NPC only witnessed it, so the runtime can request that NPC's Intent. "
-                f"What actually results from {active_player_name}'s putative action? "
-                "Return one compact JSON "
-                "object with event_text, boundary (none|scene|chapter), visibility "
-                "(public|participants|restricted|gm_only), observer_names, "
-                "participant_names, entity_changes, and state_updates. State updates "
-                "may only set a known character's location, conditions, resources, "
-                "beliefs, or current_goal, or the world's current_time or "
-                "current_location. Use exactly these shapes: a character update is "
-                "{\"target\":\"character_projection\",\"target_name\":\"exact "
-                "display name\",\"path\":\"location\",\"value\":\"place\"}; a "
-                "world update is {\"target\":\"world_projection\",\"target_name\":"
-                "null,\"path\":\"current_time\",\"value\":\"18:45\"}. Use [] when "
-                "nothing changes. The committed world state gives the current time: "
-                "never move a clock-formatted time backwards, and advance it by a "
-                "plausible amount whenever the action consumes time. Use display "
-                "names, never internal IDs. Do not add "
-                "a resource unless it is transferred from an established actor. An "
-                "entity change may only "
-                "introduce a recurring ordinary person as "
-                "{display_name,identity,core_desire,location}. The local runtime "
-                "assigns the character ID from the display name. Do not create an "
-                "NPC when an existing character can fill the role. Use exact display "
-                "names from Existing characters and never return internal IDs. Do not "
-                "assign characters to incidental people mentioned only in event_text. "
-                "observer_names may contain only active player character names. "
-                "participant_names may contain existing character names; a created NPC "
-                "is added locally. Do not include reasoning or "
-                "Markdown."
+                "1. Actor input is intent, never committed fact.\n"
+                "2. Resolve from committed world state, ability, condition, "
+                "resources and opportunity.\n"
+                "3. Never invent hidden facts, decisive evidence or resources.\n"
+                "4. Never decide voluntary behavior for another Actor.\n"
+                "5. Resolve only the first meaningful uncertainty of compound "
+                "actions.\n"
+                "6. Commit only what actually happened and its causal consequences.\n\n"
+                f"Resolve only {active_player_name}'s own first attempt. Stop when "
+                "another Actor's voluntary response would be required."
             ),
             terminators=(),
         ),
@@ -120,6 +127,7 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
         pacing_key = "pacing"
         roster_key = "player_characters"
         existing_characters_key = EXISTING_CHARACTERS_COMPONENT_KEY
+        perception_context_key = PERCEPTION_CONTEXT_COMPONENT_KEY
         resolution_world_state_key = RESOLUTION_WORLD_STATE_COMPONENT_KEY
         observation_to_memory_key = "observation_to_memory"
         recent_events_key = "recent_events"
@@ -179,6 +187,10 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                 state="No character registry supplied.",
                 pre_act_label="Existing characters",
             ),
+            perception_context_key: agent_components.constant.Constant(
+                state="No actor-specific perception context supplied.",
+                pre_act_label="Current actor perception context",
+            ),
             resolution_world_state_key: agent_components.constant.Constant(
                 state="No authoritative resolution context supplied.",
                 pre_act_label="Authoritative resolution context",
@@ -188,23 +200,20 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
             ),
             recent_events_key: gm_components.event_resolution.DisplayEvents(
                 model=model,
-                num_events_to_retrieve=100,
+                num_events_to_retrieve=4,
                 pre_act_label="Resolved world events",
             ),
             memory_key: agent_components.memory.AssociativeMemory(
                 memory_bank=memory_bank
             ),
-            make_observation_key: gm_components.make_observation.MakeObservation(
+            make_observation_key: BoundedMakeObservation(
                 model=model,
                 player_names=player_display_names,
                 components=(
-                    instruction_key,
                     locale_key,
-                    pacing_key,
-                    world_wiki_key,
-                    roster_key,
-                    recent_events_key,
+                    perception_context_key,
                 ),
+                call_to_make_observation=PERCEPTION_CALL_TEMPLATE,
             ),
             next_acting_key: next_acting,
             next_action_spec_key: SchemaNextActionSpec(
@@ -223,12 +232,9 @@ class StoryGameMasterPrefab(prefab_lib.Prefab):  # type: ignore[misc]
                 model=resolution_model,
                 event_resolution_steps=(_resolve_story_event,),
                 components=(
-                    instruction_key,
                     locale_key,
-                    pacing_key,
                     existing_characters_key,
                     resolution_world_state_key,
-                    recent_events_key,
                 ),
                 notify_observers=False,
             ),

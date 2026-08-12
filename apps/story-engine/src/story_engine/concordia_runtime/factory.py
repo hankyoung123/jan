@@ -21,6 +21,8 @@ from story_engine.concordia_runtime.prefabs import (
 )
 from story_engine.concordia_runtime.prefabs.game_master import (
     EXISTING_CHARACTERS_COMPONENT_KEY,
+    PERCEPTION_CALL_TEMPLATE,
+    PERCEPTION_CONTEXT_COMPONENT_KEY,
     RESOLUTION_WORLD_STATE_COMPONENT_KEY,
 )
 from story_engine.domain.action import (
@@ -132,6 +134,9 @@ class ConcordiaStoryActor:
         if not isinstance(memory_state, dict):
             raise ValueError("actor has no associative memory component")
         components[memory_key] = copy.deepcopy(memory_state)
+        current_authority = current_components.get("system_instruction")
+        if isinstance(current_authority, dict):
+            components["system_instruction"] = copy.deepcopy(current_authority)
         self._entity.set_state(cast(dict[str, Any], merged))
 
     def set_content_locale(self, content_locale: str) -> None:
@@ -202,6 +207,17 @@ class ConcordiaGameMasterActor(ConcordiaStoryActor):
         """Refresh the explicit resolver context on the stable state key."""
         self.set_resolution_world_state(context_text)
 
+    def set_perception_context(self, context_text: str) -> None:
+        state = self.get_state()
+        components = state.get("context_components")
+        if not isinstance(components, dict):
+            raise ValueError("Game Master state has no context components")
+        perception_context = components.get(PERCEPTION_CONTEXT_COMPONENT_KEY)
+        if not isinstance(perception_context, dict):
+            raise ValueError("Game Master state has no perception context component")
+        perception_context["state"] = context_text
+        self.set_state(state)
+
     def make_observation(
         self,
         actor: StoryActor,
@@ -209,15 +225,15 @@ class ConcordiaGameMasterActor(ConcordiaStoryActor):
         session_id: str,
         step: int,
         content_locale: str,
+        context_text: str,
     ) -> PerceptionFrame:
+        self.set_perception_context(context_text)
         observation = self.act(
             ActionSpec(
                 spec_id=f"observation:{session_id}:{step}:{actor.name}",
                 output_type=ActionOutputType.MAKE_OBSERVATION,
-                call_to_action=(
-                    f"What is the current situation faced by {actor.display_name}? "
-                    "What do they now observe? Only include information of which "
-                    "they are aware."
+                call_to_action=PERCEPTION_CALL_TEMPLATE.format(
+                    name=actor.display_name
                 ),
                 content_locale=content_locale,
                 tag="observation",
@@ -444,8 +460,11 @@ def default_character_recipe(
         ),
         content_locale=content_locale,
         system_instruction_text=(
-            "Act only from the current Actor State and private observations. "
-            "Propose intent; never decide world outcomes."
+            "你就是这个角色。\n\n"
+            "只依据你的状态、记忆和当前感知行动。\n"
+            "只决定自己的意图、行动和语言，不决定结果或他人的行为。\n"  # noqa: RUF001
+            "不要使用你没有的知识、能力、物品或资源。\n"
+            "做当前最自然的下一步，不解释规则或剧情。"  # noqa: RUF001
         ),
     )
 

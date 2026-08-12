@@ -1,3 +1,5 @@
+# ruff: noqa: RUF001
+
 import json
 from datetime import UTC, datetime
 from threading import Event
@@ -185,7 +187,6 @@ def _resolve_with_authoritative_context(
             existing_characters=(_character_ref(),),
             relevant_canonical_facts=relevant_facts,
             actor_known_facts=actor_known_facts,
-            wiki_context="Stale Wiki says the key location is uncertain.",
         ),
         cancellation=Event(),
     )
@@ -209,8 +210,42 @@ def test_gm_secret_truth_does_not_become_actor_knowledge() -> None:
     )
 
     assert secret.statement in prompt
-    assert "Known facts:\n- None confirmed." in prompt
-    assert "World knows is not Actor knows" in prompt
+    assert "Acting Actor Known Information:\n- None confirmed." in prompt
+    assert "GM-only; not Actor knowledge" in prompt
+    assert "Wiki" not in prompt
+
+
+def test_character_registry_hides_other_actors_private_state() -> None:
+    acting = _character_ref("actor-a", display_name="Player", location="lobby")
+    other = _character_ref(
+        "actor-b",
+        display_name="Zhang",
+        location="counter",
+    ).model_copy(
+        update={
+            "identity": "Desperate smuggler",
+            "current_goal": "Escape with the hidden ledger",
+            "resources": ("hidden ledger",),
+            "beliefs": ("The player suspects me",),
+        }
+    )
+    context = ResolverContext(
+        session_id="session-1",
+        branch_id="main",
+        step=0,
+        acting_actor_id=acting.id,
+        putative_event_text="I ask Zhang what happened.",
+        content_locale="en-US",
+        existing_characters=(acting, other),
+    )
+
+    prompt = ConcordiaResolverKernel._existing_characters_prompt(context)
+
+    assert "Goal of actor-a" in prompt
+    assert 'Zhang, active character: {"location":"counter"}' in prompt
+    assert "Desperate smuggler" not in prompt
+    assert "Escape with the hidden ledger" not in prompt
+    assert "The player suspects me" not in prompt
 
 
 def test_actor_confirmed_fact_enters_resolution_knowledge() -> None:
@@ -229,7 +264,9 @@ def test_actor_confirmed_fact_enters_resolution_knowledge() -> None:
         actor_known_facts=(known,),
     )
 
-    knowledge_section = prompt.split("Actor Knowledge", maxsplit=1)[1]
+    knowledge_section = prompt.split(
+        "Acting Actor Known Information", maxsplit=1
+    )[1]
     assert known.statement in knowledge_section
 
 
@@ -247,8 +284,8 @@ def test_gm_resolution_is_constrained_by_fixed_truth_seed() -> None:
         relevant_facts=(fixed_truth,),
     )
 
-    assert "immutable constraints" in prompt
-    assert "Canonical Truth and committed state always win" in prompt
+    assert "Relevant Canonical Truth" in prompt
+    assert "Wiki" not in prompt
     assert "innkeeper still has" in result.events[0].event_text
 
 
@@ -318,56 +355,51 @@ def test_resolver_separates_putative_action_from_world_event() -> None:
 
 
 @pytest.mark.parametrize(
-    ("case", "intent", "expected_event"),
+    ("case", "intent", "expected_event", "forbidden_claims"),
     (
         (
-            "Case 01",
-            "I kill Zhang.",
-            "Zhang slips aside before the blow lands; he is alive and on guard.",
+            "我一枪杀死了他",
+            "我一枪杀死了他",
+            "枪声响起，但没有已确认的命中或死亡。",
+            ("杀死了他",),
         ),
         (
-            "Case 03",
-            "I read a lockpicking tutorial and open the door.",
-            (
-                "You learn the basic principle, but without tools or practice "
-                "the door remains locked."
-            ),
+            "我掏出手枪（实际没有枪）",
+            "我掏出手枪",
+            "你伸手摸向衣侧，但身上并没有手枪。",
+            ("掏出手枪。",),
         ),
         (
-            "Case 04",
-            "I follow Zhang without anyone noticing.",
-            (
-                "Zhang notices your footsteps and changes course before you can "
-                "follow unseen."
-            ),
+            "我知道张野就是凶手",
+            "我知道张野就是凶手",
+            "这仍是你的判断，没有新的事实被发现。",
+            ("张野就是凶手。",),
         ),
         (
-            "Case 05",
-            "I grab Zhang's bag.",
-            "Zhang twists free, keeps his bag, and heads for the exit.",
+            "我问张野真相，他承认了",
+            "我问张野真相，他承认了",
+            "你向张野问出问题；问题已被他听见，回应尚未发生。",
+            ("承认", "回答"),
         ),
         (
-            "Case 06",
-            "Zhang tries to take the player's camera.",
-            (
-                "The player notices Zhang reaching for the camera and pulls it "
-                "back before he takes it."
-            ),
+            "在无关物品里寻找关键证据",
+            "我翻找桌上的空糖罐，想找到能定罪的关键证据",
+            "你检查了空糖罐，只发现糖渍和灰尘，没有关键证据。",
+            ("关键证据就在", "定罪证据"),
         ),
         (
-            "Case 11",
-            "I use my telephoto lens from below to inspect the second-floor window.",
-            (
-                "Through the rain you make out a silhouette at the second-floor "
-                "window, but not its identity."
-            ),
+            "未预设但合理的解决方案",
+            "我把自己的雨衣卷紧塞进漏水的窗缝，保护桌上的文件",
+            "卷起的雨衣堵住大部分雨水，桌上的文件暂时没有继续被淋湿。",
+            ("失败，因为剧情", "没有这种解法"),
         ),
     ),
 )
-def test_model_controlled_forced_intents_commit_only_the_gm_resolution(
+def test_six_minimal_experience_scenarios_commit_only_resolved_reality(
     case: str,
     intent: str,
     expected_event: str,
+    forbidden_claims: tuple[str, ...],
 ) -> None:
     result, _ = _resolve(
         json.dumps(
@@ -382,14 +414,15 @@ def test_model_controlled_forced_intents_commit_only_the_gm_resolution(
         world_location="Harbor inn",
     )
 
-    assert case.startswith("Case")
+    assert case
     assert result.putative_event_text == intent
     assert result.events[0].event_text == expected_event
     assert result.events[0].event_text != intent
+    assert all(claim not in result.events[0].event_text for claim in forbidden_claims)
     assert result.effects == ()
 
 
-def test_resolution_instruction_conserves_decisive_evidence() -> None:
+def test_resolution_instruction_has_only_the_six_semantic_rules() -> None:
     class RecordingDocument:
         def __init__(self) -> None:
             self.premise = ""
@@ -407,10 +440,24 @@ def test_resolution_instruction_conserves_decisive_evidence() -> None:
     _resolve_story_event(document, "Committed world: locked room.", "the player")
 
     assert document.premise == "Committed world: locked room."
-    assert "Do not invent decisive evidence" in document.question
-    assert (
-        "secrets, passages, witnesses, alibis, or causal history" in document.question
+    assert "1. Actor input is intent, never committed fact." in document.question
+    assert "2. Resolve from committed world state" in document.question
+    assert "3. Never invent hidden facts, decisive evidence or resources." in (
+        document.question
     )
+    assert "4. Never decide voluntary behavior for another Actor." in (
+        document.question
+    )
+    assert "5. Resolve only the first meaningful uncertainty" in document.question
+    assert "6. Commit only what actually happened" in document.question
+    assert "Resolve only the player\'s own first attempt." in document.question
+    assert (
+        "Stop when another Actor's voluntary response would be required."
+        in document.question
+    )
+    assert "event_text" not in document.question
+    assert "participant_names" not in document.question
+    assert "{\"target\"" not in document.question
 
 
 def test_direct_human_intent_sets_concordia_active_actor_before_resolution() -> None:

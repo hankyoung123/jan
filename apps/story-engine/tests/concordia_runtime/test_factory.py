@@ -373,7 +373,9 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
     assert '"conditions":["Injured right hand"]' in resolution_prompt
     assert '"resources":["Camera","Press card"]' in resolution_prompt
     assert '"beliefs":["The witness is withholding evidence."]' in resolution_prompt
-    assert "Use these exact display names" in resolution_prompt
+    assert "Use these exact display names" not in resolution_prompt
+    assert "participant_names" not in resolution_prompt
+    assert "Current Intent:\nI ask the witness a question." in resolution_prompt
 
 
 def test_actor_prompt_excludes_canonical_facts_the_actor_does_not_know(
@@ -417,3 +419,120 @@ def test_actor_prompt_excludes_canonical_facts_the_actor_does_not_know(
     assert "你收到一条署名林澈、约你到旅馆的消息" in prompt
     assert "张野借用林澈遗失的旧手机发出了那条消息" not in prompt
     assert "港口事故并非林澈造成" not in prompt
+
+
+def test_default_character_recipe_has_one_exact_intent_authority() -> None:
+    assert default_character_recipe().system_instruction_text == (
+        "你就是这个角色。\n\n"
+        "只依据你的状态、记忆和当前感知行动。\n"
+        "只决定自己的意图、行动和语言，不决定结果或他人的行为。\n"  # noqa: RUF001
+        "不要使用你没有的知识、能力、物品或资源。\n"
+        "做当前最自然的下一步，不解释规则或剧情。"  # noqa: RUF001
+    )
+
+
+def test_restored_character_uses_current_recipe_authority() -> None:
+    recipe = default_character_recipe(
+        model_profile_id="actor",
+        content_locale="zh-CN",
+    )
+    first_model = ReplayLanguageModel()
+    first = ConcordiaActorFactory({"actor": first_model}).build_actor(
+        recipe,
+        actor_params={
+            "name": "actor-a",
+            "identity": "A careful investigator.",
+            "project_root": ".",
+            "branch_id": "main",
+        },
+        memory=ConcordiaMemoryBank(
+            owner_id="actor-a",
+            scope=MemoryScope.CHARACTER,
+        ),
+    )
+    legacy_state = first.get_state()
+    legacy_state["context_components"]["system_instruction"]["state"] = (
+        "LEGACY_CHARACTER_AUTHORITY"
+    )
+    restored_model = ReplayLanguageModel(text_responses=("我继续观察。",))
+    restored = ConcordiaActorFactory({"actor": restored_model}).build_actor(
+        recipe,
+        actor_params={
+            "name": "actor-a",
+            "identity": "A careful investigator.",
+            "project_root": ".",
+            "branch_id": "main",
+        },
+        memory=ConcordiaMemoryBank(
+            owner_id="actor-a",
+            scope=MemoryScope.CHARACTER,
+        ),
+        initial_state=legacy_state,
+    )
+
+    restored.act(
+        ActionSpec(
+            spec_id="action:actor-a:0",
+            output_type=ActionOutputType.FREE,
+            call_to_action="你接下来做什么?",
+            content_locale="zh-CN",
+        )
+    )
+
+    prompt = restored_model.prompts[-1]
+    assert recipe.system_instruction_text in prompt
+    assert "LEGACY_CHARACTER_AUTHORITY" not in prompt
+
+
+def test_perception_call_receives_only_actor_specific_context() -> None:
+    actor_model = ReplayLanguageModel()
+    gm_model = ReplayLanguageModel(text_responses=("The rain hits the window.",))
+    factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
+    actor = factory.build_actor(
+        default_character_recipe(model_profile_id="actor", content_locale="en-US"),
+        actor_params={
+            "name": "actor-a",
+            "identity": "A careful investigator.",
+            "project_root": ".",
+            "branch_id": "main",
+        },
+        memory=ConcordiaMemoryBank(
+            owner_id="actor-a",
+            scope=MemoryScope.CHARACTER,
+        ),
+    )
+    gm = factory.build_game_master(
+        default_game_master_recipe(
+            model_profile_id="gm",
+            content_locale="en-US",
+        ),
+        gm_params={
+            "name": "gm",
+            "scene_goal": "PLOT_GOAL_MUST_NOT_REACH_PERCEPTION",
+            "pacing": "PACING_MUST_NOT_REACH_PERCEPTION",
+            "project_root": ".",
+            "branch_id": "main",
+        },
+        actors=(actor,),
+        shared_memory=ConcordiaMemoryBank(
+            owner_id="gm",
+            scope=MemoryScope.GAME_MASTER,
+        ),
+    )
+
+    frame = gm.make_observation(
+        actor,
+        session_id="session-1",
+        step=0,
+        content_locale="en-US",
+        context_text="PERCEPTION_CONTEXT_ONLY",
+    )
+
+    assert frame.observation_text == "The rain hits the window."
+    prompt = gm_model.prompts[-1]
+    assert "PERCEPTION_CONTEXT_ONLY" in prompt
+    assert "PLOT_GOAL_MUST_NOT_REACH_PERCEPTION" not in prompt
+    assert "PACING_MUST_NOT_REACH_PERCEPTION" not in prompt
+    assert "World Wiki" not in prompt
+    assert "Resolved world events" not in prompt
+    assert "Maintain shared world truth" not in prompt

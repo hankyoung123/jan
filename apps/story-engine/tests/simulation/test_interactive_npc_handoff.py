@@ -537,9 +537,8 @@ def test_player_resolution_forbids_generating_npc_voluntary_dialogue() -> None:
 
     question = _resolve_story_event(document, "Committed world.", "玩家")
 
-    assert "Voluntary NPC behavior must originate from that NPC Actor." in question
-    assert "do not invent voluntary dialogue, decisions" in question
-    assert "lies, refusals, cooperation, escape, or new plans" in question
+    assert "Never decide voluntary behavior for another Actor." in question
+    assert "participant_names" not in question
 
 
 def test_npc_output_returns_as_intent_for_gm_resolution() -> None:
@@ -651,9 +650,9 @@ def test_real_concordia_gateway_hands_player_intent_to_eligible_npc(
     assert gateway.usage.totals().requests == len(transport.calls)
     assert transport.resolution_count == 2
     assert len(transport.observation_prompts) == 1
-    assert "faced by 林澈" in transport.observation_prompts[0]
-    assert "faced by 你" not in transport.observation_prompts[0]
-    assert "faced by 张野" not in transport.observation_prompts[0]
+    assert "What can 林澈 perceive right now?" in transport.observation_prompts[0]
+    assert "What can 你 perceive right now?" not in transport.observation_prompts[0]
+    assert "What can 张野 perceive right now?" not in transport.observation_prompts[0]
     actor_outputs = [
         call
         for call in transport.calls
