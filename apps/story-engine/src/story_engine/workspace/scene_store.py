@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from story_engine.manuscript.models import Scene, SceneDraft
@@ -10,6 +11,7 @@ from story_engine.workspace.documents import (
     load_json_envelope,
     render_scene,
 )
+from story_engine.workspace.transaction import AtomicBatch
 
 _BRANCH_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,127}$")
 
@@ -70,9 +72,24 @@ class SceneDraftStore:
         self.branch_id = branch_id
         self.directory = _branch_directory(root, branch_id) / "drafts"
 
-    def save(self, draft: SceneDraft, *, overwrite: bool = True) -> Path:
+    def save(
+        self,
+        draft: SceneDraft,
+        *,
+        overwrite: bool = True,
+        precondition: Callable[[], None] | None = None,
+    ) -> Path:
         path, content = self.prepare(draft)
-        atomic_write_text(path, content, overwrite=overwrite)
+        if precondition is None:
+            atomic_write_text(path, content, overwrite=overwrite)
+            return path
+        batch = AtomicBatch(self.root)
+        batch.add(
+            path.relative_to(self.root).as_posix(),
+            content,
+            overwrite=overwrite,
+        )
+        batch.commit(precondition=precondition)
         return path
 
     def prepare(self, draft: SceneDraft) -> tuple[Path, str]:

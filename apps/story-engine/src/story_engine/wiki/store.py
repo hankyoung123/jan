@@ -406,13 +406,17 @@ class WikiStore:
             + f"\n- step {step}: initialized active character Wiki `{subject_id}`\n",
         )
         version_root = self.wiki_root / ".versions" / self.branch_id / checkpoint_id
-        for path, page in candidate.items():
-            version_path = version_root / path
-            batch.add(
-                self._relative_to_project(version_path),
-                _render(page.model_copy(update={"checkpoint_id": checkpoint_id})),
-                overwrite=version_path.exists(),
-            )
+        version_exists = (version_root / "index.md").is_file()
+        if not version_exists:
+            for path, page in candidate.items():
+                version_path = version_root / path
+                batch.add(
+                    self._relative_to_project(version_path),
+                    _render(
+                        page.model_copy(update={"checkpoint_id": checkpoint_id})
+                    ),
+                    overwrite=False,
+                )
         branch_index = self._render_index(
             list(candidate.values()),
             checkpoint_id=checkpoint_id,
@@ -425,11 +429,12 @@ class WikiStore:
             self._relative_to_project(self.branch_root / "index.md"),
             branch_index,
         )
-        batch.add(
-            self._relative_to_project(version_root / "index.md"),
-            branch_index,
-            overwrite=(version_root / "index.md").exists(),
-        )
+        if not version_exists:
+            batch.add(
+                self._relative_to_project(version_root / "index.md"),
+                branch_index,
+                overwrite=False,
+            )
         batch.commit()
         return tuple(self.page_path(path) for path in created)
 
@@ -558,6 +563,25 @@ class WikiStore:
                 for page in self.list_pages()
             ),
         )
+
+    def is_reachable_projection(self) -> bool:
+        """Return whether the working Wiki is safe for current runtime context."""
+
+        view = self.view()
+        if view.stale or view.degraded:
+            return False
+        # The immutable Project Seed is the implicit root of every branch.
+        if view.checkpoint_id is None:
+            return True
+        from story_engine.persistence.branch_store import BranchStore
+
+        try:
+            return BranchStore(self.root).checkpoint_is_reachable(
+                self.branch_id,
+                view.checkpoint_id,
+            )
+        except FileNotFoundError:
+            return False
 
     def _render_index(
         self,
@@ -771,23 +795,26 @@ class WikiStore:
             existing_log.rstrip() + "\n" + entries + "\n",
         )
         version_root = self.wiki_root / ".versions" / self.branch_id / checkpoint_id
-        for relative, page in candidate.items():
-            version_path = version_root / relative
+        if not (version_root / "index.md").is_file():
+            for relative, page in candidate.items():
+                version_path = version_root / relative
+                batch.add(
+                    self._relative_to_project(version_path),
+                    _render(
+                        page.model_copy(update={"checkpoint_id": checkpoint_id})
+                    ),
+                    overwrite=False,
+                )
             batch.add(
-                self._relative_to_project(version_path),
-                _render(page.model_copy(update={"checkpoint_id": checkpoint_id})),
-                overwrite=version_path.exists(),
+                self._relative_to_project(version_root / "index.md"),
+                self._render_index(
+                    list(candidate.values()),
+                    checkpoint_id=checkpoint_id,
+                    step=step,
+                    stale=False,
+                ),
+                overwrite=False,
             )
-        batch.add(
-            self._relative_to_project(version_root / "index.md"),
-            self._render_index(
-                list(candidate.values()),
-                checkpoint_id=checkpoint_id,
-                step=step,
-                stale=False,
-            ),
-            overwrite=(version_root / "index.md").exists(),
-        )
         batch.commit(precondition=precondition)
         return tuple(self.page_path(path) for path in changed)
 

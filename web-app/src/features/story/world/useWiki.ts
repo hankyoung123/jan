@@ -74,7 +74,6 @@ export function useWiki(projectId: string | undefined, branchId: string) {
         `/projects/${projectId}/branches/${branchId}/wiki/rebuild`,
         {
           method: 'POST',
-          body: JSON.stringify({ checkpoint_id: view.checkpoint_id ?? null }),
         }
       )
       setView(rebuilt)
@@ -127,4 +126,3 @@ export function useWiki(projectId: string | undefined, branchId: string) {
     addInstruction,
   }
 }
-

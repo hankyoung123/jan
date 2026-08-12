@@ -47,6 +47,11 @@ def test_openapi_contains_core_paths_and_bearer_security() -> None:
     assert schema["paths"]["/submissions/finalize"]["post"]["security"] == [
         {"SessionToken": []}
     ]
+    rebuild = schema["paths"][
+        "/projects/{project_id}/branches/{branch_id}/wiki/rebuild"
+    ]["post"]
+    assert "requestBody" not in rebuild
+    assert "WikiRebuildRequest" not in schema["components"]["schemas"]
 
 
 def test_openapi_never_contains_runtime_session_token() -> None:

@@ -24,7 +24,7 @@ from story_engine.wiki.lint import WikiLinter
 from story_engine.wiki.store import WikiStore
 
 
-def _snapshot(tmp_path: Path) -> TurnSessionSnapshot:
+def _snapshot(tmp_path: Path, *, step: int = 5) -> TurnSessionSnapshot:
     now = datetime.now(UTC)
     request = TurnSessionRequest(
         project_id="fog-harbor",
@@ -41,10 +41,10 @@ def _snapshot(tmp_path: Path) -> TurnSessionSnapshot:
         status=TurnSessionStatus.PAUSED,
         content_locale=request.content_locale,
         request=request,
-        current_step=5,
+        current_step=step,
         actor_states={"chen-mo": {}},
         game_master_states={"gm": {}},
-        raw_log_offset=5,
+        raw_log_offset=step,
         started_at=now,
         updated_at=now,
         state_hash="0" * 64,
@@ -184,39 +184,57 @@ def test_lint_rejects_unreachable_physical_history_sources(
     assert {issue.code for issue in source_issues} == {"source-not-found"}
 
 
-def test_lint_checks_wiki_head_consistency(tmp_path: Path) -> None:
+def test_lint_uses_reachable_projection_validity(tmp_path: Path) -> None:
     root = _root(tmp_path)
-    snapshot = _snapshot(tmp_path)
-    checkpoint_id, _ = CheckpointStore(root).save(snapshot)
-    BranchStore(root).ensure(
+    checkpoints = CheckpointStore(root)
+    seed_checkpoint, _ = checkpoints.save(_snapshot(tmp_path, step=0))
+    wiki_checkpoint, _ = checkpoints.save(
+        _snapshot(tmp_path, step=3),
+        parent_checkpoint_id=seed_checkpoint,
+    )
+    head_checkpoint, _ = checkpoints.save(
+        _snapshot(tmp_path, step=5),
+        parent_checkpoint_id=wiki_checkpoint,
+    )
+    branches = BranchStore(root)
+    branches.ensure(
         branch_id="main",
         project_id="fog-harbor",
         content_locale="zh-CN",
     )
-    BranchStore(root).advance(
+    branches.advance(
         "main",
-        checkpoint_id=checkpoint_id,
+        checkpoint_id=head_checkpoint,
         step=5,
         expected_head_checkpoint_id=None,
     )
     store = WikiStore(root, "main")
 
-    behind = WikiLinter(root, "main").run()
-    assert any(issue.code == "wiki-behind-branch" for issue in behind.issues)
-    assert any(issue.code == "stale-flag-mismatch" for issue in behind.issues)
-
-    store.set_head(checkpoint_id, 5, stale=True)
-    stale_mismatch = WikiLinter(root, "main").run()
-    assert any(
-        issue.code == "stale-flag-mismatch"
-        for issue in stale_mismatch.issues
+    seed = WikiLinter(root, "main").run()
+    assert not any(
+        issue.code == "wiki-projection-unavailable" for issue in seed.issues
     )
 
-    store.set_head(checkpoint_id, 5, stale=False)
-    clean = WikiLinter(root, "main").run()
+    store.set_head(wiki_checkpoint, 3, stale=False)
+    ancestor = WikiLinter(root, "main").run()
     assert not any(
-        issue.code in {"wiki-behind-branch", "stale-flag-mismatch"}
-        for issue in clean.issues
+        issue.code == "wiki-projection-unavailable" for issue in ancestor.issues
+    )
+
+    store.set_head(wiki_checkpoint, 3, stale=True)
+    stale = WikiLinter(root, "main").run()
+    assert any(
+        issue.code == "wiki-projection-unavailable" for issue in stale.issues
+    )
+
+    abandoned_checkpoint, _ = checkpoints.save(
+        _snapshot(tmp_path, step=4),
+        parent_checkpoint_id=seed_checkpoint,
+    )
+    store.set_head(abandoned_checkpoint, 4, stale=False)
+    abandoned = WikiLinter(root, "main").run()
+    assert any(
+        issue.code == "wiki-projection-unavailable" for issue in abandoned.issues
     )
 
 

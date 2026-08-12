@@ -53,24 +53,9 @@ class WikiContextBuilder:
     def _assert_current_head(self) -> None:
         if not self.require_current_head:
             return
-        from story_engine.persistence.branch_store import BranchStore
-
-        view = self.store.view()
-        try:
-            branch = BranchStore(self.root).load(self.branch_id)
-        except FileNotFoundError as error:
-            if not view.stale and not view.degraded and view.checkpoint_id is None:
-                return
+        if not self.store.is_reachable_projection():
             raise WikiContextUnavailableError(
-                "working Wiki has no current branch authority"
-            ) from error
-        if (
-            view.stale
-            or view.degraded
-            or view.checkpoint_id != branch.head_checkpoint_id
-        ):
-            raise WikiContextUnavailableError(
-                "working Wiki is stale, degraded, or does not match branch head"
+                "working Wiki is stale, degraded, or outside branch lineage"
             )
 
     def _pages(

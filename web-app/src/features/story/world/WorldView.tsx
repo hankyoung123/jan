@@ -64,7 +64,7 @@ export function WorldView() {
               onBlur={(event) => setBranchId(event.target.value)}
             />
             <Button
-              disabled={wiki.working || !wiki.view?.checkpoint_id}
+              disabled={wiki.working}
               onClick={() => void wiki.rebuild()}
               size="sm"
               variant="outline"

@@ -3038,11 +3038,6 @@ export interface components {
             /** Path */
             path: string;
         };
-        /** WikiRebuildRequest */
-        WikiRebuildRequest: {
-            /** Checkpoint Id */
-            checkpoint_id?: string | null;
-        };
         /** WorkspaceClosedState */
         WorkspaceClosedState: {
             /** Project Id */
@@ -4053,11 +4048,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WikiRebuildRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

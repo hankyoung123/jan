@@ -21,7 +21,18 @@ from story_engine.domain.action import ActionOutputType, ActionSpec
 from story_engine.domain.memory import MemoryRecord, MemoryRecordType, MemoryScope
 from story_engine.domain.models import Character, WorldState
 from story_engine.domain.recipe import PerceptionFrame
+from story_engine.domain.simulation import (
+    ControlMode,
+    ControlPolicy,
+    TurnSessionRequest,
+    TurnSessionSnapshot,
+    TurnSessionStatus,
+)
+from story_engine.domain.wiki import WikiPatch, WikiPatchOperation
+from story_engine.persistence.branch_store import BranchStore
+from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.simulation.runtime import StorySimulationRuntime
+from story_engine.simulation.session import calculate_snapshot_state_hash
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
 from story_engine.wiki.store import WikiStore
 
@@ -93,6 +104,104 @@ def _act(actor: ConcordiaStoryActor, step: int) -> str:
             content_locale="zh-CN",
         )
     )
+
+
+def _advance_test_checkpoint(
+    root: Path,
+    *,
+    step: int,
+    parent_checkpoint_id: str | None,
+) -> str:
+    now = datetime.now(UTC)
+    request = TurnSessionRequest(
+        project_id="fog-harbor",
+        branch_id="main",
+        premise_text="The lighthouse goes dark.",
+        actor_ids=("chen-mo",),
+        content_locale="zh-CN",
+        control=ControlPolicy(mode=ControlMode.STEP),
+    )
+    provisional = TurnSessionSnapshot(
+        session_id="session:wiki-lineage",
+        project_id=request.project_id,
+        branch_id=request.branch_id,
+        status=TurnSessionStatus.PAUSED,
+        content_locale=request.content_locale,
+        request=request,
+        current_step=step,
+        actor_states={"chen-mo": {}},
+        game_master_states={"gm": {}},
+        raw_log_offset=step,
+        started_at=now,
+        updated_at=now,
+        state_hash="0" * 64,
+    )
+    snapshot = provisional.model_copy(
+        update={"state_hash": calculate_snapshot_state_hash(provisional)}
+    )
+    checkpoint_id, _ = CheckpointStore(root).save(
+        snapshot,
+        parent_checkpoint_id=parent_checkpoint_id,
+    )
+    branches = BranchStore(root)
+    branches.ensure(
+        branch_id="main",
+        project_id="fog-harbor",
+        content_locale="zh-CN",
+    )
+    branches.advance(
+        "main",
+        checkpoint_id=checkpoint_id,
+        step=step,
+        expected_head_checkpoint_id=parent_checkpoint_id,
+    )
+    return checkpoint_id
+
+
+def _wiki_ancestor_fixture(tmp_path: Path) -> tuple[Path, str, str]:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    root = tmp_path / "fog-harbor"
+    before_wiki = _advance_test_checkpoint(
+        root,
+        step=0,
+        parent_checkpoint_id=None,
+    )
+    wiki_checkpoint = _advance_test_checkpoint(
+        root,
+        step=20,
+        parent_checkpoint_id=before_wiki,
+    )
+    store = WikiStore(root, "main")
+    character = store.load_page("characters/chen-mo/self.md")
+    world = store.load_page("world/state.md")
+    store.apply_patches(
+        (
+            WikiPatch(
+                path=character.path,
+                operation=WikiPatchOperation.APPEND_HISTORY,
+                content="## Reachable ancestor\n\nREACHABLE_CHARACTER_WIKI",
+                source_ids=("project:fog-harbor",),
+                expected_revision=character.revision,
+                expected_content_hash=character.content_hash,
+            ),
+            WikiPatch(
+                path=world.path,
+                operation=WikiPatchOperation.APPEND_HISTORY,
+                content="## Reachable ancestor\n\nREACHABLE_WORLD_WIKI",
+                source_ids=("project:fog-harbor",),
+                expected_revision=world.revision,
+                expected_content_hash=world.content_hash,
+            ),
+        ),
+        checkpoint_id=wiki_checkpoint,
+        step=20,
+    )
+    _advance_test_checkpoint(
+        root,
+        step=22,
+        parent_checkpoint_id=wiki_checkpoint,
+    )
+    return root, before_wiki, wiki_checkpoint
 
 
 def _section(prompt: str, start: str, end: str) -> str:
@@ -469,22 +578,10 @@ def test_real_runtime_routes_metadata_and_recalls_it_for_an_npc(
     assert len(actor_model.prompts[-1]) < 60_000
 
 
-def test_stale_wiki_is_excluded_from_actor_and_game_master_context(
+def test_reachable_ancestor_wiki_remains_in_actor_and_game_master_context(
     tmp_path: Path,
 ) -> None:
-    SubmissionService(tmp_path).finalize(fog_harbor_submission())
-    root = tmp_path / "fog-harbor"
-    store = WikiStore(root, "main")
-    marker = "ABANDONED_WIKI_SECRET"
-    for path in ("characters/chen-mo/self.md", "world/state.md"):
-        page = store.load_page(path)
-        store.save_page(
-            path,
-            f"{page.content}\n\n{marker}",
-            expected_revision=page.revision,
-        )
-    store.mark_stale("checkpoint-" + "a" * 64, 9)
-
+    root, _before_wiki, _wiki_checkpoint = _wiki_ancestor_fixture(tmp_path)
     actor, model, _memory = _build_actor(
         tmp_path,
         "chen-mo",
@@ -498,8 +595,30 @@ def test_stale_wiki_is_excluded_from_actor_and_game_master_context(
         branch_id="main",
     )._make_pre_act_value()
 
-    assert marker not in actor_wiki
-    assert marker not in gm_wiki
+    assert "REACHABLE_CHARACTER_WIKI" in actor_wiki
+    assert "REACHABLE_WORLD_WIKI" in gm_wiki
+
+
+def test_rollback_before_wiki_checkpoint_excludes_it_from_runtime_context(
+    tmp_path: Path,
+) -> None:
+    root, before_wiki, _wiki_checkpoint = _wiki_ancestor_fixture(tmp_path)
+    BranchStore(root).rollback("main", before_wiki)
+    actor, model, _memory = _build_actor(
+        tmp_path,
+        "chen-mo",
+        project_root=root,
+    )
+    _observe(actor, 1, "Check the lighthouse mechanism.")
+    _act(actor, 1)
+    actor_wiki = _section(model.prompts[-1], "Wiki:\n", "Recent Memory:")
+    gm_wiki = WorldWikiContext(
+        project_root=str(root),
+        branch_id="main",
+    )._make_pre_act_value()
+
+    assert "REACHABLE_CHARACTER_WIKI" not in actor_wiki
+    assert "REACHABLE_WORLD_WIKI" not in gm_wiki
     assert "Wiki unavailable / stale." in actor_wiki
     assert gm_wiki == "Wiki unavailable / stale."
 

@@ -22,10 +22,6 @@ from story_engine.wiki.lint import WikiLinter
 from story_engine.wiki.store import WikiRevisionConflictError, WikiStore
 
 
-class WikiRebuildRequest(RuntimeModel):
-    checkpoint_id: Identifier | None = None
-
-
 class WikiPageUpdateRequest(RuntimeModel):
     path: str = Field(min_length=1, max_length=512)
     content: str = Field(max_length=65_536)
@@ -109,12 +105,11 @@ def create_wiki_router(settings: EngineSettings, gateway: ModelGateway) -> APIRo
     async def rebuild_wiki(
         project_id: str,
         branch_id: str,
-        request: WikiRebuildRequest,
     ) -> WikiBranchView:
         root = root_for(project_id)
         try:
             branch = BranchStore(root).load(branch_id)
-            selected = request.checkpoint_id or branch.head_checkpoint_id
+            selected = branch.head_checkpoint_id
             if selected is None:
                 raise ValueError("branch has no checkpoint")
             snapshot = CheckpointStore(root).load(selected)
@@ -129,13 +124,11 @@ def create_wiki_router(settings: EngineSettings, gateway: ModelGateway) -> APIRo
                     ),
                 }
             )
-            store = WikiStore(root, branch_id)
-            store.mark_stale(selected, snapshot.current_step)
             await WikiBoundaryProcessor(
                 root,
                 consolidator=GatewayWikiConsolidator(gateway),
             ).rebuild(branch_snapshot)
-            return store.view()
+            return WikiStore(root, branch_id).view()
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="Branch not found") from error
         except (OSError, ValueError) as error:

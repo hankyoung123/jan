@@ -19,11 +19,13 @@ from story_engine.domain.simulation import (
     TurnSessionRequest,
     TurnSessionStatus,
 )
+from story_engine.domain.wiki import WikiPatch, WikiPatchOperation
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.persistence.projection_store import ProjectionTaskStore
 from story_engine.simulation.projections import ProjectionTaskService
 from story_engine.submission.service import SubmissionService, fog_harbor_submission
+from story_engine.wiki.store import WikiStore
 
 AUTH = {"Authorization": "Bearer projection-token"}
 
@@ -75,6 +77,46 @@ class BlockingWikiProcessor:
         self.entered.set()
         if not self.release.wait(timeout=2):
             raise RuntimeError("test projection was not released")
+
+    async def rebuild(self, *_args, **_kwargs) -> None:
+        await self.process()
+
+
+class HistoricalOverwriteDetectingProcessor:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.processed_checkpoint_id: str | None = None
+        self.rebuilt_checkpoint_id: str | None = None
+
+    async def process(self, snapshot, **_kwargs) -> None:
+        self.processed_checkpoint_id = snapshot.checkpoint_id
+        store = WikiStore(self.root, snapshot.branch_id)
+        page = store.load_page("world/state.md")
+        store.apply_patches(
+            (
+                WikiPatch(
+                    path=page.path,
+                    operation=WikiPatchOperation.APPEND_HISTORY,
+                    content="## Invalid retry\n\nFuture state rewrote the past.",
+                    source_ids=("project:fog-harbor",),
+                    expected_revision=page.revision,
+                    expected_content_hash=page.content_hash,
+                ),
+            ),
+            checkpoint_id=snapshot.checkpoint_id,
+            step=snapshot.current_step,
+        )
+
+    async def rebuild(self, snapshot) -> None:
+        self.rebuilt_checkpoint_id = snapshot.checkpoint_id
+
+
+def _version_bytes(store: WikiStore, checkpoint_id: str) -> dict[str, bytes]:
+    root = store.version_root(checkpoint_id)
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*.md"))
+    }
 
 
 def _wait_for_status(
@@ -217,6 +259,103 @@ def test_projection_rebuild_ignores_a_completed_workers_stale_queue_marker(
 
     assert replay[0].status == ProjectionTaskStatus.PENDING
     assert store.load(task.task_id).status == ProjectionTaskStatus.PENDING
+
+
+def test_retrying_old_projection_preserves_historical_wiki_versions(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    root = tmp_path / "fog-harbor"
+    app = create_app(
+        EngineSettings(session_token="projection-token", projects_root=tmp_path),
+        simulation_runtime_factory=SnapshotRuntime,  # type: ignore[arg-type]
+    )
+    with TestClient(app) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 2},
+            },
+        ).json()
+        store = WikiStore(root, "main")
+        first_page = store.load_page("world/state.md")
+        store.apply_patches(
+            (
+                WikiPatch(
+                    path=first_page.path,
+                    operation=WikiPatchOperation.APPEND_HISTORY,
+                    content="## Wiki 40\n\nFirst immutable projection.",
+                    source_ids=("project:fog-harbor",),
+                    expected_revision=first_page.revision,
+                    expected_content_hash=first_page.content_hash,
+                ),
+            ),
+            checkpoint_id=started["checkpoint_id"],
+            step=40,
+        )
+        stepped = client.post(
+            f"/projects/fog-harbor/simulations/{started['session_id']}/step",
+            headers=AUTH,
+            json={
+                "command_id": f"command:{uuid.uuid4().hex}",
+                "expected_state_hash": started["state_hash"],
+            },
+        ).json()
+
+    second_page = store.load_page("world/state.md")
+    store.apply_patches(
+        (
+            WikiPatch(
+                path=second_page.path,
+                operation=WikiPatchOperation.APPEND_HISTORY,
+                content="## Wiki 80\n\nFuture projection remains separate.",
+                source_ids=("project:fog-harbor",),
+                expected_revision=second_page.revision,
+                expected_content_hash=second_page.content_hash,
+            ),
+        ),
+        checkpoint_id=stepped["checkpoint_id"],
+        step=80,
+    )
+    before_first = _version_bytes(store, started["checkpoint_id"])
+    before_second = _version_bytes(store, stepped["checkpoint_id"])
+    first_snapshot = CheckpointStore(root).load(started["checkpoint_id"])
+    task = ProjectionTask(
+        task_id="projection:wiki:historical-immutability",
+        project_id=first_snapshot.project_id,
+        session_id=first_snapshot.session_id,
+        branch_id=first_snapshot.branch_id,
+        checkpoint_id=started["checkpoint_id"],
+        step=40,
+        boundary=SimulationBoundary.SCENE,
+        kind=ProjectionKind.WIKI,
+        status=ProjectionTaskStatus.FAILED,
+        error_text="retry this old task",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+    )
+    tasks = ProjectionTaskStore(root)
+    tasks.create(task)
+    processor = HistoricalOverwriteDetectingProcessor(root)
+    service = ProjectionTaskService(
+        root,
+        wiki_processor=processor,  # type: ignore[arg-type]
+        manuscript_agent=object(),  # type: ignore[arg-type]
+    )
+
+    service.retry(session_id=task.session_id, task_id=task.task_id)
+    _wait_for_status(tasks, task.task_id, ProjectionTaskStatus.SUCCEEDED)
+    service.shutdown()
+
+    assert processor.processed_checkpoint_id is None
+    assert processor.rebuilt_checkpoint_id == stepped["checkpoint_id"]
+    assert _version_bytes(store, started["checkpoint_id"]) == before_first
+    assert _version_bytes(store, stepped["checkpoint_id"]) == before_second
 
 
 def test_projection_skips_checkpoint_abandoned_before_execution(

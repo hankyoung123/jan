@@ -5922,25 +5922,6 @@
         "title": "WikiPageUpdateRequest",
         "type": "object"
       },
-      "WikiRebuildRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "checkpoint_id": {
-            "anyOf": [
-              {
-                "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Checkpoint Id"
-          }
-        },
-        "title": "WikiRebuildRequest",
-        "type": "object"
-      },
       "WorkspaceClosedState": {
         "additionalProperties": false,
         "properties": {
@@ -7763,16 +7744,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WikiRebuildRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "content": {

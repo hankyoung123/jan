@@ -24,6 +24,7 @@ from story_engine.manuscript.models import (
 )
 from story_engine.manuscript.service import ManuscriptAgent, ManuscriptService
 from story_engine.persistence.branch_store import (
+    BranchConflictError,
     BranchStore,
     CheckpointNotReachableError,
 )
@@ -364,7 +365,7 @@ class ProjectionTaskService:
             ):
                 raise ValueError("projection task checkpoint does not match its source")
             if task.kind == ProjectionKind.WIKI:
-                self._project_wiki(task, snapshot)
+                self._project_wiki(task)
             else:
                 self._project_manuscript(task, snapshot)
             self.branches.assert_checkpoint_reachable(
@@ -404,30 +405,39 @@ class ProjectionTaskService:
     def _project_wiki(
         self,
         task: ProjectionTask,
-        snapshot: TurnSessionSnapshot,
     ) -> None:
-        try:
-            asyncio.run(
-                self.wiki_processor.process(
-                    snapshot,
-                    boundary=task.boundary,
-                    end_step=task.step,
-                )
+        branch = self.branches.load(task.branch_id)
+        target_checkpoint_id = branch.head_checkpoint_id
+        if target_checkpoint_id is None:
+            raise CheckpointNotReachableError("branch has no reachable Wiki target")
+        snapshot = self.checkpoints.load(target_checkpoint_id)
+        if snapshot.branch_id != task.branch_id:
+            snapshot = snapshot.model_copy(
+                update={
+                    "branch_id": task.branch_id,
+                    "request": snapshot.request.model_copy(
+                        update={"branch_id": task.branch_id}
+                    ),
+                }
             )
+        try:
+            asyncio.run(self.wiki_processor.rebuild(snapshot))
         except CheckpointNotReachableError:
+            raise
+        except BranchConflictError:
             raise
         except WikiProtocolError as error:
             detail = str(error)
             WikiStore(self.root, task.branch_id).mark_degraded(
-                task.checkpoint_id,
-                task.step,
+                target_checkpoint_id,
+                snapshot.current_step,
                 detail,
             )
             raise RuntimeError(f"wiki degraded: {detail}") from error
         except Exception:
             WikiStore(self.root, task.branch_id).mark_stale(
-                task.checkpoint_id,
-                task.step,
+                target_checkpoint_id,
+                snapshot.current_step,
             )
             raise
 

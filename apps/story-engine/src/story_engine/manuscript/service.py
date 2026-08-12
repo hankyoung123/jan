@@ -419,9 +419,6 @@ class ManuscriptService:
             source=source,
             context_manifest=context_manifest,
         )
-        if before_apply is not None:
-            before_apply()
-        self.drafts.save(draft, overwrite=False)
         review = await self.agent.review(context, title=output.title, body=output.body)
         grounded = review.review.passed and not review.unsupported_facts
         reviewed = draft.model_copy(
@@ -430,9 +427,11 @@ class ManuscriptService:
                 "status": "reviewed" if grounded else "needs_revision",
             }
         )
-        if before_apply is not None:
-            before_apply()
-        self.drafts.save(reviewed)
+        self.drafts.save(
+            reviewed,
+            overwrite=False,
+            precondition=before_apply,
+        )
         return reviewed
 
     def _context_for_draft(self, draft: SceneDraft) -> ManuscriptContext:

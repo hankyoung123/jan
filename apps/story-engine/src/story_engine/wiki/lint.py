@@ -265,40 +265,11 @@ class WikiLinter:
         del pages
         if not (self.store.branch_root / "index.md").is_file():
             return
-        try:
-            index = self.store.load_branch_index()
-            branch = BranchStore(self.root).load(self.branch_id)
-        except FileNotFoundError:
-            return
-        head = branch.head_checkpoint_id
-        head_step = branch.head_step
-        if index.updated_at_step < head_step:
+        if not self.store.is_reachable_projection():
             issues.append(
                 self._issue(
-                    "wiki-behind-branch",
-                    f"Wiki step {index.updated_at_step} is behind branch head "
-                    f"step {head_step}",
-                    "world/index.md",
-                    WikiLintSeverity.ERROR,
-                )
-            )
-        elif index.updated_at_step > head_step:
-            issues.append(
-                self._issue(
-                    "wiki-ahead-of-branch",
-                    f"Wiki step {index.updated_at_step} is ahead of branch head "
-                    f"step {head_step}",
-                    "world/index.md",
-                    WikiLintSeverity.ERROR,
-                )
-            )
-        if (index.stale and index.checkpoint_id == head) or (
-            not index.stale and index.checkpoint_id != head
-        ):
-            issues.append(
-                self._issue(
-                    "stale-flag-mismatch",
-                    "Wiki stale flag does not match the branch head",
+                    "wiki-projection-unavailable",
+                    "Wiki is stale, degraded, or outside the branch lineage",
                     "world/index.md",
                     WikiLintSeverity.ERROR,
                 )

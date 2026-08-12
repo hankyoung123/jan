@@ -33,13 +33,11 @@ function recentObservation(actorId: string, step?: StepViewModel) {
 
 function ActorCard({
   actor,
-  session,
   step,
   selected,
   onSelect,
 }: {
   actor: ActorDisplay
-  session: SessionSnapshot
   step?: StepViewModel
   selected: boolean
   onSelect?: (actorId: string) => void
@@ -47,7 +45,6 @@ function ActorCard({
   const { t } = useTranslation('evolution')
   const status = actorStatus(actor.id, step)
   const active = step?.actingActorId === actor.id
-  const memoryCount = session.memory_snapshots[actor.id]?.record_count ?? 0
   const observation = recentObservation(actor.id, step)
   const highlight = active || selected
   return (
@@ -91,9 +88,6 @@ function ActorCard({
           </div>
         )}
       </dl>
-      <p className="mt-3 font-mono text-[10px] text-muted-foreground">
-        {t('actor.memories', { count: memoryCount })}
-      </p>
     </button>
   )
 }
@@ -141,7 +135,6 @@ export function ActorRail({
             key={actor.id}
             onSelect={onSelectActor}
             selected={selectedActor === actor.id}
-            session={session}
             step={step}
           />
         ))}

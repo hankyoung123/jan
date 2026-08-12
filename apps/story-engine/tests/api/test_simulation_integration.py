@@ -2,7 +2,7 @@ import json
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +85,7 @@ class ReplayGatewayTransport:
         fail_editor: bool = False,
         fail_wiki_attempts: int = 0,
         invalid_wiki_attempts: int = 0,
+        on_editor: Callable[[], None] | None = None,
     ) -> None:
         self.calls: list[str] = []
         self.entity_change = entity_change
@@ -95,6 +96,7 @@ class ReplayGatewayTransport:
         self.fail_editor = fail_editor
         self.fail_wiki_attempts = fail_wiki_attempts
         self.invalid_wiki_attempts = invalid_wiki_attempts
+        self.on_editor = on_editor
 
     def _choice(self, prompt: str, payload: Mapping[str, Any]) -> str:
         response_format = payload.get("response_format")
@@ -209,6 +211,8 @@ class ReplayGatewayTransport:
                 raise RuntimeError("writer unavailable")
             content = f"# The Severed Wire\n\n{self.event_text}"
         elif "SOURCE_MANIFEST" in prompt:
+            if self.on_editor is not None:
+                self.on_editor()
             if self.fail_editor:
                 raise RuntimeError("editor unavailable")
             content = json.dumps(
@@ -539,7 +543,7 @@ def test_early_checkpoint_writer_uses_its_historical_wiki_without_future_facts(
         assert "future hidden transmitter" not in writer_prompt
 
 
-def test_editor_failure_keeps_the_writer_draft_on_disk(tmp_path: Path) -> None:
+def test_editor_failure_leaves_no_writer_draft_on_disk(tmp_path: Path) -> None:
     SubmissionService(tmp_path).finalize(fog_harbor_submission())
     transport = ReplayGatewayTransport(fail_editor=True)
     with TestClient(
@@ -572,9 +576,61 @@ def test_editor_failure_keeps_the_writer_draft_on_disk(tmp_path: Path) -> None:
             "/projects/fog-harbor/branches/main/manuscript/scenes",
             headers=AUTH,
         ).json()
-        assert len(drafts) == 1
-        assert drafts[0]["status"] == "draft"
-        assert drafts[0]["body"] == transport.event_text
+        assert drafts == []
+
+
+def test_manuscript_rollback_during_review_leaves_no_persistent_draft(
+    tmp_path: Path,
+) -> None:
+    SubmissionService(tmp_path).finalize(fog_harbor_submission())
+    root = tmp_path / "fog-harbor"
+    rollback_checkpoint_id: str | None = None
+
+    def rollback_during_review() -> None:
+        assert rollback_checkpoint_id is not None
+        SimulationCommitKernel(root).rollback_branch(
+            "fog-harbor",
+            "main",
+            checkpoint_id=rollback_checkpoint_id,
+        )
+
+    transport = ReplayGatewayTransport(
+        boundary="scene",
+        on_editor=rollback_during_review,
+    )
+    with TestClient(
+        create_app(_settings(tmp_path), model_transport=transport)
+    ) as client:
+        started = client.post(
+            "/projects/fog-harbor/simulations",
+            headers=AUTH,
+            json={
+                "premise_text": "The lighthouse suddenly goes dark.",
+                "actor_ids": ["chen-mo"],
+                "content_locale": "en-US",
+                "control": {"mode": "step", "max_steps": 2},
+                "output": {
+                    "wiki_mode": "manual",
+                    "manuscript_mode": "after_scene",
+                },
+            },
+        ).json()
+        rollback_checkpoint_id = started["checkpoint_id"]
+        stepped = _advance(client, started["session_id"])
+        assert stepped.status_code == 200, stepped.text
+        task = _wait_for_projection(
+            client,
+            started["session_id"],
+            kind="manuscript",
+            status="skipped",
+        )
+        drafts = client.get(
+            "/projects/fog-harbor/branches/main/manuscript/scenes",
+            headers=AUTH,
+        ).json()
+
+    assert "no longer reachable" in (task["error_text"] or "")
+    assert drafts == []
 
 
 def test_submission_wiki_and_scene_boundary_outputs_form_a_closed_loop(
