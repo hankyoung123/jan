@@ -36,7 +36,7 @@ class InteractiveRuntime:
         self._characters = (
             Character(
                 id="player",
-                display_name="你",
+                display_name="陈默",
                 type="active",
                 identity="本地调查记者",
                 core_desire="查明真相",

@@ -437,11 +437,15 @@ class ConcordiaActorFactory:
 
 def default_character_recipe(
     *,
+    display_name: str,
     model_profile_id: str = "actor",
     content_locale: str = "zh-CN",
 ) -> AgentRecipe:
     from story_engine.domain.recipe import ComponentRecipe
 
+    role_name = display_name.strip()
+    if not role_name:
+        raise ValueError("character display_name must not be empty")
     return AgentRecipe(
         recipe_id="character.default",
         version="v1",
@@ -460,11 +464,11 @@ def default_character_recipe(
         ),
         content_locale=content_locale,
         system_instruction_text=(
-            "你就是这个角色。\n\n"
-            "只依据你的状态、记忆和当前感知行动。\n"
-            "只决定自己的意图、行动和语言，不决定结果或他人的行为。\n"  # noqa: RUF001
-            "不要使用你没有的知识、能力、物品或资源。\n"
-            "做当前最自然的下一步，不解释规则或剧情。"  # noqa: RUF001
+            f"Role: {role_name}\n\n"
+            f"依据{role_name}的状态、记忆和当前感知行动。\n"
+            f"只决定{role_name}自己的意图、行动和语言，不决定结果或他人的行为。\n"  # noqa: RUF001
+            f"不要使用{role_name}没有的知识、能力、物品或资源。\n"
+            f"做{role_name}当前最自然的下一步，不解释规则或剧情。"  # noqa: RUF001
         ),
     )
 

@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import Field, JsonValue, ValidationError, model_validator
 
@@ -79,6 +79,18 @@ class SubmissionCharacter(DomainModel):
     location: str = Field(min_length=1)
     emotional_state: str | None = None
     resources: tuple[str, ...] = ()
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_player_display_name(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or value.get("id") != "player":
+            return value
+        normalized = str(value.get("display_name") or "").strip()
+        if not normalized:
+            return {**value, "display_name": "来访者"}
+        if normalized.casefold() in {"你", "user", "human"}:
+            raise ValueError("player display_name must be a stable character name")
+        return value
 
 
 class SubmissionPackage(DomainModel):
@@ -618,13 +630,13 @@ def last_ferry_before_submission() -> SubmissionPackage:
             ),
             InitialFact(
                 id="fact:player-message",
-                statement="你收到一条署名林澈、约你到旅馆的消息。",
+                statement="陈默收到一条署名林澈、约陈默到旅馆的消息。",
                 visibility="secret",
                 known_by=("player",),
             ),
             InitialFact(
                 id="fact:player-knows-chen-kai",
-                statement="你认识当地警员陈凯，可以尝试联系他。",
+                statement="陈默认识当地警员陈凯，可以尝试联系他。",
                 visibility="private",
                 known_by=("player",),
             ),
@@ -695,7 +707,7 @@ def last_ferry_before_submission() -> SubmissionPackage:
         characters=(
             SubmissionCharacter(
                 id="player",
-                display_name="你",
+                display_name="陈默",
                 identity="本地调查记者",
                 core_desire="弄清旧友求助消息背后的真相",
                 current_goal="在末班船离港前查明发生了什么",
@@ -711,14 +723,14 @@ def last_ferry_before_submission() -> SubmissionPackage:
                 relationships=(
                     Relationship(
                         character_id="lin-che",
-                        description="林澈是你的旧友。",
+                        description="林澈是陈默的旧友。",
                     ),
                 ),
             ),
             SubmissionCharacter(
                 id="lin-che",
                 display_name="林澈",
-                identity="在港口工作的你的旧友",
+                identity="陈默在港口工作的旧友",
                 core_desire="避免旧事牵连到更多人",
                 current_goal="确认张野是否会带着记录离开",
                 known_fact_ids=("truth:lin-concealment", "truth:event-timeline"),
@@ -728,7 +740,7 @@ def last_ferry_before_submission() -> SubmissionPackage:
                 relationships=(
                     Relationship(
                         character_id="player",
-                        description="你是她仍愿意信任的旧友。",
+                        description="陈默是林澈仍愿意信任的旧友。",
                     ),
                 ),
             ),
@@ -771,7 +783,7 @@ def last_ferry_before_submission() -> SubmissionPackage:
             "雨已经下了很久。\n\n"
             "林澈坐在靠窗的位置。张野站在柜台附近。\n\n"
             "门口的地毯已经湿透，墙上的钟刚刚跳到 18:43。\n\n"
-            "林澈看见你，没有起身。\n\n"
+            "林澈看见陈默，没有起身。\n\n"
             "“你怎么来了？”"
         ),
         pressures=("张野会在末班船离港前按自己的计划行动",),

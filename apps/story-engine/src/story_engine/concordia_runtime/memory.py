@@ -55,7 +55,12 @@ def concordia_hash_embedder(text: str) -> np.ndarray:
 class ConcordiaMemoryCodec:
     """Encode typed records as natural-language-friendly Concordia strings."""
 
-    def encode(self, record: MemoryRecord) -> str:
+    def encode(
+        self,
+        record: MemoryRecord,
+        *,
+        actor_label: str | None = None,
+    ) -> str:
         metadata = {
             "actor_ids": list(record.actor_ids),
             "branch_id": record.branch_id,
@@ -83,7 +88,10 @@ class ConcordiaMemoryCodec:
         )
         type_prefix = ""
         if record.record_type == MemoryRecordType.PUTATIVE_EVENT:
-            actor_prefix = f" {record.actor_ids[0]}:" if record.actor_ids else ""
+            actor_name = actor_label or (
+                record.actor_ids[0] if record.actor_ids else ""
+            )
+            actor_prefix = f" {actor_name}:" if actor_name else ""
             type_prefix = f"[putative_event]{actor_prefix} "
         elif record.record_type == MemoryRecordType.WORLD_EVENT:
             type_prefix = "[event] "

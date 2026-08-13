@@ -68,6 +68,7 @@ def _runtime(
     factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
     actor = factory.build_actor(
         default_character_recipe(
+            display_name="actor-a",
             model_profile_id="actor",
             content_locale="en-US",
         ),
@@ -345,7 +346,9 @@ def test_resolver_separates_putative_action_from_world_event() -> None:
     )
     records = gm_memory.retrieve_recent(limit=4)
 
-    assert result.putative_event_text == "I force the locked door."
+    assert result.putative_event_text == (
+        "actor-a的意图（原始表达）：“I force the locked door.”"
+    )
     assert "lock holds" in result.raw_resolution_text
     assert tuple(record.record_type for record in records) == (
         MemoryRecordType.PUTATIVE_EVENT,
@@ -415,7 +418,7 @@ def test_six_minimal_experience_scenarios_commit_only_resolved_reality(
     )
 
     assert case
-    assert result.putative_event_text == intent
+    assert result.putative_event_text == f"actor-a的意图（原始表达）：“{intent}”"
     assert result.events[0].event_text == expected_event
     assert result.events[0].event_text != intent
     assert all(claim not in result.events[0].event_text for claim in forbidden_claims)
@@ -439,7 +442,7 @@ def test_resolution_instruction_has_only_the_six_semantic_rules() -> None:
     document = RecordingDocument()
     _resolve_story_event(document, "Committed world: locked room.", "the player")
 
-    assert document.premise == "Committed world: locked room."
+    assert document.premise == ""
     assert "1. Actor input is intent, never committed fact." in document.question
     assert "2. Resolve from committed world state" in document.question
     assert "3. Never invent hidden facts, decisive evidence or resources." in (
@@ -458,6 +461,97 @@ def test_resolution_instruction_has_only_the_six_semantic_rules() -> None:
     assert "event_text" not in document.question
     assert "participant_names" not in document.question
     assert "{\"target\"" not in document.question
+
+
+def test_player_action_persists_named_identity_in_event_and_memory() -> None:
+    actor_model = ReplayLanguageModel()
+    gm_model = ReplayLanguageModel(
+        text_responses=(
+            '{"event_text":"陈默拿起柜台上的钥匙。","boundary":"none",'
+            '"visibility":"participants","participant_names":["陈默"]}',
+        )
+    )
+    factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
+    actor = factory.build_actor(
+        default_character_recipe(
+            display_name="陈默",
+            model_profile_id="actor",
+            content_locale="zh-CN",
+        ),
+        actor_params={
+            "name": "player",
+            "display_name": "陈默",
+            "project_root": ".",
+            "branch_id": "main",
+        },
+        memory=ConcordiaMemoryBank(
+            owner_id="player",
+            scope=MemoryScope.CHARACTER,
+        ),
+    )
+    gm_memory = ConcordiaMemoryBank(
+        owner_id="gm",
+        scope=MemoryScope.GAME_MASTER,
+    )
+    gm = factory.build_game_master(
+        default_game_master_recipe(
+            model_profile_id="gm",
+            content_locale="zh-CN",
+        ),
+        gm_params={
+            "name": "gm",
+            "scene_goal": "调查旅馆",
+            "project_root": ".",
+            "branch_id": "main",
+        },
+        actors=(actor,),
+        shared_memory=gm_memory,
+    )
+    gm.set_active_actor("陈默")
+
+    result = ConcordiaResolverKernel().resolve(
+        gm,
+        ResolverContext(
+            session_id="session:identity",
+            branch_id="main",
+            step=0,
+            acting_actor_id="player",
+            putative_event_text="我拿起柜台上的钥匙。",
+            content_locale="zh-CN",
+            existing_characters=(
+                ActorStateContext(
+                    id="player",
+                    display_name="陈默",
+                    type="active",
+                    identity="本地调查记者",
+                    current_goal="查明真相",
+                ),
+            ),
+        ),
+        cancellation=Event(),
+    )
+
+    putative = next(
+        record
+        for record in gm_memory.records()
+        if record.record_type == MemoryRecordType.PUTATIVE_EVENT
+    )
+    committed = next(
+        record
+        for record in gm_memory.records()
+        if record.record_type == MemoryRecordType.WORLD_EVENT
+    )
+    assert "陈默" in putative.text
+    assert result.putative_event_text.startswith("陈默")
+    assert result.events[0].event_text == "陈默拿起柜台上的钥匙。"
+    assert committed.text == "陈默拿起柜台上的钥匙。"
+    assert "你拿起" not in "\n".join(
+        (putative.text, result.putative_event_text, committed.text)
+    )
+    resolution_prompt = gm_model.prompts[-1]
+    assert resolution_prompt.count("Putative event to resolve:") == 1
+    assert "Putative event to resolve:  陈默:" in resolution_prompt
+    assert "Putative event to resolve:  player:" not in resolution_prompt
 
 
 def test_direct_human_intent_sets_concordia_active_actor_before_resolution() -> None:

@@ -80,7 +80,7 @@ def _resolve_story_event(
     premise: str,
     active_player_name: str,
 ) -> str:
-    document.statement(premise)
+    del premise
     return cast(
         str,
         document.open_question(

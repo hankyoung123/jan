@@ -33,7 +33,11 @@ from story_engine.persistence.branch_store import BranchStore
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.simulation.runtime import StorySimulationRuntime
 from story_engine.simulation.session import calculate_snapshot_state_hash
-from story_engine.submission.service import SubmissionService, fog_harbor_submission
+from story_engine.submission.service import (
+    SubmissionService,
+    fog_harbor_submission,
+    last_ferry_before_submission,
+)
 from story_engine.wiki.store import WikiStore
 
 
@@ -53,6 +57,7 @@ def _build_actor(
     )
     actor = ConcordiaActorFactory({"actor": model}).build_actor(
         default_character_recipe(
+            display_name=actor_id,
             model_profile_id="actor",
             content_locale="zh-CN",
         ),
@@ -104,6 +109,38 @@ def _act(actor: ConcordiaStoryActor, step: int) -> str:
             content_locale="zh-CN",
         )
     )
+
+
+def test_cross_actor_recall_keeps_one_stable_player_identity(tmp_path: Path) -> None:
+    package = last_ferry_before_submission()
+    player = next(
+        character for character in package.characters if character.id == "player"
+    )
+    lin_che, lin_model, _ = _build_actor(
+        tmp_path,
+        "lin-che",
+        responses=("林澈继续观察。",),
+    )
+    zhang_ye, zhang_model, _ = _build_actor(
+        tmp_path,
+        "zhang-ye",
+        responses=("张野移开视线。",),
+    )
+    event_text = f"{player.display_name}拿起柜台上的钥匙。"
+    for actor in (lin_che, zhang_ye):
+        _observe(
+            actor,
+            1,
+            event_text,
+            participants=("player", actor.name),
+        )
+        _act(actor, 2)
+
+    assert event_text == "陈默拿起柜台上的钥匙。"
+    assert event_text in lin_model.prompts[-1]
+    assert event_text in zhang_model.prompts[-1]
+    assert "你拿起柜台上的钥匙" not in lin_model.prompts[-1]
+    assert "你拿起柜台上的钥匙" not in zhang_model.prompts[-1]
 
 
 def _advance_test_checkpoint(

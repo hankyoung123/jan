@@ -70,6 +70,7 @@ def test_game_master_maps_semantic_actor_name_to_local_id(
     actors = tuple(
         factory.build_actor(
             default_character_recipe(
+                display_name=display_name,
                 model_profile_id="actor",
                 content_locale="en-US",
             ),
@@ -133,6 +134,7 @@ def test_game_master_uses_only_eligible_actors_for_next_turn() -> None:
     actors = tuple(
         factory.build_actor(
             default_character_recipe(
+                display_name=display_name,
                 model_profile_id="actor",
                 content_locale="zh-CN",
             ),
@@ -148,7 +150,7 @@ def test_game_master_uses_only_eligible_actors_for_next_turn() -> None:
                 scope=MemoryScope.CHARACTER,
             ),
         )
-        for actor_id, display_name in (("player", "你"), ("zhang-ye", "张野"))
+        for actor_id, display_name in (("player", "陈默"), ("zhang-ye", "张野"))
     )
     gm = factory.build_game_master(
         default_game_master_recipe(

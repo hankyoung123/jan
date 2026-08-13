@@ -55,7 +55,10 @@ class ConcordiaResolverKernel:
             "npc": "ordinary NPC",
             "retired": "retired character",
         }
-        lines: list[str] = []
+        lines = [
+            "Narrative identity uses these exact display names. "
+            "Natural pronouns are allowed only inside dialogue."
+        ]
         for character in context.existing_characters:
             if character.id == context.acting_actor_id:
                 state = character.prompt_text()
@@ -115,8 +118,29 @@ class ConcordiaResolverKernel:
                     f"{known}"
                 ),
                 f"Recent Current-Scene Events:\n{recent}",
-                f"Current Intent:\n{context.putative_event_text}",
             )
+        )
+
+    @staticmethod
+    def _acting_character(context: ResolverContext) -> ActorStateContext:
+        acting_character = next(
+            (
+                character
+                for character in context.existing_characters
+                if character.id == context.acting_actor_id
+            ),
+            None,
+        )
+        if acting_character is None:
+            raise ResolutionEnvelopeError("acting character is not in the registry")
+        return acting_character
+
+    @classmethod
+    def _named_intent_text(cls, context: ResolverContext) -> str:
+        actor = cls._acting_character(context)
+        return (
+            f"{actor.display_name}的意图（原始表达）："  # noqa: RUF001
+            f"“{context.putative_event_text.strip()}”"
         )
 
     @staticmethod
@@ -229,16 +253,7 @@ class ConcordiaResolverKernel:
                 f"{location}: {first_error['msg']}"
             ) from error
 
-        acting_character = next(
-            (
-                character
-                for character in context.existing_characters
-                if character.id == context.acting_actor_id
-            ),
-            None,
-        )
-        if acting_character is None:
-            raise ResolutionEnvelopeError("acting character is not in the registry")
+        acting_character = ConcordiaResolverKernel._acting_character(context)
         observer_ids = ConcordiaResolverKernel._resolve_character_names(
             envelope.observer_names,
             context=context,
@@ -360,6 +375,7 @@ class ConcordiaResolverKernel:
         if cancellation.is_set():
             raise SimulationCancelledError("simulation was cancelled")
 
+        named_intent = self._named_intent_text(context)
         putative = MemoryRecord(
             record_id=f"putative:{context.session_id}:{context.step}",
             record_type=MemoryRecordType.PUTATIVE_EVENT,
@@ -368,13 +384,18 @@ class ConcordiaResolverKernel:
             session_id=context.session_id,
             branch_id=context.branch_id,
             step=context.step,
-            text=context.putative_event_text,
+            text=named_intent,
             content_locale=context.content_locale,
             created_at=datetime.now().astimezone(),
             actor_ids=(context.acting_actor_id,),
             tags=("putative_event",),
         )
-        game_master.observe(self._memory_codec.encode(putative))
+        game_master.observe(
+            self._memory_codec.encode(
+                putative,
+                actor_label=self._acting_character(context).display_name,
+            )
+        )
         game_master.set_resolution_character_registry(
             self._existing_characters_prompt(context)
         )
@@ -443,7 +464,7 @@ class ConcordiaResolverKernel:
             branch_id=context.branch_id,
             step=context.step,
             acting_actor_id=context.acting_actor_id,
-            putative_event_text=context.putative_event_text,
+            putative_event_text=named_intent,
             raw_resolution_text=event_text,
             events=events,
             effects=effects,

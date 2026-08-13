@@ -40,7 +40,7 @@ def _snapshot() -> TurnSessionSnapshot:
         characters=(
             Character(
                 id="player",
-                display_name="你",
+                display_name="陈默",
                 type="active",
                 identity="本地调查记者",
                 core_desire="查明真相",
@@ -151,7 +151,7 @@ def test_default_world_has_frozen_truth_seed_and_human_actor() -> None:
     )
     assert "fact:player-knows-chen-kai" in player.known_fact_ids
     assert facts["fact:player-knows-chen-kai"].statement == (
-        "你认识当地警员陈凯，可以尝试联系他。"  # noqa: RUF001
+        "陈默认识当地警员陈凯，可以尝试联系他。"  # noqa: RUF001
     )
     assert all(
         f"truth:{name}" in facts

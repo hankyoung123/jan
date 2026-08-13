@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -95,6 +95,16 @@ class Character(DomainModel):
     emotional_state: str | None = None
     resources: tuple[str, ...] = ()
     version: int = Field(default=0, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_player_display_name(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or value.get("id") != "player":
+            return value
+        normalized = str(value.get("display_name") or "").strip()
+        if not normalized or normalized.casefold() in {"你", "user", "human"}:
+            return {**value, "display_name": "来访者"}
+        return value
 
     @model_validator(mode="after")
     def active_character_has_goal(self) -> Self:

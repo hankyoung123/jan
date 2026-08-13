@@ -63,6 +63,7 @@ def test_actor_persists_for_ten_steps_and_restores_equivalent_state() -> None:
     )
     factory = ConcordiaActorFactory({"actor": model})
     recipe = default_character_recipe(
+        display_name="Actor A",
         model_profile_id="actor",
         content_locale="en-US",
     )
@@ -130,19 +131,19 @@ def test_game_master_selects_actor_and_generates_dynamic_action_spec() -> None:
         choice_responses=("actor-b", "No"),
     )
     factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
-    character_recipe = default_character_recipe(
-        model_profile_id="actor",
-        content_locale="en-US",
-    )
     actors = tuple(
         factory.build_actor(
-            character_recipe,
-                actor_params={
-                    "name": actor_id,
-                    "identity": actor_id,
-                    "project_root": ".",
-                    "branch_id": "main",
-                },
+            default_character_recipe(
+                display_name=actor_id,
+                model_profile_id="actor",
+                content_locale="en-US",
+            ),
+            actor_params={
+                "name": actor_id,
+                "identity": actor_id,
+                "project_root": ".",
+                "branch_id": "main",
+            },
             memory=ConcordiaMemoryBank(
                 owner_id=actor_id,
                 scope=MemoryScope.CHARACTER,
@@ -277,6 +278,7 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
     )
     factory = ConcordiaActorFactory({"actor": actor_model, "gm": shared_gm})
     recipe = default_character_recipe(
+        display_name="Actor A",
         model_profile_id="actor",
         content_locale="en-US",
     )
@@ -373,9 +375,9 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
     assert '"conditions":["Injured right hand"]' in resolution_prompt
     assert '"resources":["Camera","Press card"]' in resolution_prompt
     assert '"beliefs":["The witness is withholding evidence."]' in resolution_prompt
-    assert "Use these exact display names" not in resolution_prompt
+    assert "Narrative identity uses these exact display names." in resolution_prompt
     assert "participant_names" not in resolution_prompt
-    assert "Current Intent:\nI ask the witness a question." in resolution_prompt
+    assert "Current Intent:" not in resolution_prompt
 
 
 def test_actor_prompt_excludes_canonical_facts_the_actor_does_not_know(
@@ -390,6 +392,7 @@ def test_actor_prompt_excludes_canonical_facts_the_actor_does_not_know(
     model = ReplayLanguageModel(text_responses=("I keep watching the lobby.",))
     actor = ConcordiaActorFactory({"actor": model}).build_actor(
         default_character_recipe(
+            display_name=player.display_name or player.id,
             model_profile_id="actor",
             content_locale="zh-CN",
         ),
@@ -416,23 +419,79 @@ def test_actor_prompt_excludes_canonical_facts_the_actor_does_not_know(
     )
 
     prompt = model.prompts[-1]
-    assert "你收到一条署名林澈、约你到旅馆的消息" in prompt
+    assert "陈默收到一条署名林澈、约陈默到旅馆的消息" in prompt
     assert "张野借用林澈遗失的旧手机发出了那条消息" not in prompt
     assert "港口事故并非林澈造成" not in prompt
 
 
 def test_default_character_recipe_has_one_exact_intent_authority() -> None:
-    assert default_character_recipe().system_instruction_text == (
-        "你就是这个角色。\n\n"
-        "只依据你的状态、记忆和当前感知行动。\n"
-        "只决定自己的意图、行动和语言，不决定结果或他人的行为。\n"  # noqa: RUF001
-        "不要使用你没有的知识、能力、物品或资源。\n"
-        "做当前最自然的下一步，不解释规则或剧情。"  # noqa: RUF001
+    assert default_character_recipe(display_name="林澈").system_instruction_text == (
+        "Role: 林澈\n\n"
+        "依据林澈的状态、记忆和当前感知行动。\n"
+        "只决定林澈自己的意图、行动和语言，不决定结果或他人的行为。\n"  # noqa: RUF001
+        "不要使用林澈没有的知识、能力、物品或资源。\n"
+        "做林澈当前最自然的下一步，不解释规则或剧情。"  # noqa: RUF001
     )
+
+
+def test_npc_context_uses_one_named_role_and_stable_player_identity() -> None:
+    model = ReplayLanguageModel(text_responses=("林澈保持沉默。",))
+    actor = ConcordiaActorFactory({"actor": model}).build_actor(
+        default_character_recipe(
+            display_name="林澈",
+            model_profile_id="actor",
+            content_locale="zh-CN",
+        ),
+        actor_params={
+            "name": "lin-che",
+            "display_name": "林澈",
+            "actor_state": json.dumps(
+                {
+                    "current_goal": "确认陈默为何来到旅馆",
+                    "relationships": ["陈默是林澈仍愿意信任的旧友。"],
+                },
+                ensure_ascii=False,
+            ),
+            "project_root": ".",
+            "branch_id": "main",
+        },
+        memory=ConcordiaMemoryBank(
+            owner_id="lin-che",
+            scope=MemoryScope.CHARACTER,
+        ),
+    )
+    actor.observe(
+        PerceptionFrame(
+            frame_id="observation:identity:0:lin-che",
+            session_id="session:identity",
+            branch_id="main",
+            actor_id="lin-che",
+            step=0,
+            content_locale="zh-CN",
+            observation_text="陈默出现在大厅里，林澈看见陈默。",  # noqa: RUF001
+            participant_ids=("player",),
+        )
+    )
+
+    actor.act(
+        ActionSpec(
+            spec_id="action:identity:0:lin-che",
+            output_type=ActionOutputType.FREE,
+            call_to_action="林澈接下来做什么?",
+            content_locale="zh-CN",
+        )
+    )
+
+    prompt = model.prompts[-1]
+    assert "Role: 林澈" in prompt
+    assert "依据林澈的状态、记忆和当前感知行动。" in prompt
+    assert "陈默出现在大厅里，林澈看见陈默。" in prompt  # noqa: RUF001
+    assert "你" not in prompt
 
 
 def test_restored_character_uses_current_recipe_authority() -> None:
     recipe = default_character_recipe(
+        display_name="Actor A",
         model_profile_id="actor",
         content_locale="zh-CN",
     )
@@ -489,7 +548,11 @@ def test_perception_call_receives_only_actor_specific_context() -> None:
     gm_model = ReplayLanguageModel(text_responses=("The rain hits the window.",))
     factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
     actor = factory.build_actor(
-        default_character_recipe(model_profile_id="actor", content_locale="en-US"),
+        default_character_recipe(
+            display_name="Actor A",
+            model_profile_id="actor",
+            content_locale="en-US",
+        ),
         actor_params={
             "name": "actor-a",
             "identity": "A careful investigator.",

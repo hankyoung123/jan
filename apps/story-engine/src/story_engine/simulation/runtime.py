@@ -1265,7 +1265,7 @@ class StorySimulationRuntime:
                 step=step,
                 acting_actor_id=actor.name,
                 action_spec=action_spec,
-                action_text=action,
+                action_text=resolved.putative_event_text,
                 resolved_turn=resolved,
                 status=step_status,
                 boundary=resolved.boundary,
@@ -1501,7 +1501,7 @@ class StorySimulationRuntime:
                 step=step,
                 acting_actor_id=actor.name,
                 action_spec=None,
-                action_text=action,
+                action_text=resolved.putative_event_text,
                 resolved_turn=resolved,
                 status=TurnSessionStatus.RUNNING,
                 boundary=(

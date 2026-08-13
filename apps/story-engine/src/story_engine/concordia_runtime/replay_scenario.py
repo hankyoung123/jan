@@ -50,6 +50,7 @@ def replay_runtime_factory() -> RuntimeFactory:
         factory = ConcordiaActorFactory({"actor": actor_model, "gm": gm_model})
         actor = factory.build_actor(
             default_character_recipe(
+                display_name="Actor A",
                 model_profile_id="actor",
                 content_locale=request.content_locale,
             ),

@@ -95,14 +95,14 @@ class ConcordiaHandoffTransport:
             return json.dumps(
                 {
                     "event_text": (
-                        "林澈听到了玩家的问题。"
+                        "林澈听到了陈默的问题。"
                         if is_player
                         else "林澈选择保持沉默，大厅里的气氛变得紧张。"
                     ),
                     "boundary": "chapter" if is_player else "scene",
                     "visibility": "participants",
                     "observer_names": [],
-                    "participant_names": ["你", "林澈"],
+                    "participant_names": ["陈默", "林澈"],
                     "entity_changes": [],
                     "state_updates": [],
                 },
@@ -111,7 +111,7 @@ class ConcordiaHandoffTransport:
         if "output_type" in properties:
             return json.dumps(
                 {
-                    "call_to_action": "决定是否回答玩家的问题。",
+                    "call_to_action": "决定是否回答陈默的问题。",
                     "output_type": "free",
                     "options": [],
                     "tag": "dialogue",
@@ -136,7 +136,7 @@ class ConcordiaHandoffTransport:
         if payload.get("model") == "test-provider/actor":
             return "我选择保持沉默。"
         self.observation_prompts.append(prompt)
-        return "林澈听见问题后仍站在玩家面前。"
+        return "林澈听见问题后仍站在陈默面前。"
 
     async def complete(
         self,
@@ -630,7 +630,7 @@ def test_real_concordia_gateway_hands_player_intent_to_eligible_npc(
         TurnSessionRequest(
             project_id="last-ferry-before",
             branch_id="main",
-            premise_text="玩家当面询问林澈消息的来源。",
+            premise_text="陈默当面询问林澈消息的来源。",
             actor_ids=("player", "lin-che", "zhang-ye"),
             player_actor_id="player",
             content_locale="zh-CN",
@@ -661,5 +661,7 @@ def test_real_concordia_gateway_hands_player_intent_to_eligible_npc(
     assert len(actor_outputs) == 1
     assert result.resolved_turn is not None
     assert result.resolved_turn.events[1].actor_id == "lin-che"
-    assert result.resolved_turn.putative_event_text == "林澈，那条消息是不是你发的？"
+    assert result.resolved_turn.putative_event_text == (
+        "陈默的意图（原始表达）：“林澈，那条消息是不是你发的？”"
+    )
     assert result.boundary == SimulationBoundary.CHAPTER

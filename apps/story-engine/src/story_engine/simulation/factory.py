@@ -254,6 +254,7 @@ class ProjectRuntimeFactory:
                 )
             actor = factory.build_actor(
                 default_character_recipe(
+                    display_name=character.display_name or character.id,
                     model_profile_id=key,
                     content_locale=request.content_locale,
                 ),
