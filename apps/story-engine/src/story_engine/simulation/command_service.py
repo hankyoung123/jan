@@ -245,7 +245,19 @@ class SimulationCommandService:
         return snapshot.state_hash
 
     @staticmethod
-    def _npc_handoff_command_id(player_checkpoint_id: str) -> str:
+    def _npc_handoff_command_id(interactive_command_id: str) -> str:
+        """Bind a normal NPC handoff to the unique interactive request.
+
+        Checkpoints are content-addressed and may be reused when a turn produces
+        the same durable state.  They therefore cannot identify a user command:
+        a later turn could otherwise collide with an earlier NPC receipt while
+        carrying a different expected state hash.
+        """
+        return f"{interactive_command_id}:npc"
+
+    @staticmethod
+    def _recovery_npc_handoff_command_id(player_checkpoint_id: str) -> str:
+        """Return the deterministic key used only for restart recovery."""
         return f"interactive-npc:{player_checkpoint_id}"
 
     @staticmethod
@@ -364,7 +376,9 @@ class SimulationCommandService:
         return self._execute_reserved_npc_handoff(
             snapshot,
             player_result,
-            command_id=self._npc_handoff_command_id(snapshot.checkpoint_id),
+            command_id=self._recovery_npc_handoff_command_id(
+                snapshot.checkpoint_id
+            ),
         )
 
     def interactive_turn(
@@ -418,11 +432,7 @@ class SimulationCommandService:
                 starting.project_id,
                 player_result.checkpoint_id,
             )
-        npc_command_id = (
-            self._npc_handoff_command_id(player_result.checkpoint_id)
-            if player_result.checkpoint_id is not None
-            else f"{command_id}:npc"
-        )
+        npc_command_id = self._npc_handoff_command_id(command_id)
         npc_result = self._execute_reserved_npc_handoff(
             snapshot,
             player_result,

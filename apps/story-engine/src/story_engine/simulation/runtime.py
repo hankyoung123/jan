@@ -198,9 +198,7 @@ class StorySimulationRuntime:
         )
         available_actor_fact_ids = {fact.id for fact in available_actor_facts}
         actor_known_facts = tuple(
-            fact
-            for fact in relevant_facts
-            if fact.id in available_actor_fact_ids
+            fact for fact in relevant_facts if fact.id in available_actor_fact_ids
         )
         return ResolverContext(
             session_id=self.session_id,
@@ -302,24 +300,13 @@ class StorySimulationRuntime:
             ),
             f"- Current scene: {world.scene_text if world else ''}",
         ]
-        if world is not None and world.rules:
-            world_lines.append("- Rules:")
-            world_lines.extend(f"  - {rule}" for rule in world.rules)
-        if world is not None and world.active_pressures:
-            world_lines.append("- Active pressures:")
-            world_lines.extend(f"  - {pressure}" for pressure in world.active_pressures)
-        if world is not None and world.world_variables:
-            world_lines.append("- Variables:")
-            world_lines.extend(
-                f"  - {key}: {value}"
-                for key, value in sorted(world.world_variables.items())
-            )
-        known_text = "\n".join(
-            f"- {fact.statement}" for fact in known_facts
-        ) or "- None directly relevant."
-        recent_text = "\n".join(
-            f"- {event.event_text}" for event in recent_events
-        ) or "- None."
+        known_text = (
+            "\n".join(f"- {fact.statement}" for fact in known_facts)
+            or "- None directly relevant."
+        )
+        recent_text = (
+            "\n".join(f"- {event.event_text}" for event in recent_events) or "- None."
+        )
         return "\n\n".join(
             (
                 "Current World State:\n" + "\n".join(world_lines),
@@ -390,8 +377,7 @@ class StorySimulationRuntime:
             for character_id, character in characters.items()
         }
         final = {
-            character_id: set(resources)
-            for character_id, resources in initial.items()
+            character_id: set(resources) for character_id, resources in initial.items()
         }
         updated_characters: set[str] = set()
         for effect in effects:
@@ -449,9 +435,7 @@ class StorySimulationRuntime:
                     continue
                 actor_backups[character_id] = actor.get_state()
                 actor.set_actor_state(
-                    ActorStateContext.from_character(
-                        source[character_id]
-                    ).prompt_text()
+                    ActorStateContext.from_character(source[character_id]).prompt_text()
                 )
         except Exception:
             for character_id, state in actor_backups.items():
@@ -514,6 +498,12 @@ class StorySimulationRuntime:
                 raise ValueError(
                     "event contains non-actor observer IDs: "
                     f"{sorted(unknown_observers)}"
+                )
+            unknown_responders = set(event.response_actor_ids) - actor_ids
+            if unknown_responders:
+                raise ValueError(
+                    "event contains non-actor response IDs: "
+                    f"{sorted(unknown_responders)}"
                 )
         self._validate_resource_conservation(effects, characters)
         changed_character_ids: set[str] = set()
@@ -618,47 +608,20 @@ class StorySimulationRuntime:
             input_record_ids=(event_id,),
         )
 
-    def _affected_npc_actor_ids(
+    def _response_npc_actor_ids(
         self,
         resolved: ResolvedTurn,
     ) -> tuple[str, ...]:
-        """Return ordered current-scene candidates for one immediate follow-up."""
-        npc_actors = tuple(
-            actor for actor in self.actors if actor.name != self.player_actor_id
-        )
-        if not npc_actors:
-            return ()
-
-        participant_ids = {
+        """Return only explicitly assigned immediate voluntary responders."""
+        response_actor_ids = {
             actor_id
             for event in resolved.events
-            for actor_id in event.participant_ids
+            for actor_id in event.response_actor_ids
         }
-        participants = tuple(
-            actor.name for actor in npc_actors if actor.name in participant_ids
-        )
-        if participants:
-            return participants
-
-        observer_ids = {
-            actor_id
-            for event in resolved.events
-            for actor_id in event.observer_ids
-        }
-        observers = tuple(
-            actor.name for actor in npc_actors if actor.name in observer_ids
-        )
-        if observers:
-            return observers
-
-        event_text = "\n".join(event.event_text for event in resolved.events).casefold()
         return tuple(
             actor.name
-            for actor in npc_actors
-            if any(
-                alias and alias.casefold() in event_text
-                for alias in {actor.name.strip(), actor.display_name.strip()}
-            )
+            for actor in self.actors
+            if actor.name != self.player_actor_id and actor.name in response_actor_ids
         )
 
     def _active_roster_candidates(self) -> dict[str, tuple[str, str]]:
@@ -672,8 +635,7 @@ class StorySimulationRuntime:
                 ),
             )
             for character in self.character_states()
-            if character.type == "active"
-            and character.id in self._all_actors_by_name
+            if character.type == "active" and character.id in self._all_actors_by_name
         }
 
     def _replace_roster(self, selected: tuple[str, ...]) -> bool:
@@ -1146,9 +1108,7 @@ class StorySimulationRuntime:
             )
             merged_boundary = resolved.boundary.merge(deferred_boundary)
             if merged_boundary != resolved.boundary:
-                resolved = resolved.model_copy(
-                    update={"boundary": merged_boundary}
-                )
+                resolved = resolved.model_copy(update={"boundary": merged_boundary})
             event_id = f"event:{self.session_id}:{step}"
             character_effect_ids = self._apply_character_effects(resolved)
             self._publish_stage(
@@ -1182,12 +1142,11 @@ class StorySimulationRuntime:
             )
             observer_ids: set[str] = set() if resolved.events else {actor.name}
             for event in resolved.events:
+                observer_ids.update(event.observer_ids)
                 if event.visibility == EventVisibility.PUBLIC:
                     observer_ids.update(self._actors_by_name)
                 elif event.visibility == EventVisibility.PARTICIPANTS:
                     observer_ids.update(event.participant_ids)
-                elif event.visibility == EventVisibility.RESTRICTED:
-                    observer_ids.update(event.observer_ids)
             observer_ids.intersection_update(self._actors_by_name)
             participant_ids = tuple(
                 sorted(
@@ -1265,7 +1224,7 @@ class StorySimulationRuntime:
                 step=step,
                 acting_actor_id=actor.name,
                 action_spec=action_spec,
-                action_text=resolved.putative_event_text,
+                action_text=action,
                 resolved_turn=resolved,
                 status=step_status,
                 boundary=resolved.boundary,
@@ -1386,7 +1345,7 @@ class StorySimulationRuntime:
                 ),
                 cancellation=self.cancellation,
             )
-            follow_up_actor_ids = self._affected_npc_actor_ids(resolved)
+            follow_up_actor_ids = self._response_npc_actor_ids(resolved)
             event_id = f"event:{self.session_id}:{step}"
             belief_effect = self._human_belief_effect(action, step=step)
             if belief_effect is not None:
@@ -1425,12 +1384,11 @@ class StorySimulationRuntime:
             )
             observer_ids: set[str] = set() if resolved.events else {actor.name}
             for event in resolved.events:
+                observer_ids.update(event.observer_ids)
                 if event.visibility == EventVisibility.PUBLIC:
                     observer_ids.update(self._actors_by_name)
                 elif event.visibility == EventVisibility.PARTICIPANTS:
                     observer_ids.update(event.participant_ids)
-                elif event.visibility == EventVisibility.RESTRICTED:
-                    observer_ids.update(event.observer_ids)
             observer_ids.intersection_update(self._actors_by_name)
             participant_ids = tuple(
                 sorted(
@@ -1483,10 +1441,7 @@ class StorySimulationRuntime:
                 output_record_ids=tuple(routed_ids),
                 visible_to=tuple(sorted(observer_ids)),
             )
-            if (
-                resolved.boundary != SimulationBoundary.NONE
-                and not follow_up_actor_ids
-            ):
+            if resolved.boundary != SimulationBoundary.NONE and not follow_up_actor_ids:
                 current_stage = SimulationStage.ACTOR_SELECTION
                 stage_started = datetime.now(UTC)
             self._advance_scene_boundary(
@@ -1501,7 +1456,7 @@ class StorySimulationRuntime:
                 step=step,
                 acting_actor_id=actor.name,
                 action_spec=None,
-                action_text=resolved.putative_event_text,
+                action_text=action,
                 resolved_turn=resolved,
                 status=TurnSessionStatus.RUNNING,
                 boundary=(

@@ -44,7 +44,7 @@ from story_engine.simulation.projection_coordinator import (
 from story_engine.simulation.runtime import StorySimulationRuntime
 from story_engine.submission.service import (
     SubmissionService,
-    last_ferry_before_submission,
+    rainy_night_apartment_submission,
 )
 
 
@@ -95,14 +95,15 @@ class ConcordiaHandoffTransport:
             return json.dumps(
                 {
                     "event_text": (
-                        "林澈听到了陈默的问题。"
+                        "沈遥听到了周宁的问题。"
                         if is_player
-                        else "林澈选择保持沉默，大厅里的气氛变得紧张。"
+                        else "沈遥选择保持沉默，大厅里的气氛变得紧张。"
                     ),
                     "boundary": "chapter" if is_player else "scene",
                     "visibility": "participants",
-                    "observer_names": [],
-                    "participant_names": ["陈默", "林澈"],
+                    "observer_names": (["顾衡"] if is_player else []),
+                    "participant_names": ["周宁", "沈遥"],
+                    "response_actor_names": (["沈遥"] if is_player else []),
                     "entity_changes": [],
                     "state_updates": [],
                 },
@@ -111,7 +112,7 @@ class ConcordiaHandoffTransport:
         if "output_type" in properties:
             return json.dumps(
                 {
-                    "call_to_action": "决定是否回答陈默的问题。",
+                    "call_to_action": "决定是否回答周宁的问题。",
                     "output_type": "free",
                     "options": [],
                     "tag": "dialogue",
@@ -121,14 +122,12 @@ class ConcordiaHandoffTransport:
         if "actor_names" in properties:
             actor_names = properties["actor_names"]
             items = (
-                actor_names.get("items", {})
-                if isinstance(actor_names, Mapping)
-                else {}
+                actor_names.get("items", {}) if isinstance(actor_names, Mapping) else {}
             )
             candidates = items.get("enum", ()) if isinstance(items, Mapping) else ()
             return json.dumps({"actor_names": list(candidates)}, ensure_ascii=False)
         if "choice" in properties:
-            semantic = "林澈" if "Whose turn is next" in prompt else "No"
+            semantic = "沈遥" if "Whose turn is next" in prompt else "No"
             return json.dumps(
                 {"choice": self._choice(prompt, properties, semantic)},
                 ensure_ascii=False,
@@ -136,7 +135,7 @@ class ConcordiaHandoffTransport:
         if payload.get("model") == "test-provider/actor":
             return "我选择保持沉默。"
         self.observation_prompts.append(prompt)
-        return "林澈听见问题后仍站在陈默面前。"
+        return "沈遥听见问题后仍站在周宁面前。"
 
     async def complete(
         self,
@@ -192,6 +191,7 @@ class RecordingActor:
         self.intent = intent
         self.log = log
         self.act_calls = 0
+        self.observations: list[PerceptionFrame] = []
         self._state: dict[str, object] = {}
 
     def act(self, _action_spec: ActionSpec) -> str:
@@ -199,8 +199,8 @@ class RecordingActor:
         self.log.append(f"act:{self.name}")
         return self.intent
 
-    def observe(self, _perception: PerceptionFrame) -> None:
-        return None
+    def observe(self, perception: PerceptionFrame) -> None:
+        self.observations.append(perception)
 
     def get_state(self) -> dict[str, object]:
         return dict(self._state)
@@ -284,11 +284,15 @@ class RecordingResolver:
         log: list[str],
         *,
         player_boundary: SimulationBoundary = SimulationBoundary.NONE,
-        player_participants: tuple[str, ...] = ("player", "lin-che"),
+        player_participants: tuple[str, ...] = ("player", "shen-yao"),
+        player_observers: tuple[str, ...] = ("gu-heng",),
+        player_response_actor_ids: tuple[str, ...] = ("shen-yao",),
     ) -> None:
         self.log = log
         self.player_boundary = player_boundary
         self.player_participants = player_participants
+        self.player_observers = player_observers
+        self.player_response_actor_ids = player_response_actor_ids
         self.contexts: list[ResolverContext] = []
 
     def resolve(
@@ -303,9 +307,9 @@ class RecordingResolver:
         self.log.append(f"resolve:{context.acting_actor_id}")
         is_player = context.acting_actor_id == "player"
         event_text = (
-            "林澈听到了玩家的问题。"
+            "沈遥听到了周宁的问题。"
             if is_player
-            else "林澈的沉默让大厅里的气氛变得紧张。"
+            else "沈遥的沉默让大厅里的气氛变得紧张。"
         )
         event = ResolvedEvent(
             event_id=f"event:{context.session_id}:{context.step}",
@@ -315,10 +319,10 @@ class RecordingResolver:
             event_text=event_text,
             visibility=EventVisibility.PARTICIPANTS,
             participant_ids=(
-                self.player_participants
-                if is_player
-                else ("player", "lin-che")
+                self.player_participants if is_player else ("player", "shen-yao")
             ),
+            observer_ids=self.player_observers if is_player else (),
+            response_actor_ids=(self.player_response_actor_ids if is_player else ()),
             content_locale=context.content_locale,
             occurred_at=datetime.now(UTC),
         )
@@ -330,11 +334,7 @@ class RecordingResolver:
             putative_event_text=context.putative_event_text,
             raw_resolution_text=event_text,
             events=(event,),
-            boundary=(
-                self.player_boundary
-                if is_player
-                else SimulationBoundary.NONE
-            ),
+            boundary=(self.player_boundary if is_player else SimulationBoundary.NONE),
             content_locale=context.content_locale,
         )
 
@@ -366,7 +366,9 @@ def _character(actor_id: str, display_name: str) -> Character:
 def _interactive_service(
     *,
     player_boundary: SimulationBoundary = SimulationBoundary.NONE,
-    player_participants: tuple[str, ...] = ("player", "lin-che"),
+    player_participants: tuple[str, ...] = ("player", "shen-yao"),
+    player_observers: tuple[str, ...] = ("gu-heng",),
+    player_response_actor_ids: tuple[str, ...] = ("shen-yao",),
     remove_roster_at_boundary: bool = False,
     max_scenes: int = 5,
     initial_completed_scenes: int = 0,
@@ -382,9 +384,9 @@ def _interactive_service(
 ]:
     log: list[str] = []
     actors = {
-        "player": RecordingActor("player", "玩家", "", log),
-        "lin-che": RecordingActor("lin-che", "林澈", "我选择保持沉默。", log),
-        "bystander": RecordingActor("bystander", "旁观者", "我离开大厅。", log),
+        "player": RecordingActor("player", "周宁", "", log),
+        "shen-yao": RecordingActor("shen-yao", "沈遥", "我选择保持沉默。", log),
+        "gu-heng": RecordingActor("gu-heng", "顾衡", "我离开大厅。", log),
     }
     game_master = RecordingGameMaster(
         log,
@@ -394,6 +396,8 @@ def _interactive_service(
         log,
         player_boundary=player_boundary,
         player_participants=player_participants,
+        player_observers=player_observers,
+        player_response_actor_ids=player_response_actor_ids,
     )
     runtime_ref: dict[str, RecordingRuntime] = {}
 
@@ -410,8 +414,7 @@ def _interactive_service(
             game_master=game_master,  # type: ignore[arg-type]
             resolver=resolver,  # type: ignore[arg-type]
             characters=tuple(
-                _character(actor.name, actor.display_name)
-                for actor in actors.values()
+                _character(actor.name, actor.display_name) for actor in actors.values()
             ),
             player_actor_id="player",
             initial_roster_selected=True,
@@ -468,40 +471,32 @@ def _interactive_service(
     )
 
 
-def test_player_question_calls_the_affected_npc_actor() -> None:
-    service, session_id, actors, *_ = _interactive_service()
-
-    service.interactive_turn(session_id, text="林澈，那条消息是不是你发的？")
-
-    assert actors["lin-che"].act_calls == 1
-
-
 def test_reserved_npc_acts_before_true_termination_decision() -> None:
-    service, session_id, actors, _gm, _resolver, _runtime, log = (
-        _interactive_service(terminate_after_resolution=True)
+    service, session_id, actors, _gm, _resolver, _runtime, log = _interactive_service(
+        terminate_after_resolution=True
     )
 
-    service.interactive_turn(session_id, text="林澈，那条消息是不是你发的？")
+    service.interactive_turn(session_id, text="沈遥，那条消息是不是你发的？")
 
-    assert actors["lin-che"].act_calls == 1
-    assert log.index("act:lin-che") < log.index("terminate")
+    assert actors["shen-yao"].act_calls == 1
+    assert log.index("act:shen-yao") < log.index("terminate")
 
 
 def test_reserved_npc_resolution_is_committed_before_session_terminates() -> None:
-    service, session_id, _actors, _gm, resolver, _runtime, log = (
-        _interactive_service(terminate_after_resolution=True)
+    service, session_id, _actors, _gm, resolver, _runtime, log = _interactive_service(
+        terminate_after_resolution=True
     )
 
     result = service.interactive_turn(
         session_id,
-        text="林澈，那条消息是不是你发的？",
+        text="沈遥，那条消息是不是你发的？",
     )
 
     snapshot = service.engine.get(session_id)
-    assert log.index("resolve:lin-che") < log.index("terminate")
+    assert log.index("resolve:shen-yao") < log.index("terminate")
     assert [context.acting_actor_id for context in resolver.contexts] == [
         "player",
-        "lin-che",
+        "shen-yao",
     ]
     assert result.status.value == "terminated"
     assert snapshot.current_step == 2
@@ -516,12 +511,12 @@ def test_reached_scene_budget_waits_for_required_npc_response() -> None:
 
     result = service.interactive_turn(
         session_id,
-        text="林澈，那条消息是不是你发的？",
+        text="沈遥，那条消息是不是你发的？",
     )
 
-    assert actors["lin-che"].act_calls == 1
+    assert actors["shen-yao"].act_calls == 1
     assert result.resolved_turn is not None
-    assert result.resolved_turn.events[-1].actor_id == "lin-che"
+    assert result.resolved_turn.events[-1].actor_id == "shen-yao"
     assert result.status.value == "terminated"
     assert (
         service.engine.get(session_id).termination_reason_text
@@ -544,49 +539,75 @@ def test_player_resolution_forbids_generating_npc_voluntary_dialogue() -> None:
 def test_npc_output_returns_as_intent_for_gm_resolution() -> None:
     service, session_id, actors, _gm, resolver, *_ = _interactive_service()
 
-    service.interactive_turn(session_id, text="林澈，那条消息是不是你发的？")
+    service.interactive_turn(session_id, text="沈遥，那条消息是不是你发的？")
 
     assert [context.acting_actor_id for context in resolver.contexts] == [
         "player",
-        "lin-che",
+        "shen-yao",
     ]
-    assert resolver.contexts[1].putative_event_text == actors["lin-che"].intent
+    assert resolver.contexts[1].putative_event_text == actors["shen-yao"].intent
 
 
 def test_player_scene_boundary_waits_for_required_npc_resolution() -> None:
-    service, session_id, _actors, _gm, _resolver, runtime, log = (
-        _interactive_service(
-            player_boundary=SimulationBoundary.SCENE,
-            remove_roster_at_boundary=True,
-        )
+    service, session_id, _actors, _gm, _resolver, runtime, log = _interactive_service(
+        player_boundary=SimulationBoundary.SCENE,
+        remove_roster_at_boundary=True,
     )
 
     result = service.interactive_turn(
         session_id,
-        text="林澈，那条消息是不是你发的？",
+        text="沈遥，那条消息是不是你发的？",
     )
 
-    assert log.index("act:lin-che") < log.index("resolve:lin-che") < log.index("roster")
+    assert (
+        log.index("act:shen-yao") < log.index("resolve:shen-yao") < log.index("roster")
+    )
     assert result.boundary == SimulationBoundary.SCENE
     assert runtime.roster_actor_ids() == ("player",)
     assert runtime.pending_scene_events() == ()
 
 
-def test_unrelated_current_scene_npc_is_not_called() -> None:
+def test_direct_response_ownership_calls_shen_yao_but_not_observer() -> None:
     service, session_id, actors, game_master, *_ = _interactive_service()
 
-    service.interactive_turn(session_id, text="林澈，那条消息是不是你发的？")
+    service.interactive_turn(session_id, text="刚才是谁来过？")
 
-    assert game_master.selected_candidates == [("lin-che",)]
-    assert game_master.observed_actor_ids == ["lin-che"]
-    assert actors["lin-che"].act_calls == 1
-    assert actors["bystander"].act_calls == 0
+    assert game_master.selected_candidates == [("shen-yao",)]
+    assert game_master.observed_actor_ids == ["shen-yao"]
+    assert actors["shen-yao"].act_calls == 1
+    assert actors["gu-heng"].act_calls == 0
+
+
+def test_observer_gets_event_memory_without_immediate_action() -> None:
+    service, session_id, actors, *_ = _interactive_service()
+
+    service.interactive_turn(session_id, text="刚才是谁来过？")
+
+    gu_heng = actors["gu-heng"]
+    assert len(gu_heng.observations) == 1
+    assert gu_heng.observations[0].observation_text == "沈遥听到了周宁的问题。"
+    assert gu_heng.act_calls == 0
+
+
+def test_multiple_response_owners_are_the_only_gm_candidates() -> None:
+    service, session_id, actors, game_master, *_ = _interactive_service(
+        player_response_actor_ids=("shen-yao", "gu-heng"),
+    )
+
+    service.interactive_turn(
+        session_id,
+        text="沈遥、顾衡，你们谁看到有人拿走相机？",
+    )
+
+    assert game_master.selected_candidates == [("shen-yao", "gu-heng")]
+    assert actors["shen-yao"].act_calls == 1
+    assert actors["gu-heng"].act_calls == 0
 
 
 def test_real_concordia_gateway_hands_player_intent_to_eligible_npc(
     tmp_path: Path,
 ) -> None:
-    SubmissionService(tmp_path).finalize(last_ferry_before_submission())
+    SubmissionService(tmp_path).finalize(rainy_night_apartment_submission())
     registry = ProfileRegistry(tmp_path / "models.json")
     registry.upsert_profile(
         _profile(
@@ -628,10 +649,10 @@ def test_real_concordia_gateway_hands_player_intent_to_eligible_npc(
     )
     snapshot = engine.create_session(
         TurnSessionRequest(
-            project_id="last-ferry-before",
+            project_id="rainy-night-apartment",
             branch_id="main",
-            premise_text="陈默当面询问林澈消息的来源。",
-            actor_ids=("player", "lin-che", "zhang-ye"),
+            premise_text="周宁当面询问沈遥消息的来源。",
+            actor_ids=("player", "shen-yao", "gu-heng"),
             player_actor_id="player",
             content_locale="zh-CN",
             control=ControlPolicy(mode=ControlMode.STEP, max_steps=4),
@@ -640,28 +661,24 @@ def test_real_concordia_gateway_hands_player_intent_to_eligible_npc(
 
     result = service.interactive_turn(
         snapshot.session_id,
-        text="林澈，那条消息是不是你发的？",
+        text="沈遥，那条消息是不是你发的？",
     )
 
     runtime = runtime_ref["runtime"]
-    npc_actor = next(actor for actor in runtime.actors if actor.name == "lin-che")
+    npc_actor = next(actor for actor in runtime.actors if actor.name == "shen-yao")
     assert isinstance(npc_actor, ConcordiaStoryActor)
     assert isinstance(runtime.resolver, ConcordiaResolverKernel)
     assert gateway.usage.totals().requests == len(transport.calls)
     assert transport.resolution_count == 2
     assert len(transport.observation_prompts) == 1
-    assert "What can 林澈 perceive right now?" in transport.observation_prompts[0]
+    assert "What can 沈遥 perceive right now?" in transport.observation_prompts[0]
     assert "What can 你 perceive right now?" not in transport.observation_prompts[0]
-    assert "What can 张野 perceive right now?" not in transport.observation_prompts[0]
+    assert "What can 顾衡 perceive right now?" not in transport.observation_prompts[0]
     actor_outputs = [
-        call
-        for call in transport.calls
-        if call.get("model") == "test-provider/actor"
+        call for call in transport.calls if call.get("model") == "test-provider/actor"
     ]
     assert len(actor_outputs) == 1
     assert result.resolved_turn is not None
-    assert result.resolved_turn.events[1].actor_id == "lin-che"
-    assert result.resolved_turn.putative_event_text == (
-        "陈默的意图（原始表达）：“林澈，那条消息是不是你发的？”"
-    )
+    assert result.resolved_turn.events[1].actor_id == "shen-yao"
+    assert result.resolved_turn.putative_event_text == "沈遥，那条消息是不是你发的？"
     assert result.boundary == SimulationBoundary.CHAPTER

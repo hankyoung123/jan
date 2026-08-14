@@ -41,7 +41,7 @@ from story_engine.simulation.perception import (
 )
 from story_engine.simulation.service import SimulationApplicationService
 from story_engine.submission.project import SubmissionService
-from story_engine.submission.service import last_ferry_before_submission
+from story_engine.submission.service import rainy_night_apartment_submission
 from story_engine.wiki.boundary import WikiBoundaryProcessor, branch_records
 from story_engine.wiki.consolidator import GatewayWikiConsolidator
 from story_engine.workspace.project_store import ProjectStore
@@ -128,14 +128,14 @@ def create_simulations_router(
     router = APIRouter(tags=["simulations"])
 
     def ensure_default_world(project_id: str) -> Path:
-        if project_id != "last-ferry-before":
+        if project_id != "rainy-night-apartment":
             return _require_project(settings, project_id)
         root = settings.projects_root / project_id
         if not (root / "project.md").is_file():
             settings.projects_root.mkdir(parents=True, exist_ok=True)
             with suppress(FileExistsError):
                 SubmissionService(settings.projects_root).finalize(
-                    last_ferry_before_submission()
+                    rainy_night_apartment_submission()
                 )
         return _require_project(settings, project_id)
 

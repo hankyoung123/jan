@@ -16,7 +16,7 @@ function event(
 ): EngineEventEnvelope {
   return {
     event_id: `event:${sequence}`,
-    project_id: 'last-ferry-before',
+    project_id: 'rainy-night-apartment',
     subject_id: 'session:one',
     timestamp: `2026-08-09T00:00:${String(sequence).padStart(2, '0')}Z`,
     sequence,
@@ -34,7 +34,7 @@ function stagePayload(
 ) {
   return {
     event_id: executionId,
-    project_id: 'last-ferry-before',
+    project_id: 'rainy-night-apartment',
     session_id: 'session:one',
     branch_id: 'main',
     step,

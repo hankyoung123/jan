@@ -63,10 +63,11 @@ actually selected.
 
 ## Default world
 
-The bundled MVP world is 《末班船之前》. Its Truth Seed is frozen when the
-world is initialized. UI exploration may reveal established evidence and
-generate harmless environmental texture, but cannot create a clue or change
-the mystery solution.
+The bundled MVP world is 《雨夜公寓》. It starts with explicit facts and
+per-character knowledge boundaries, but no preset culprit or fixed ending.
+UI exploration may reveal established information and generate harmless
+environmental texture, but inspecting a visible object cannot manufacture key
+evidence.
 
 ## Navigation boundary
 

@@ -166,6 +166,25 @@ fn file_load(provider: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn parse_stored_keys(serialized: &str) -> Vec<String> {
+    let normalize = |keys: Vec<String>| {
+        keys.into_iter()
+            .map(|key| key.trim().to_string())
+            .filter(|key| !key.is_empty())
+            .collect()
+    };
+    if let Ok(keys) = serde_json::from_str::<Vec<String>>(serialized) {
+        return normalize(keys);
+    }
+    if let Ok(key) = serde_json::from_str::<String>(serialized) {
+        return normalize(vec![key]);
+    }
+    // Jan versions predating the key-chain format stored one raw key. Keep
+    // accepting that representation so an app upgrade can re-register the
+    // provider and rewrite the secret in the current array format.
+    normalize(vec![serialized.to_string()])
+}
+
 /// Store (or replace) the full key chain for a provider. An empty chain deletes
 /// the entry so we never persist a blank secret. Prefers the OS keyring; on
 /// keyring failure, writes the permission-restricted fallback file.
@@ -208,10 +227,9 @@ pub fn load_provider_keys(provider: &str) -> Vec<String> {
     if !keyring_down() {
         match keyring_entry(provider).and_then(|e| e.get_password()) {
             Ok(serialized) => {
-                if let Ok(keys) = serde_json::from_str::<Vec<String>>(&serialized) {
-                    if !keys.is_empty() {
-                        return keys;
-                    }
+                let keys = parse_stored_keys(&serialized);
+                if !keys.is_empty() {
+                    return keys;
                 }
             }
             Err(keyring::Error::NoEntry) => {}
@@ -340,6 +358,20 @@ mod tests {
         // Only an explicit removal clears it.
         file_remove(provider).unwrap();
         assert!(file_load(provider).is_empty());
+    }
+
+    #[test]
+    fn stored_key_parser_accepts_current_and_legacy_formats() {
+        assert_eq!(
+            parse_stored_keys(r#"["sk-primary"," sk-fallback "]"#),
+            vec!["sk-primary", "sk-fallback"]
+        );
+        assert_eq!(
+            parse_stored_keys(r#""sk-json-string""#),
+            vec!["sk-json-string"]
+        );
+        assert_eq!(parse_stored_keys("sk-legacy-raw"), vec!["sk-legacy-raw"]);
+        assert!(parse_stored_keys("   ").is_empty());
     }
 
     #[test]

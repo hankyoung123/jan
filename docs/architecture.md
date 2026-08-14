@@ -81,7 +81,8 @@ in the same committed turn. It does not alter the corresponding World Truth.
 Evidence Conservation is a Resolution invariant. Runtime generation may add
 ordinary environmental texture, but it cannot invent a decisive clue,
 witness, secret route, alibi, or causal fact because an Actor inspected
-something. The default world freezes its Truth Seed at initialization.
+something. The default world starts from explicit facts and knowledge
+boundaries without a preset culprit or fixed ending.
 
 ## Perception and privacy
 

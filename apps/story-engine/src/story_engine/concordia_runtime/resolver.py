@@ -69,8 +69,7 @@ class ConcordiaResolverKernel:
                     separators=(",", ":"),
                 )
             lines.append(
-                f"- {character.display_name}, {type_labels[character.type]}: "
-                f"{state}"
+                f"- {character.display_name}, {type_labels[character.type]}: {state}"
             )
         return "\n".join(lines)
 
@@ -96,27 +95,28 @@ class ConcordiaResolverKernel:
 
     @classmethod
     def _resolution_context_prompt(cls, context: ResolverContext) -> str:
-        truth = "\n".join(
-            f"- [{fact.id}] ({fact.visibility}) {fact.statement}"
-            for fact in context.relevant_canonical_facts
-        ) or "- None selected."
-        known = "\n".join(
-            f"- [{fact.id}] {fact.statement}" for fact in context.actor_known_facts
-        ) or "- None confirmed."
-        recent = "\n".join(
-            f"- {event}" for event in context.recent_scene_events
-        ) or "- None recorded."
+        truth = (
+            "\n".join(
+                f"- [{fact.id}] ({fact.visibility}) {fact.statement}"
+                for fact in context.relevant_canonical_facts
+            )
+            or "- None selected."
+        )
+        known = (
+            "\n".join(
+                f"- [{fact.id}] {fact.statement}" for fact in context.actor_known_facts
+            )
+            or "- None confirmed."
+        )
+        recent = (
+            "\n".join(f"- {event}" for event in context.recent_scene_events)
+            or "- None recorded."
+        )
         return "\n\n".join(
             (
                 cls._world_state_prompt(context),
-                (
-                    "Relevant Canonical Truth (GM-only; not Actor knowledge):\n"
-                    f"{truth}"
-                ),
-                (
-                    "Acting Actor Known Information:\n"
-                    f"{known}"
-                ),
+                (f"Relevant Canonical Truth (GM-only; not Actor knowledge):\n{truth}"),
+                (f"Acting Actor Known Information:\n{known}"),
                 f"Recent Current-Scene Events:\n{recent}",
             )
         )
@@ -134,14 +134,6 @@ class ConcordiaResolverKernel:
         if acting_character is None:
             raise ResolutionEnvelopeError("acting character is not in the registry")
         return acting_character
-
-    @classmethod
-    def _named_intent_text(cls, context: ResolverContext) -> str:
-        actor = cls._acting_character(context)
-        return (
-            f"{actor.display_name}的意图（原始表达）："  # noqa: RUF001
-            f"“{context.putative_event_text.strip()}”"
-        )
 
     @staticmethod
     def _characters_by_name(
@@ -271,6 +263,21 @@ class ConcordiaResolverKernel:
                 "Game Master resolution uses non-active observer names: "
                 f"{sorted(non_actor_observers)}"
             )
+        response_actor_ids = ConcordiaResolverKernel._resolve_character_names(
+            envelope.response_actor_names,
+            context=context,
+            field_name="response actor names",
+        )
+        non_active_responders = set(response_actor_ids) - {
+            character.id
+            for character in context.existing_characters
+            if character.type == "active"
+        }
+        if non_active_responders:
+            raise ResolutionEnvelopeError(
+                "Game Master resolution uses non-active response actor names: "
+                f"{sorted(non_active_responders)}"
+            )
         entity_changes, existing_references = (
             ConcordiaResolverKernel._normalized_entity_changes(envelope, context)
         )
@@ -358,6 +365,7 @@ class ConcordiaResolverKernel:
             visibility=envelope.visibility,
             observer_ids=observer_ids,
             participant_ids=participant_ids,
+            response_actor_ids=response_actor_ids,
             source_intent_ids=(f"putative:{context.session_id}:{context.step}",),
             effects=tuple(effects),
             content_locale=context.content_locale,
@@ -375,7 +383,6 @@ class ConcordiaResolverKernel:
         if cancellation.is_set():
             raise SimulationCancelledError("simulation was cancelled")
 
-        named_intent = self._named_intent_text(context)
         putative = MemoryRecord(
             record_id=f"putative:{context.session_id}:{context.step}",
             record_type=MemoryRecordType.PUTATIVE_EVENT,
@@ -384,7 +391,7 @@ class ConcordiaResolverKernel:
             session_id=context.session_id,
             branch_id=context.branch_id,
             step=context.step,
-            text=named_intent,
+            text=context.putative_event_text,
             content_locale=context.content_locale,
             created_at=datetime.now().astimezone(),
             actor_ids=(context.acting_actor_id,),
@@ -464,7 +471,7 @@ class ConcordiaResolverKernel:
             branch_id=context.branch_id,
             step=context.step,
             acting_actor_id=context.acting_actor_id,
-            putative_event_text=named_intent,
+            putative_event_text=context.putative_event_text,
             raw_resolution_text=event_text,
             events=events,
             effects=effects,

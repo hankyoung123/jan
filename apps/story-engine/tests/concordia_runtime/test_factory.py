@@ -29,7 +29,7 @@ from story_engine.models.gateway import ModelGateway, ModelPartSink
 from story_engine.models.registry import ProfileRegistry
 from story_engine.submission.service import (
     SubmissionService,
-    last_ferry_before_submission,
+    rainy_night_apartment_submission,
 )
 
 
@@ -383,9 +383,7 @@ def test_game_master_component_models_use_json_schema(tmp_path: Path) -> None:
 def test_actor_prompt_excludes_canonical_facts_the_actor_does_not_know(
     tmp_path: Path,
 ) -> None:
-    snapshot = SubmissionService(tmp_path).finalize(
-        last_ferry_before_submission()
-    )
+    snapshot = SubmissionService(tmp_path).finalize(rainy_night_apartment_submission())
     player = next(
         character for character in snapshot.characters if character.id == "player"
     )
@@ -419,9 +417,9 @@ def test_actor_prompt_excludes_canonical_facts_the_actor_does_not_know(
     )
 
     prompt = model.prompts[-1]
-    assert "陈默收到一条署名林澈、约陈默到旅馆的消息" in prompt
-    assert "张野借用林澈遗失的旧手机发出了那条消息" not in prompt
-    assert "港口事故并非林澈造成" not in prompt
+    assert "周宁记得自己下午把相机落在沈遥家" in prompt
+    assert "沈遥记得晚上有人敲过 403 室的门" not in prompt
+    assert "顾衡在停电前听见楼道里有人争执" not in prompt
 
 
 def test_default_character_recipe_has_one_exact_intent_authority() -> None:

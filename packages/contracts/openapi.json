@@ -3096,6 +3096,15 @@
             "title": "Participant Ids",
             "type": "array"
           },
+          "response_actor_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Response Actor Ids",
+            "type": "array"
+          },
           "session_id": {
             "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
             "title": "Session Id",

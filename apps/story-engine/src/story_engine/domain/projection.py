@@ -171,6 +171,15 @@ class ResolutionEnvelope(RuntimeModel):
     visibility: EventVisibility
     observer_names: tuple[str, ...] = Field(default=(), max_length=64)
     participant_names: tuple[str, ...] = Field(default=(), max_length=64)
+    response_actor_names: tuple[str, ...] = Field(
+        default=(),
+        max_length=64,
+        description=(
+            "Characters whose own Actors may take an immediate voluntary "
+            "follow-up after this event. This is independent of observation "
+            "and participation."
+        ),
+    )
     entity_changes: tuple[EntityChange, ...] = ()
     state_updates: tuple[ResolutionStateUpdate, ...] = ()
 
@@ -186,6 +195,7 @@ class ResolvedEvent(RuntimeModel):
     visibility: EventVisibility
     observer_ids: tuple[Identifier, ...] = ()
     participant_ids: tuple[Identifier, ...] = ()
+    response_actor_ids: tuple[Identifier, ...] = ()
     location_ids: tuple[Identifier, ...] = ()
     source_intent_ids: tuple[Identifier, ...] = ()
     source_memory_ids: tuple[Identifier, ...] = ()

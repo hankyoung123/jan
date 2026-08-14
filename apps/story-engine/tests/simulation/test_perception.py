@@ -11,12 +11,12 @@ from story_engine.domain.simulation import (
     TurnSessionStatus,
 )
 from story_engine.simulation.perception import PerceptionBuilder
-from story_engine.submission.service import last_ferry_before_submission
+from story_engine.submission.service import rainy_night_apartment_submission
 
 
 def _snapshot() -> TurnSessionSnapshot:
     request = TurnSessionRequest(
-        project_id="last-ferry-before",
+        project_id="rainy-night-apartment",
         branch_id="main",
         premise_text="港口旅馆",
         actor_ids=("player", "lin-che"),
@@ -133,38 +133,24 @@ def test_case_08_perception_excludes_private_events_and_internal_state() -> None
     assert response.player_state.possessions == ("相机",)
 
 
-def test_default_world_has_frozen_truth_seed_and_human_actor() -> None:
-    world = last_ferry_before_submission()
+def test_default_world_is_open_ended_rainy_night_apartment() -> None:
+    world = rainy_night_apartment_submission()
     facts = {fact.id: fact for fact in world.facts}
     player = next(
         character for character in world.characters if character.id == "player"
     )
 
-    assert world.id == "last-ferry-before"
-    assert len(world.characters) == 4
-    assert player.capabilities == ("调查采访", "摄影", "熟悉本地港口", "普通驾驶能力")
-    assert player.conditions == ("右手轻伤",)
-    assert "枪" not in player.resources
-    assert all(
-        relationship.character_id != "chen-kai"
-        for relationship in player.relationships
+    assert world.id == "rainy-night-apartment"
+    assert world.title == "雨夜公寓"
+    assert len(world.characters) == 3
+    assert player.display_name == "周宁"
+    assert player.current_goal == "取回自己的相机"
+    assert player.known_fact_ids == (
+        "fact:zhou-camera-left",
+        "fact:zhou-unbacked-photos",
     )
-    assert "fact:player-knows-chen-kai" in player.known_fact_ids
-    assert facts["fact:player-knows-chen-kai"].statement == (
-        "陈默认识当地警员陈凯，可以尝试联系他。"  # noqa: RUF001
+    assert facts["fact:delivery-slip"].statement == (
+        "地上的快递单写着收件人陆明、402 室，日期是当天中午。"  # noqa: RUF001
     )
-    assert all(
-        f"truth:{name}" in facts
-        for name in (
-            "message-sender",
-            "why-player-was-called",
-            "lin-concealment",
-            "zhang-goal",
-            "locked-room-use",
-            "room-entry",
-            "key-item-location",
-            "event-timeline",
-            "ferry-connection",
-            "final",
-        )
-    )
+    assert world.pressures == ()
+    assert not any(fact.id.startswith("truth:") for fact in world.facts)

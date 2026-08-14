@@ -9,7 +9,7 @@ import { SceneView } from './SceneView'
 import { SelfLens } from './SelfLens'
 import { Timeline, type TimelineEntry } from './Timeline'
 
-const projectId = 'last-ferry-before'
+const projectId = 'rainy-night-apartment'
 
 type SessionResponse = {
   session_id: string
@@ -83,11 +83,16 @@ export function WorldSessionView() {
     setLoading(true)
     setError(null)
     setRetryIntent(null)
-    void Promise.all([
-      engineRequest<SessionResponse>(branchPath(`/projects/${projectId}/simulation/session`, branchId)),
-      engineRequest<Branch[]>(`/projects/${projectId}/branches`),
-      engineRequest<TimelineEntry[]>(`/projects/${projectId}/branches/${encodeURIComponent(branchId)}/timeline`),
-    ])
+    void engineRequest<SessionResponse>(
+      branchPath(`/projects/${projectId}/simulation/session`, branchId)
+    )
+      .then(async (response) => {
+        const [availableBranches, checkpoints] = await Promise.all([
+          engineRequest<Branch[]>(`/projects/${projectId}/branches`),
+          engineRequest<TimelineEntry[]>(`/projects/${projectId}/branches/${encodeURIComponent(branchId)}/timeline`),
+        ])
+        return [response, availableBranches, checkpoints] as const
+      })
       .then(([response, availableBranches, checkpoints]) => {
         if (disposed) return
         setSession(response)
@@ -200,8 +205,8 @@ export function WorldSessionView() {
         <div className="min-w-0">
           <header className="flex items-start justify-between border-b pb-5">
           <div>
-            <h1 className="font-studio text-2xl font-medium">末班船之前</h1>
-            <p className="mt-1 text-sm text-muted-foreground">港口旅馆 · {session.world_time}</p>
+            <h1 className="font-studio text-2xl font-medium">雨夜公寓</h1>
+            <p className="mt-1 text-sm text-muted-foreground">四楼楼道 · {session.world_time}</p>
           </div>
           <div className="flex items-center gap-2">
             <button

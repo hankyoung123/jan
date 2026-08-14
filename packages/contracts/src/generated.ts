@@ -1965,6 +1965,11 @@ export interface components {
              * @default []
              */
             participant_ids: string[];
+            /**
+             * Response Actor Ids
+             * @default []
+             */
+            response_actor_ids: string[];
             /** Session Id */
             session_id: string;
             /**

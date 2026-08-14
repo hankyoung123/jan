@@ -163,6 +163,7 @@ def _resolve_with_authoritative_context(
     resolution_text: str,
     relevant_facts: tuple[Fact, ...],
     actor_known_facts: tuple[Fact, ...] = (),
+    putative_event_text: str = "I ask who holds the upstairs key.",
 ) -> tuple[ResolvedTurn, str]:
     actor, gm, _ = _runtime(resolution_text=resolution_text)
     selected = gm.select_next_actor(  # type: ignore[attr-defined]
@@ -183,7 +184,7 @@ def _resolve_with_authoritative_context(
             branch_id="main",
             step=0,
             acting_actor_id=selected,
-            putative_event_text="I ask who holds the upstairs key.",
+            putative_event_text=putative_event_text,
             content_locale="en-US",
             existing_characters=(_character_ref(),),
             relevant_canonical_facts=relevant_facts,
@@ -265,9 +266,7 @@ def test_actor_confirmed_fact_enters_resolution_knowledge() -> None:
         actor_known_facts=(known,),
     )
 
-    knowledge_section = prompt.split(
-        "Acting Actor Known Information", maxsplit=1
-    )[1]
+    knowledge_section = prompt.split("Acting Actor Known Information", maxsplit=1)[1]
     assert known.statement in knowledge_section
 
 
@@ -298,6 +297,7 @@ def test_resolution_schema_keeps_npc_identity_semantic() -> None:
         "visibility",
         "observer_names",
         "participant_names",
+        "response_actor_names",
         "entity_changes",
         "state_updates",
     }
@@ -346,9 +346,7 @@ def test_resolver_separates_putative_action_from_world_event() -> None:
     )
     records = gm_memory.retrieve_recent(limit=4)
 
-    assert result.putative_event_text == (
-        "actor-a的意图（原始表达）：“I force the locked door.”"
-    )
+    assert result.putative_event_text == "I force the locked door."
     assert "lock holds" in result.raw_resolution_text
     assert tuple(record.record_type for record in records) == (
         MemoryRecordType.PUTATIVE_EVENT,
@@ -418,7 +416,7 @@ def test_six_minimal_experience_scenarios_commit_only_resolved_reality(
     )
 
     assert case
-    assert result.putative_event_text == f"actor-a的意图（原始表达）：“{intent}”"
+    assert result.putative_event_text == intent
     assert result.events[0].event_text == expected_event
     assert result.events[0].event_text != intent
     assert all(claim not in result.events[0].event_text for claim in forbidden_claims)
@@ -453,17 +451,17 @@ def test_resolution_instruction_has_only_the_six_semantic_rules() -> None:
     )
     assert "5. Resolve only the first meaningful uncertainty" in document.question
     assert "6. Commit only what actually happened" in document.question
-    assert "Resolve only the player\'s own first attempt." in document.question
+    assert "Resolve only the player's own first attempt." in document.question
     assert (
         "Stop when another Actor's voluntary response would be required."
         in document.question
     )
     assert "event_text" not in document.question
     assert "participant_names" not in document.question
-    assert "{\"target\"" not in document.question
+    assert '{"target"' not in document.question
 
 
-def test_player_action_persists_named_identity_in_event_and_memory() -> None:
+def test_player_action_keeps_raw_intent_and_structured_actor_identity() -> None:
     actor_model = ReplayLanguageModel()
     gm_model = ReplayLanguageModel(
         text_responses=(
@@ -541,8 +539,9 @@ def test_player_action_persists_named_identity_in_event_and_memory() -> None:
         for record in gm_memory.records()
         if record.record_type == MemoryRecordType.WORLD_EVENT
     )
-    assert "陈默" in putative.text
-    assert result.putative_event_text.startswith("陈默")
+    assert putative.text == "我拿起柜台上的钥匙。"
+    assert putative.actor_ids == ("player",)
+    assert result.putative_event_text == "我拿起柜台上的钥匙。"
     assert result.events[0].event_text == "陈默拿起柜台上的钥匙。"
     assert committed.text == "陈默拿起柜台上的钥匙。"
     assert "你拿起" not in "\n".join(
@@ -552,6 +551,33 @@ def test_player_action_persists_named_identity_in_event_and_memory() -> None:
     assert resolution_prompt.count("Putative event to resolve:") == 1
     assert "Putative event to resolve:  陈默:" in resolution_prompt
     assert "Putative event to resolve:  player:" not in resolution_prompt
+
+
+def test_delivery_slip_does_not_manufacture_camera_evidence() -> None:
+    delivery_slip = Fact(
+        id="fact:delivery-slip",
+        statement="快递单上只写着收件人陆明、402 室和当天中午的日期。",
+        visibility="public",
+        source_event_id="submission:rainy-night-apartment",
+        introduced_at=datetime(2026, 8, 13, tzinfo=UTC),
+    )
+
+    result, prompt = _resolve_with_authoritative_context(
+        resolution_text=(
+            '{"event_text":"周宁看清了快递单：收件人陆明，402 室，'
+            '日期是当天中午。单据上没有相机相关信息。",'
+            '"boundary":"none","visibility":"participants"}'
+        ),
+        relevant_facts=(delivery_slip,),
+        actor_known_facts=(delivery_slip,),
+        putative_event_text="我检查地上的快递单。",
+    )
+
+    assert delivery_slip.statement in prompt
+    assert "相机相关信息" not in delivery_slip.statement
+    assert result.events[0].event_text == (
+        "周宁看清了快递单：收件人陆明，402 室，日期是当天中午。单据上没有相机相关信息。"
+    )
 
 
 def test_direct_human_intent_sets_concordia_active_actor_before_resolution() -> None:

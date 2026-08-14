@@ -51,7 +51,7 @@ __all__ = [
     "SubmissionWorkspaceState",
     "SubmissionWorkspaceStore",
     "fog_harbor_submission",
-    "last_ferry_before_submission",
+    "rainy_night_apartment_submission",
     "reduce_submission_draft",
 ]
 
@@ -85,9 +85,9 @@ class SubmissionCharacter(DomainModel):
     def default_player_display_name(cls, value: Any) -> Any:
         if not isinstance(value, dict) or value.get("id") != "player":
             return value
-        normalized = str(value.get("display_name") or "").strip()
-        if not normalized:
-            return {**value, "display_name": "来访者"}
+        if "display_name" not in value or value["display_name"] is None:
+            return {**value, "display_name": "周宁"}
+        normalized = str(value["display_name"]).strip()
         if normalized.casefold() in {"你", "user", "human"}:
             raise ValueError("player display_name must be a stable character name")
         return value
@@ -385,9 +385,8 @@ class SubmissionFactProposal(DomainModel):
                 raise ValueError("fact character refs must use c-prefixed refs")
         if isinstance(self.supersedes_ref, int) and self.supersedes_ref < 0:
             raise ValueError("fact supersedes ref must be non-negative")
-        if (
-            isinstance(self.supersedes_ref, str)
-            and not self.supersedes_ref.startswith("f")
+        if isinstance(self.supersedes_ref, str) and not self.supersedes_ref.startswith(
+            "f"
         ):
             raise ValueError("fact supersedes ref must use an f-prefixed ref")
         if len(self.known_by) != len(set(self.known_by)):
@@ -535,8 +534,6 @@ class SubmissionWorkspaceStore:
         )
 
 
-
-
 def fog_harbor_submission() -> SubmissionPackage:
     """Return the deterministic two-character acceptance fixture."""
     return SubmissionPackage(
@@ -604,187 +601,130 @@ def fog_harbor_submission() -> SubmissionPackage:
     )
 
 
-def last_ferry_before_submission() -> SubmissionPackage:
-    """The fixed MVP world used for interactive world-session integration tests."""
+def rainy_night_apartment_submission() -> SubmissionPackage:
+    """The default world for testing natural, voluntary character interaction."""
     return SubmissionPackage(
-        id="last-ferry-before",
-        title="末班船之前",
-        genre="悬疑",
-        theme="事实、信任与错过的代价",
-        tone="现实、克制、持续紧迫",
+        id="rainy-night-apartment",
+        title="雨夜公寓",
+        genre="现实悬疑",
+        theme="日常关系中的信任与选择",
+        tone="自然、克制、开放",
         world_rules=(
             "世界只因已提交的 ResolvedEvent 改变。",
-            "门锁、物品归属、人物位置和时间线必须保持因果一致。",
-            "末班船将在约四十分钟后离港，角色会依照自己的计划行动。",
+            "角色的言语、合作、拒绝、沉默或离开只能由该角色自己决定。",
+            "检查可见物品只能揭示它原本包含的信息，不会自动创造关键证据。",
         ),
         facts=(
             InitialFact(
-                id="fact:stormy-hotel",
-                statement="暴雨中的港口旅馆接待着等待末班船的人。",
+                id="fact:storm-blackout",
+                statement="老城区在暴雨中停电，公寓电梯已停止运行。",
                 visibility="public",
             ),
             InitialFact(
-                id="fact:last-ferry-time",
-                statement="末班船将在约四十分钟后离港。",
+                id="fact:visible-hallway",
+                statement=(
+                    "四楼楼道只有应急灯照明，可以看见 403 室、405 室、"
+                    "楼梯间和地上的一张快递单。"
+                ),
                 visibility="public",
             ),
             InitialFact(
-                id="fact:player-message",
-                statement="陈默收到一条署名林澈、约陈默到旅馆的消息。",
-                visibility="secret",
-                known_by=("player",),
+                id="fact:delivery-slip",
+                statement="地上的快递单写着收件人陆明、402 室，日期是当天中午。",
+                visibility="public",
             ),
             InitialFact(
-                id="fact:player-knows-chen-kai",
-                statement="陈默认识当地警员陈凯，可以尝试联系他。",
+                id="fact:zhou-camera-left",
+                statement="周宁记得自己下午把相机落在沈遥家。",
                 visibility="private",
                 known_by=("player",),
             ),
             InitialFact(
-                id="truth:message-sender",
-                statement="张野借用林澈遗失的旧手机发出了那条消息。",
-                visibility="secret",
-                known_by=("zhang-ye",),
+                id="fact:zhou-unbacked-photos",
+                statement="周宁知道相机里有尚未备份的工作照片。",
+                visibility="private",
+                known_by=("player",),
             ),
             InitialFact(
-                id="truth:why-player-was-called",
-                statement="张野想借记者身份制造林澈主动约见的假象。",
-                visibility="secret",
-                known_by=("zhang-ye",),
+                id="fact:shen-saw-camera",
+                statement="沈遥下午在 403 室见过周宁的相机。",
+                visibility="private",
+                known_by=("shen-yao",),
             ),
             InitialFact(
-                id="truth:lin-concealment",
-                statement="林澈隐瞒了她曾替张野保管过一份港口交接记录。",
-                visibility="secret",
-                known_by=("lin-che",),
+                id="fact:shen-door-knock",
+                statement="沈遥记得晚上有人敲过 403 室的门。",
+                visibility="private",
+                known_by=("shen-yao",),
             ),
             InitialFact(
-                id="truth:zhang-goal",
-                statement="张野准备带着被篡改的交接记录搭末班船离开。",
-                visibility="secret",
-                known_by=("zhang-ye",),
-            ),
-            InitialFact(
-                id="truth:locked-room-use",
-                statement="二楼锁房是旅馆废弃的账房，记录曾被临时藏在那里。",
-                visibility="secret",
-                known_by=("innkeeper",),
-            ),
-            InitialFact(
-                id="truth:room-entry",
-                statement="今天傍晚张野进入过二楼锁房，店主从楼梯口看见了他。",
-                visibility="secret",
-                known_by=("innkeeper",),
-            ),
-            InitialFact(
-                id="truth:key-item-location",
-                statement="原始交接记录藏在张野旅行包的夹层里。",
-                visibility="secret",
-                known_by=("zhang-ye",),
-            ),
-            InitialFact(
-                id="truth:event-timeline",
-                statement=(
-                    "18:05 林澈发现记录被调包；18:17 张野发出假消息；"
-                    "18:31 张野回到旅馆。"
-                ),
-                visibility="secret",
-                known_by=("lin-che", "zhang-ye"),
-            ),
-            InitialFact(
-                id="truth:ferry-connection",
-                statement="张野选择末班船，是因为船离港后港口监控的当夜备份会被转移。",
-                visibility="secret",
-                known_by=("zhang-ye",),
-            ),
-            InitialFact(
-                id="truth:final",
-                statement="港口事故并非林澈造成，张野篡改记录是为了掩盖自己的责任。",
-                visibility="secret",
-                known_by=("zhang-ye",),
+                id="fact:gu-heard-argument",
+                statement="顾衡在停电前听见楼道里有人争执。",
+                visibility="private",
+                known_by=("gu-heng",),
             ),
         ),
         characters=(
             SubmissionCharacter(
                 id="player",
-                display_name="陈默",
-                identity="本地调查记者",
-                core_desire="弄清旧友求助消息背后的真相",
-                current_goal="在末班船离港前查明发生了什么",
+                display_name="周宁",
+                identity="自由摄影师",
+                core_desire="找回装着未备份工作照片的相机",
+                current_goal="取回自己的相机",
                 known_fact_ids=(
-                    "fact:player-message",
-                    "fact:player-knows-chen-kai",
+                    "fact:zhou-camera-left",
+                    "fact:zhou-unbacked-photos",
                 ),
-                location="旅馆一楼大厅",
-                emotional_state="警觉",
-                resources=("手机", "相机", "记者证", "钱包", "车钥匙"),
-                capabilities=("调查采访", "摄影", "熟悉本地港口", "普通驾驶能力"),
-                conditions=("右手轻伤",),
+                location="四楼楼道",
+                emotional_state="着急但保持克制",
+                resources=("手机", "钱包", "雨伞"),
+                capabilities=("摄影", "观察环境", "日常沟通"),
                 relationships=(
                     Relationship(
-                        character_id="lin-che",
-                        description="林澈是陈默的旧友。",
+                        character_id="shen-yao",
+                        description="沈遥是周宁的朋友。",
                     ),
                 ),
             ),
             SubmissionCharacter(
-                id="lin-che",
-                display_name="林澈",
-                identity="陈默在港口工作的旧友",
-                core_desire="避免旧事牵连到更多人",
-                current_goal="确认张野是否会带着记录离开",
-                known_fact_ids=("truth:lin-concealment", "truth:event-timeline"),
-                location="旅馆一楼大厅",
-                emotional_state="戒备而犹豫",
-                resources=("旧手机",),
+                id="shen-yao",
+                display_name="沈遥",
+                identity="周宁的朋友，住在公寓 403 室",
+                core_desire="保持自己的生活平静",
+                current_goal="弄清是谁把相机拿走，同时避免卷入不必要的麻烦",
+                known_fact_ids=("fact:shen-saw-camera", "fact:shen-door-knock"),
+                location="403 室门口",
+                emotional_state="困惑而谨慎",
+                resources=("手机", "403 室钥匙"),
                 relationships=(
                     Relationship(
                         character_id="player",
-                        description="陈默是林澈仍愿意信任的旧友。",
+                        description="周宁是沈遥的朋友。",
                     ),
                 ),
             ),
             SubmissionCharacter(
-                id="zhang-ye",
-                display_name="张野",
-                identity="急于离开港口的货运承包人",
-                core_desire="在记录被发现前脱身",
-                current_goal="赶上末班船并保住旅行包",
-                known_fact_ids=(
-                    "truth:message-sender",
-                    "truth:why-player-was-called",
-                    "truth:zhang-goal",
-                    "truth:key-item-location",
-                    "truth:event-timeline",
-                    "truth:ferry-connection",
-                    "truth:final",
-                ),
-                location="旅馆一楼柜台附近",
-                emotional_state="克制但随时准备离开",
-                resources=("旅行包", "船票"),
-                capabilities=("身体强壮", "熟悉港口货运路线"),
-            ),
-            SubmissionCharacter(
-                id="innkeeper",
-                display_name="店主",
-                identity="经营港口旅馆的店主",
-                core_desire="避免警察和媒体把旅馆卷入麻烦",
-                current_goal="让今晚的客人尽快离开",
-                known_fact_ids=("truth:locked-room-use", "truth:room-entry"),
-                location="旅馆柜台",
-                emotional_state="不耐烦",
-                resources=("二楼备用钥匙",),
+                id="gu-heng",
+                display_name="顾衡",
+                identity="住在 405 室的邻居",
+                core_desire="不被邻居的事情打扰",
+                current_goal="尽快回房间休息，不想卷入别人的事情",
+                known_fact_ids=("fact:gu-heard-argument",),
+                location="405 室门口",
+                emotional_state="疲惫且不愿多谈",
+                resources=("405 室钥匙",),
             ),
         ),
-        initial_time="18:43",
-        initial_location="港口旅馆",
-        initial_incident="林澈否认发过那条约见消息，张野正在准备离开。",
+        initial_time="22:15",
+        initial_location="老城区旧公寓四楼楼道",
+        initial_incident="周宁来取相机，沈遥说相机几个小时前已被别人拿走。",
         scene_text=(
-            "雨已经下了很久。\n\n"
-            "林澈坐在靠窗的位置。张野站在柜台附近。\n\n"
-            "门口的地毯已经湿透，墙上的钟刚刚跳到 18:43。\n\n"
-            "林澈看见陈默，没有起身。\n\n"
-            "“你怎么来了？”"
+            "22:15，暴雨让老城区停了电。\n\n"
+            "四楼楼道只有应急灯亮着，电梯停在黑暗里。"
+            "周宁站在 403 室门前，沈遥扶着半开的门。\n\n"
+            "顾衡正准备打开 405 室的门。楼梯间就在不远处，"
+            "地上掉着一张快递单。\n\n"
+            "沈遥对周宁说：“相机下午还在，但几个小时前已经被人拿走了。”"
         ),
-        pressures=("张野会在末班船离港前按自己的计划行动",),
+        pressures=(),
     )

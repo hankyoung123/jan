@@ -43,10 +43,24 @@ describe('WorldSessionView', () => {
   })
 
   it('opens a perception-only world session and sends free natural language', async () => {
+    let defaultWorldReady = false
     h.engineRequest.mockImplementation((path: string) => {
-      if (path.endsWith('/simulation/session')) return Promise.resolve(response)
-      if (path.endsWith('/branches')) return Promise.resolve(branches)
-      if (path.endsWith('/timeline')) return Promise.resolve(timeline)
+      if (path.endsWith('/simulation/session')) {
+        return Promise.resolve().then(() => {
+          defaultWorldReady = true
+          return response
+        })
+      }
+      if (path.endsWith('/branches')) {
+        return defaultWorldReady
+          ? Promise.resolve(branches)
+          : Promise.reject(new Error('Project not found'))
+      }
+      if (path.endsWith('/timeline')) {
+        return defaultWorldReady
+          ? Promise.resolve(timeline)
+          : Promise.reject(new Error('Project not found'))
+      }
       if (path.endsWith('/simulation/turn')) {
         return Promise.resolve({
           ...response,
@@ -83,7 +97,7 @@ describe('WorldSessionView', () => {
     expect(await screen.findByText('张野仍在柜台附近。')).toBeInTheDocument()
     await waitFor(() => {
       const call = h.engineRequest.mock.calls.find(([path]) => (
-        path === '/projects/last-ferry-before/simulation/turn'
+        path === '/projects/rainy-night-apartment/simulation/turn'
       ))
       expect(call).toBeDefined()
       expect(call?.[1].method).toBe('POST')
@@ -137,7 +151,7 @@ describe('WorldSessionView', () => {
 
     await waitFor(() => expect(turnAttempts).toBe(2))
     const turnCalls = h.engineRequest.mock.calls.filter(([path]) => (
-      path === '/projects/last-ferry-before/simulation/turn'
+      path === '/projects/rainy-night-apartment/simulation/turn'
     ))
     const first = JSON.parse(turnCalls[0][1].body)
     const second = JSON.parse(turnCalls[1][1].body)
@@ -152,15 +166,15 @@ describe('WorldSessionView', () => {
     ]
     const alternate = { branch_id: 'fork-kf12oi', head_checkpoint_id: 'checkpoint:0', content_locale: 'zh-CN' }
     h.engineRequest.mockImplementation((path: string, init?: RequestInit) => {
-      if (path === '/projects/last-ferry-before/simulation/session') return Promise.resolve(response)
-      if (path === '/projects/last-ferry-before/simulation/session?branch_id=fork-kf12oi') {
+      if (path === '/projects/rainy-night-apartment/simulation/session') return Promise.resolve(response)
+      if (path === '/projects/rainy-night-apartment/simulation/session?branch_id=fork-kf12oi') {
         return Promise.resolve({ ...response, checkpoint_id: 'checkpoint:fork' })
       }
-      if (path === '/projects/last-ferry-before/branches') {
+      if (path === '/projects/rainy-night-apartment/branches') {
         return Promise.resolve(init?.method === 'POST' ? alternate : [...branches, alternate])
       }
-      if (path === '/projects/last-ferry-before/branches/main/timeline') return Promise.resolve(branchTimeline)
-      if (path === '/projects/last-ferry-before/branches/fork-kf12oi/timeline') {
+      if (path === '/projects/rainy-night-apartment/branches/main/timeline') return Promise.resolve(branchTimeline)
+      if (path === '/projects/rainy-night-apartment/branches/fork-kf12oi/timeline') {
         return Promise.resolve([{ ...branchTimeline[0], is_current: true }])
       }
       return Promise.reject(new Error(`unexpected request: ${path}`))
@@ -173,7 +187,7 @@ describe('WorldSessionView', () => {
 
     await waitFor(() => {
       const call = h.engineRequest.mock.calls.find(([path, init]) => (
-        path === '/projects/last-ferry-before/branches' && init?.method === 'POST'
+        path === '/projects/rainy-night-apartment/branches' && init?.method === 'POST'
       ))
       expect(call).toBeDefined()
       expect(JSON.parse(call?.[1].body)).toMatchObject({
@@ -184,7 +198,7 @@ describe('WorldSessionView', () => {
     })
     expect(await screen.findByDisplayValue('fork-kf12oi')).toBeInTheDocument()
     expect(h.engineRequest).toHaveBeenCalledWith(
-      '/projects/last-ferry-before/simulation/session?branch_id=fork-kf12oi'
+      '/projects/rainy-night-apartment/simulation/session?branch_id=fork-kf12oi'
     )
   })
 })

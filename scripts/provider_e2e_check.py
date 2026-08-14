@@ -86,11 +86,7 @@ def _wait_until_ready(base_url: str, process: subprocess.Popen[str]) -> None:
         except (OSError, urllib.error.URLError, json.JSONDecodeError):
             time.sleep(0.2)
             continue
-        if (
-            status == 200
-            and isinstance(health, dict)
-            and health.get("status") == "ok"
-        ):
+        if status == 200 and isinstance(health, dict) and health.get("status") == "ok":
             return
         time.sleep(0.2)
     raise TimeoutError("sidecar health check timed out")
@@ -136,12 +132,10 @@ def _stage_stats(
                         int(call.get("prompt_tokens") or 0) for call in stage_calls
                     ),
                     "completion_tokens": sum(
-                        int(call.get("completion_tokens") or 0)
-                        for call in stage_calls
+                        int(call.get("completion_tokens") or 0) for call in stage_calls
                     ),
                     "reasoning_tokens": sum(
-                        int(call.get("reasoning_tokens") or 0)
-                        for call in stage_calls
+                        int(call.get("reasoning_tokens") or 0) for call in stage_calls
                     ),
                     "finish_reasons": sorted(
                         {
@@ -167,13 +161,27 @@ def _stage_stats(
     return stats
 
 
+def _acting_actor_sequence(trace: object) -> list[str]:
+    if not isinstance(trace, list):
+        return []
+    return [
+        actor_id
+        for record in trace
+        if isinstance(record, dict)
+        for payload in [record.get("trace")]
+        if isinstance(payload, dict)
+        for actor_id in [payload.get("acting_actor_id")]
+        if isinstance(actor_id, str)
+    ]
+
+
 def _run_interactive(
     base_url: str,
     *,
     turns: int,
     model_ref: str,
 ) -> dict[str, object]:
-    project_id = "last-ferry-before"
+    project_id = "rainy-night-apartment"
     status, opened = _request(
         base_url,
         f"/projects/{project_id}/simulation/session",
@@ -191,12 +199,12 @@ def _run_interactive(
         1, int(os.environ.get("STORY_ENGINE_E2E_TURN_ATTEMPTS", "3"))
     )
     intentions = (
-        "我环顾大厅，确认每个人的位置和正在做的事。",
-        "我向林澈询问那条约我来旅馆的消息是谁发的。",
-        "我观察张野的行李和他准备离开的迹象。",
-        "我询问店主二楼锁房今天是否有人进去过。",
-        "我用手机联系警员陈凯，请他核查港口交接记录。",
-        "我核对目前掌握的时间线，并要求相关人解释矛盾。",
+        "我环顾四楼楼道，确认 403、405、楼梯口和电梯的情况。",
+        "我问沈遥，她最后一次看到我的相机是什么时候。",
+        "我问沈遥，后来敲门的人有什么特征。",
+        "我问顾衡，他听到的楼道争执发生在什么时候。",
+        "我查看墙边快递单上的现有内容，不把它当作相机线索。",
+        "我整理目前每个人亲眼看到或亲耳听到的时间线。",
     )
     for index in range(turns):
         turn: dict[str, object] | None = None
@@ -289,8 +297,7 @@ def _run_interactive(
     )
     trace_status, trace = _request(
         base_url,
-        f"/projects/{project_id}/branches/{BRANCH_ID}/simulation-trace"
-        "?after_step=-1",
+        f"/projects/{project_id}/branches/{BRANCH_ID}/simulation-trace?after_step=-1",
     )
     if timeline_status != 200 or not isinstance(timeline, list):
         raise RuntimeError(f"interactive timeline failed: {timeline}")
@@ -317,10 +324,9 @@ def _run_interactive(
         "failed_model_stages": sum(
             1 for stage in stages if stage.get("status") != "succeeded"
         ),
+        "acting_actor_sequence": _acting_actor_sequence(trace),
         "prompt_tokens": sum(int(stage["prompt_tokens"]) for stage in stages),
-        "completion_tokens": sum(
-            int(stage["completion_tokens"]) for stage in stages
-        ),
+        "completion_tokens": sum(int(stage["completion_tokens"]) for stage in stages),
     }
 
 
@@ -334,7 +340,7 @@ def main() -> None:
     from story_engine.submission.service import (
         SubmissionService,
         fog_harbor_submission,
-        last_ferry_before_submission,
+        rainy_night_apartment_submission,
     )
 
     interactive_turns = max(
@@ -361,10 +367,10 @@ def main() -> None:
                     max_output_tokens=max_tokens,
                     timeout_seconds=120,
                     reasoning_effort="low",
-                )
+                ),
             )
         SubmissionService(root / "projects").finalize(
-            last_ferry_before_submission()
+            rainy_night_apartment_submission()
             if interactive_turns
             else fog_harbor_submission()
         )
@@ -406,9 +412,7 @@ def main() -> None:
                     )
                 )
                 return
-            max_attempts = max(
-                1, int(os.environ.get("STORY_ENGINE_E2E_ATTEMPTS", "3"))
-            )
+            max_attempts = max(1, int(os.environ.get("STORY_ENGINE_E2E_ATTEMPTS", "3")))
             summary: dict[str, object] | None = None
             for attempt in range(1, max_attempts + 1):
                 status, started = _request(
@@ -474,8 +478,7 @@ def main() -> None:
                                     )
                             step_status, step = _request(
                                 base_url,
-                                f"/projects/{PROJECT_ID}/simulations/"
-                                f"{session_id}/step",
+                                f"/projects/{PROJECT_ID}/simulations/{session_id}/step",
                                 method="POST",
                                 body={
                                     "command_id": f"provider-e2e:{step_number}",
@@ -534,9 +537,7 @@ def main() -> None:
                     "steps": steps,
                     "wiki_status": wiki_status,
                     "wiki_updated_at_step": (
-                        wiki.get("updated_at_step")
-                        if isinstance(wiki, dict)
-                        else None
+                        wiki.get("updated_at_step") if isinstance(wiki, dict) else None
                     ),
                     "stages": _stage_stats(trace, session_id=session_id),
                 }

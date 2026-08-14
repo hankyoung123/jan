@@ -47,11 +47,10 @@ class CheckpointTimelineEntry(RuntimeModel):
 def _is_visible(event: ResolvedEvent, player_actor_id: str) -> bool:
     if event.visibility == EventVisibility.PUBLIC:
         return True
-    if event.visibility == EventVisibility.PARTICIPANTS:
-        return player_actor_id in event.participant_ids
-    if event.visibility == EventVisibility.RESTRICTED:
-        return player_actor_id in event.observer_ids
-    return False
+    return (
+        player_actor_id in event.participant_ids
+        or player_actor_id in event.observer_ids
+    )
 
 
 class PerceptionBuilder:

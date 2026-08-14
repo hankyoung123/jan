@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from story_engine.domain.models import ReviewResult
 from story_engine.submission.service import (
+    SubmissionCharacter,
     SubmissionCharacterProposal,
     SubmissionConversationRequest,
     SubmissionDraft,
@@ -24,6 +25,22 @@ from story_engine.submission.service import (
     apply_submission_delta,
     fog_harbor_submission,
 )
+
+
+def test_player_display_name_defaults_once_and_rejects_pronouns() -> None:
+    base = {
+        "id": "player",
+        "identity": "摄影师",
+        "core_desire": "找回相机",
+        "current_goal": "询问朋友",
+        "known_fact_ids": (),
+        "location": "四楼楼道",
+    }
+
+    assert SubmissionCharacter.model_validate(base).display_name == "周宁"
+    for invalid in ("你", "User", "human", ""):
+        with pytest.raises(ValidationError):
+            SubmissionCharacter.model_validate({**base, "display_name": invalid})
 
 
 def test_fog_harbor_submission_creates_runnable_project_without_outline(
@@ -227,8 +244,9 @@ def test_submission_delta_generates_ids_and_bidirectional_knowledge_locally() ->
     assert reordered.characters[1].known_fact_ids == ()
 
 
-def test_submission_stable_refs_preserve_identity_across_renames_and_reordering(
-) -> None:
+def test_submission_stable_refs_preserve_identity_across_renames_and_reordering() -> (
+    None
+):
     draft = SubmissionDraft.from_package(fog_harbor_submission())
 
     updated = apply_submission_delta(

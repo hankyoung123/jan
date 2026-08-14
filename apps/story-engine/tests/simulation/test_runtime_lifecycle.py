@@ -172,9 +172,7 @@ def test_gm_resolution_context_selects_relevant_secret_truth() -> None:
     assert unrelated_truth not in context.relevant_canonical_facts
     assert len(context.relevant_canonical_facts) <= 8
     assert len(context.relevant_canonical_facts) < len(runtime._canonical_facts)
-    assert set(context.actor_known_facts).issubset(
-        context.relevant_canonical_facts
-    )
+    assert set(context.actor_known_facts).issubset(context.relevant_canonical_facts)
 
 
 def test_resolution_context_does_not_depend_on_wiki(tmp_path) -> None:
@@ -272,6 +270,9 @@ def test_perception_context_is_bounded_to_actor_viewpoint_and_current_scene() ->
             current_time="18:43",
             current_location="港口旅馆",
             scene_text="张野站在漏雨的窗边。",
+            rules=("GM_ONLY_RULE",),
+            active_pressures=("HIDDEN_ACTIVE_PRESSURE",),
+            world_variables={"hidden_plot": "HIDDEN_WORLD_VARIABLE"},
         ),
         pending_scene_events=(*events, hidden_event),
     )
@@ -283,6 +284,9 @@ def test_perception_context_is_bounded_to_actor_viewpoint_and_current_scene() ->
     assert '"location":"旅馆大厅"' in prompt
     assert known.statement in prompt
     assert hidden.statement not in prompt
+    assert "GM_ONLY_RULE" not in prompt
+    assert "HIDDEN_ACTIVE_PRESSURE" not in prompt
+    assert "HIDDEN_WORLD_VARIABLE" not in prompt
     assert "VISIBLE_SCENE_EVENT_0" not in prompt
     assert all(f"VISIBLE_SCENE_EVENT_{index}" in prompt for index in range(1, 5))
     assert "HIDDEN_SCENE_EVENT" not in prompt
@@ -335,9 +339,7 @@ def test_scene_boundary_keeps_ordinary_npc_out_of_active_agent_roster() -> None:
         "actor-3",
     )
     assert runtime.pending_scene_events() == ()
-    assert [
-        (event.stage, event.status) for event in runtime.drain_stage_events()
-    ] == [
+    assert [(event.stage, event.status) for event in runtime.drain_stage_events()] == [
         (SimulationStage.ACTOR_SELECTION, StageStatus.RUNNING),
         (SimulationStage.ACTOR_SELECTION, StageStatus.SUCCEEDED),
     ]
@@ -369,9 +371,7 @@ def test_human_scene_boundary_selects_next_roster_without_promotion() -> None:
     active_actor_names: list[str] = []
     runtime.actors[0].display_name = "Player A"
     runtime.actors[0].observe = lambda _frame: None
-    runtime.game_master = SimpleNamespace(
-        set_active_actor=active_actor_names.append
-    )
+    runtime.game_master = SimpleNamespace(set_active_actor=active_actor_names.append)
     runtime.resolver = SimpleNamespace(
         resolve=lambda *_args, **_kwargs: resolved,
     )
@@ -385,9 +385,9 @@ def test_human_scene_boundary_selects_next_roster_without_promotion() -> None:
     assert result.boundary == SimulationBoundary.SCENE
     assert active_actor_names == ["Player A"]
     assert runtime.roster_actor_ids() == ("actor-0", "actor-1")
-    assert [
-        (event.stage, event.status) for event in runtime.drain_stage_events()
-    ][-2:] == [
+    assert [(event.stage, event.status) for event in runtime.drain_stage_events()][
+        -2:
+    ] == [
         (SimulationStage.ACTOR_SELECTION, StageStatus.RUNNING),
         (SimulationStage.ACTOR_SELECTION, StageStatus.SUCCEEDED),
     ]
@@ -544,9 +544,7 @@ def test_case_07_player_belief_changes_do_not_rewrite_world_truth() -> None:
     world_before = runtime.world_state()
 
     changed = runtime._apply_character_effects(
-        _turn(_event("actor-0")).model_copy(
-            update={"effects": (belief_update,)}
-        )
+        _turn(_event("actor-0")).model_copy(update={"effects": (belief_update,)})
     )
 
     player = next(item for item in runtime.character_states() if item.id == "actor-0")
