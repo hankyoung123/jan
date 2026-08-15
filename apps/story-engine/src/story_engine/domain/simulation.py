@@ -3,14 +3,20 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
 from threading import Event
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import Field, JsonValue, model_validator
 
 from story_engine.domain.action import ActionSpec, EntityRole
 from story_engine.domain.base import Identifier, LocaleCode, RuntimeModel
 from story_engine.domain.memory import MemoryBank
-from story_engine.domain.models import Character, CharacterType, Fact, WorldState
+from story_engine.domain.models import (
+    Character,
+    CharacterType,
+    Fact,
+    WorldClock,
+    WorldState,
+)
 from story_engine.domain.projection import (
     ResolvedEvent,
     ResolvedTurn,
@@ -175,8 +181,6 @@ class ResolverContext(RuntimeModel):
     world_time: str | None = Field(default=None, max_length=1_024)
     world_location: str | None = Field(default=None, max_length=1_024)
     world_rules: tuple[str, ...] = ()
-    world_active_pressures: tuple[str, ...] = ()
-    world_variables: dict[str, JsonValue] = Field(default_factory=dict)
     relevant_canonical_facts: tuple[Fact, ...] = ()
     actor_known_facts: tuple[Fact, ...] = ()
     recent_scene_events: tuple[str, ...] = Field(default=(), max_length=4)
@@ -199,11 +203,52 @@ class ResolverContext(RuntimeModel):
         return self
 
 
+class InitiativeTrigger(RuntimeModel):
+    """Deterministic reason for asking the existing GM for an external event."""
+
+    reason: Literal["due_clock", "due_pressure", "stagnation"]
+    source_id: str | None = Field(default=None, max_length=1_024)
+    description: str = Field(min_length=1, max_length=16_384)
+
+
+class InitiativeContext(RuntimeModel):
+    """Bounded world-only context for the GM's initiative mode."""
+
+    session_id: Identifier
+    branch_id: Identifier
+    step: int = Field(ge=0)
+    content_locale: LocaleCode
+    trigger: InitiativeTrigger
+    existing_characters: tuple[ActorStateContext, ...] = Field(min_length=1)
+    world_time: str | None = Field(default=None, max_length=1_024)
+    world_location: str | None = Field(default=None, max_length=1_024)
+    world_rules: tuple[str, ...] = ()
+    active_pressures: tuple[str, ...] = ()
+    clocks: tuple[WorldClock, ...] = ()
+    world_variables: dict[str, JsonValue] = Field(default_factory=dict)
+    recent_causal_events: tuple[str, ...] = Field(default=(), max_length=4)
+
+    @model_validator(mode="after")
+    def character_ids_are_unique(self) -> "InitiativeContext":
+        ids = tuple(character.id for character in self.existing_characters)
+        if len(ids) != len(set(ids)):
+            raise ValueError("existing character IDs must be unique")
+        return self
+
+
 class ResolverKernel(Protocol):
     def resolve(
         self,
         game_master: GameMasterActor,
         context: ResolverContext,
+        *,
+        cancellation: Event,
+    ) -> ResolvedTurn: ...
+
+    def resolve_initiative(
+        self,
+        game_master: GameMasterActor,
+        context: InitiativeContext,
         *,
         cancellation: Event,
     ) -> ResolvedTurn: ...
@@ -320,6 +365,9 @@ class TurnSessionSnapshot(RuntimeModel):
     roster_actor_ids: tuple[Identifier, ...] = Field(default=(), max_length=4)
     characters: tuple[Character, ...] = ()
     pending_scene_events: tuple[ResolvedEvent, ...] = ()
+    turns_without_material_world_change: int = Field(default=0, ge=0)
+    turns_since_last_initiative: int = Field(default=2, ge=0)
+    handled_clock_ids: tuple[Identifier, ...] = ()
     current_step: int = Field(ge=0)
     completed_scenes: int = Field(default=0, ge=0)
     active_actor_id: Identifier | None = None

@@ -9,6 +9,7 @@ from pydantic import JsonValue
 
 from story_engine.domain.projection import SimulationBoundary
 from story_engine.domain.simulation import (
+    InitiativeTrigger,
     StepResult,
     TurnSessionSnapshot,
     TurnSessionStatus,
@@ -112,6 +113,7 @@ class SimulationCommandService:
         human_intent: str | None = None,
         eligible_actor_ids: tuple[str, ...] | None = None,
         deferred_boundary: SimulationBoundary = SimulationBoundary.NONE,
+        initiative_trigger: InitiativeTrigger | None = None,
     ) -> StepResult:
         with self._run_lock:
             if self._shutting_down:
@@ -122,13 +124,20 @@ class SimulationCommandService:
             if running is not None and running.is_alive():
                 raise InvalidSessionTransitionError("session is already running")
         try:
-            result = self.engine.advance_one_step(
-                session_id,
-                cancellation=cancellation,
-                human_intent=human_intent,
-                eligible_actor_ids=eligible_actor_ids,
-                deferred_boundary=deferred_boundary,
-            )
+            if initiative_trigger is None:
+                result = self.engine.advance_one_step(
+                    session_id,
+                    cancellation=cancellation,
+                    human_intent=human_intent,
+                    eligible_actor_ids=eligible_actor_ids,
+                    deferred_boundary=deferred_boundary,
+                )
+            else:
+                result = self.engine.advance_world_initiative(
+                    session_id,
+                    trigger=initiative_trigger,
+                    cancellation=cancellation,
+                )
         except Exception as error:
             snapshot = self.engine.get(session_id)
             if snapshot.status == TurnSessionStatus.FAILED:
@@ -256,6 +265,10 @@ class SimulationCommandService:
         return f"{interactive_command_id}:npc"
 
     @staticmethod
+    def _initiative_command_id(interactive_command_id: str) -> str:
+        return f"{interactive_command_id}:initiative"
+
+    @staticmethod
     def _reserved_npc_actor_ids(
         snapshot: TurnSessionSnapshot,
         player_result: StepResult,
@@ -278,6 +291,7 @@ class SimulationCommandService:
         human_intent: str | None = None,
         eligible_actor_ids: tuple[str, ...] | None = None,
         deferred_boundary: SimulationBoundary = SimulationBoundary.NONE,
+        initiative_trigger: InitiativeTrigger | None = None,
     ) -> StepResult:
         receipt = self._commands.receipt_commit(
             command_id=command_id,
@@ -297,6 +311,7 @@ class SimulationCommandService:
                 human_intent=human_intent,
                 eligible_actor_ids=eligible_actor_ids,
                 deferred_boundary=deferred_boundary,
+                initiative_trigger=initiative_trigger,
             ),
             record_receipt=not self.persistence.configured,
         )
@@ -450,9 +465,42 @@ class SimulationCommandService:
             player_result,
             command_id=npc_command_id,
         )
-        if npc_result is None:
-            return player_result
-        return self._combine_interactive_turn_results(player_result, npc_result)
+        combined = (
+            player_result
+            if npc_result is None
+            else self._combine_interactive_turn_results(player_result, npc_result)
+        )
+        latest = npc_result or player_result
+        if latest.checkpoint_id is None or not self.persistence.configured:
+            latest_snapshot = self.engine.get(session_id)
+        else:
+            latest_snapshot = self.persistence.kernel(
+                starting.project_id
+            ).load_checkpoint(starting.project_id, latest.checkpoint_id)
+        trigger = self.engine.world_initiative_trigger(
+            session_id,
+            pending_response_actor_ids=latest.follow_up_actor_ids,
+        )
+        if trigger is None or latest_snapshot.status in {
+            TurnSessionStatus.TERMINATED,
+            TurnSessionStatus.CANCELLED,
+            TurnSessionStatus.FAILED,
+        }:
+            return combined
+        try:
+            initiative_result = self._interactive_step(
+                session_id,
+                command_id=self._initiative_command_id(command_id),
+                operation=(
+                    f"world_initiative:{trigger.reason}:{trigger.source_id or '-'}"
+                ),
+                expected_state_hash=latest_snapshot.state_hash,
+                initiative_trigger=trigger,
+            )
+        except Exception:
+            self._recover_interactive_step(session_id, latest_snapshot)
+            raise
+        return self._combine_interactive_turn_results(combined, initiative_result)
 
     def run(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:
         if self.engine.get(session_id).status != TurnSessionStatus.RUNNING:
@@ -469,6 +517,16 @@ class SimulationCommandService:
             _, committed_snapshot = self._commit_and_project_step(result)
             if committed_snapshot.status != TurnSessionStatus.RUNNING:
                 return committed_snapshot
+            trigger = self.engine.world_initiative_trigger(session_id)
+            if trigger is not None:
+                initiative = self.engine.advance_world_initiative(
+                    session_id,
+                    trigger=trigger,
+                    cancellation=cancellation,
+                )
+                _, committed_snapshot = self._commit_and_project_step(initiative)
+                if committed_snapshot.status != TurnSessionStatus.RUNNING:
+                    return committed_snapshot
 
     def run_in_background(
         self,

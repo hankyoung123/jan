@@ -96,11 +96,13 @@ class Character(DomainModel):
     resources: tuple[str, ...] = ()
     version: int = Field(default=0, ge=0)
 
-    @model_validator(mode="after")
-    def active_character_has_goal(self) -> Self:
-        if self.type == "active" and not self.current_goal:
-            raise ValueError("active character requires a current goal")
-        return self
+
+class WorldClock(DomainModel):
+    """A world-owned deadline that may deterministically trigger initiative."""
+
+    id: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    due_at: str = Field(min_length=1)
 
 
 class WorldState(DomainModel):
@@ -109,9 +111,17 @@ class WorldState(DomainModel):
     scene_text: str = ""
     rules: tuple[str, ...] = ()
     active_pressures: tuple[str, ...] = ()
+    clocks: tuple[WorldClock, ...] = ()
     public_fact_ids: tuple[str, ...] = ()
     world_variables: dict[str, JsonScalar] = Field(default_factory=dict)
     version: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def clock_ids_are_unique(self) -> Self:
+        clock_ids = tuple(clock.id for clock in self.clocks)
+        if len(clock_ids) != len(set(clock_ids)):
+            raise ValueError("world clock IDs must be unique")
+        return self
 
 
 class ReviewIssue(DomainModel):

@@ -4,15 +4,16 @@ from pydantic import ValidationError
 from story_engine.domain.models import Character, InitialFact
 
 
-def test_active_character_requires_current_goal() -> None:
-    with pytest.raises(ValidationError, match="active character requires"):
-        Character(
-            id="chen-mo",
-            type="active",
-            identity="机械工程师",
-            core_desire="查明父亲失踪的真相",
-            current_goal=None,
-        )
+def test_active_character_may_have_no_current_goal() -> None:
+    character = Character(
+        id="chen-mo",
+        type="active",
+        identity="机械工程师",
+        core_desire="查明父亲失踪的真相",
+        current_goal=None,
+    )
+
+    assert character.current_goal is None
 
 
 def test_npc_may_exist_without_current_goal() -> None:

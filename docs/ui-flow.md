@@ -15,7 +15,9 @@ chat client.
           ↓
     World / Actor / Memory update
           ↓
-    Time advances + relevant NPC response
+    Relevant NPC response (when assigned)
+          ↓
+    Deterministic World Initiative check
           ↓
     New Perception
 

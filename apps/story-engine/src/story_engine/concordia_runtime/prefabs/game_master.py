@@ -60,7 +60,6 @@ class BoundedMakeObservation(gm_components.make_observation.MakeObservation):  #
                         f"What can {active_entity_name} perceive right now? "
                         "Return only currently perceivable information."
                     ),
-                    max_tokens=1200,
                     terminators=(),
                 ),
             )
@@ -81,21 +80,36 @@ def _resolve_story_event(
     active_player_name: str,
 ) -> str:
     del premise
+    view = getattr(document, "view", None)
+    context_text = ""
+    if callable(view):
+        rendered = view()
+        context_text = str(getattr(rendered, "text", lambda: "")())
+    if "World Initiative Mode:" in context_text:
+        question = (
+            "Produce one concrete external world change caused by the stated "
+            "Clock, Pressure, or stagnation trigger. Use only committed World "
+            "state and recent causal events. Do not decide any Actor's beliefs, "
+            "goal, intent, voluntary dialogue, or voluntary action. Commit only "
+            "what objectively happens now; do not optimize for drama or pacing."
+        )
+    else:
+        question = (
+            "1. Actor input is intent, never committed fact.\n"
+            "2. Resolve from committed world state, ability, condition, "
+            "resources and opportunity.\n"
+            "3. Never invent hidden facts, decisive evidence or resources.\n"
+            "4. Never decide voluntary behavior for another Actor.\n"
+            "5. Resolve only the first meaningful uncertainty of compound "
+            "actions.\n"
+            "6. Commit only what actually happened and its causal consequences.\n\n"
+            f"Resolve only {active_player_name}'s own first attempt. Stop when "
+            "another Actor's voluntary response would be required."
+        )
     return cast(
         str,
         document.open_question(
-            question=(
-                "1. Actor input is intent, never committed fact.\n"
-                "2. Resolve from committed world state, ability, condition, "
-                "resources and opportunity.\n"
-                "3. Never invent hidden facts, decisive evidence or resources.\n"
-                "4. Never decide voluntary behavior for another Actor.\n"
-                "5. Resolve only the first meaningful uncertainty of compound "
-                "actions.\n"
-                "6. Commit only what actually happened and its causal consequences.\n\n"
-                f"Resolve only {active_player_name}'s own first attempt. Stop when "
-                "another Actor's voluntary response would be required."
-            ),
+            question=question,
             terminators=(),
         ),
     )

@@ -15,6 +15,7 @@ from story_engine.domain.projection import (
     SimulationBoundary,
 )
 from story_engine.domain.simulation import (
+    InitiativeTrigger,
     StepResult,
     TurnSessionRequest,
     TurnSessionStatus,
@@ -224,6 +225,81 @@ class SceneBoundaryInteractiveRuntime(InteractiveRuntime):
                 ),
             }
         )
+
+
+class InitiativeInteractiveRuntime(InteractiveRuntime):
+    def __init__(
+        self,
+        session_id: str,
+        request: TurnSessionRequest,
+        calls: list[str],
+    ) -> None:
+        super().__init__(session_id, request)
+        self.calls = calls
+        self.initiative_committed = False
+
+    def execute_human_turn(self, step, *, text, cancellation):
+        self.calls.append("player")
+        return super().execute_human_turn(
+            step,
+            text=text,
+            cancellation=cancellation,
+        )
+
+    def execute_step(self, step, *, cancellation, eligible_actor_ids=None):
+        self.calls.append("npc")
+        return super().execute_step(
+            step,
+            cancellation=cancellation,
+            eligible_actor_ids=eligible_actor_ids,
+        )
+
+    def world_initiative_trigger(self, *, pending_response_actor_ids=()):
+        if pending_response_actor_ids or self.initiative_committed:
+            return None
+        return InitiativeTrigger(
+            reason="due_pressure",
+            source_id="pressure:0",
+            description="The harbor siren sounds.",
+        )
+
+    def execute_world_initiative(self, step, *, trigger, cancellation):
+        assert trigger.reason == "due_pressure"
+        assert not cancellation.is_set()
+        self.calls.append("initiative")
+        event = ResolvedEvent(
+            event_id=f"event:{self.session_id}:{step}",
+            session_id=self.session_id,
+            step=step,
+            event_text="港口警报突然响起。",
+            visibility=EventVisibility.PUBLIC,
+            content_locale="zh-CN",
+            occurred_at=datetime.now(UTC),
+        )
+        return StepResult(
+            session_id=self.session_id,
+            branch_id=self.branch_id,
+            step=step,
+            acting_actor_id=None,
+            action_spec=None,
+            action_text=None,
+            resolved_turn=ResolvedTurn(
+                session_id=self.session_id,
+                branch_id=self.branch_id,
+                step=step,
+                raw_resolution_text=event.event_text,
+                events=(event,),
+                content_locale="zh-CN",
+            ),
+            status=TurnSessionStatus.RUNNING,
+        )
+
+    def record_committed_step(self, result):
+        if result.acting_actor_id is None:
+            self.initiative_committed = True
+
+    def initiative_state(self):
+        return (0, 0 if self.initiative_committed else 2, ())
 
 
 def test_get_session_does_not_create_default_world_or_checkpoint(tmp_path) -> None:
@@ -496,6 +572,37 @@ def test_three_interactive_turns_use_distinct_npc_command_receipts(tmp_path) -> 
             command_id=f"interactive:turn-{turn}:npc",
         )
         assert receipt is not None
+
+
+def test_world_initiative_runs_only_after_reserved_npc_response(tmp_path) -> None:
+    calls: list[str] = []
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=lambda session_id, request: (
+            InitiativeInteractiveRuntime(session_id, request, calls)
+        ),  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/projects/rainy-night-apartment/simulation/turn",
+            headers=AUTH,
+            json={
+                "text": "我询问张野。",
+                "command_id": "interactive:initiative-order",
+            },
+        )
+
+    assert response.status_code == 200
+    assert calls == ["player", "npc", "initiative"]
+    assert response.json()["step"] == 3
+    receipt = CommandReceiptStore(
+        tmp_path / "rainy-night-apartment"
+    ).load(
+        session_id=response.json()["session_id"],
+        command_id="interactive:initiative-order:initiative",
+    )
+    assert receipt is not None
 
 
 def test_cases_06_and_10_npc_intent_is_resolved_and_can_act_autonomously(

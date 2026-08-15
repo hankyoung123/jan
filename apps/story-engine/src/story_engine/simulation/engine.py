@@ -2,11 +2,13 @@ import time
 import uuid
 from collections.abc import Callable
 from threading import Event, RLock
+from typing import cast
 
 from story_engine.concordia_runtime.resolver import SimulationCancelledError
 from story_engine.domain.memory import MemoryRecord
 from story_engine.domain.projection import SimulationBoundary
 from story_engine.domain.simulation import (
+    InitiativeTrigger,
     PendingControl,
     StepResult,
     TurnSessionRequest,
@@ -325,6 +327,11 @@ class StoryTurnEngine:
                     session.session_id,
                 )
             raise
+        record_committed_step = getattr(
+            session.runtime, "record_committed_step", None
+        )
+        if record_committed_step is not None:
+            record_committed_step(result)
         with session.lock:
             if cancellation.is_set() or session.status == TurnSessionStatus.CANCELLED:
                 if session.status != TurnSessionStatus.CANCELLED:
@@ -378,6 +385,68 @@ class StoryTurnEngine:
                 )
             session.touch()
             return result.model_copy(update={"status": session.status})
+
+    def world_initiative_trigger(
+        self,
+        session_id: str,
+        *,
+        pending_response_actor_ids: tuple[str, ...] = (),
+    ) -> InitiativeTrigger | None:
+        session = self._get(session_id)
+        trigger = getattr(session.runtime, "world_initiative_trigger", None)
+        if trigger is None:
+            return None
+        return cast(
+            InitiativeTrigger | None,
+            trigger(pending_response_actor_ids=pending_response_actor_ids),
+        )
+
+    def advance_world_initiative(
+        self,
+        session_id: str,
+        *,
+        trigger: InitiativeTrigger,
+        cancellation: Event,
+    ) -> StepResult:
+        session = self._get(session_id)
+        with session.lock:
+            self._ensure_can_advance(session)
+            if session.status != TurnSessionStatus.RUNNING:
+                session.status = TurnSessionStatus.RUNNING
+                session.pending_control = PendingControl.NONE
+            session.touch()
+        execute = getattr(session.runtime, "execute_world_initiative", None)
+        if execute is None:
+            raise InvalidSessionTransitionError(
+                "simulation runtime does not support world initiative"
+            )
+        try:
+            result = execute(
+                session.current_step,
+                trigger=trigger,
+                cancellation=cancellation,
+            )
+        except Exception as error:
+            with session.lock:
+                session.status = TurnSessionStatus.FAILED
+                session.termination_reason_text = str(error)
+                session.touch()
+            raise
+        record_committed_step = getattr(
+            session.runtime, "record_committed_step", None
+        )
+        if record_committed_step is not None:
+            record_committed_step(result)
+        with session.lock:
+            session.current_step += 1
+            session.raw_log_offset += 1
+            if result.boundary != SimulationBoundary.NONE:
+                session.completed_scenes += 1
+            session.touch()
+            return cast(
+                StepResult,
+                result.model_copy(update={"status": session.status}),
+            )
 
     def restore_to_checkpoint(
         self,

@@ -56,7 +56,7 @@ def default_registry() -> RegistryState:
             agent_type="wiki_maintainer",
             default_system_prompt="只整理有来源支持的持久知识, 不创造新事实。",
             temperature=0.1,
-            max_output_tokens=4096,
+            max_output_tokens=None,
             timeout_seconds=120,
         ),
         AgentProfile(
@@ -80,7 +80,7 @@ def default_registry() -> RegistryState:
                 "协助整理可运行的故事设定, 保持事实与角色知识边界一致。"
             ),
             temperature=0.2,
-            max_output_tokens=4096,
+            max_output_tokens=None,
             timeout_seconds=120,
         ),
     )

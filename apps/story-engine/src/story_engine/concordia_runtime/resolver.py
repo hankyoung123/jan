@@ -4,8 +4,9 @@ import re
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from threading import Event
+from typing import Any, cast
 
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from story_engine.concordia_runtime.memory import ConcordiaMemoryCodec
 from story_engine.domain.action import ActionOutputType, ActionSpec
@@ -24,6 +25,7 @@ from story_engine.domain.projection import (
 from story_engine.domain.simulation import (
     ActorStateContext,
     GameMasterActor,
+    InitiativeContext,
     ResolverContext,
 )
 
@@ -82,15 +84,6 @@ class ConcordiaResolverKernel:
         if context.world_rules:
             lines.append("- World rules:")
             lines.extend(f"  - {rule}" for rule in context.world_rules)
-        if context.world_active_pressures:
-            lines.append("- Active pressures:")
-            lines.extend(f"  - {item}" for item in context.world_active_pressures)
-        if context.world_variables:
-            lines.append("- World variables:")
-            lines.extend(
-                f"  - {key}: {value}"
-                for key, value in sorted(context.world_variables.items())
-            )
         return "Current World State:\n" + "\n".join(lines)
 
     @classmethod
@@ -114,12 +107,61 @@ class ConcordiaResolverKernel:
         )
         return "\n\n".join(
             (
+                f"Current Actor Intent:\n{context.putative_event_text}",
                 cls._world_state_prompt(context),
                 (f"Relevant Canonical Truth (GM-only; not Actor knowledge):\n{truth}"),
                 (f"Acting Actor Known Information:\n{known}"),
                 f"Recent Current-Scene Events:\n{recent}",
             )
         )
+
+    @staticmethod
+    def _initiative_characters_prompt(context: InitiativeContext) -> str:
+        return "\n".join(
+            (
+                "Character locations relevant to external world change:",
+                *(
+                    f"- {character.display_name}: "
+                    f"{character.location or 'unknown'}"
+                    for character in context.existing_characters
+                ),
+            )
+        )
+
+    @staticmethod
+    def _initiative_context_prompt(context: InitiativeContext) -> str:
+        lines = [
+            "World Initiative Mode:",
+            f"- Trigger: {context.trigger.reason}",
+            f"- Trigger detail: {context.trigger.description}",
+            f"- Current time: {context.world_time or 'unknown'}",
+            f"- Current location: {context.world_location or 'unknown'}",
+        ]
+        if context.world_rules:
+            lines.append("- World rules:")
+            lines.extend(f"  - {rule}" for rule in context.world_rules)
+        if context.active_pressures:
+            lines.append("- Active pressures:")
+            lines.extend(f"  - {pressure}" for pressure in context.active_pressures)
+        if context.clocks:
+            lines.append("- Clocks:")
+            lines.extend(
+                f"  - [{clock.id}] due {clock.due_at}: {clock.description}"
+                for clock in context.clocks
+            )
+        if context.world_variables:
+            lines.append("- Relevant world variables:")
+            lines.extend(
+                f"  - {key}: {value}"
+                for key, value in sorted(context.world_variables.items())
+            )
+        lines.append("Recent causal events:")
+        lines.extend(
+            f"  - {event}" for event in context.recent_causal_events
+        )
+        if not context.recent_causal_events:
+            lines.append("  - None recorded.")
+        return "\n".join(lines)
 
     @staticmethod
     def _acting_character(context: ResolverContext) -> ActorStateContext:
@@ -333,15 +375,6 @@ class ConcordiaResolverKernel:
                     field_name="state update target",
                 )
                 target_id = target_ids[0]
-                if (
-                    update.path in {"beliefs", "current_goal"}
-                    and target_id != context.acting_actor_id
-                ):
-                    raise ResolutionEnvelopeError(
-                        "Game Master cannot set another Actor's beliefs or "
-                        "current_goal; voluntary NPC behavior must originate "
-                        "from that NPC Actor"
-                    )
             effects.append(
                 StateEffect(
                     effect_id=(
@@ -351,7 +384,7 @@ class ConcordiaResolverKernel:
                     target=update.target,
                     target_id=target_id,
                     path=update.path,
-                    after=update.value,
+                    after=cast(JsonValue, update.value),
                     reason_text=envelope.event_text,
                 )
             )
@@ -373,12 +406,13 @@ class ConcordiaResolverKernel:
         )
         return event_text, envelope.boundary, (event,), tuple(effects)
 
-    def resolve(
+    def _resolve(
         self,
         game_master: GameMasterActor,
         context: ResolverContext,
         *,
         cancellation: Event,
+        initiative_context: InitiativeContext | None = None,
     ) -> ResolvedTurn:
         if cancellation.is_set():
             raise SimulationCancelledError("simulation was cancelled")
@@ -397,55 +431,88 @@ class ConcordiaResolverKernel:
             actor_ids=(context.acting_actor_id,),
             tags=("putative_event",),
         )
-        game_master.observe(
-            self._memory_codec.encode(
-                putative,
-                actor_label=self._acting_character(context).display_name,
-            )
+        initial_state = game_master.get_state()
+        memory = getattr(game_master, "memory", None)
+        initial_memory = (
+            tuple(memory.records())
+            if memory is not None
+            and callable(getattr(memory, "records", None))
+            and callable(getattr(memory, "replace", None))
+            else None
         )
-        game_master.set_resolution_character_registry(
-            self._existing_characters_prompt(context)
-        )
-        setter = getattr(game_master, "set_resolution_context", None)
-        if setter is None:
-            game_master.set_resolution_world_state(
-                self._resolution_context_prompt(context)
-            )
-        else:
-            setter(self._resolution_context_prompt(context))
-        raw = game_master.act(
-            ActionSpec(
-                spec_id=f"resolve:{context.session_id}:{context.step}",
-                output_type=ActionOutputType.RESOLVE,
-                call_to_action="Resolve this intent.",
-                tag="resolve",
-                content_locale=context.content_locale,
-            )
-        )
-        if cancellation.is_set():
-            raise SimulationCancelledError("simulation was cancelled")
-        event_text, boundary, events, effects = self._resolution_envelope(raw, context)
-        if boundary is None:
-            boundary = SimulationBoundary(
-                game_master.act(
-                    ActionSpec(
-                        spec_id=f"boundary:{context.session_id}:{context.step}",
-                        output_type=ActionOutputType.CHOICE,
-                        call_to_action=(
-                            "Classify the boundary created by this resolved event. "
-                            "Choose chapter only for a completed chapter arc, "
-                            "scene for "
-                            "a natural scene transition, otherwise none."
-                        ),
-                        options=("none", "scene", "chapter"),
-                        option_ids=("none", "scene", "chapter"),
-                        tag="simulation_boundary",
-                        content_locale=context.content_locale,
-                    )
+        try:
+            # Concordia discovers the current proposal through GM memory. Keep
+            # this provisional until parsing and authority validation succeed.
+            game_master.observe(
+                self._memory_codec.encode(
+                    putative,
+                    actor_label=self._acting_character(context).display_name,
                 )
-                .strip()
-                .casefold()
             )
+            registry_text = (
+                self._existing_characters_prompt(context)
+                if initiative_context is None
+                else self._initiative_characters_prompt(initiative_context)
+            )
+            context_text = (
+                self._resolution_context_prompt(context)
+                if initiative_context is None
+                else self._initiative_context_prompt(initiative_context)
+            )
+            game_master.set_resolution_character_registry(registry_text)
+            setter = getattr(game_master, "set_resolution_context", None)
+            if setter is None:
+                game_master.set_resolution_world_state(context_text)
+            else:
+                setter(context_text)
+            raw = game_master.act(
+                ActionSpec(
+                    spec_id=f"resolve:{context.session_id}:{context.step}",
+                    output_type=ActionOutputType.RESOLVE,
+                    call_to_action=(
+                        "Resolve this intent."
+                        if initiative_context is None
+                        else (
+                            "Create one concrete external world change caused by "
+                            "the trigger. Do not decide any character's thoughts, "
+                            "goals, intentions, dialogue, or voluntary action."
+                        )
+                    ),
+                    tag="resolve",
+                    content_locale=context.content_locale,
+                )
+            )
+            if cancellation.is_set():
+                raise SimulationCancelledError("simulation was cancelled")
+            event_text, boundary, events, effects = self._resolution_envelope(
+                raw, context
+            )
+            if boundary is None:
+                boundary = SimulationBoundary(
+                    game_master.act(
+                        ActionSpec(
+                            spec_id=f"boundary:{context.session_id}:{context.step}",
+                            output_type=ActionOutputType.CHOICE,
+                            call_to_action=(
+                                "Classify the boundary created by this resolved "
+                                "event. Choose chapter only for a completed "
+                                "chapter arc, scene for a natural scene transition, "
+                                "otherwise none."
+                            ),
+                            options=("none", "scene", "chapter"),
+                            option_ids=("none", "scene", "chapter"),
+                            tag="simulation_boundary",
+                            content_locale=context.content_locale,
+                        )
+                    )
+                    .strip()
+                    .casefold()
+                )
+        except Exception:
+            game_master.set_state(initial_state)
+            if initial_memory is not None:
+                cast(Any, memory).replace(initial_memory)
+            raise
 
         event = MemoryRecord(
             record_id=f"event:{context.session_id}:{context.step}",
@@ -458,23 +525,75 @@ class ConcordiaResolverKernel:
             text=event_text,
             content_locale=context.content_locale,
             created_at=datetime.now().astimezone(),
-            actor_ids=(context.acting_actor_id,),
+            actor_ids=(
+                (context.acting_actor_id,) if initiative_context is None else ()
+            ),
             source_record_ids=(putative.record_id,),
             tags=("event",),
         )
         game_master.observe(self._memory_codec.encode(event))
 
+        if initiative_context is not None:
+            events = tuple(
+                event.model_copy(
+                    update={"actor_id": None, "source_intent_ids": ()}
+                )
+                for event in events
+            )
         if self._projector is not None:
             return self._projector(event_text, context)
         return ResolvedTurn(
             session_id=context.session_id,
             branch_id=context.branch_id,
             step=context.step,
-            acting_actor_id=context.acting_actor_id,
-            putative_event_text=context.putative_event_text,
+            acting_actor_id=(
+                context.acting_actor_id if initiative_context is None else None
+            ),
+            putative_event_text=(
+                context.putative_event_text if initiative_context is None else None
+            ),
             raw_resolution_text=event_text,
             events=events,
             effects=effects,
             content_locale=context.content_locale,
             boundary=boundary,
+        )
+
+    def resolve(
+        self,
+        game_master: GameMasterActor,
+        context: ResolverContext,
+        *,
+        cancellation: Event,
+    ) -> ResolvedTurn:
+        return self._resolve(game_master, context, cancellation=cancellation)
+
+    def resolve_initiative(
+        self,
+        game_master: GameMasterActor,
+        context: InitiativeContext,
+        *,
+        cancellation: Event,
+    ) -> ResolvedTurn:
+        acting_actor_id = context.existing_characters[0].id
+        surrogate = ResolverContext(
+            session_id=context.session_id,
+            branch_id=context.branch_id,
+            step=context.step,
+            acting_actor_id=acting_actor_id,
+            putative_event_text=(
+                "World initiative trigger: " + context.trigger.description
+            ),
+            content_locale=context.content_locale,
+            existing_characters=context.existing_characters,
+            world_time=context.world_time,
+            world_location=context.world_location,
+            world_rules=context.world_rules,
+            recent_scene_events=context.recent_causal_events,
+        )
+        return self._resolve(
+            game_master,
+            surrogate,
+            cancellation=cancellation,
+            initiative_context=context,
         )

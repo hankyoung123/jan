@@ -51,7 +51,7 @@ class AgentProfile(DomainModel):
         pattern=r"^[^/\s]+/.+$",
     )
     max_output_tokens: int | None = Field(
-        default=2048,
+        default=None,
         ge=1,
         le=MAX_MODEL_OUTPUT_TOKENS,
     )

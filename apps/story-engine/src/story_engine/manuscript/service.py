@@ -202,8 +202,8 @@ class GatewayManuscriptAgent:
                 output_schema=json.dumps(
                     SourceSelectionResult.model_json_schema(), ensure_ascii=False
                 ),
-                max_output_tokens=min(profile.max_output_tokens or 512, 512),
-                output_token_limit="profile",
+                max_output_tokens=None,
+                output_token_limit="provider",
                 timeout_seconds=profile.timeout_seconds,
                 temperature=profile.temperature,
                 reasoning_effort=profile.reasoning_effort,

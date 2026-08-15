@@ -7,7 +7,7 @@ retained implementation disagrees with it.
 
 ## Product protocol
 
-The product exposes six concepts:
+The product exposes one event protocol with two Game Master entry modes:
 
     World -> Perception -> Intent -> Resolution -> ResolvedEvent
        ^                                                |
@@ -25,6 +25,10 @@ The product exposes six concepts:
 Only a validated **ResolvedEvent** may commit a world consequence. Input,
 actor output, intent, narrative text, belief, perception, and model reasoning
 cannot directly mutate World Truth.
+
+World-owned Clock/Pressure triggers may enter the same Game Master through
+Initiative Mode and also produce a ResolvedEvent. This is not a second Agent,
+engine, history, or workflow.
 
 ## Runtime ownership
 
@@ -49,9 +53,10 @@ protocols remain outside project files and domain objects.
 ## Resolution and effects
 
 Human and NPC actions enter the same putative-action path. The Game Master
-receives one bounded `ResolverContext` containing Current World State, Relevant
-Canonical Truth, Actor State, Actor Knowledge, Recent ResolvedEvents, Current
-Intent, and Wiki Context. Resolution keeps three distinct views: what the World
+receives one bounded `ResolverContext` containing Current Intent, affected
+Actor State, relevant World facts, and a small recent causal window. It excludes
+pressures, clocks, full world-variable dumps, and plot-pacing instructions.
+Resolution keeps three distinct views: what the World
 knows, what the acting Actor knows, and what that Actor merely believes.
 
 Relevant Canonical Truth is selected deterministically from the immutable Fact
@@ -65,15 +70,18 @@ player-visible output.
 immediately before action and Resolution, and is rebuilt from the checkpoint
 after restore. It is context, not a second mutable state store. The Game Master
 receives this projection directly; Wiki and retrieval are not on the
-authoritative Resolution path. A bounded Wiki excerpt may be supplied in
-`ResolverContext` as optional, non-authoritative background. Resolution remains
-valid when Wiki is empty, missing, stale, or malformed.
+authoritative Resolution path and are not fields of `ResolverContext`.
+Resolution remains valid when Wiki is empty, missing, stale, or malformed.
 
 Structured effects are deliberately narrow. They may update only store-owned
 World or Actor state after validation. A resource effect must transfer or
 consume an established resource; it cannot materialize a weapon, key,
 capability, or decisive clue from actor text. A belief update never changes the
 corresponding World fact.
+GM-authored state updates cannot target `beliefs` or `current_goal`, including
+for the currently acting Actor. Those fields, Intent, voluntary dialogue, and
+voluntary action remain Actor-owned. An active Character may temporarily have
+no `current_goal`; its required `core_desire` remains persistent.
 When the player explicitly states “我认为……” (or an equivalent belief), the
 runtime records the belief as a deterministic, source-linked Actor state effect
 in the same committed turn. It does not alter the corresponding World Truth.
@@ -112,11 +120,26 @@ the checkpoint and event/trace record before atomically advancing that head.
 Failed or cancelled model calls cannot advance it. One live state-mutating
 session is allowed per project branch.
 
-An interactive UI turn uses two independently idempotent commands: the player
-step commits first, then an eligible NPC step commits if one is scheduled. Each
+An interactive UI turn uses independently idempotent commands: the player step
+commits first, then an eligible NPC step commits if one is scheduled, then a
+World Initiative step may commit if deterministically triggered. Each
 successful child command has its own receipt and checkpoint. The API may merge
 their visible events for display, but never persists that merged response as a
 third history record.
+
+## Game Master initiative mode
+
+One Game Master has two modes. Resolution Mode adjudicates an Actor Intent and
+does not receive plot-pacing state. Initiative Mode receives pressures, clocks,
+relevant World state, and recent causal events, and asks only what external
+change happens now. It cannot decide Actor cognition or voluntary behavior.
+
+The deterministic trigger priority is due Clock, due Pressure, then stagnation
+after roughly three committed Actor turns without material World change. A
+pending NPC response blocks Initiative. A two-turn cooldown prevents immediate
+repetition. Code decides whether to call the GM; it does not score excitement,
+tension, or boredom. Successful Initiative output follows the normal candidate
+validation and atomic ResolvedEvent commit path.
 
 Wiki, Narrative, UI Scene, Summary, and Manuscript are projections. They may
 be rebuilt, edited under their own workflow, or fail independently without

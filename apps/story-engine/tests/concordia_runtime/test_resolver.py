@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from threading import Event
 
 import pytest
+from pydantic import ValidationError
 
 from story_engine.concordia_runtime.factory import (
     ConcordiaActorFactory,
@@ -20,9 +21,14 @@ from story_engine.concordia_runtime.resolver import (
     SimulationCancelledError,
 )
 from story_engine.domain.memory import MemoryRecordType, MemoryScope
-from story_engine.domain.models import Fact
+from story_engine.domain.models import Fact, WorldClock
 from story_engine.domain.projection import ResolutionEnvelope, ResolvedTurn
-from story_engine.domain.simulation import ActorStateContext, ResolverContext
+from story_engine.domain.simulation import (
+    ActorStateContext,
+    InitiativeContext,
+    InitiativeTrigger,
+    ResolverContext,
+)
 
 
 def _character_ref(
@@ -320,6 +326,64 @@ def test_resolution_schema_keeps_npc_identity_semantic() -> None:
     assert "target_id" not in state_update["properties"]
 
 
+@pytest.mark.parametrize("path", ("beliefs", "current_goal"))
+@pytest.mark.parametrize("target_name", ("actor-a", "actor-b"))
+def test_gm_contract_cannot_modify_actor_cognition(
+    path: str,
+    target_name: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        ResolutionEnvelope.model_validate(
+            {
+                "event_text": "The room remains quiet.",
+                "boundary": "none",
+                "visibility": "participants",
+                "state_updates": [
+                    {
+                        "target": "character_projection",
+                        "target_name": target_name,
+                        "path": path,
+                        "value": "A GM-authored thought",
+                    }
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    (
+        ("conditions", "injured"),
+        ("resources", ["key", "key"]),
+        ("location", ["hall"]),
+        ("current_time", None),
+    ),
+)
+def test_invalid_state_update_value_fails_during_contract_parse(
+    path: str,
+    value: object,
+) -> None:
+    target = (
+        "world_projection" if path == "current_time" else "character_projection"
+    )
+    with pytest.raises(ValidationError):
+        ResolutionEnvelope.model_validate(
+            {
+                "event_text": "State changes.",
+                "boundary": "none",
+                "visibility": "participants",
+                "state_updates": [
+                    {
+                        "target": target,
+                        "target_name": None if target == "world_projection" else "A",
+                        "path": path,
+                        "value": value,
+                    }
+                ],
+            }
+        )
+
+
 def test_resolver_separates_putative_action_from_world_event() -> None:
     actor, gm, gm_memory = _runtime()
     selected = gm.select_next_actor((actor,), session_id="session-1", step=0)  # type: ignore[attr-defined]
@@ -459,6 +523,28 @@ def test_resolution_instruction_has_only_the_six_semantic_rules() -> None:
     assert "event_text" not in document.question
     assert "participant_names" not in document.question
     assert '{"target"' not in document.question
+
+
+def test_initiative_instruction_cannot_author_actor_behavior() -> None:
+    class InitiativeDocument:
+        def view(self):
+            return type(
+                "Rendered",
+                (),
+                {"text": lambda _self: "World Initiative Mode:\n- Trigger: due_clock"},
+            )()
+
+        def open_question(self, *, question: str, terminators: tuple[str, ...]):
+            assert terminators == ()
+            return question
+
+    question = _resolve_story_event(InitiativeDocument(), "", "actor-a")
+
+    assert "external world change" in question
+    assert "Do not decide any Actor's beliefs" in question
+    assert "voluntary dialogue" in question
+    assert "do not optimize for drama or pacing" in question
+    assert "Resolve only actor-a's own first attempt" not in question
 
 
 def test_player_action_keeps_raw_intent_and_structured_actor_identity() -> None:
@@ -669,7 +755,7 @@ def test_invalid_resolution_envelope_fails_without_writing_memory() -> None:
     record_types = tuple(
         record.record_type for record in gm_memory.retrieve_recent(limit=5)
     )
-    assert record_types == (MemoryRecordType.PUTATIVE_EVENT,)
+    assert record_types == ()
 
 
 def test_resolution_envelope_maps_entity_changes_to_effects() -> None:
@@ -714,6 +800,54 @@ def test_resolution_envelope_maps_entity_changes_to_effects() -> None:
     assert result.effects[0].target_id == "new-figure"
     assert result.effects[0].after is not None
     assert result.effects[0].after["display_name"] == "New Figure"  # type: ignore[index]
+
+
+def test_world_initiative_uses_world_context_and_has_no_acting_actor() -> None:
+    actor, gm, _ = _runtime(
+        resolution_text=(
+            '{"event_text":"The last ferry sounds its horn and departs.",'
+            '"boundary":"none","visibility":"public"}'
+        )
+    )
+    gm.select_next_actor((actor,), session_id="session-1", step=0)  # type: ignore[attr-defined]
+    gm.create_action_spec(  # type: ignore[attr-defined]
+        actor,
+        session_id="session-1",
+        step=0,
+        content_locale="en-US",
+    )
+
+    result = ConcordiaResolverKernel().resolve_initiative(
+        gm,  # type: ignore[arg-type]
+        InitiativeContext(
+            session_id="session-1",
+            branch_id="main",
+            step=0,
+            content_locale="en-US",
+            trigger=InitiativeTrigger(
+                reason="due_clock",
+                source_id="clock:ferry",
+                description="The last ferry must depart.",
+            ),
+            existing_characters=(_character_ref(location="quay"),),
+            world_time="19:00",
+            world_location="harbor",
+            active_pressures=("A storm is closing the harbor.",),
+            clocks=(
+                WorldClock(
+                    id="clock:ferry",
+                    description="The last ferry departs.",
+                    due_at="19:00",
+                ),
+            ),
+        ),
+        cancellation=Event(),
+    )
+
+    assert result.acting_actor_id is None
+    assert result.putative_event_text is None
+    assert result.events[0].actor_id is None
+    assert result.events[0].source_intent_ids == ()
 
 
 def test_resolution_envelope_binds_state_update_names_to_local_ids() -> None:
@@ -810,7 +944,7 @@ def test_duplicate_create_npc_with_conflicting_content_is_rejected() -> None:
 
     assert tuple(
         record.record_type for record in gm_memory.retrieve_recent(limit=5)
-    ) == (MemoryRecordType.PUTATIVE_EVENT,)
+    ) == ()
 
 
 def test_existing_character_create_is_converted_to_participant_reference() -> None:

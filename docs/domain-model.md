@@ -15,6 +15,8 @@ details and map into this protocol; they do not define a second product model.
   perceived or known.
 - **Intent**: natural-language attempt submitted by an Actor.
 - **Resolution**: Game Master adjudication of Intent against current Reality.
+- **World Initiative**: the same Game Master producing an external world change
+  after a deterministic World trigger, without authoring Actor cognition.
 - **Memory**: what an Actor experienced and remembers, separate from its
   current state.
 
@@ -32,7 +34,9 @@ world may define explicit numbers only when its own rules require them.
   independent state.
 - Project Fact records are the immutable canonical seed. ResolverContext selects
   only relevant Facts and combines them with current World/Actor projections,
-  recent committed events, the current Intent, and optional Wiki background.
+  recent committed events, and the current Intent.
+- InitiativeContext contains pressures, clocks, relevant World state, and a
+  small recent causal window. It contains no Actor belief or goal authority.
 - TurnSessionRequest.player_actor_id identifies the human-controlled Actor.
 - ActionSpec is the serializable Concordia request boundary.
 - ResolutionStateUpdate is the narrow, validated effect boundary.
@@ -70,7 +74,14 @@ advance a World Session branch head.
 12. IDs, enums, references, paths, and hashes are locale-independent.
 13. Important NPCs and the player obey the same Resolution rule; runtime
     scheduling may still avoid unnecessary NPC model calls.
-14. Wiki Context is optional and non-authoritative; it cannot override Canonical
-    Truth or become necessary for Resolution.
+14. Wiki is non-authoritative and excluded from ResolverContext; it cannot
+    override Canonical Truth or become necessary for Resolution.
 15. World Session scene boundaries do not automatically promote ordinary NPCs,
     create Actor memory, or edit Wiki pages.
+16. `core_desire` is persistent and required; `current_goal` is transient and
+    may be absent for any active Actor at runtime.
+17. Only an Actor owns its beliefs, current goal, intent, voluntary speech, and
+    voluntary action. GM effects may change physical Character state and World
+    state, but never those cognition fields.
+18. Resolution and World Initiative are modes of one Game Master and both emit
+    the same ResolvedEvent history type.

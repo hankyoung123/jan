@@ -421,11 +421,28 @@ Resolution 可以产生：
 * 被发现
 * 时间推进
 * 状态改变
-* NPC 行动
+* NPC 行动产生的客观结果（NPC 的意图仍由 NPC Actor 决定）
 
 ---
 
-## 6.6 Memory
+## 6.6 World Initiative
+
+世界不会永远等待玩家触发。Game Master 是同一个权威，但有两个严格分离的模式：
+
+* **Resolution Mode**：只裁决一个 Actor 的当前 Intent；不负责剧情节奏。
+* **Initiative Mode**：根据 World 的 Pressure、Clock 和最近因果事件，只产生一个外部世界变化；不得替 Actor 决定思想、目标、意图、主动台词或自愿行动。
+
+是否调用 Initiative 由确定性规则决定，优先级固定为：到期 Clock、到期
+Pressure、连续约三次 committed Actor turn 没有实质世界变化。若已有 NPC
+需要响应，必须先完成 NPC Intent 与 Resolution；上次 Initiative 后不足两个
+committed turn 时跳过。代码只决定是否调用，不计算“无聊度”或“戏剧张力”。
+
+Initiative 的结果仍然是 `ResolvedEvent`，进入同一 History、Checkpoint、Memory
+和 Branch，不创建第二套 Agent、工作流或历史系统。
+
+---
+
+## 6.7 Memory
 
 Memory 回答：
 
@@ -459,6 +476,8 @@ World / Actor / Memory Update
 Time Advances
 ↓
 NPC Response
+↓
+World Initiative（仅在确定性触发且无待响应 NPC 时）
 ↓
 New Perception
 ```
@@ -1036,7 +1055,7 @@ Concordia 继续作为唯一 simulation kernel。
 | Actor      | Concordia Entity + Actor State  |
 | Perception | Derived projection              |
 | Intent     | Action Attempt                  |
-| Resolution | Game Master adjudication        |
+| Resolution | Game Master resolution / initiative modes |
 | Memory     | Concordia Memory                |
 | History    | ResolvedEvent                   |
 | Rewind     | Checkpoint / Branch             |
@@ -1051,7 +1070,7 @@ Concordia 继续作为唯一 simulation kernel。
 
 原则：
 
-> **Concordia 是实现，World → Perception → Intent → Resolution 是产品协议。**
+> **Concordia 是实现，Actor Intent → GM Resolution 与 World Trigger → GM Initiative 最终都归一为 ResolvedEvent。**
 
 ---
 

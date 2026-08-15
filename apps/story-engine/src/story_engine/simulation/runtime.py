@@ -2,6 +2,7 @@ import hashlib
 import re
 import uuid
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
@@ -37,6 +38,8 @@ from story_engine.domain.projection import (
 from story_engine.domain.recipe import PerceptionFrame
 from story_engine.domain.simulation import (
     ActorStateContext,
+    InitiativeContext,
+    InitiativeTrigger,
     ResolverContext,
     StepResult,
     TurnSessionSnapshot,
@@ -49,6 +52,19 @@ from story_engine.domain.trace import (
     SimulationStageEvent,
     StageStatus,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _MutationSnapshot:
+    characters: dict[str, Character]
+    world: WorldState | None
+    pending_scene_events: tuple[ResolvedEvent, ...]
+    actor_states: dict[str, dict[str, JsonValue]]
+    game_master_state: dict[str, JsonValue] | None
+    memory_records: dict[str, tuple[MemoryRecord, ...]]
+    turns_without_material_world_change: int
+    turns_since_last_initiative: int
+    handled_clock_ids: frozenset[str]
 
 
 class StorySimulationRuntime:
@@ -116,6 +132,19 @@ class StorySimulationRuntime:
         self._game_master_rebuilder = game_master_rebuilder
         self._roster_planner = roster_planner
         self._roster_planned = initial_snapshot is not None or initial_roster_selected
+        self._turns_without_material_world_change = (
+            initial_snapshot.turns_without_material_world_change
+            if initial_snapshot is not None
+            else 0
+        )
+        self._turns_since_last_initiative = (
+            initial_snapshot.turns_since_last_initiative
+            if initial_snapshot is not None
+            else 2
+        )
+        self._handled_clock_ids = set(
+            initial_snapshot.handled_clock_ids if initial_snapshot is not None else ()
+        )
         if len(self._actors_by_name) != len(actors):
             raise ValueError("simulation actor IDs must be unique")
         if (
@@ -172,6 +201,53 @@ class StorySimulationRuntime:
     def pending_scene_events(self) -> tuple[ResolvedEvent, ...]:
         return tuple(self._pending_scene_events)
 
+    def initiative_state(self) -> tuple[int, int, tuple[str, ...]]:
+        return (
+            self._turns_without_material_world_change,
+            self._turns_since_last_initiative,
+            tuple(sorted(self._handled_clock_ids)),
+        )
+
+    def _capture_mutation_snapshot(self) -> _MutationSnapshot:
+        return _MutationSnapshot(
+            characters=dict(self._characters_by_id),
+            world=self._world,
+            pending_scene_events=tuple(self._pending_scene_events),
+            actor_states=self.actor_states(),
+            game_master_state=(
+                self.game_master.get_state()
+                if callable(getattr(self.game_master, "get_state", None))
+                else None
+            ),
+            memory_records={
+                owner_id: bank.records()
+                for owner_id, bank in self._memory_banks().items()
+            },
+            turns_without_material_world_change=(
+                self._turns_without_material_world_change
+            ),
+            turns_since_last_initiative=self._turns_since_last_initiative,
+            handled_clock_ids=frozenset(self._handled_clock_ids),
+        )
+
+    def _restore_mutation_snapshot(self, snapshot: _MutationSnapshot) -> None:
+        self._characters_by_id = dict(snapshot.characters)
+        self._world = snapshot.world
+        self._pending_scene_events = list(snapshot.pending_scene_events)
+        for actor_id, state in snapshot.actor_states.items():
+            self._all_actors_by_name[actor_id].set_state(state)
+        if snapshot.game_master_state is not None:
+            self.game_master.set_state(snapshot.game_master_state)
+        for owner_id, records in snapshot.memory_records.items():
+            bank = self._memory_banks().get(owner_id)
+            if bank is not None:
+                bank.replace(records)
+        self._turns_without_material_world_change = (
+            snapshot.turns_without_material_world_change
+        )
+        self._turns_since_last_initiative = snapshot.turns_since_last_initiative
+        self._handled_clock_ids = set(snapshot.handled_clock_ids)
+
     @staticmethod
     def _clock_minutes(value: object) -> int | None:
         if not isinstance(value, str):
@@ -214,18 +290,111 @@ class StorySimulationRuntime:
             world_time=world.current_time if world is not None else None,
             world_location=world.current_location if world is not None else None,
             world_rules=world.rules if world is not None else (),
-            world_active_pressures=(
-                world.active_pressures if world is not None else ()
+            relevant_canonical_facts=relevant_facts,
+            actor_known_facts=actor_known_facts,
+            recent_scene_events=recent_events,
+        )
+
+    def _initiative_context(
+        self,
+        *,
+        step: int,
+        trigger: InitiativeTrigger,
+    ) -> InitiativeContext:
+        world = self._world
+        return InitiativeContext(
+            session_id=self.session_id,
+            branch_id=self.branch_id,
+            step=step,
+            content_locale=self.content_locale,
+            trigger=trigger,
+            existing_characters=tuple(
+                ActorStateContext.from_character(character)
+                for character in self.character_states()
             ),
+            world_time=world.current_time if world is not None else None,
+            world_location=world.current_location if world is not None else None,
+            world_rules=world.rules if world is not None else (),
+            active_pressures=world.active_pressures if world is not None else (),
+            clocks=world.clocks if world is not None else (),
             world_variables=(
                 cast(dict[str, JsonValue], dict(world.world_variables))
                 if world is not None
                 else {}
             ),
-            relevant_canonical_facts=relevant_facts,
-            actor_known_facts=actor_known_facts,
-            recent_scene_events=recent_events,
+            recent_causal_events=self._recent_scene_event_texts(),
         )
+
+    def world_initiative_trigger(
+        self,
+        *,
+        pending_response_actor_ids: tuple[str, ...] = (),
+    ) -> InitiativeTrigger | None:
+        """Return the highest-priority deterministic trigger, if unblocked."""
+        if pending_response_actor_ids or self._turns_since_last_initiative < 2:
+            return None
+        world = self._world
+        if world is not None:
+            now = self._clock_minutes(world.current_time)
+            for clock in world.clocks:
+                if clock.id in self._handled_clock_ids:
+                    continue
+                due = self._clock_minutes(clock.due_at)
+                if (now is not None and due is not None and due <= now) or (
+                    now is None and clock.due_at == world.current_time
+                ):
+                    return InitiativeTrigger(
+                        reason="due_clock",
+                        source_id=clock.id,
+                        description=clock.description,
+                    )
+            if world.active_pressures:
+                return InitiativeTrigger(
+                    reason="due_pressure",
+                    source_id="pressure:0",
+                    description=world.active_pressures[0],
+                )
+        if self._turns_without_material_world_change >= 3:
+            return InitiativeTrigger(
+                reason="stagnation",
+                description=(
+                    "Three committed actor turns produced no material world change."
+                ),
+            )
+        return None
+
+    def record_committed_step(self, result: StepResult) -> None:
+        """Advance deterministic initiative counters with the core step state."""
+        if result.resolved_turn is None:
+            if result.acting_actor_id is not None:
+                self._turns_without_material_world_change += 1
+                self._turns_since_last_initiative += 1
+            return
+        if result.acting_actor_id is None:
+            self._turns_without_material_world_change = 0
+            self._turns_since_last_initiative = 0
+            return
+        effects = (
+            *result.resolved_turn.effects,
+            *(
+                effect
+                for event in result.resolved_turn.events
+                for effect in event.effects
+            ),
+        )
+        material = any(
+            effect.target == EffectTarget.WORLD_PROJECTION
+            or effect.operation == EffectOperation.CREATE_CHARACTER
+            or (
+                effect.target == EffectTarget.CHARACTER_PROJECTION
+                and effect.path in {"location", "conditions", "resources"}
+            )
+            for effect in effects
+        )
+        self._turns_without_material_world_change = (
+            0 if material else self._turns_without_material_world_change + 1
+        )
+        self._turns_since_last_initiative += 1
 
     @staticmethod
     def _search_terms(text: str) -> set[str]:
@@ -356,15 +525,9 @@ class StorySimulationRuntime:
         return selected
 
     @staticmethod
-    def _resource_value(effect: StateEffect) -> tuple[str, ...]:
-        if not isinstance(effect.after, list) or not all(
-            isinstance(value, str) and value.strip() for value in effect.after
-        ):
-            raise ValueError("character collection state update must be strings")
-        value = tuple(str(item) for item in effect.after)
-        if len(value) != len(set(value)):
-            raise ValueError("character state update values must be unique")
-        return value
+    def _collection_value(effect: StateEffect) -> tuple[str, ...]:
+        """Materialize a collection already validated by its producing contract."""
+        return tuple(cast(list[str], effect.after))
 
     @classmethod
     def _validate_resource_conservation(
@@ -392,7 +555,7 @@ class StorySimulationRuntime:
             if effect.target_id in updated_characters:
                 raise ValueError("resolution updates one character's resources twice")
             updated_characters.add(effect.target_id)
-            final[effect.target_id] = set(cls._resource_value(effect))
+            final[effect.target_id] = set(cls._collection_value(effect))
 
         initial_holders: dict[str, set[str]] = {}
         final_holders: dict[str, set[str]] = {}
@@ -520,11 +683,9 @@ class StorySimulationRuntime:
                         "character state update targets an unknown character"
                     )
                 if effect.path in {"location", "current_goal"}:
-                    if effect.after is not None and not isinstance(effect.after, str):
-                        raise ValueError("character text state update must be a string")
                     update: dict[str, object] = {effect.path: effect.after}
                 elif effect.path in {"conditions", "resources", "beliefs"}:
-                    value = self._resource_value(effect)
+                    value = self._collection_value(effect)
                     update = {effect.path: value}
                 else:
                     raise ValueError("character state update path is not supported")
@@ -544,8 +705,6 @@ class StorySimulationRuntime:
                     raise ValueError("world state update requires an initialized world")
                 if effect.path not in {"current_time", "current_location"}:
                     raise ValueError("world state update path is not supported")
-                if effect.after is not None and not isinstance(effect.after, str):
-                    raise ValueError("world state update must be a string")
                 if effect.path == "current_time":
                     previous_minutes = self._clock_minutes(world.current_time)
                     next_minutes = self._clock_minutes(effect.after)
@@ -567,6 +726,24 @@ class StorySimulationRuntime:
         self._characters_by_id = characters
         self._world = world
         return tuple(changed)
+
+    def _resolve_and_apply_atomically(
+        self,
+        resolve: Callable[[], ResolvedTurn],
+        *,
+        transform: Callable[[ResolvedTurn], ResolvedTurn] | None = None,
+    ) -> tuple[ResolvedTurn, tuple[str, ...]]:
+        """Rollback all authoritative runtime state when mutation cannot commit."""
+        snapshot = self._capture_mutation_snapshot()
+        try:
+            resolved = resolve()
+            if transform is not None:
+                resolved = transform(resolved)
+            changed = self._apply_character_effects(resolved)
+        except Exception:
+            self._restore_mutation_snapshot(snapshot)
+            raise
+        return resolved, changed
 
     def _advance_scene_boundary(
         self,
@@ -1097,20 +1274,27 @@ class StorySimulationRuntime:
                 task_label="世界结算",
                 stage_event_id=stage_event.event_id,
             )
-            resolved = self.resolver.resolve(
-                self.game_master,
-                self._resolver_context(
-                    step=step,
-                    acting_actor_id=actor.name,
-                    putative_event_text=action,
+            def merge_boundary(value: ResolvedTurn) -> ResolvedTurn:
+                merged = value.boundary.merge(deferred_boundary)
+                return (
+                    value
+                    if merged == value.boundary
+                    else value.model_copy(update={"boundary": merged})
+                )
+
+            resolved, character_effect_ids = self._resolve_and_apply_atomically(
+                lambda: self.resolver.resolve(
+                    self.game_master,
+                    self._resolver_context(
+                        step=step,
+                        acting_actor_id=actor.name,
+                        putative_event_text=action,
+                    ),
+                    cancellation=self.cancellation,
                 ),
-                cancellation=self.cancellation,
+                transform=merge_boundary,
             )
-            merged_boundary = resolved.boundary.merge(deferred_boundary)
-            if merged_boundary != resolved.boundary:
-                resolved = resolved.model_copy(update={"boundary": merged_boundary})
             event_id = f"event:{self.session_id}:{step}"
-            character_effect_ids = self._apply_character_effects(resolved)
             self._publish_stage(
                 step=step,
                 stage=current_stage,
@@ -1336,23 +1520,27 @@ class StorySimulationRuntime:
                 task_label="玩家意图结算",
                 stage_event_id=resolution_stage.event_id,
             )
-            resolved = self.resolver.resolve(
-                self.game_master,
-                self._resolver_context(
-                    step=step,
-                    acting_actor_id=actor.name,
-                    putative_event_text=action,
+            belief_effect = self._human_belief_effect(action, step=step)
+            resolved, character_effect_ids = self._resolve_and_apply_atomically(
+                lambda: self.resolver.resolve(
+                    self.game_master,
+                    self._resolver_context(
+                        step=step,
+                        acting_actor_id=actor.name,
+                        putative_event_text=action,
+                    ),
+                    cancellation=self.cancellation,
                 ),
-                cancellation=self.cancellation,
+                transform=(
+                    None
+                    if belief_effect is None
+                    else lambda value: value.model_copy(
+                        update={"effects": (*value.effects, belief_effect)}
+                    )
+                ),
             )
             follow_up_actor_ids = self._response_npc_actor_ids(resolved)
             event_id = f"event:{self.session_id}:{step}"
-            belief_effect = self._human_belief_effect(action, step=step)
-            if belief_effect is not None:
-                resolved = resolved.model_copy(
-                    update={"effects": (*resolved.effects, belief_effect)}
-                )
-            character_effect_ids = self._apply_character_effects(resolved)
             self._publish_stage(
                 step=step,
                 stage=current_stage,
@@ -1481,6 +1669,95 @@ class StorySimulationRuntime:
                 error_code=getattr(error, "code", type(error).__name__.lower()),
             )
             raise
+
+    def execute_world_initiative(
+        self,
+        step: int,
+        *,
+        trigger: InitiativeTrigger,
+        cancellation: Event,
+    ) -> StepResult:
+        """Ask the existing GM for one world-owned external change."""
+        self._check_cancelled(cancellation)
+        started_at = datetime.now(UTC)
+        stage_event = self._publish_stage(
+            step=step,
+            stage=SimulationStage.RESOLUTION,
+            status=StageStatus.RUNNING,
+            started_at=started_at,
+            summary_text=f"World initiative: {trigger.reason}",
+        )
+        self._set_trace_context(
+            step=step,
+            component_ids=("game-master:world-initiative",),
+            stage=SimulationStage.RESOLUTION,
+            task_label="世界主动事件",
+            stage_event_id=stage_event.event_id,
+        )
+        set_active = getattr(self.game_master, "set_active_actor", None)
+        if set_active is not None:
+            set_active(self.actors[0].display_name)
+        resolved, changed_ids = self._resolve_and_apply_atomically(
+            lambda: self.resolver.resolve_initiative(
+                self.game_master,
+                self._initiative_context(step=step, trigger=trigger),
+                cancellation=self.cancellation,
+            )
+        )
+        event_id = f"event:{self.session_id}:{step}"
+        self._publish_stage(
+            step=step,
+            stage=SimulationStage.RESOLUTION,
+            status=StageStatus.SUCCEEDED,
+            started_at=started_at,
+            summary_text=resolved.raw_resolution_text,
+            output_record_ids=(event_id, *changed_ids),
+        )
+        observer_ids: set[str] = set()
+        participant_ids: set[str] = set()
+        for event in resolved.events:
+            observer_ids.update(event.observer_ids)
+            participant_ids.update(event.participant_ids)
+            if event.visibility == EventVisibility.PUBLIC:
+                observer_ids.update(self._actors_by_name)
+            elif event.visibility == EventVisibility.PARTICIPANTS:
+                observer_ids.update(event.participant_ids)
+        observer_ids.intersection_update(self._actors_by_name)
+        for observer_id in sorted(observer_ids):
+            self._actors_by_name[observer_id].observe(
+                PerceptionFrame(
+                    frame_id=(
+                        f"event-observation:{self.session_id}:{step}:{observer_id}"
+                    ),
+                    session_id=self.session_id,
+                    branch_id=self.branch_id,
+                    actor_id=observer_id,
+                    step=step,
+                    content_locale=self.content_locale,
+                    observation_text=resolved.raw_resolution_text,
+                    participant_ids=tuple(sorted(participant_ids)),
+                    source_record_ids=(event_id,),
+                    location_ids=self._memory_location_ids(observer_id),
+                )
+            )
+        self._advance_scene_boundary(
+            resolved,
+            event_id=event_id,
+            started_at=started_at,
+        )
+        if trigger.reason == "due_clock" and trigger.source_id is not None:
+            self._handled_clock_ids.add(trigger.source_id)
+        return StepResult(
+            session_id=self.session_id,
+            branch_id=self.branch_id,
+            step=step,
+            acting_actor_id=None,
+            action_spec=None,
+            action_text=None,
+            resolved_turn=resolved,
+            status=TurnSessionStatus.RUNNING,
+            boundary=resolved.boundary,
+        )
 
     def actor_states(self) -> dict[str, dict[str, JsonValue]]:
         return {
@@ -1650,3 +1927,8 @@ class StorySimulationRuntime:
         self._world = snapshot.world
         self.player_actor_id = snapshot.player_actor_id
         self._pending_scene_events = list(snapshot.pending_scene_events)
+        self._turns_without_material_world_change = (
+            snapshot.turns_without_material_world_change
+        )
+        self._turns_since_last_initiative = snapshot.turns_since_last_initiative
+        self._handled_clock_ids = set(snapshot.handled_clock_ids)

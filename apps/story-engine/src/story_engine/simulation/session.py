@@ -62,6 +62,13 @@ class SimulationSession:
         character_states = getattr(self.runtime, "character_states", None)
         world_state = getattr(self.runtime, "world_state", None)
         pending_scene_events = getattr(self.runtime, "pending_scene_events", None)
+        initiative_state = getattr(self.runtime, "initiative_state", None)
+        if initiative_state is None:
+            turns_without_change, turns_since_initiative, handled_clock_ids = 0, 2, ()
+        else:
+            turns_without_change, turns_since_initiative, handled_clock_ids = (
+                initiative_state()
+            )
         provisional = TurnSessionSnapshot(
             session_id=self.session_id,
             project_id=self.request.project_id,
@@ -79,6 +86,9 @@ class SimulationSession:
             pending_scene_events=(
                 pending_scene_events() if pending_scene_events is not None else ()
             ),
+            turns_without_material_world_change=turns_without_change,
+            turns_since_last_initiative=turns_since_initiative,
+            handled_clock_ids=handled_clock_ids,
             current_step=self.current_step,
             completed_scenes=self.completed_scenes,
             actor_states=actor_states,

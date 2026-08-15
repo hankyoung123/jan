@@ -116,7 +116,7 @@ class EntityChange(RuntimeModel):
 
 
 class ResolutionStateUpdate(RuntimeModel):
-    """Minimal GM-authored state change, bound to local store-owned paths."""
+    """Typed GM-owned projection change validated at the model boundary."""
 
     target: Literal[
         EffectTarget.WORLD_PROJECTION,
@@ -127,12 +127,10 @@ class ResolutionStateUpdate(RuntimeModel):
         "location",
         "conditions",
         "resources",
-        "beliefs",
-        "current_goal",
         "current_time",
         "current_location",
     ]
-    value: JsonValue
+    value: str | tuple[str, ...] | None
 
     @model_validator(mode="after")
     def uses_a_supported_store_owned_path(self) -> Self:
@@ -140,8 +138,6 @@ class ResolutionStateUpdate(RuntimeModel):
             "location",
             "conditions",
             "resources",
-            "beliefs",
-            "current_goal",
         }
         if self.target == EffectTarget.CHARACTER_PROJECTION:
             if not self.target_name:
@@ -155,6 +151,19 @@ class ResolutionStateUpdate(RuntimeModel):
                 raise ValueError("world state update path is not supported")
         else:
             raise ValueError("resolution state updates cannot target system state")
+
+        if self.path in {"conditions", "resources"}:
+            if not isinstance(self.value, tuple):
+                raise ValueError(f"{self.path} must be an array of strings")
+            if any(not item for item in self.value):
+                raise ValueError(f"{self.path} entries must not be empty")
+            if len(self.value) != len(set(self.value)):
+                raise ValueError(f"{self.path} entries must be unique")
+        elif self.path == "current_time":
+            if not isinstance(self.value, str) or not self.value:
+                raise ValueError("current_time must be a non-empty string")
+        elif self.value is not None and not isinstance(self.value, str):
+            raise ValueError(f"{self.path} must be a string or null")
         return self
 
 

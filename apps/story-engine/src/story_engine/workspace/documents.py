@@ -15,6 +15,7 @@ from story_engine.domain.models import (
     Fact,
     FactVisibility,
     Relationship,
+    WorldClock,
     WorldState,
 )
 from story_engine.manuscript.models import (
@@ -51,6 +52,7 @@ class WorldDocument(DomainModel):
     scene_text: str = ""
     rules: tuple[str, ...] = ()
     active_pressures: tuple[str, ...] = ()
+    clocks: tuple[WorldClock, ...] = ()
     public_fact_ids: tuple[str, ...] = ()
     world_variables: dict[str, str | int | float | bool | None] = Field(
         default_factory=dict
@@ -220,6 +222,13 @@ def render_world(world: WorldState, facts: tuple[Fact, ...]) -> str:
     document = WorldDocument.from_domain(world)
     rules = "\n".join(f"- {item}" for item in world.rules) or "- None"
     pressures = "\n".join(f"- {item}" for item in world.active_pressures) or "- None"
+    clocks = (
+        "\n".join(
+            f"- [{clock.id}] {clock.due_at}: {clock.description}"
+            for clock in world.clocks
+        )
+        or "- None"
+    )
     facts_by_id = {fact.id: fact for fact in facts}
     public_facts = (
         "\n".join(
@@ -251,6 +260,10 @@ def render_world(world: WorldState, facts: tuple[Fact, ...]) -> str:
 ## Active Pressures
 
 {pressures}
+
+## Clocks
+
+{clocks}
 
 ## Public Facts
 

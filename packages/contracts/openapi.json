@@ -130,7 +130,6 @@
                 "type": "null"
               }
             ],
-            "default": 2048,
             "title": "Max Output Tokens"
           },
           "model": {
@@ -5254,6 +5253,15 @@
             "title": "Game Master States",
             "type": "object"
           },
+          "handled_clock_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+              "type": "string"
+            },
+            "title": "Handled Clock Ids",
+            "type": "array"
+          },
           "history_head_id": {
             "anyOf": [
               {
@@ -5357,6 +5365,18 @@
             "default": 0,
             "minimum": 0.0,
             "title": "Total Model Tokens",
+            "type": "integer"
+          },
+          "turns_since_last_initiative": {
+            "default": 2,
+            "minimum": 0.0,
+            "title": "Turns Since Last Initiative",
+            "type": "integer"
+          },
+          "turns_without_material_world_change": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Turns Without Material World Change",
             "type": "integer"
           },
           "updated_at": {
@@ -6109,6 +6129,34 @@
         "title": "WorkspaceState",
         "type": "object"
       },
+      "WorldClock": {
+        "additionalProperties": false,
+        "description": "A world-owned deadline that may deterministically trigger initiative.",
+        "properties": {
+          "description": {
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "minLength": 1,
+            "title": "Due At",
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "description",
+          "due_at"
+        ],
+        "title": "WorldClock",
+        "type": "object"
+      },
       "WorldState": {
         "additionalProperties": false,
         "properties": {
@@ -6118,6 +6166,14 @@
               "type": "string"
             },
             "title": "Active Pressures",
+            "type": "array"
+          },
+          "clocks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/WorldClock"
+            },
+            "title": "Clocks",
             "type": "array"
           },
           "current_location": {

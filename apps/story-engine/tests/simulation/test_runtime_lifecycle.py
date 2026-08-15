@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from story_engine.domain.models import Character, Fact, WorldState
+from story_engine.domain.models import Character, Fact, WorldClock, WorldState
 from story_engine.domain.projection import (
     EffectOperation,
     EffectTarget,
@@ -14,6 +14,7 @@ from story_engine.domain.projection import (
     SimulationBoundary,
     StateEffect,
 )
+from story_engine.domain.simulation import StepResult, TurnSessionStatus
 from story_engine.domain.trace import SimulationStage, StageStatus
 from story_engine.simulation.runtime import StorySimulationRuntime
 
@@ -290,6 +291,118 @@ def test_perception_context_is_bounded_to_actor_viewpoint_and_current_scene() ->
     assert "VISIBLE_SCENE_EVENT_0" not in prompt
     assert all(f"VISIBLE_SCENE_EVENT_{index}" in prompt for index in range(1, 5))
     assert "HIDDEN_SCENE_EVENT" not in prompt
+
+    resolution_context = runtime._resolver_context(
+        step=6,
+        acting_actor_id="actor-0",
+        putative_event_text="我查看窗边。",
+    )
+    from story_engine.concordia_runtime.resolver import ConcordiaResolverKernel
+
+    resolution_prompt = ConcordiaResolverKernel._resolution_context_prompt(
+        resolution_context
+    )
+    assert "HIDDEN_ACTIVE_PRESSURE" not in resolution_prompt
+    assert "HIDDEN_WORLD_VARIABLE" not in resolution_prompt
+
+
+def _empty_step_result(*, actor_id: str | None) -> StepResult:
+    return StepResult(
+        session_id="session-1",
+        branch_id="main",
+        step=0,
+        acting_actor_id=actor_id,
+        action_spec=None,
+        action_text=None,
+        resolved_turn=None,
+        status=TurnSessionStatus.RUNNING,
+    )
+
+
+def test_due_clock_invokes_world_initiative_once() -> None:
+    runtime = _runtime(
+        (_character("actor-0"),),
+        world=WorldState(
+            current_time="19:00",
+            clocks=(
+                WorldClock(
+                    id="clock:ferry",
+                    description="The last ferry departs.",
+                    due_at="18:59",
+                ),
+            ),
+            active_pressures=("Rain floods the lower street.",),
+        ),
+    )
+    trigger = runtime.world_initiative_trigger()
+
+    assert trigger is not None
+    assert trigger.reason == "due_clock"
+    assert trigger.source_id == "clock:ferry"
+
+    resolved = _turn(
+        ResolvedEvent(
+            event_id="event:session-1:0",
+            session_id="session-1",
+            step=0,
+            event_text="The last ferry pulls away from the quay.",
+            visibility=EventVisibility.GM_ONLY,
+            content_locale="en-US",
+            occurred_at=datetime(2026, 8, 4, tzinfo=UTC),
+        )
+    ).model_copy(update={"acting_actor_id": None, "boundary": "none"})
+    calls: list[str] = []
+    runtime.resolver = SimpleNamespace(
+        resolve_initiative=lambda *_args, **_kwargs: (
+            calls.append("initiative") or resolved
+        )
+    )
+    result = runtime.execute_world_initiative(
+        0,
+        trigger=trigger,
+        cancellation=Event(),
+    )
+    runtime.record_committed_step(result)
+
+    assert calls == ["initiative"]
+    assert runtime.world_initiative_trigger() is None
+
+
+def test_pending_npc_response_blocks_world_initiative() -> None:
+    runtime = _runtime(
+        (_character("actor-0"), _character("actor-1")),
+        world=WorldState(
+            current_time="19:00",
+            active_pressures=("The alarm is ringing.",),
+        ),
+    )
+
+    assert (
+        runtime.world_initiative_trigger(
+            pending_response_actor_ids=("actor-1",)
+        )
+        is None
+    )
+
+
+def test_stagnation_threshold_and_initiative_cooldown() -> None:
+    runtime = _runtime(
+        (_character("actor-0"),),
+        world=WorldState(current_time="19:00"),
+    )
+    for _ in range(3):
+        runtime.record_committed_step(_empty_step_result(actor_id="actor-0"))
+
+    trigger = runtime.world_initiative_trigger()
+    assert trigger is not None
+    assert trigger.reason == "stagnation"
+
+    initiative_result = _empty_step_result(actor_id=None).model_copy(
+        update={"resolved_turn": _turn(_event("actor-0"))}
+    )
+    runtime.record_committed_step(initiative_result)
+    runtime.record_committed_step(_empty_step_result(actor_id="actor-0"))
+    assert runtime.world_initiative_trigger() is None
 
 
 def test_scene_boundary_keeps_ordinary_npc_out_of_active_agent_roster() -> None:

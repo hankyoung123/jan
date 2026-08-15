@@ -924,11 +924,8 @@ export interface components {
             agent_type: "actor" | "game_master" | "writer" | "editor" | "wiki_maintainer" | "submission_editor";
             /** Default System Prompt */
             default_system_prompt: string;
-            /**
-             * Max Output Tokens
-             * @default 2048
-             */
-            max_output_tokens: number | null;
+            /** Max Output Tokens */
+            max_output_tokens?: number | null;
             /** Model */
             model?: string | null;
             /** Name */
@@ -2807,6 +2804,11 @@ export interface components {
                     [key: string]: components["schemas"]["JsonValue"];
                 };
             };
+            /**
+             * Handled Clock Ids
+             * @default []
+             */
+            handled_clock_ids: string[];
             /** History Head Id */
             history_head_id?: string | null;
             /** @default none */
@@ -2847,6 +2849,16 @@ export interface components {
              * @default 0
              */
             total_model_tokens: number;
+            /**
+             * Turns Since Last Initiative
+             * @default 2
+             */
+            turns_since_last_initiative: number;
+            /**
+             * Turns Without Material World Change
+             * @default 0
+             */
+            turns_without_material_world_change: number;
             /**
              * Updated At
              * Format: date-time
@@ -3125,6 +3137,18 @@ export interface components {
              */
             status: "open";
         };
+        /**
+         * WorldClock
+         * @description A world-owned deadline that may deterministically trigger initiative.
+         */
+        WorldClock: {
+            /** Description */
+            description: string;
+            /** Due At */
+            due_at: string;
+            /** Id */
+            id: string;
+        };
         /** WorldState */
         WorldState: {
             /**
@@ -3132,6 +3156,11 @@ export interface components {
              * @default []
              */
             active_pressures: string[];
+            /**
+             * Clocks
+             * @default []
+             */
+            clocks: components["schemas"]["WorldClock"][];
             /** Current Location */
             current_location?: string | null;
             /** Current Time */
