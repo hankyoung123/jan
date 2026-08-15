@@ -1149,6 +1149,21 @@
         "title": "InitialFact",
         "type": "object"
       },
+      "InteractiveRecoveryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+            "title": "Command Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id"
+        ],
+        "title": "InteractiveRecoveryRequest",
+        "type": "object"
+      },
       "InteractiveTurnRequest": {
         "additionalProperties": false,
         "properties": {
@@ -8068,6 +8083,73 @@
         ]
       }
     },
+    "/projects/{project_id}/simulation/recovery": {
+      "post": {
+        "operationId": "recover_interactive_session_projects__project_id__simulation_recovery_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch_id",
+            "required": false,
+            "schema": {
+              "default": "main",
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InteractiveRecoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InteractiveTurnResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Recover Interactive Session",
+        "tags": [
+          "simulations"
+        ]
+      }
+    },
     "/projects/{project_id}/simulation/session": {
       "get": {
         "operationId": "get_interactive_session_projects__project_id__simulation_session_get",
@@ -8120,6 +8202,61 @@
           }
         ],
         "summary": "Get Interactive Session",
+        "tags": [
+          "simulations"
+        ]
+      },
+      "post": {
+        "operationId": "open_session_projects__project_id__simulation_session_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch_id",
+            "required": false,
+            "schema": {
+              "default": "main",
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InteractiveTurnResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionToken": []
+          }
+        ],
+        "summary": "Open Session",
         "tags": [
           "simulations"
         ]

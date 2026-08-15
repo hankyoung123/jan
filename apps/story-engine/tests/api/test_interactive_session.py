@@ -21,6 +21,7 @@ from story_engine.domain.simulation import (
 )
 from story_engine.persistence.checkpoint_store import CheckpointStore
 from story_engine.persistence.command_store import CommandReceiptStore
+from story_engine.persistence.commit import SimulationCommitKernel
 from story_engine.persistence.session_store import SessionStore
 from story_engine.persistence.simulation_log import SimulationLogStore
 
@@ -225,9 +226,28 @@ class SceneBoundaryInteractiveRuntime(InteractiveRuntime):
         )
 
 
+def test_get_session_does_not_create_default_world_or_checkpoint(tmp_path) -> None:
+    app = create_app(
+        EngineSettings(session_token="test-token", projects_root=tmp_path),
+        simulation_runtime_factory=lambda session_id, request: InteractiveRuntime(
+            session_id, request
+        ),  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/projects/rainy-night-apartment/simulation/session",
+            headers=AUTH,
+        )
+
+    assert response.status_code == 404
+    assert not (tmp_path / "rainy-night-apartment").exists()
+    assert app.state.simulation_service.engine.list_snapshots() == ()
+
+
 def _commit_player_step_without_npc(app) -> StepResult:
     with TestClient(app) as client:
-        opened = client.get(
+        opened = client.post(
             "/projects/rainy-night-apartment/simulation/session",
             headers=AUTH,
         )
@@ -255,7 +275,7 @@ def test_case_01_interactive_turn_treats_asserted_death_as_an_intent(
     )
 
     with TestClient(app) as client:
-        opened = client.get(
+        opened = client.post(
             "/projects/rainy-night-apartment/simulation/session",
             headers=AUTH,
         )
@@ -322,7 +342,7 @@ def test_case_01_interactive_turn_treats_asserted_death_as_an_intent(
     assert npc_receipt["committed_checkpoint_id"] == records[1].checkpoint_id
 
 
-def test_restart_resumes_player_handoff_from_committed_head(tmp_path) -> None:
+def test_get_session_does_not_resume_pending_player_handoff(tmp_path) -> None:
     settings = EngineSettings(session_token="test-token", projects_root=tmp_path)
     calls = {"npc": 0}
     first_app = create_app(
@@ -345,22 +365,30 @@ def test_restart_resumes_player_handoff_from_committed_head(tmp_path) -> None:
         ),  # type: ignore[arg-type]
     )
     with TestClient(reopened_app) as client:
-        restored = client.get(
+        first_read = client.get(
+            "/projects/rainy-night-apartment/simulation/session",
+            headers=AUTH,
+        )
+        second_read = client.get(
             "/projects/rainy-night-apartment/simulation/session",
             headers=AUTH,
         )
 
-    assert restored.status_code == 200
-    assert calls["npc"] == 1
+    assert first_read.status_code == 200
+    assert second_read.status_code == 200
+    assert second_read.json() == first_read.json()
+    assert calls["npc"] == 0
+    assert reopened_app.state.simulation_service.engine.list_snapshots() == ()
+    assert first_read.json()["step"] == player_result.step + 1
+    assert first_read.json()["checkpoint_id"] == player_result.checkpoint_id
     project_root = tmp_path / "rainy-night-apartment"
+    branch = SimulationCommitKernel(project_root).branches.load("main")
+    assert branch.head_checkpoint_id == player_result.checkpoint_id
     records = SimulationLogStore(project_root).reachable(
         CheckpointStore(project_root),
-        restored.json()["checkpoint_id"],
+        first_read.json()["checkpoint_id"],
     )
-    assert [record.result.acting_actor_id for record in records] == [
-        "player",
-        "zhang-ye",
-    ]
+    assert [record.result.acting_actor_id for record in records] == ["player"]
 
 
 def test_recovery_retry_does_not_duplicate_committed_npc_handoff(tmp_path) -> None:
@@ -382,13 +410,15 @@ def test_recovery_retry_does_not_duplicate_committed_npc_handoff(tmp_path) -> No
         ),  # type: ignore[arg-type]
     )
     with TestClient(reopened_app) as client:
-        first_restore = client.get(
-            "/projects/rainy-night-apartment/simulation/session",
+        first_restore = client.post(
+            "/projects/rainy-night-apartment/simulation/recovery",
             headers=AUTH,
+            json={"command_id": "recovery:crash-window"},
         )
-        repeated_restore = client.get(
-            "/projects/rainy-night-apartment/simulation/session",
+        repeated_restore = client.post(
+            "/projects/rainy-night-apartment/simulation/recovery",
             headers=AUTH,
+            json={"command_id": "recovery:crash-window"},
         )
 
     assert first_restore.status_code == 200
@@ -403,7 +433,7 @@ def test_recovery_retry_does_not_duplicate_committed_npc_handoff(tmp_path) -> No
     assert len(records) == 2
     receipt = CommandReceiptStore(project_root).load(
         session_id=first_restore.json()["session_id"],
-        command_id=f"interactive-npc:{player_result.checkpoint_id}",
+        command_id="recovery:crash-window:npc",
     )
     assert receipt is not None
     assert receipt["committed_checkpoint_id"] == records[-1].checkpoint_id
@@ -456,6 +486,7 @@ def test_three_interactive_turns_use_distinct_npc_command_receipts(tmp_path) -> 
         ]
 
     assert [result.status_code for result in results] == [200, 200, 200]
+    assert [result.json()["step"] for result in results] == [2, 4, 6]
     project_root = tmp_path / "rainy-night-apartment"
     session_id = results[-1].json()["session_id"]
     receipts = CommandReceiptStore(project_root)
@@ -478,7 +509,7 @@ def test_cases_06_and_10_npc_intent_is_resolved_and_can_act_autonomously(
     )
 
     with TestClient(app) as client:
-        client.get(
+        client.post(
             "/projects/rainy-night-apartment/simulation/session",
             headers=AUTH,
         )
@@ -511,7 +542,7 @@ def test_case_12_interactive_branch_resumes_without_moving_main(
     )
 
     with TestClient(app) as client:
-        opened = client.get(
+        opened = client.post(
             "/projects/rainy-night-apartment/simulation/session",
             headers=AUTH,
         ).json()
@@ -578,7 +609,7 @@ def test_interactive_session_reopens_a_terminated_branch_head(tmp_path) -> None:
         ),  # type: ignore[arg-type]
     )
     with TestClient(app) as client:
-        opened = client.get(
+        opened = client.post(
             "/projects/rainy-night-apartment/simulation/session",
             headers=AUTH,
         )
@@ -628,7 +659,7 @@ def test_interactive_session_survives_thirty_one_turns_and_reopens_from_branch_h
         ),  # type: ignore[arg-type]
     )
     with TestClient(app) as client:
-        client.get(
+        client.post(
             "/projects/rainy-night-apartment/simulation/session",
             headers=AUTH,
         )

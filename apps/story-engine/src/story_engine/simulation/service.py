@@ -112,6 +112,14 @@ class SimulationApplicationService:
             observer=self,
         )
 
+    def read_branch(
+        self,
+        project_id: str,
+        *,
+        branch_id: str,
+    ) -> TurnSessionSnapshot:
+        return self.persistence.read_branch(project_id, branch_id=branch_id)
+
     def step(
         self,
         session_id: str,
@@ -143,9 +151,13 @@ class SimulationApplicationService:
     def resume_pending_interactive_handoff(
         self,
         snapshot: TurnSessionSnapshot,
-    ) -> TurnSessionSnapshot:
-        self.commands.resume_pending_interactive_handoff(snapshot)
-        return self.engine.get(snapshot.session_id)
+        *,
+        command_id: str,
+    ) -> StepResult | None:
+        return self.commands.resume_pending_interactive_handoff(
+            snapshot,
+            command_id=command_id,
+        )
 
     def run(self, session_id: str, *, cancellation: Event) -> TurnSessionSnapshot:
         return self.commands.run(session_id, cancellation=cancellation)

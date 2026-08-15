@@ -115,12 +115,25 @@ events, own state, checkpoint identity, and world time. It must not serialize a
 complete TurnSessionSnapshot, another Actor's private Memory, GM reasoning,
 hidden facts, undiscovered evidence, or raw Concordia state.
 
-GET /projects/{project_id}/simulation/session returns the same restricted
-projection for reopening the World Session. Branch and checkpoint routes
-provide Timeline and “从这里继续” behavior without exposing a parallel
-save-game store. Reopened scene prose is reconstructed from the selected
-checkpoint lineage, latest Scene Boundary, subsequent visible ResolvedEvents,
-and current location/time; it is not copied from the original scene forever.
+`POST /projects/{project_id}/simulation/session` explicitly creates or opens an
+interactive runtime. `GET /projects/{project_id}/simulation/session` is a
+strictly read-only projection of the current committed branch head: it never
+creates a world/session, restores a runtime, invokes a model, advances a step,
+commits, or creates a checkpoint.
+
+An NPC handoff left pending after an interrupted turn is completed only by
+`POST /projects/{project_id}/simulation/recovery` with a caller-generated
+`command_id`. Recovery derives the durable NPC receipt as `{command_id}:npc`;
+checkpoint IDs locate state and are never used as command identity. Retrying
+the same recovery command returns its committed result without executing the
+NPC twice.
+
+Both session routes return the same restricted projection for the World
+Session. Branch and checkpoint routes provide Timeline and “从这里继续”
+behavior without exposing a parallel save-game store. Reopened scene prose is
+reconstructed from the selected checkpoint lineage, latest Scene Boundary,
+subsequent visible ResolvedEvents, and current location/time; it is not copied
+from the original scene forever.
 
 WebSocket events are delivery hints for committed session changes. HTTP
 snapshots and durable branch state remain authoritative when an event is

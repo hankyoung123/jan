@@ -256,11 +256,6 @@ class SimulationCommandService:
         return f"{interactive_command_id}:npc"
 
     @staticmethod
-    def _recovery_npc_handoff_command_id(player_checkpoint_id: str) -> str:
-        """Return the deterministic key used only for restart recovery."""
-        return f"interactive-npc:{player_checkpoint_id}"
-
-    @staticmethod
     def _reserved_npc_actor_ids(
         snapshot: TurnSessionSnapshot,
         player_result: StepResult,
@@ -353,8 +348,12 @@ class SimulationCommandService:
     def resume_pending_interactive_handoff(
         self,
         snapshot: TurnSessionSnapshot,
+        *,
+        command_id: str,
     ) -> StepResult | None:
-        """Complete a player handoff left at the durable branch head."""
+        """Complete a player handoff under an explicit mutation command."""
+        if len(command_id) > 124:
+            raise ValueError("recovery command ID is too long")
         if (
             not self.persistence.configured
             or snapshot.checkpoint_id is None
@@ -362,6 +361,21 @@ class SimulationCommandService:
         ):
             return None
         kernel = self.persistence.kernel(snapshot.project_id)
+        npc_command_id = self._npc_handoff_command_id(command_id)
+        receipt = kernel.receipts.load(
+            session_id=snapshot.session_id,
+            command_id=npc_command_id,
+        )
+        if (
+            receipt is not None
+            and receipt["committed_checkpoint_id"] == snapshot.checkpoint_id
+        ):
+            return self._interactive_step(
+                snapshot.session_id,
+                command_id=npc_command_id,
+                operation="interactive_npc_step",
+                expected_state_hash=str(receipt["expected_state_hash"]),
+            )
         records = kernel.logs.reachable(kernel.checkpoints, snapshot.checkpoint_id)
         if not records:
             return None
@@ -376,9 +390,7 @@ class SimulationCommandService:
         return self._execute_reserved_npc_handoff(
             snapshot,
             player_result,
-            command_id=self._recovery_npc_handoff_command_id(
-                snapshot.checkpoint_id
-            ),
+            command_id=npc_command_id,
         )
 
     def interactive_turn(

@@ -383,6 +383,34 @@ class SimulationPersistenceService:
         )
         return snapshot
 
+    def read_branch(
+        self,
+        project_id: str,
+        *,
+        branch_id: str,
+    ) -> TurnSessionSnapshot:
+        """Read the committed branch head without restoring or publishing it."""
+        kernel = self.kernel(project_id)
+        branch = kernel.branches.load(branch_id)
+        if branch.project_id != project_id:
+            raise FileNotFoundError(branch_id)
+        if branch.head_checkpoint_id is None:
+            raise ValueError("branch has no checkpoint")
+
+        source = kernel.load_checkpoint(project_id, branch.head_checkpoint_id)
+        if source.branch_id == branch_id:
+            return source
+        rebound = source.model_copy(
+            update={
+                "branch_id": branch_id,
+                "request": source.request.model_copy(update={"branch_id": branch_id}),
+                "state_hash": "0" * 64,
+            }
+        )
+        return rebound.model_copy(
+            update={"state_hash": calculate_snapshot_state_hash(rebound)}
+        )
+
     def trace_for(
         self,
         result: StepResult,

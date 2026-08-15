@@ -84,7 +84,8 @@ export function WorldSessionView() {
     setError(null)
     setRetryIntent(null)
     void engineRequest<SessionResponse>(
-      branchPath(`/projects/${projectId}/simulation/session`, branchId)
+      branchPath(`/projects/${projectId}/simulation/session`, branchId),
+      { method: 'POST' }
     )
       .then(async (response) => {
         const [availableBranches, checkpoints] = await Promise.all([

@@ -516,6 +516,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project_id}/simulation/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recover Interactive Session */
+        post: operations["recover_interactive_session_projects__project_id__simulation_recovery_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project_id}/simulation/session": {
         parameters: {
             query?: never;
@@ -526,7 +543,8 @@ export interface paths {
         /** Get Interactive Session */
         get: operations["get_interactive_session_projects__project_id__simulation_session_get"];
         put?: never;
-        post?: never;
+        /** Open Session */
+        post: operations["open_session_projects__project_id__simulation_session_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1283,6 +1301,11 @@ export interface components {
              * @enum {string}
              */
             visibility: "public" | "private" | "secret";
+        };
+        /** InteractiveRecoveryRequest */
+        InteractiveRecoveryRequest: {
+            /** Command Id */
+            command_id: string;
         };
         /** InteractiveTurnRequest */
         InteractiveTurnRequest: {
@@ -4237,7 +4260,77 @@ export interface operations {
             };
         };
     };
+    recover_interactive_session_projects__project_id__simulation_recovery_post: {
+        parameters: {
+            query?: {
+                branch_id?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InteractiveRecoveryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractiveTurnResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_interactive_session_projects__project_id__simulation_session_get: {
+        parameters: {
+            query?: {
+                branch_id?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractiveTurnResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_session_projects__project_id__simulation_session_post: {
         parameters: {
             query?: {
                 branch_id?: string;

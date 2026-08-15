@@ -79,6 +79,10 @@ describe('WorldSessionView', () => {
     render(<WorldSessionView />)
 
     expect(await screen.findByText('雨水浸透了门口的地毯。')).toBeInTheDocument()
+    expect(h.engineRequest).toHaveBeenCalledWith(
+      '/projects/rainy-night-apartment/simulation/session',
+      { method: 'POST' }
+    )
     expect(screen.getByText('本地调查记者')).toBeInTheDocument()
     expect(screen.getByTestId('agent-console')).toBeInTheDocument()
     const openAgentConsole = screen.getByRole('button', { name: 'Agent Console' })
@@ -198,7 +202,8 @@ describe('WorldSessionView', () => {
     })
     expect(await screen.findByDisplayValue('fork-kf12oi')).toBeInTheDocument()
     expect(h.engineRequest).toHaveBeenCalledWith(
-      '/projects/rainy-night-apartment/simulation/session?branch_id=fork-kf12oi'
+      '/projects/rainy-night-apartment/simulation/session?branch_id=fork-kf12oi',
+      { method: 'POST' }
     )
   })
 })

@@ -66,6 +66,10 @@ class InteractiveTurnRequest(RuntimeModel):
     )
 
 
+class InteractiveRecoveryRequest(RuntimeModel):
+    command_id: Identifier
+
+
 class SimulationTerminateRequest(RuntimeModel):
     reason_text: str = Field(min_length=1, max_length=16_384)
 
@@ -139,7 +143,7 @@ def create_simulations_router(
                 )
         return _require_project(settings, project_id)
 
-    def interactive_session(
+    def open_interactive_session(
         project_id: str,
         branch_id: str = "main",
     ) -> TurnSessionSnapshot:
@@ -163,8 +167,7 @@ def create_simulations_router(
                     status_code=409,
                     detail="Project has no configured human actor",
                 )
-            restored = service.restore_branch(project_id, branch_id=branch_id)
-            return service.resume_pending_interactive_handoff(restored)
+            return service.restore_branch(project_id, branch_id=branch_id)
 
         if branch_id != "main":
             raise HTTPException(status_code=404, detail="Branch not found")
@@ -195,6 +198,22 @@ def create_simulations_router(
                 output=OutputPolicy(),
             )
         )
+
+    def read_interactive_session(
+        project_id: str,
+        branch_id: str = "main",
+    ) -> TurnSessionSnapshot:
+        _require_project(settings, project_id)
+        try:
+            snapshot = service.read_branch(project_id, branch_id=branch_id)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="Branch not found") from error
+        if snapshot.player_actor_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Project has no configured human actor",
+            )
+        return snapshot
 
     def require_live_session(
         project_id: str,
@@ -259,7 +278,7 @@ def create_simulations_router(
     ) -> InteractiveTurnResponse:
         try:
             session = await asyncio.to_thread(
-                interactive_session,
+                open_interactive_session,
                 project_id,
                 branch_id,
             )
@@ -297,7 +316,7 @@ def create_simulations_router(
     ) -> InteractiveTurnResponse:
         try:
             snapshot = await asyncio.to_thread(
-                interactive_session,
+                read_interactive_session,
                 project_id,
                 branch_id,
             )
@@ -310,6 +329,78 @@ def create_simulations_router(
         except (
             BranchAlreadyActiveError,
             InvalidSessionTransitionError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.post(
+        "/projects/{project_id}/simulation/session",
+        response_model=InteractiveTurnResponse,
+    )
+    async def open_session(
+        project_id: str,
+        branch_id: str = "main",
+    ) -> InteractiveTurnResponse:
+        try:
+            snapshot = await asyncio.to_thread(
+                open_interactive_session,
+                project_id,
+                branch_id,
+            )
+            return PerceptionBuilder().initial(
+                snapshot,
+                scene_events=service.current_scene_events(snapshot),
+            )
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
+        except (
+            BranchAlreadyActiveError,
+            InvalidSessionTransitionError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @router.post(
+        "/projects/{project_id}/simulation/recovery",
+        response_model=InteractiveTurnResponse,
+    )
+    async def recover_interactive_session(
+        project_id: str,
+        request: InteractiveRecoveryRequest,
+        branch_id: str = "main",
+    ) -> InteractiveTurnResponse:
+        try:
+            snapshot = await asyncio.to_thread(
+                open_interactive_session,
+                project_id,
+                branch_id,
+            )
+            result = await asyncio.to_thread(
+                service.resume_pending_interactive_handoff,
+                snapshot,
+                command_id=request.command_id,
+            )
+            current = service.get(snapshot.session_id)
+            if result is None:
+                return PerceptionBuilder().initial(
+                    current,
+                    scene_events=service.current_scene_events(current),
+                )
+            return PerceptionBuilder().build(
+                current,
+                result,
+                scene_events=service.current_scene_events(current),
+            )
+        except ModelGatewayError as error:
+            raise model_http_error(error) from error
+        except (
+            BranchAlreadyActiveError,
+            InvalidSessionTransitionError,
+            SessionCommandConflictError,
             OSError,
             RuntimeError,
             ValueError,
