@@ -101,17 +101,26 @@ class ConcordiaResolverKernel:
             )
             or "- None confirmed."
         )
+        immediate_previous = (
+            context.immediate_previous_committed_event or "- None committed yet."
+        )
         recent = (
-            "\n".join(f"- {event}" for event in context.recent_scene_events)
+            "\n".join(f"- {event}" for event in context.recent_committed_events)
             or "- None recorded."
         )
+        acting_actor = cls._acting_character(context)
         return "\n\n".join(
             (
                 f"Current Actor Intent:\n{context.putative_event_text}",
-                cls._world_state_prompt(context),
+                (f"Immediate Previous Committed Event:\n{immediate_previous}"),
+                f"Recent Committed Events (up to 4):\n{recent}",
+                (
+                    f"Acting Actor State ({acting_actor.display_name}):\n"
+                    f"{acting_actor.prompt_text()}"
+                ),
                 (f"Relevant Canonical Truth (GM-only; not Actor knowledge):\n{truth}"),
                 (f"Acting Actor Known Information:\n{known}"),
-                f"Recent Current-Scene Events:\n{recent}",
+                cls._world_state_prompt(context),
             )
         )
 
@@ -121,8 +130,7 @@ class ConcordiaResolverKernel:
             (
                 "Character locations relevant to external world change:",
                 *(
-                    f"- {character.display_name}: "
-                    f"{character.location or 'unknown'}"
+                    f"- {character.display_name}: {character.location or 'unknown'}"
                     for character in context.existing_characters
                 ),
             )
@@ -156,10 +164,8 @@ class ConcordiaResolverKernel:
                 for key, value in sorted(context.world_variables.items())
             )
         lines.append("Recent causal events:")
-        lines.extend(
-            f"  - {event}" for event in context.recent_causal_events
-        )
-        if not context.recent_causal_events:
+        lines.extend(f"  - {event}" for event in context.recent_committed_events)
+        if not context.recent_committed_events:
             lines.append("  - None recorded.")
         return "\n".join(lines)
 
@@ -535,9 +541,7 @@ class ConcordiaResolverKernel:
 
         if initiative_context is not None:
             events = tuple(
-                event.model_copy(
-                    update={"actor_id": None, "source_intent_ids": ()}
-                )
+                event.model_copy(update={"actor_id": None, "source_intent_ids": ()})
                 for event in events
             )
         if self._projector is not None:
@@ -589,7 +593,12 @@ class ConcordiaResolverKernel:
             world_time=context.world_time,
             world_location=context.world_location,
             world_rules=context.world_rules,
-            recent_scene_events=context.recent_causal_events,
+            immediate_previous_committed_event=(
+                context.recent_committed_events[-1]
+                if context.recent_committed_events
+                else None
+            ),
+            recent_committed_events=context.recent_committed_events,
         )
         return self._resolve(
             game_master,

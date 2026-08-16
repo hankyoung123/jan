@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from story_engine.domain.memory import MemoryRecord
+from story_engine.domain.projection import ResolvedEvent
 from story_engine.domain.simulation import StepResult
 from story_engine.domain.trace import TurnTrace
 from story_engine.workspace.atomic import atomic_write_text
@@ -54,9 +55,7 @@ class SimulationLogRecord(BaseModel):
             "parent_log_id": parent_log_id,
             "result": result.model_dump(mode="json", exclude={"checkpoint_id"}),
             "trace": trace.model_dump(mode="json"),
-            "memory_delta": [
-                record.model_dump(mode="json") for record in memory_delta
-            ],
+            "memory_delta": [record.model_dump(mode="json") for record in memory_delta],
         }
 
     @classmethod
@@ -145,8 +144,7 @@ class SimulationLogRecord(BaseModel):
         if self.record_kind == "genesis" and self.parent_log_id is not None:
             raise ValueError("genesis log cannot have a parent")
         if any(
-            record.branch_id != self.result.branch_id
-            for record in self.memory_delta
+            record.branch_id != self.result.branch_id for record in self.memory_delta
         ):
             raise ValueError("memory delta branch does not match simulation log")
         return self
@@ -314,6 +312,24 @@ class SimulationLogStore:
         if positions != sorted(positions):
             raise ValueError("simulation history moves backward across branches")
         return chain
+
+    def recent_committed_events(
+        self,
+        history_head_id: str,
+        *,
+        branch_id: str,
+        limit: int = 4,
+    ) -> tuple[ResolvedEvent, ...]:
+        """Project the last resolved events reachable from one branch head."""
+        if limit < 1:
+            raise ValueError("recent committed event limit must be positive")
+        events = tuple(
+            event
+            for record in self.chain(history_head_id, branch_id=branch_id)
+            if record.record_kind == "turn" and record.result.resolved_turn is not None
+            for event in record.result.resolved_turn.events
+        )
+        return events[-limit:]
 
     def reachable(
         self,

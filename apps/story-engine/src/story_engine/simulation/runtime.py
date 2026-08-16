@@ -128,6 +128,7 @@ class StorySimulationRuntime:
         self._world = world
         self._project_root = project_root
         self.player_actor_id = player_actor_id
+        # Scene-local projection/roster input; committed lineage owns GM continuity.
         self._pending_scene_events = list(pending_scene_events)
         self._game_master_rebuilder = game_master_rebuilder
         self._roster_planner = roster_planner
@@ -201,6 +202,32 @@ class StorySimulationRuntime:
     def pending_scene_events(self) -> tuple[ResolvedEvent, ...]:
         return tuple(self._pending_scene_events)
 
+    def recent_committed_events(self, limit: int = 4) -> tuple[ResolvedEvent, ...]:
+        """Read the bounded causal tail from the current durable branch head."""
+        if limit < 1:
+            raise ValueError("recent committed event limit must be positive")
+        if self._project_root is None:
+            return ()
+
+        from story_engine.persistence.branch_store import BranchStore
+        from story_engine.persistence.checkpoint_store import CheckpointStore
+        from story_engine.persistence.simulation_log import SimulationLogStore
+
+        try:
+            branch = BranchStore(self._project_root).load(self.branch_id)
+        except FileNotFoundError:
+            return ()
+        if branch.head_checkpoint_id is None:
+            return ()
+        checkpoint = CheckpointStore(self._project_root).load(branch.head_checkpoint_id)
+        if checkpoint.history_head_id is None:
+            return ()
+        return SimulationLogStore(self._project_root).recent_committed_events(
+            checkpoint.history_head_id,
+            branch_id=self.branch_id,
+            limit=limit,
+        )
+
     def initiative_state(self) -> tuple[int, int, tuple[str, ...]]:
         return (
             self._turns_without_material_world_change,
@@ -266,10 +293,13 @@ class StorySimulationRuntime:
     ) -> ResolverContext:
         world = self._world
         available_actor_facts = self._actor_known_facts(acting_actor_id)
-        recent_events = self._recent_scene_event_texts()
+        recent_committed_events = self.recent_committed_events()
+        recent_event_texts = tuple(
+            event.event_text for event in recent_committed_events
+        )
         relevant_facts = self._relevant_canonical_facts(
             putative_event_text=putative_event_text,
-            recent_events=recent_events,
+            recent_events=recent_event_texts,
             actor_known_facts=available_actor_facts,
         )
         available_actor_fact_ids = {fact.id for fact in available_actor_facts}
@@ -292,7 +322,12 @@ class StorySimulationRuntime:
             world_rules=world.rules if world is not None else (),
             relevant_canonical_facts=relevant_facts,
             actor_known_facts=actor_known_facts,
-            recent_scene_events=recent_events,
+            immediate_previous_committed_event=(
+                recent_committed_events[-1].event_text
+                if recent_committed_events
+                else None
+            ),
+            recent_committed_events=recent_event_texts,
         )
 
     def _initiative_context(
@@ -302,6 +337,7 @@ class StorySimulationRuntime:
         trigger: InitiativeTrigger,
     ) -> InitiativeContext:
         world = self._world
+        recent_committed_events = self.recent_committed_events()
         return InitiativeContext(
             session_id=self.session_id,
             branch_id=self.branch_id,
@@ -322,7 +358,9 @@ class StorySimulationRuntime:
                 if world is not None
                 else {}
             ),
-            recent_causal_events=self._recent_scene_event_texts(),
+            recent_committed_events=tuple(
+                event.event_text for event in recent_committed_events
+            ),
         )
 
     def world_initiative_trigger(
@@ -425,9 +463,6 @@ class StorySimulationRuntime:
             or actor_id in event.observer_ids
         )
         return visible[-4:]
-
-    def _recent_scene_event_texts(self) -> tuple[str, ...]:
-        return tuple(event.event_text for event in self._pending_scene_events[-4:])
 
     def _perception_known_facts(
         self,
@@ -1274,6 +1309,7 @@ class StorySimulationRuntime:
                 task_label="世界结算",
                 stage_event_id=stage_event.event_id,
             )
+
             def merge_boundary(value: ResolvedTurn) -> ResolvedTurn:
                 merged = value.boundary.merge(deferred_boundary)
                 return (

@@ -151,8 +151,7 @@ class ActorStateContext(RuntimeModel):
             resources=character.resources,
             beliefs=character.beliefs,
             relationships=tuple(
-                relationship.description
-                for relationship in character.relationships
+                relationship.description for relationship in character.relationships
             ),
         )
 
@@ -183,7 +182,11 @@ class ResolverContext(RuntimeModel):
     world_rules: tuple[str, ...] = ()
     relevant_canonical_facts: tuple[Fact, ...] = ()
     actor_known_facts: tuple[Fact, ...] = ()
-    recent_scene_events: tuple[str, ...] = Field(default=(), max_length=4)
+    immediate_previous_committed_event: str | None = Field(
+        default=None,
+        max_length=65_536,
+    )
+    recent_committed_events: tuple[str, ...] = Field(default=(), max_length=4)
 
     @model_validator(mode="after")
     def existing_character_ids_are_valid(self) -> "ResolverContext":
@@ -226,7 +229,7 @@ class InitiativeContext(RuntimeModel):
     active_pressures: tuple[str, ...] = ()
     clocks: tuple[WorldClock, ...] = ()
     world_variables: dict[str, JsonValue] = Field(default_factory=dict)
-    recent_causal_events: tuple[str, ...] = Field(default=(), max_length=4)
+    recent_committed_events: tuple[str, ...] = Field(default=(), max_length=4)
 
     @model_validator(mode="after")
     def character_ids_are_unique(self) -> "InitiativeContext":
